@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>M2V 时间轴编辑器</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/wavesurfer.js@7"></script>
+</head>
+<body>
+  <header>
+    <h1>🎤 M2V 时间轴编辑器</h1>
+    <div id="song-selector">
+      <select id="song-select"><option value="">加载中…</option></select>
+    </div>
+    <div id="toolbar">
+      <button id="btn-save" title="Ctrl+S">💾 保存</button>
+      <button id="btn-undo" title="Ctrl+Z">↩ 撤销</button>
+      <button id="btn-redo" title="Ctrl+Y">↪ 重做</button>
+      <span class="sep">|</span>
+      <button id="btn-regen-ass">🔄 生成 ASS</button>
+      <button id="btn-regen-video">📹 生成视频</button>
+      <span class="sep">|</span>
+      <span id="status-msg"></span>
+    </div>
+  </header>
+
+  <main>
+    <!-- 波形区 -->
+    <section id="waveform-section">
+      <div id="waveform"></div>
+      <div id="waveform-controls">
+        <button id="btn-play-pause" title="Space">▶ 播放</button>
+        <button id="btn-play-line" title="Enter">▶ 播放选中行</button>
+        <span id="time-display">0:00.000 / 0:00.000</span>
+        <label>缩放: <input id="zoom-slider" type="range" min="10" max="500" value="50"></label>
+      </div>
+    </section>
+
+    <!-- 歌词列表 + 字级编辑 -->
+    <div id="editor-container">
+      <!-- 左侧: 歌词行列表 -->
+      <section id="lyrics-panel">
+        <div id="lyrics-list"></div>
+      </section>
+
+      <!-- 右侧: 字级时间轴 -->
+      <section id="word-panel">
+        <div id="word-panel-header">
+          <span id="word-panel-title">点击左侧歌词行查看字级时间</span>
+          <div id="line-edit-controls" style="display:none">
+            <button id="btn-line-nudge-left-big" title="整行前移 200ms">⬅ -200ms</button>
+            <button id="btn-line-nudge-left" title="整行前移 50ms">◁ -50ms</button>
+            <button id="btn-line-nudge-right" title="整行后移 50ms">▷ +50ms</button>
+            <button id="btn-line-nudge-right-big" title="整行后移 200ms">➡ +200ms</button>
+            <span class="sep">|</span>
+            <button id="btn-line-expand" title="行时长+100ms (前移start/后移end)">↔ 展开</button>
+            <button id="btn-line-shrink" title="行时长-100ms (后移start/前移end)">⇿ 收缩</button>
+          </div>
+        </div>
+        <div id="word-timeline"></div>
+        <div id="word-controls">
+          <button id="btn-shift-left" title="A">⬅ -50ms</button>
+          <button id="btn-nudge-left" title="←">◁ -10ms</button>
+          <button id="btn-nudge-right" title="→">▷ +10ms</button>
+          <button id="btn-shift-right" title="D">➡ +50ms</button>
+          <span class="sep">|</span>
+          <button id="btn-even-split">⚖ 均分本行</button>
+          <button id="btn-play-word">▶ 播放选中字</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

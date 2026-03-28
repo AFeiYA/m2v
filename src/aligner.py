@@ -189,6 +189,10 @@ def align_lyrics(
              timeline[0][1] if timeline else 0,
              timeline[-1][2] if timeline else 0)
 
+    # 后处理: 修复连续极短字符 (wav2vec2 对长音后的字符压缩 bug)
+    timeline = _fix_compressed_chars(timeline)
+    log.info("后处理完成: %d 个字符", len(timeline))
+
     # 保存时间轴用于调试
     _tl_path = vocals_path.parent / (vocals_path.stem + "_timeline.json")
     try:
@@ -279,6 +283,101 @@ def _build_char_timeline(
     # 按时间排序
     timeline.sort(key=lambda x: x[1])
     return timeline
+
+
+# ---------------------------------------------------------------------------
+# 后处理: 修复 wav2vec2 字符压缩 bug
+# ---------------------------------------------------------------------------
+
+def _fix_compressed_chars(
+    timeline: list[tuple[str, float, float]],
+    min_char_ms: float = 50,   # 低于此毫秒视为异常短
+    min_run: int = 3,          # 至少连续 N 个短字符才触发修复
+) -> list[tuple[str, float, float]]:
+    """
+    检测并修复 wav2vec2 的"长音后压缩"bug。
+
+    症状: 一个字拖很长音 (如 "人" 占 7s)，后面的字全挤在 <1s 内，
+          每个字只有 20ms。
+
+    修复策略:
+    1. 扫描 timeline，找连续 duration < min_char_ms 的 run
+    2. 找到该 run 的可用时间范围:
+       - start = run 前一个正常字符的 end（如果前字过长则借时间）
+       - end   = run 后第一个正常字符的 start (或下一个大间隙)
+    3. 在这个范围内均匀重分配这些字符
+    """
+    if len(timeline) < 2:
+        return timeline
+
+    result = list(timeline)
+    n = len(result)
+    min_dur = min_char_ms / 1000.0
+
+    i = 0
+    fixes = 0
+    while i < n:
+        # 找连续短字符 run
+        if (result[i][2] - result[i][1]) < min_dur:
+            run_start = i
+            while i < n and (result[i][2] - result[i][1]) < min_dur:
+                i += 1
+            run_end = i  # exclusive
+            run_len = run_end - run_start
+
+            if run_len >= min_run:
+                # 确定可用时间范围
+                # 向前: 从前一个字符借时间（截短它的尾巴）
+                if run_start > 0:
+                    prev_char = result[run_start - 1]
+                    prev_dur = prev_char[2] - prev_char[1]
+                    # 如果前一个字很长 (>2s)，从它借 40%
+                    if prev_dur > 2.0:
+                        borrow = prev_dur * 0.4
+                        avail_start = prev_char[2] - borrow
+                        result[run_start - 1] = (
+                            prev_char[0], prev_char[1],
+                            round(avail_start, 3),
+                        )
+                    else:
+                        avail_start = prev_char[2]
+                else:
+                    avail_start = result[run_start][1]
+
+                # 向后: 到下一个正常字符的 start，或利用大间隙
+                if run_end < n:
+                    next_start = result[run_end][1]
+                    gap = next_start - result[run_end - 1][2]
+                    if gap > 2.0:
+                        # 有大间隙 → 用间隙的前半部分
+                        avail_end = result[run_end - 1][2] + gap * 0.5
+                    else:
+                        avail_end = next_start
+                else:
+                    # 最后一批 → 给每个字至少 0.5s
+                    avail_end = avail_start + run_len * 0.5
+
+                # 重新均匀分配
+                total_dur = avail_end - avail_start
+                if total_dur > run_len * min_dur:  # 确保有足够空间
+                    char_dur = total_dur / run_len
+                    for j in range(run_len):
+                        idx = run_start + j
+                        s = avail_start + j * char_dur
+                        e = s + char_dur
+                        result[idx] = (result[idx][0], round(s, 3), round(e, 3))
+                    fixes += 1
+                    log.info("修复压缩序列: %d 字 @ %.1fs~%.1fs (每字 %.0fms → %.0fms)",
+                             run_len, avail_start, avail_end,
+                             min_dur * 1000,
+                             char_dur * 1000)
+        else:
+            i += 1
+
+    if fixes:
+        log.info("共修复 %d 处压缩序列", fixes)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

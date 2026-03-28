@@ -1,0 +1,248 @@
+/* ============================================================
+   M2V 时间轴编辑器 — 暗色主题
+   ============================================================ */
+
+:root {
+  --bg:          #1a1a2e;
+  --bg-panel:    #16213e;
+  --bg-hover:    #0f3460;
+  --bg-selected: #533483;
+  --text:        #e0e0e0;
+  --text-dim:    #888;
+  --accent:      #e94560;
+  --accent-soft: #e9456033;
+  --border:      #333;
+  --word-bg:     #1a3a5c;
+  --word-active: #e94560;
+  --word-hover:  #2a5a8c;
+  --success:     #4caf50;
+  --warning:     #ff9800;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Header --- */
+header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+header h1 { font-size: 18px; white-space: nowrap; }
+#song-select {
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); padding: 4px 8px;
+  border-radius: 4px; font-size: 14px;
+}
+#toolbar { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+#toolbar button {
+  background: var(--bg-hover); color: var(--text);
+  border: 1px solid var(--border); padding: 4px 12px;
+  border-radius: 4px; cursor: pointer; font-size: 13px;
+  white-space: nowrap;
+}
+#toolbar button:hover { background: var(--accent); }
+.sep { color: var(--text-dim); }
+#status-msg { font-size: 12px; color: var(--text-dim); min-width: 150px; }
+
+/* --- Main layout --- */
+main {
+  flex: 1; display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+/* --- Waveform --- */
+#waveform-section {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: #0d1117;
+}
+#waveform { height: 128px; }
+#waveform-controls {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 16px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+#waveform-controls button {
+  background: var(--bg-hover); color: var(--text);
+  border: 1px solid var(--border); padding: 3px 10px;
+  border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+#waveform-controls button:hover { background: var(--accent); }
+#time-display { font-family: monospace; font-size: 13px; color: var(--text-dim); }
+#zoom-slider { width: 120px; vertical-align: middle; }
+
+/* --- Editor container --- */
+#editor-container {
+  flex: 1; display: flex;
+  overflow: hidden;
+}
+
+/* --- Lyrics panel (left) --- */
+#lyrics-panel {
+  width: 45%;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+#lyrics-list { padding: 4px 0; }
+
+.lyric-row {
+  display: flex; align-items: center;
+  padding: 6px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #222;
+  gap: 8px;
+  transition: background 0.1s;
+}
+.lyric-row:hover { background: var(--bg-hover); }
+.lyric-row.selected { background: var(--bg-selected); }
+.lyric-row.playing { background: var(--accent-soft); }
+
+.lyric-num {
+  font-size: 11px; color: var(--text-dim);
+  width: 24px; text-align: right; flex-shrink: 0;
+}
+/* Line time editing */
+.lyric-time-edit {
+  display: flex; align-items: center; gap: 3px;
+  margin-left: auto; flex-shrink: 0;
+}
+.time-input {
+  font-family: monospace; font-size: 11px;
+  color: var(--text); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 2px 4px; width: 80px; text-align: center;
+}
+.time-input:focus {
+  border-color: var(--accent); outline: none;
+  background: #1e1e3e;
+}
+.time-arrow { color: var(--text-dim); font-size: 11px; }
+.line-dur {
+  font-family: monospace; font-size: 10px;
+  color: var(--text-dim); width: 32px; text-align: right;
+}
+.line-nudge-btn {
+  background: var(--bg-hover); color: var(--text);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 1px 5px; cursor: pointer; font-size: 11px;
+  line-height: 1;
+}
+.line-nudge-btn:hover { background: var(--accent); }
+.lyric-text { font-size: 15px; flex: 1; }
+
+/* Line-level controls in word panel header */
+#line-edit-controls {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 4px;
+}
+#line-edit-controls button {
+  background: var(--bg-hover); color: var(--text);
+  border: 1px solid var(--border); padding: 2px 8px;
+  border-radius: 4px; cursor: pointer; font-size: 12px;
+  white-space: nowrap;
+}
+#line-edit-controls button:hover { background: var(--accent); }
+
+/* 逐字卡拉OK高亮 */
+.lyric-char {
+  transition: color 0.05s, text-shadow 0.05s;
+}
+.lyric-char.sung {
+  color: var(--accent);
+}
+.lyric-char.singing {
+  color: #ffdd57;
+  text-shadow: 0 0 8px #ffdd57aa;
+}
+
+/* --- Word panel (right) --- */
+#word-panel {
+  flex: 1; display: flex; flex-direction: column;
+  overflow: hidden;
+}
+#word-panel-header {
+  padding: 8px 12px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+#word-timeline {
+  flex: 1; overflow-x: auto; overflow-y: hidden;
+  padding: 12px;
+  position: relative;
+}
+
+.word-bar-container {
+  display: flex; align-items: stretch;
+  height: 48px;
+  margin-bottom: 8px;
+}
+.word-bar {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--word-bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 16px;
+  cursor: pointer;
+  position: relative;
+  user-select: none;
+  min-width: 16px;
+  transition: background 0.1s;
+}
+.word-bar:hover { background: var(--word-hover); }
+.word-bar.selected { background: var(--word-active); border-color: #fff; }
+.word-bar.bar-singing {
+  background: #ffdd57;
+  color: #000;
+  box-shadow: 0 0 10px #ffdd5788;
+}
+.word-bar.punct { background: transparent; border: 1px dashed var(--border); font-size: 12px; color: var(--text-dim); min-width: 8px; }
+
+.word-bar .word-dur {
+  position: absolute; bottom: 2px;
+  font-size: 9px; color: var(--text-dim);
+  font-family: monospace;
+}
+
+/* drag handle on the right edge — double-click to snap to playhead */
+.word-bar .drag-handle {
+  position: absolute; right: -4px; top: 0; bottom: 0;
+  width: 8px; cursor: col-resize; z-index: 2;
+}
+.word-bar .drag-handle:hover { background: var(--accent); opacity: 0.6; border-radius: 2px; }
+.word-bar .drag-handle:active { background: #ff0; opacity: 0.8; }
+
+/* --- Word controls --- */
+#word-controls {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border);
+}
+#word-controls button {
+  background: var(--bg-hover); color: var(--text);
+  border: 1px solid var(--border); padding: 3px 10px;
+  border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+#word-controls button:hover { background: var(--accent); }
+
+/* --- Scrollbar --- */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #666; }

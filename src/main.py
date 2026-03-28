@@ -21,7 +21,33 @@ from src.config import PipelineConfig
 from src.utils import log, discover_pairs
 
 
+def _run_edit_subcommand() -> None:
+    """处理 `m2v edit` 子命令，启动时间轴编辑器。"""
+    parser = argparse.ArgumentParser(
+        prog="m2v edit",
+        description="启动卡拉OK时间轴编辑器 (Web UI)",
+    )
+    parser.add_argument("--input", "-i", default="./input", help="输入目录")
+    parser.add_argument("--output", "-o", default="./output", help="输出目录")
+    parser.add_argument("--port", "-p", type=int, default=8765, help="端口号")
+    parser.add_argument("--host", default="127.0.0.1", help="绑定地址")
+    args = parser.parse_args(sys.argv[2:])  # 跳过 "edit"
+
+    from src.editor_server import run_editor
+    run_editor(
+        input_dir=Path(args.input),
+        output_dir=Path(args.output),
+        port=args.port,
+        host=args.host,
+    )
+
+
 def main() -> None:
+    # 如果第一个参数是 edit，启动编辑器
+    if len(sys.argv) > 1 and sys.argv[1] == "edit":
+        _run_edit_subcommand()
+        return
+
     args = parse_args()
 
     config = PipelineConfig()
