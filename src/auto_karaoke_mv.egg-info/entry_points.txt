@@ -1,0 +1,2 @@
+[console_scripts]
+m2v = src.main:main

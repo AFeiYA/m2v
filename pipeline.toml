@@ -1,0 +1,16 @@
+[pipeline]
+skip_separation = true   # 文件已是纯人声，跳过 Demucs
+ass_only = false          # 只生成 ASS + alignment.json，不合成 MP4
+
+[aligner]
+# GPU 模式：large-v3 + float16（效果最好）
+# 若 CUDA 不可用会自动回退 CPU + int8 + medium
+whisper_model = "large-v3"
+device = "cuda"
+compute_type = "float16"
+batch_size = 8
+language = "zh"
+use_pinyin = true             # 中文转拼音后对齐，显著提升字级时间戳精度
+lyrics_start_time = 34.0      # 前 34 秒是前奏/拟声词，不是歌词
+min_char_duration = 0.08      # 单字最短 80ms (歌唱场景比语音更长)
+max_char_duration = 3.0       # 单字最长 3s

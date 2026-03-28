@@ -33,6 +33,14 @@ class AlignerConfig:
     batch_size: int = 8               # 8GB VRAM 建议 ≤8
     # 中文 wav2vec2 对齐模型（WhisperX 默认会自动选）
     align_model: str | None = None
+    # 拼音对齐：将中文转拼音后做 wav2vec2 对齐，然后映射回汉字
+    use_pinyin: bool = True
+    # 歌词起始时间(秒): 前奏/拟声词之后的实际开唱时间点
+    # 此时间之前的 Whisper segment 会被丢弃
+    lyrics_start_time: float = 0.0
+    # 后处理时间阈值
+    min_char_duration: float = 0.08   # 单字最短时长(秒)，低于此值从长字借时间
+    max_char_duration: float = 3.0    # 单字最长时长(秒)，超过会截断
 
 # ---------------------------------------------------------------------------
 # ASS 字幕生成
@@ -87,3 +95,9 @@ class PipelineConfig:
     # 工作目录
     temp_dir: Path | None = None          # None = 自动创建临时目录
     keep_temp: bool = False               # 调试用: 保留中间文件
+    # 步骤控制
+    skip_separation: bool = False         # 跳过 Demucs，直接用原音频对齐
+    ass_only: bool = False                # 只生成 ASS，不合成 MP4
+    alignment_json: Path | None = None    # 复用已有对齐结果，跳过对齐
+    video_only: bool = False              # 直接从已有 ASS 合成视频，跳过 1-4 步
+    ass_file: Path | None = None          # video_only 时指定 ASS 路径 (支持 {stem})

@@ -38,6 +38,18 @@ python -m src.main -i ./input -o ./output --cpu
 
 # 启用节奏动画
 python -m src.main -i ./input -o ./output --beat-effects
+
+# 已经是纯人声，跳过 Demucs
+python -m src.main -i ./input -o ./output --skip-separation
+
+# 只生成 ASS 字幕 + 对齐 JSON
+python -m src.main -i ./input -o ./output --ass-only
+
+# 复用已有对齐结果，直接生成 ASS/视频
+python -m src.main -i ./input -o ./output --alignment-json ./output/{stem}_alignment.json
+
+# 使用配置文件控制流程
+python -m src.main -i ./input -o ./output --config-file ./pipeline.toml
 ```
 
 ## CLI 参数
@@ -52,6 +64,21 @@ python -m src.main -i ./input -o ./output --beat-effects
 | `--cpu` | 强制 CPU 模式 |
 | `--beat-effects` | 启用节奏同步字幕动画 |
 | `--keep-temp` | 保留中间文件 (调试用) |
+| `--skip-separation` | 跳过 Demucs 人声分离，直接用原音频对齐 |
+| `--alignment-json` | 复用已有对齐 JSON（支持 `{stem}` 占位符） |
+| `--ass-only` | 只生成 ASS + 对齐 JSON，不生成 MP4 |
+| `--config-file` | 加载 `.toml/.json` 配置文件控制步骤 |
+
+### 配置文件示例
+
+pipeline.toml:
+
+```toml
+[pipeline]
+skip_separation = true
+ass_only = true
+alignment_json = "./output/{stem}_alignment.json"
+```
 
 ## 输出文件
 
