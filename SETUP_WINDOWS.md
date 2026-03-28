@@ -1,5 +1,8 @@
 # Windows 本地开发环境安装指南
+<!-- To add C:\Users\Luca\.local\bin to your PATH, either restart your shell or run:
 
+    set Path=C:\Users\Luca\.local\bin;%Path%   (cmd)
+    $env:Path = "C:\Users\Luca\.local\bin;$env:Path"   (powershell) -->
 > **适用环境:** Windows 10/11 + NVIDIA GPU + Conda
 >
 > **实测环境:** RTX 2080 (8GB) / CUDA 12.1 / Miniconda / Windows
