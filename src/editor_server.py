@@ -17,16 +17,21 @@ from pathlib import Path
 from src.utils import log
 
 # ---------------------------------------------------------------------------
-# FastAPI app (延迟导入，避免未安装时报错)
+# FastAPI app
 # ---------------------------------------------------------------------------
+
+try:
+    from fastapi import FastAPI, HTTPException, Request
+    from fastapi.responses import FileResponse, JSONResponse
+    from fastapi.staticfiles import StaticFiles
+except ImportError:
+    FastAPI = HTTPException = Request = None  # type: ignore
+    FileResponse = JSONResponse = StaticFiles = None  # type: ignore
+
 
 def create_app(input_dir: Path, output_dir: Path) -> "FastAPI":
     """创建并配置 FastAPI 应用"""
-    try:
-        from fastapi import FastAPI, HTTPException, Request
-        from fastapi.responses import FileResponse, JSONResponse
-        from fastapi.staticfiles import StaticFiles
-    except ImportError:
+    if FastAPI is None:
         raise ImportError(
             "编辑器需要 FastAPI。请运行:\n"
             "  pip install fastapi uvicorn[standard]\n"

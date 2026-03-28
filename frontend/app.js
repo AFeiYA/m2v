@@ -223,10 +223,12 @@ async function api(url, options = {}) {
     const resp = await fetch(url, options);
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
-      // detail 可能是字符串或 {errors: [...]}
+      // detail 可能是字符串、{errors: [...]}、或 [{msg:...}, ...]
       let msg = resp.statusText;
       if (typeof err.detail === "string") {
         msg = err.detail;
+      } else if (Array.isArray(err.detail)) {
+        msg = err.detail.map(e => e.msg || JSON.stringify(e)).join("; ");
       } else if (err.detail?.errors) {
         msg = err.detail.errors.join("; ");
       } else if (err.errors) {
