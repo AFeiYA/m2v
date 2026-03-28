@@ -1,0 +1,20 @@
+services:
+  m2v:
+    build: .
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ./input:/app/input
+      - ./output:/app/output
+      - m2v-models:/app/models   # 持久化模型缓存
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  m2v-models:
