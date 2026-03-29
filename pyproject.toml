@@ -7,6 +7,8 @@ requires-python = ">=3.11"
 license = {text = "MIT"}
 
 dependencies = [
+    # ⚠️ torch + torchaudio 需从 PyTorch CUDA 源单独安装，不在此声明
+    # pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
     "whisperx>=3.8.4",
     "demucs>=4.0.0",
     "librosa>=0.11.0",
@@ -53,3 +55,14 @@ build-backend = "setuptools.build_meta"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+# ── uv 配置: 指定 PyTorch CUDA 源 ──────────────────────
+# 确保 torch/torchaudio 从 CUDA 126 索引安装，而非 PyPI 的 CPU 版
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu126" }]
+torchaudio = [{ index = "pytorch-cu126" }]

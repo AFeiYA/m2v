@@ -15,7 +15,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
     volumes:
@@ -118,7 +117,6 @@ services:
       dockerfile: Dockerfile.web
     profiles: ["web", "full"]
     command: celery -A src.worker worker --loglevel=info --concurrency=1 -Q m2v
-    runtime: nvidia
     environment:
       - DATABASE_URL=postgresql+asyncpg://m2v:${DB_PASSWORD:-m2v_dev_password}@postgres:5432/m2v
       - REDIS_URL=redis://redis:6379/0

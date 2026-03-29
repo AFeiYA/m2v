@@ -1,6 +1,6 @@
 # M2V Web 服务 Dockerfile
 # 用于 API Server + Celery Worker
-FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
+FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
@@ -10,7 +10,7 @@ ENV HF_HOME=/app/models
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-venv \
-    python3-pip \
+    python3.11-distutils \
     ffmpeg \
     libsndfile1 \
     git \
@@ -18,16 +18,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -sf /usr/bin/python3.11 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
+# Bootstrap pip for python3.11 via get-pip.py
+RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python \
+    && python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+
 WORKDIR /app
 
-# PyTorch (CUDA 12.8)
-RUN pip install --no-cache-dir \
-    torch==2.7.1 torchaudio==2.7.1 \
-    --index-url https://download.pytorch.org/whl/cu128
+# PyTorch (CUDA 12.6)
+RUN python -m pip install --no-cache-dir \
+    torch torchaudio \
+    --index-url https://download.pytorch.org/whl/cu126
 
 # 项目依赖 (含 web extras)
 COPY pyproject.toml .
-RUN pip install --no-cache-dir ".[web]"
+RUN python -m pip install --no-cache-dir ".[web]"
 
 # 源码
 COPY src/ src/

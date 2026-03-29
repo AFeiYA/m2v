@@ -210,6 +210,8 @@ def _run_ffmpeg(cmd: list[str]) -> None:
         cmd,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0:
         log.error("FFmpeg 执行失败 (code=%d)", result.returncode)

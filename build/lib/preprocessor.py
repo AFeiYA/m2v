@@ -26,6 +26,7 @@ class LyricLine:
     """一行歌词，可选带 LRC 时间戳"""
     text: str
     timestamp: float | None = None   # 秒，来自 LRC 行级时间戳
+    paragraph: int = 0               # 段落索引 (0-based)，由空行分隔
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +84,7 @@ def preprocess_lyrics(
 
         text = text.strip()
         if text:
-            cleaned.append(LyricLine(text=text, timestamp=line.timestamp))
+            cleaned.append(LyricLine(text=text, timestamp=line.timestamp, paragraph=line.paragraph))
 
     log.info("预处理完成: %d 行有效歌词", len(cleaned))
     return cleaned
@@ -148,8 +149,21 @@ def _parse_lrc(text: str) -> list[LyricLine]:
 
 
 def _parse_txt(text: str) -> list[LyricLine]:
-    """解析纯文本歌词，每行一句"""
-    return [LyricLine(text=line) for line in text.splitlines()]
+    """解析纯文本歌词，每行一句，空行分段落"""
+    lines: list[LyricLine] = []
+    paragraph = 0
+    prev_was_blank = False
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            if lines:  # 仅在已有内容后才计为段落分隔
+                prev_was_blank = True
+            continue
+        if prev_was_blank:
+            paragraph += 1
+            prev_was_blank = False
+        lines.append(LyricLine(text=stripped, paragraph=paragraph))
+    return lines
 
 
 # ---------------------------------------------------------------------------
