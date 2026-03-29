@@ -1,13 +1,142 @@
+# M2V — Auto-Karaoke MV Generator
+# Docker Compose: 完整生产部署架构
+# ============================================================
+#
+# 启动方式:
+#   docker compose --profile full up -d        # 完整 SaaS 架构
+#   docker compose up m2v                      # 仅 CLI pipeline (原有)
+#   docker compose --profile web up -d         # Web 服务 + 依赖
+#
+
 services:
+
+  # ── 原有 CLI Pipeline (保持不变) ──────────────────────
   m2v:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
     volumes:
       - ./input:/app/input
       - ./output:/app/output
-      - m2v-models:/app/models   # 持久化模型缓存
+      - m2v-models:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # ── PostgreSQL 数据库 ─────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["web", "full"]
+    environment:
+      POSTGRES_DB: m2v
+      POSTGRES_USER: m2v
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-m2v_dev_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U m2v"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Redis (任务队列 + 进度推送) ───────────────────────
+  redis:
+    image: redis:7-alpine
+    profiles: ["web", "full"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── MinIO 对象存储 (S3 兼容，可选) ────────────────────
+  minio:
+    image: minio/minio:latest
+    profiles: ["full"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+  # ── API Server ────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    profiles: ["web", "full"]
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://m2v:${DB_PASSWORD:-m2v_dev_password}@postgres:5432/m2v
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-local}
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/output
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=m2v
+    volumes:
+      - uploads:/app/uploads
+      - ./output:/app/output
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Celery Worker (GPU 任务) ──────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    profiles: ["web", "full"]
+    command: celery -A src.worker worker --loglevel=info --concurrency=1 -Q m2v
+    runtime: nvidia
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://m2v:${DB_PASSWORD:-m2v_dev_password}@postgres:5432/m2v
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-local}
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/output
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - uploads:/app/uploads
+      - ./output:/app/output
+      - m2v-models:/app/models
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     deploy:
       resources:
         reservations:
@@ -18,3 +147,7 @@ services:
 
 volumes:
   m2v-models:
+  pgdata:
+  redisdata:
+  miniodata:
+  uploads:

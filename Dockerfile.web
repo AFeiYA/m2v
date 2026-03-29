@@ -1,0 +1,44 @@
+# M2V Web 服务 Dockerfile
+# 用于 API Server + Celery Worker
+FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV HF_HOME=/app/models
+
+# 系统依赖
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    ffmpeg \
+    libsndfile1 \
+    git \
+    curl \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# PyTorch (CUDA 12.8)
+RUN pip install --no-cache-dir \
+    torch==2.7.1 torchaudio==2.7.1 \
+    --index-url https://download.pytorch.org/whl/cu128
+
+# 项目依赖 (含 web extras)
+COPY pyproject.toml .
+RUN pip install --no-cache-dir ".[web]"
+
+# 源码
+COPY src/ src/
+COPY templates/ templates/
+COPY assets/ assets/
+COPY frontend/ frontend/
+
+# 目录
+RUN mkdir -p /app/input /app/output /app/uploads /app/models
+
+EXPOSE 8000
+
+# 默认启动 API Server
+CMD ["python", "-m", "src.api_server"]

@@ -6,6 +6,12 @@
   <title>M2V 时间轴编辑器</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://unpkg.com/wavesurfer.js@7"></script>
+  <script>
+    // 编辑器需要登录 — 无 token 时跳转到仪表板登录
+    if (!localStorage.getItem("access_token")) {
+      location.href = "/?redirect=" + encodeURIComponent(location.pathname + location.search);
+    }
+  </script>
 </head>
 <body>
   <header>

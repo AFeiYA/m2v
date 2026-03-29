@@ -2,6 +2,13 @@
 
 将 Suno 生成的 MP3 音频 + 本地歌词文件，通过全自动 Python 管线，产出具有专业卡拉OK逐字变色效果的宣传视频。
 
+## 功能特性
+
+- 🎤 **全自动管线**: MP3 + 歌词 → 人声分离 → 词级对齐 → 卡拉OK字幕 → 视频
+- ✏️ **可视化编辑器**: WaveSurfer.js 波形 + 字级时间轴拖拽编辑
+- 🌐 **SaaS Web 服务**: 用户注册/登录、文件上传、异步任务处理、实时进度
+- 📦 **Docker 一键部署**: 支持 CLI 单机 / Web 多服务两种模式
+
 ## 快速开始
 
 ### 方式 1: Docker (推荐)
@@ -13,12 +20,12 @@ docker compose build
 # 将 MP3 和同名 TXT/LRC 放入 input/ 目录
 cp song.mp3 song.txt input/
 
-# 运行
+# 运行 CLI 管线
 docker compose up
 # 输出在 output/ 目录
 ```
 
-### 方式 2: 本地运行
+### 方式 2: 本地 CLI 运行
 
 ```bash
 # 安装依赖 (需要 Python 3.11+, CUDA, FFmpeg)
@@ -52,6 +59,50 @@ python -m src.main -i ./input -o ./output --alignment-json ./output/{stem}_align
 python -m src.main -i ./input -o ./output --config-file ./pipeline.toml
 ```
 
+### 方式 3: Web 服务 (SaaS 模式)
+
+```bash
+# 安装 Web 依赖
+pip install -e ".[web]"
+
+# 启动统一服务 (API + 编辑器 + 仪表板)
+m2v serve --port 8000
+# → 仪表板: http://localhost:8000
+# → 编辑器: http://localhost:8000/editor/{task_id}
+```
+
+**Docker 多服务部署 (PostgreSQL + Redis + MinIO):**
+
+```bash
+# Web 模式 (PG + Redis + API + Worker)
+docker compose --profile web up -d
+
+# 完整模式 (+ MinIO 对象存储)
+docker compose --profile full up -d
+```
+
+**环境变量配置 (`.env` 文件):**
+
+```env
+# 数据库 (默认 SQLite)
+DATABASE_URL=postgresql+asyncpg://m2v:password@localhost:5432/m2v
+
+# JWT 密钥 (生产必须更改)
+SECRET_KEY=your-secret-key-here
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# 文件存储 ("local" 或 "s3")
+STORAGE_BACKEND=local
+
+# S3/MinIO (STORAGE_BACKEND=s3 时生效)
+S3_ENDPOINT_URL=http://localhost:9000
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+S3_BUCKET=m2v
+```
+
 ## CLI 参数
 
 | 参数 | 说明 |
@@ -69,6 +120,14 @@ python -m src.main -i ./input -o ./output --config-file ./pipeline.toml
 | `--ass-only` | 只生成 ASS + 对齐 JSON，不生成 MP4 |
 | `--config-file` | 加载 `.toml/.json` 配置文件控制步骤 |
 
+### 子命令
+
+| 命令 | 说明 |
+|------|------|
+| `m2v` | 默认 CLI 模式，批量/单文件处理 |
+| `m2v serve` | 启动 Web 服务 (API + 编辑器 + 仪表板) |
+| `m2v edit` | 启动 Web 服务并自动打开编辑器 |
+
 ### 配置文件示例
 
 pipeline.toml:
@@ -80,16 +139,9 @@ ass_only = true
 alignment_json = "./output/{stem}_alignment.json"
 ```
 
-## 输出文件
+## 系统架构
 
-```
-output/
-├── song.mp4              # 最终卡拉OK视频
-├── song.ass              # ASS 字幕文件 (可单独使用)
-└── song_alignment.json   # 词级对齐数据 (可复用)
-```
-
-## 管线流程
+### CLI 管线
 
 ```
 MP3 + TXT/LRC
@@ -100,10 +152,100 @@ MP3 + TXT/LRC
     → [FFmpeg] 视频合成 → final.mp4
 ```
 
+### Web 服务架构
+
+```
+浏览器
+  │
+  ├─ /              仪表板 (注册/登录/上传/任务管理)
+  ├─ /editor/{id}   时间轴编辑器 (波形/拖拽/保存)
+  │
+  └──▶ FastAPI 统一服务 :8000
+        ├── /api/auth/*           JWT 注册/登录/刷新
+        ├── /api/upload           MP3 + 歌词上传
+        ├── /api/tasks/*          任务 CRUD + 进度查询
+        ├── /api/editor/*         时间轴编辑器 API
+        ├── /ws/tasks/{id}/progress  WebSocket 实时进度
+        │
+        ├── SQLAlchemy 2.0 async → SQLite (dev) / PG (prod)
+        ├── Celery + Redis       → 异步 GPU 任务
+        └── Storage 抽象层       → Local / S3 / MinIO
+```
+
+## 输出文件
+
+```
+output/
+├── song.mp4              # 最终卡拉OK视频
+├── song.ass              # ASS 字幕文件 (可单独使用)
+└── song_alignment.json   # 词级对齐数据 (可复用/可编辑)
+```
+
 ## 技术栈
 
+### 核心管线
 - **Demucs v4**: 人声分离 (htdemucs_ft)
 - **WhisperX**: 词级 forced alignment
 - **ASS**: 卡拉OK `\k` 变色标签
 - **FFmpeg**: 视频合成
 - **Librosa**: 节奏检测 (可选)
+
+### SaaS Web 层
+- **FastAPI**: API 服务 + WebSocket
+- **SQLAlchemy 2.0**: 异步 ORM (User / Task)
+- **JWT** (python-jose): 认证系统
+- **Celery + Redis**: 异步任务队列
+- **Storage** 抽象层: LocalStorage / S3Storage
+- **Alembic**: 数据库迁移
+
+### 前端
+- **WaveSurfer.js 7.x**: 波形渲染 + Regions
+- **Vanilla JS**: 零构建工具，暗色主题
+
+## 项目结构
+
+```
+m2v/
+├── src/
+│   ├── main.py              # CLI 入口 (m2v / m2v serve / m2v edit)
+│   ├── config.py            # Pipeline 配置
+│   ├── preprocessor.py      # 歌词预处理
+│   ├── separator.py         # Demucs 人声分离
+│   ├── aligner.py           # WhisperX 词级对齐
+│   ├── subtitle.py          # ASS 字幕生成
+│   ├── compositor.py        # FFmpeg 视频合成
+│   ├── utils.py             # 工具函数
+│   ├── settings.py          # 环境配置 (pydantic-settings)
+│   ├── database.py          # SQLAlchemy 异步引擎
+│   ├── models.py            # User + Task ORM
+│   ├── schemas.py           # Pydantic 请求/响应模型
+│   ├── auth.py              # JWT 认证
+│   ├── storage.py           # 文件存储抽象层
+│   ├── worker.py            # Celery 异步任务
+│   ├── api_server.py        # FastAPI 主应用
+│   └── editor_server.py     # 时间轴编辑器 APIRouter
+├── frontend/
+│   ├── index.html           # 编辑器页面
+│   ├── app.js               # 编辑器逻辑
+│   ├── style.css            # 编辑器样式
+│   ├── dashboard.html       # 仪表板页面
+│   ├── dashboard.js         # 仪表板逻辑
+│   └── dashboard.css        # 仪表板样式
+├── alembic/                 # 数据库迁移
+├── templates/               # ASS 样式模板
+├── tests/                   # 单元测试
+├── Dockerfile               # CLI 镜像
+├── Dockerfile.web           # Web 服务镜像
+├── docker-compose.yml       # 多服务编排
+└── pyproject.toml           # 依赖 (core / web extras)
+```
+
+## 开发进度
+
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| Phase 1: 核心管线 | ✅ 完成 | MP3+TXT → 卡拉OK MP4 全流程 |
+| Phase 2: 质量优化 | ✅ 完成 | Fallback 策略、节奏动画、多样式 |
+| Phase 3: 时间轴编辑器 | ✅ 完成 | 波形预览、字级拖拽、保存/重新生成 |
+| Phase 4: SaaS Web 服务 | 🔄 开发中 | 认证/存储/任务系统已完成，待集成测试 |
+| Phase 5: 进阶功能 | 📋 计划中 | 音节拆分、双语字幕、AI 背景 |

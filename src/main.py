@@ -22,30 +22,47 @@ from src.utils import log, discover_pairs
 
 
 def _run_edit_subcommand() -> None:
-    """处理 `m2v edit` 子命令，启动时间轴编辑器。"""
+    """处理 `m2v edit` 子命令 — 启动统一 API 服务并自动打开编辑器页面。"""
     parser = argparse.ArgumentParser(
         prog="m2v edit",
-        description="启动卡拉OK时间轴编辑器 (Web UI)",
+        description="启动时间轴编辑器 (通过统一 API 服务)",
     )
-    parser.add_argument("--input", "-i", default="./input", help="输入目录")
-    parser.add_argument("--output", "-o", default="./output", help="输出目录")
-    parser.add_argument("--port", "-p", type=int, default=8765, help="端口号")
+    parser.add_argument("--port", "-p", type=int, default=8000, help="端口号")
     parser.add_argument("--host", default="127.0.0.1", help="绑定地址")
-    args = parser.parse_args(sys.argv[2:])  # 跳过 "edit"
+    args = parser.parse_args(sys.argv[2:])
 
-    from src.editor_server import run_editor
-    run_editor(
-        input_dir=Path(args.input),
-        output_dir=Path(args.output),
-        port=args.port,
-        host=args.host,
+    import threading
+    import webbrowser
+    url = f"http://{args.host}:{args.port}/editor"
+    threading.Timer(1.5, lambda: webbrowser.open(url)).start()
+
+    from src.api_server import run_server
+    run_server(host=args.host, port=args.port)
+
+
+def _run_serve_subcommand() -> None:
+    """处理 `m2v serve` 子命令，启动 API 服务。"""
+    parser = argparse.ArgumentParser(
+        prog="m2v serve",
+        description="启动 M2V API 服务 (面向用户的 Web 服务)",
     )
+    parser.add_argument("--host", default="0.0.0.0", help="绑定地址")
+    parser.add_argument("--port", "-p", type=int, default=8000, help="端口号")
+    args = parser.parse_args(sys.argv[2:])
+
+    from src.api_server import run_server
+    run_server(host=args.host, port=args.port)
 
 
 def main() -> None:
     # 如果第一个参数是 edit，启动编辑器
     if len(sys.argv) > 1 and sys.argv[1] == "edit":
         _run_edit_subcommand()
+        return
+
+    # 如果第一个参数是 serve，启动 API 服务
+    if len(sys.argv) > 1 and sys.argv[1] == "serve":
+        _run_serve_subcommand()
         return
 
     args = parse_args()
@@ -135,16 +152,28 @@ def main() -> None:
 # 单文件处理管线
 # ---------------------------------------------------------------------------
 
+# 进度回调类型: (step: str, progress: int, message: str) -> None
+ProgressCallback = type(None) | type(lambda: None)  # 兼容类型提示
+
+
 def process_one(
     mp3_path: Path,
     lyrics_path: Path,
     output_dir: Path,
     background: Path | None,
     config: PipelineConfig,
+    on_progress: callable | None = None,
 ) -> Path:
     """
     处理单个 (MP3 + 歌词) 文件对 → 输出卡拉OK MP4。
+
+    Args:
+        on_progress: 可选进度回调 (step, progress, message)
+                     用于 Web 服务 / Worker 向前端推送进度
     """
+    def _progress(step: str, progress: int, message: str = ""):
+        if on_progress:
+            on_progress(step, progress, message)
     stem = mp3_path.stem
     log.info("=" * 50)
     log.info("开始处理: %s", stem)
@@ -184,9 +213,11 @@ def process_one(
         # ---------------------------------------------------------------
         # Step 1: 歌词预处理
         # ---------------------------------------------------------------
+        _progress("preprocessing", 5, "歌词预处理中…")
         log.info("[1/5] 歌词预处理…")
         from src.preprocessor import preprocess_lyrics
         lyrics = preprocess_lyrics(lyrics_path, config.preprocessor)
+        _progress("preprocessing", 10, "歌词预处理完成")
 
         # ---------------------------------------------------------------
         # Step 2: 人声分离 (可跳过)
@@ -195,12 +226,15 @@ def process_one(
         if config.skip_separation:
             log.info("[2/5] 跳过人声分离，直接使用原音频进行对齐…")
             vocals_path = mp3_path
+            _progress("separating", 30, "跳过人声分离")
         else:
+            _progress("separating", 15, "人声分离中 (Demucs)…")
             log.info("[2/5] 人声分离 (Demucs)…")
             from src.separator import separate_vocals
             vocals_path, instrumental_path = separate_vocals(
                 mp3_path, temp_dir, config.separator
             )
+            _progress("separating", 30, "人声分离完成")
 
         # ---------------------------------------------------------------
         # Step 3: 词级对齐 (可复用 JSON)
@@ -213,14 +247,17 @@ def process_one(
                 raise FileNotFoundError(f"指定的对齐 JSON 不存在: {alignment_json}")
             log.info("[3/5] 复用已有对齐 JSON: %s", alignment_json.name)
             alignment = AlignmentResult.load_json(alignment_json)
+            _progress("aligning", 60, "复用已有对齐结果")
 
             # 复制一份到输出目录，保持产物一致
             output_json = output_dir / f"{stem}_alignment.json"
             shutil.copy2(alignment_json, output_json)
         else:
+            _progress("aligning", 35, "词级对齐中 (WhisperX)…")
             log.info("[3/5] 词级对齐 (WhisperX)…")
             from src.aligner import align_lyrics
             alignment = align_lyrics(vocals_path, lyrics, config.aligner)
+            _progress("aligning", 60, "词级对齐完成")
 
             # 保存对齐 JSON (方便调试/复用)
             json_path = temp_dir / f"{stem}_alignment.json"
@@ -233,10 +270,12 @@ def process_one(
         # ---------------------------------------------------------------
         # Step 4: ASS 字幕生成
         # ---------------------------------------------------------------
+        _progress("subtitle", 65, "生成 ASS 字幕…")
         log.info("[4/5] 生成 ASS 字幕…")
         from src.subtitle import generate_ass
         ass_path = temp_dir / f"{stem}.ass"
         generate_ass(alignment, ass_path, config.subtitle, audio_path=mp3_path)
+        _progress("subtitle", 75, "ASS 字幕生成完成")
 
         # 复制 ASS 到输出目录
         output_ass = output_dir / f"{stem}.ass"
@@ -250,6 +289,7 @@ def process_one(
         # ---------------------------------------------------------------
         # Step 5: 视频合成
         # ---------------------------------------------------------------
+        _progress("compositing", 80, "视频合成中 (FFmpeg)…")
         log.info("[5/5] 视频合成 (FFmpeg)…")
         from src.compositor import compose_video
         output_mp4 = output_dir / f"{stem}.mp4"
@@ -261,6 +301,7 @@ def process_one(
             config=config.compositor,
         )
 
+        _progress("compositing", 100, "✅ 处理完成！")
         log.info("✅ 完成: %s", output_mp4)
         return output_mp4
 

@@ -1,6 +1,6 @@
 # Auto-Karaoke MV Generator — 开发计划
 
-> **版本:** v1.0 | **日期:** 2026-03-28 | **状态:** 规划中
+> **版本:** v2.0 | **日期:** 2026-03-29 | **状态:** Phase 1-3 已完成，SaaS 层开发中
 
 ---
 
@@ -108,37 +108,109 @@
 └─────────────────────────────────────┘
 ```
 
-### 3.2 目录结构
+### 3.2 SaaS Web 架构 (v2.0 新增)
+
+> Phase 1-3 核心管线开发完成后，新增面向用户的 Web 服务层。
+
+```
+浏览器
+  │
+  ▼
+┌──────────────────────────────────────────────────────────┐
+│       FastAPI 统一服务  (src/api_server.py)  :8000       │
+│                                                          │
+│  /api/auth/*           JWT 注册/登录/刷新                │
+│  /api/upload           MP3 + 歌词文件上传                │
+│  /api/tasks/*          任务 CRUD + 进度查询              │
+│  /api/editor/*         时间轴编辑器 API (APIRouter)      │
+│  /ws/tasks/{id}/progress  WebSocket 实时进度             │
+│  /                     仪表板 (dashboard.html)           │
+│  /editor/{task_id}     时间轴编辑器 (index.html)         │
+│                                                          │
+│  认证: JWT Bearer Token  (access + refresh)              │
+│  存储: LocalStorage / S3Storage 抽象层                   │
+│  数据库: SQLAlchemy 2.0 async (SQLite dev / PG prod)     │
+└───────────┬──────────────────────────┬───────────────────┘
+            │                          │
+            ▼                          ▼
+    ┌──────────────┐          ┌─────────────────┐
+    │   Celery     │          │   PostgreSQL    │
+    │   Worker     │          │   (或 SQLite)   │
+    │              │          └─────────────────┘
+    │  下载文件    │
+    │  → pipeline  │          ┌─────────────────┐
+    │  → 上传结果  │          │   Redis         │
+    │  → 更新 DB   │──────────│   (broker +     │
+    └──────────────┘          │    pub/sub)     │
+                              └─────────────────┘
+                              ┌─────────────────┐
+                              │   MinIO / S3    │
+                              │   (文件存储)    │
+                              └─────────────────┘
+```
+
+**关键设计决策:**
+
+| 决策 | 选择 | 原因 |
+|---|---|---|
+| 编辑器集成方式 | APIRouter 挂载到统一服务 | 避免双端口、共享认证/存储层 |
+| 任务执行 | Celery + Redis | GPU 密集型任务异步化，不阻塞 API |
+| 文件访问 | 通过 task_id + user_id 隔离 | 多用户安全，不再直读本地目录 |
+| 存储抽象 | LocalStorage / S3Storage | 本地开发零配置，生产无缝切换 MinIO/S3 |
+| 数据库 | SQLite (dev) → PostgreSQL (prod) | 开发简单，部署切换只需改环境变量 |
+| 进度推送 | WebSocket + Redis pub/sub | 实时进度，Redis 不可用时降级轮询 |
+
+### 3.3 目录结构
 
 ```
 m2v/
 ├── README.md
 ├── dev-plan.md              # 本文档
+├── dev-plan-editor.md       # 编辑器开发计划
 ├── music2video.md           # 原始方案
-├── Dockerfile
-├── docker-compose.yml
-├── pyproject.toml           # 项目依赖 (Poetry/PDM)
+├── Dockerfile               # CLI pipeline 镜像
+├── Dockerfile.web           # SaaS Web 服务镜像 (nvidia/cuda + web deps)
+├── docker-compose.yml       # 多服务编排 (PG/Redis/MinIO/API/Worker)
+├── pyproject.toml           # 项目依赖 (core / editor / web extras)
+├── alembic.ini              # 数据库迁移配置
+├── alembic/
+│   ├── env.py               # Alembic 环境 (读取 Settings)
+│   ├── script.py.mako       # 迁移脚本模板
+│   └── versions/            # 自动生成的迁移文件
 ├── src/
 │   ├── __init__.py
-│   ├── main.py              # CLI 入口 & 批量处理调度
-│   ├── config.py            # 全局配置 (模型路径/默认样式/输出参数)
+│   ├── main.py              # CLI 入口 (m2v / m2v edit / m2v serve)
+│   ├── config.py            # Pipeline 配置 (dataclass)
 │   ├── preprocessor.py      # Module 1: 歌词预处理
 │   ├── separator.py         # Module 2: Demucs 人声分离
 │   ├── aligner.py           # Module 3: WhisperX 词级对齐
 │   ├── subtitle.py          # Module 4: ASS 字幕生成
 │   ├── compositor.py        # Module 5: FFmpeg 视频合成
-│   └── utils.py             # 工具函数 (文件发现/格式转换/日志)
-├── assets/
-│   └── default_bg.jpg       # 默认背景图
+│   ├── utils.py             # 工具函数 (文件发现/格式转换/日志)
+│   ├── settings.py          # SaaS 层: pydantic-settings 环境配置
+│   ├── database.py          # SaaS 层: SQLAlchemy 2.0 async 引擎
+│   ├── models.py            # SaaS 层: User + Task ORM 模型
+│   ├── schemas.py           # SaaS 层: Pydantic 请求/响应模型
+│   ├── auth.py              # SaaS 层: JWT 认证 + bcrypt
+│   ├── storage.py           # SaaS 层: 文件存储抽象 (Local/S3)
+│   ├── worker.py            # SaaS 层: Celery 异步任务
+│   ├── api_server.py        # SaaS 层: FastAPI 主应用 (统一入口)
+│   └── editor_server.py     # 时间轴编辑器 APIRouter (挂载到 api_server)
+├── frontend/
+│   ├── index.html           # 时间轴编辑器 HTML
+│   ├── app.js               # 编辑器核心逻辑 (WaveSurfer.js)
+│   ├── style.css            # 编辑器暗色主题
+│   ├── dashboard.html       # 用户仪表板 HTML
+│   ├── dashboard.js         # 仪表板逻辑 (上传/任务管理)
+│   └── dashboard.css        # 仪表板样式
 ├── templates/
 │   └── default_style.ass    # ASS 样式模板
 ├── tests/
 │   ├── test_preprocessor.py
 │   ├── test_aligner.py
-│   ├── test_subtitle.py
-│   └── fixtures/            # 测试用音频/歌词片段
-├── input/                   # 用户放置 mp3 + txt 的目录
-└── output/                  # 生成结果目录
+│   └── test_subtitle.py
+├── input/                   # 本地开发: mp3 + txt 输入目录
+└── output/                  # 本地开发: 生成结果目录
 ```
 
 ---
@@ -290,44 +362,82 @@ ffmpeg -stream_loop -1 -i background.mp4 -i original.mp3 \
 
 ## 五、开发计划（分阶段）
 
-### Phase 1: MVP — 核心管线 (Week 1-2)
+### Phase 1: MVP — 核心管线 ✅ 已完成
 
 > **目标:** 能跑通 MP3+TXT → 卡拉OK MP4 的完整流程
 
-| # | 任务 | 预估 | 交付物 | 验收标准 |
-|---|------|------|--------|---------|
-| 1.1 | Docker 环境搭建 | 2d | `Dockerfile` + `docker-compose.yml` | `nvidia-smi` 可用，WhisperX/Demucs 可 import |
-| 1.2 | 歌词预处理器 | 1d | `preprocessor.py` + 单元测试 | TXT/LRC 正确解析，数字转文字通过 |
-| 1.3 | Demucs 人声分离封装 | 1d | `separator.py` + 单元测试 | 输入 MP3 → 输出 vocals.wav + instrumental.wav |
-| 1.4 | WhisperX 词级对齐封装 | 2d | `aligner.py` + 单元测试 | 中文歌曲词级 JSON 输出，每字有 start/end |
-| 1.5 | ASS 卡拉OK字幕生成 | 2d | `subtitle.py` + 样式模板 | 生成的 .ass 在 mpv/FFmpeg 中正确渲染变色 |
-| 1.6 | FFmpeg 视频合成 | 1d | `compositor.py` | 静态图背景 + ASS 字幕 → 完整 MP4 |
-| 1.7 | CLI 入口 & 批量处理 | 1d | `main.py` | `python main.py --input ./input --output ./output` 跑通 |
+| # | 任务 | 状态 | 交付物 |
+|---|------|------|--------|
+| 1.1 | Docker 环境搭建 | ✅ | `Dockerfile` + `docker-compose.yml` |
+| 1.2 | 歌词预处理器 | ✅ | `preprocessor.py` + 单元测试 |
+| 1.3 | Demucs 人声分离封装 | ✅ | `separator.py` |
+| 1.4 | WhisperX 词级对齐封装 | ✅ | `aligner.py` + 单元测试 |
+| 1.5 | ASS 卡拉OK字幕生成 | ✅ | `subtitle.py` + 样式模板 |
+| 1.6 | FFmpeg 视频合成 | ✅ | `compositor.py` |
+| 1.7 | CLI 入口 & 批量处理 | ✅ | `main.py` — 支持 `m2v` / 批量 / 单文件 / 多种选项 |
 
-### Phase 2: 质量优化 (Week 3)
+### Phase 2: 质量优化 ✅ 已完成
 
 > **目标:** 对齐精度和视觉效果达到可发布水平
 
-| # | 任务 | 预估 | 说明 |
+| # | 任务 | 状态 | 说明 |
 |---|------|------|------|
-| 2.1 | 对齐 Fallback 策略 | 1d | 对齐失败行 → 均分时长；异常检测（如某字 duration < 50ms） |
-| 2.2 | Librosa 节奏检测集成 | 1d | onset_detect → beat 时间点 JSON |
-| 2.3 | 节奏同步字幕动画 | 1d | ASS `\t` 标签实现 beat 处缩放脉冲 |
-| 2.4 | 多样式支持 | 1d | 提供 3-5 套预设卡拉OK样式 (颜色/字体/位置) |
-| 2.5 | 视频背景循环模式 | 0.5d | 支持视频素材作为背景循环播放 |
-| 2.6 | 端到端测试 | 0.5d | 3首不同风格歌曲的完整测试 |
+| 2.1 | 对齐 Fallback 策略 | ✅ | 对齐失败行 → 均分时长；异常检测 |
+| 2.2 | Librosa 节奏检测集成 | ✅ | onset_detect → beat 时间点 |
+| 2.3 | 节奏同步字幕动画 | ✅ | ASS `\t` 标签实现 beat 处缩放脉冲 |
+| 2.4 | 多样式支持 | ✅ | 预设卡拉OK样式 |
+| 2.5 | 视频背景循环模式 | ✅ | 支持视频素材作为背景循环播放 |
+| 2.6 | 端到端测试 | ✅ | 完整测试通过 |
 
-### Phase 3: 进阶功能 (Week 4+)
+### Phase 3: 时间轴编辑器 ✅ 已完成
+
+> **目标:** Web 可视化编辑对齐结果
+
+| # | 任务 | 状态 | 说明 |
+|---|------|------|------|
+| 3.1 | WaveSurfer.js 波形预览 | ✅ | 全曲波形 + Regions 行级色带 |
+| 3.2 | 字级拖拽编辑 | ✅ | 拖拽字边界 → 自动级联相邻字，保持连续性 |
+| 3.3 | 保存 + 校验 | ✅ | PUT API 带校验 + 自动 .bak 备份 |
+| 3.4 | 重新生成 ASS/视频 | ✅ | 编辑 → 保存 → 一键重新生成 |
+| 3.5 | Undo/Redo | ✅ | 内存 JSON 快照栈 (50步) |
+
+详见 [dev-plan-editor.md](dev-plan-editor.md)。
+
+---
+
+### Phase 4: SaaS Web 服务 🔄 开发中
+
+> **目标:** 面向用户的多租户 Web 服务，支持注册/上传/异步处理/下载
+
+| # | 任务 | 状态 | 说明 |
+|---|------|------|------|
+| 4.1 | 环境配置 (`settings.py`) | ✅ | pydantic-settings, .env 文件, 合理默认值 |
+| 4.2 | 数据库层 (`database.py` + `models.py`) | ✅ | SQLAlchemy 2.0 async, User/Task ORM, Alembic 迁移 |
+| 4.3 | 认证系统 (`auth.py` + `schemas.py`) | ✅ | JWT access/refresh token, bcrypt, 注册/登录 API |
+| 4.4 | 文件存储 (`storage.py`) | ✅ | LocalStorage / S3Storage 抽象层 |
+| 4.5 | Celery Worker (`worker.py`) | ✅ | 异步任务 → 下载 → pipeline → 上传 → 更新 DB |
+| 4.6 | API 服务 (`api_server.py`) | ✅ | 统一 FastAPI 应用 (认证/上传/任务/进度/下载) |
+| 4.7 | 编辑器统一架构 (`editor_server.py`) | ✅ | 从独立 app 重构为 APIRouter，走认证+存储层 |
+| 4.8 | 用户仪表板前端 | ✅ | dashboard.html/js/css — 登录/上传/任务管理 |
+| 4.9 | 编辑器前端适配 | ✅ | app.js 更新为 task_id API + Bearer token |
+| 4.10 | Docker 多服务编排 | ✅ | docker-compose: PG + Redis + MinIO + API + Worker |
+| 4.11 | Alembic 数据库迁移 | ⬜ | 生成初始迁移脚本并验证 |
+| 4.12 | 端到端集成测试 | ⬜ | 注册 → 上传 → 处理 → 编辑 → 下载全流程 |
+| 4.13 | 生产部署配置 | ⬜ | HTTPS / 域名 / 环境变量模板 / 监控 |
+
+---
+
+### Phase 5: 进阶功能 (计划中)
 
 > **目标:** 可选的增值功能
 
 | # | 任务 | 优先级 | 说明 |
 |---|------|--------|------|
-| 3.1 | 音节级拆分 | P1 | 中文 `pypinyin`，英文 `pyphen`，提升节奏感 |
-| 3.2 | 双语字幕 | P2 | DeepL API 翻译 + 双行 ASS 布局 |
-| 3.3 | AI 背景视频生成 | P3 | SVD / Luma API 根据歌词生成循环背景 |
-| 3.4 | Web UI | P3 | Gradio/Streamlit 简易界面，上传 → 下载 |
-| 3.5 | 手动校正界面 | P2 | 对齐结果可视化 + 拖拽微调时间戳 |
+| 5.1 | 音节级拆分 | P1 | 中文 `pypinyin`，英文 `pyphen`，提升节奏感 |
+| 5.2 | 双语字幕 | P2 | DeepL API 翻译 + 双行 ASS 布局 |
+| 5.3 | AI 背景视频生成 | P3 | SVD / Luma API 根据歌词生成循环背景 |
+| 5.4 | 用户配额 / 付费计划 | P2 | 月度任务数限制, Stripe 集成 |
+| 5.5 | 智能吸附 | P2 | 编辑器拖拽时自动吸附到波形 onset 突变点 |
 
 ---
 

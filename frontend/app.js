@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 const state = {
   stem: null,            // 当前歌曲名
+  taskId: null,          // 当前任务 ID (SaaS 模式)
   alignment: null,       // { lines: [...] }
   selectedLine: -1,      // 选中行号
   selectedWord: -1,      // 选中字索引
@@ -123,8 +124,10 @@ function fmtTime(s) {
 function bindEvents() {
   // Song selector
   dom.songSelect.addEventListener("change", () => {
-    const stem = dom.songSelect.value;
-    if (stem) loadSong(stem);
+    const taskId = dom.songSelect.value;
+    const opt = dom.songSelect.selectedOptions[0];
+    const stem = opt?.dataset?.stem || taskId;
+    if (taskId) loadSong(taskId, stem);
   });
 
   // Toolbar
@@ -220,6 +223,14 @@ function handleKey(e) {
 // ---------------------------------------------------------------------------
 async function api(url, options = {}) {
   try {
+    // 自动注入 JWT Token
+    const token = localStorage.getItem("access_token");
+    if (token) {
+      options.headers = options.headers || {};
+      if (typeof options.headers === "object" && !(options.headers instanceof Headers)) {
+        options.headers["Authorization"] = `Bearer ${token}`;
+      }
+    }
     const resp = await fetch(url, options);
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
@@ -256,7 +267,7 @@ function status(msg, isError = false) {
 // ---------------------------------------------------------------------------
 async function loadSongList() {
   try {
-    const resp = await api("/api/songs");
+    const resp = await api("/api/editor/songs");
     const songs = await resp.json();
     dom.songSelect.innerHTML = "";
 
@@ -267,21 +278,30 @@ async function loadSongList() {
 
     songs.forEach((s) => {
       const opt = document.createElement("option");
-      opt.value = s.stem;
+      opt.value = s.task_id;
+      opt.dataset.stem = s.stem;
       opt.textContent = `${s.stem}  (${s.lines_count}行, ${s.duration}s)`;
       dom.songSelect.appendChild(opt);
     });
 
-    // Auto-load first song
-    loadSong(songs[0].stem);
+    // 从 URL 中获取 task_id，否则加载第一首
+    const urlTaskId = new URLSearchParams(window.location.search).get("task_id")
+      || window.location.pathname.split("/editor/")[1];
+    const target = urlTaskId
+      ? songs.find(s => s.task_id === urlTaskId) || songs[0]
+      : songs[0];
+    dom.songSelect.value = target.task_id;
+    loadSong(target.task_id, target.stem);
   } catch {
     dom.songSelect.innerHTML = `<option value="">加载失败</option>`;
   }
 }
 
-async function loadSong(stem) {
+async function loadSong(taskId, stem) {
+  stem = stem || taskId;
   status(`加载 ${stem}…`);
   state.stem = stem;
+  state.taskId = taskId;
   state.selectedLine = -1;
   state.selectedWord = -1;
   state.undoStack = [];
@@ -290,7 +310,7 @@ async function loadSong(stem) {
 
   // Load alignment
   try {
-    const resp = await api(`/api/songs/${encodeURIComponent(stem)}/align`);
+    const resp = await api(`/api/editor/tasks/${encodeURIComponent(taskId)}/align`);
     state.alignment = await resp.json();
   } catch {
     state.alignment = null;
@@ -299,7 +319,12 @@ async function loadSong(stem) {
 
   // Load audio
   try {
-    ws.load(`/api/songs/${encodeURIComponent(stem)}/audio`);
+    const token = localStorage.getItem("access_token");
+    const audioUrl = `/api/editor/tasks/${encodeURIComponent(taskId)}/audio`;
+    // WaveSurfer needs auth header for fetching audio
+    ws.load(audioUrl, undefined, undefined, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
   } catch (e) {
     status("音频加载失败: " + e.message, true);
   }
@@ -968,11 +993,11 @@ function markDirty() {
 // Save
 // ---------------------------------------------------------------------------
 async function saveAlignment() {
-  if (!state.stem || !state.alignment) return;
+  if (!state.taskId || !state.alignment) return;
   status("保存中…");
 
   try {
-    await api(`/api/songs/${encodeURIComponent(state.stem)}/align`, {
+    await api(`/api/editor/tasks/${encodeURIComponent(state.taskId)}/align`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state.alignment),
@@ -989,11 +1014,11 @@ async function saveAlignment() {
 // Regen
 // ---------------------------------------------------------------------------
 async function regen(mode) {
-  if (!state.stem) return;
+  if (!state.taskId) return;
   status(mode === "video" ? "生成视频中…（可能较慢）" : "生成 ASS…");
 
   try {
-    const resp = await api(`/api/songs/${encodeURIComponent(state.stem)}/regen`, {
+    const resp = await api(`/api/editor/tasks/${encodeURIComponent(state.taskId)}/regen`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mode }),
