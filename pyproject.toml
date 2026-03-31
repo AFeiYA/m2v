@@ -9,6 +9,7 @@ license = {text = "MIT"}
 dependencies = [
     # ⚠️ torch + torchaudio 需从 PyTorch CUDA 源单独安装，不在此声明
     # pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
+    "pyyaml>=6.0",
     "whisperx>=3.8.4",
     "demucs>=4.0.0",
     "librosa>=0.11.0",

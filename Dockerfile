@@ -32,7 +32,9 @@ RUN python -m pip install --no-cache-dir \
 
 # 再安装项目依赖
 COPY pyproject.toml .
-RUN python -m pip install --no-cache-dir .
+RUN python -m pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cu126 \
+    .
 
 # 复制源码
 COPY src/ src/

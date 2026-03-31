@@ -31,7 +31,9 @@ RUN python -m pip install --no-cache-dir \
 
 # 项目依赖 (含 web extras)
 COPY pyproject.toml .
-RUN python -m pip install --no-cache-dir ".[web]"
+RUN python -m pip install --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cu126 \
+    ".[web]"
 
 # 源码
 COPY src/ src/
