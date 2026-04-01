@@ -25,16 +25,19 @@ RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python \
 # Python 依赖
 WORKDIR /app
 
-# 先安装 PyTorch (CUDA 12.6)
-RUN python -m pip install --no-cache-dir \
-    torch torchaudio \
+# 先安装 PyTorch (CUDA 12.6) — 版本须匹配 whisperx 的 torch~=2.8.0
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install \
+    "torch>=2.8.0,<2.9.0" "torchaudio>=2.8.0,<2.9.0" \
     --index-url https://download.pytorch.org/whl/cu126
 
-# 再安装项目依赖
+# 冻结 torch 版本，防止后续安装时被 PyPI CPU 版覆盖
+RUN python -m pip freeze | grep -iE "^torch" > /tmp/torch-constraints.txt
+
+# 再安装项目依赖 (从 PyPI，torch 由 constraints 锁定)
 COPY pyproject.toml .
-RUN python -m pip install --no-cache-dir \
-    --extra-index-url https://download.pytorch.org/whl/cu126 \
-    .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install -c /tmp/torch-constraints.txt .
 
 # 复制源码
 COPY src/ src/
