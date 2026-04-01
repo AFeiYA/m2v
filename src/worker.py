@@ -14,6 +14,7 @@ Celery Worker — 异步执行 pipeline 任务
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import tempfile
@@ -68,17 +69,7 @@ def _publish_progress(task_id: str, step: str, progress: int, message: str = "")
         pass  # 进度推送失败不影响主流程
 
 
-# ── 数据库同步更新（在 worker 进程中使用同步 SQLAlchemy）──
-
-def _get_sync_engine():
-    """Worker 中使用同步数据库连接"""
-    from sqlalchemy import create_engine
-
-    # 把 async URL 转换为 sync URL
-    url = settings.DATABASE_URL
-    url = url.replace("sqlite+aiosqlite", "sqlite")
-    url = url.replace("postgresql+asyncpg", "postgresql+psycopg2")
-    return create_engine(url)
+# ── 数据库更新（复用 asyncpg）────────────────────────────
 
 
 def _update_task_status(
@@ -94,34 +85,52 @@ def _update_task_status(
     started_at: datetime | None = None,
     completed_at: datetime | None = None,
 ):
-    """同步更新数据库 Task 记录"""
-    from sqlalchemy.orm import Session
+    """在 Celery worker 中同步入口调用异步数据库更新"""
+    from sqlalchemy import update
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
     from src.models import Task
 
-    engine = _get_sync_engine()
-    with Session(engine) as session:
-        task = session.get(Task, task_id)
-        if task is None:
-            return
+    async def _inner():
+        values = {}
         if status is not None:
-            task.status = status
+            values["status"] = status
         if current_step is not None:
-            task.current_step = current_step
+            values["current_step"] = current_step
         if progress is not None:
-            task.progress = progress
+            values["progress"] = progress
         if error_message is not None:
-            task.error_message = error_message
+            values["error_message"] = error_message
         if output_mp4_key is not None:
-            task.output_mp4_key = output_mp4_key
+            values["output_mp4_key"] = output_mp4_key
         if output_ass_key is not None:
-            task.output_ass_key = output_ass_key
+            values["output_ass_key"] = output_ass_key
         if alignment_json_key is not None:
-            task.alignment_json_key = alignment_json_key
+            values["alignment_json_key"] = alignment_json_key
         if started_at is not None:
-            task.started_at = started_at
+            values["started_at"] = started_at
         if completed_at is not None:
-            task.completed_at = completed_at
-        session.commit()
+            values["completed_at"] = completed_at
+        if not values:
+            return
+
+        engine = create_async_engine(
+            settings.DATABASE_URL,
+            poolclass=NullPool,
+        )
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with session_factory() as session:
+                await session.execute(
+                    update(Task)
+                    .where(Task.id == task_id)
+                    .values(**values)
+                )
+                await session.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_inner())
 
 
 # ── Pipeline 任务 ────────────────────────────────────────

@@ -319,12 +319,10 @@ async function loadSong(taskId, stem) {
 
   // Load audio
   try {
-    const token = localStorage.getItem("m2v_token");
     const audioUrl = `/api/editor/tasks/${encodeURIComponent(taskId)}/audio`;
-    // WaveSurfer needs auth header for fetching audio
-    ws.load(audioUrl, undefined, undefined, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    const audioResp = await api(audioUrl);
+    const audioBlob = await audioResp.blob();
+    await ws.loadBlob(audioBlob);
   } catch (e) {
     status("音频加载失败: " + e.message, true);
   }
