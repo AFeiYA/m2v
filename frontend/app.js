@@ -224,7 +224,7 @@ function handleKey(e) {
 async function api(url, options = {}) {
   try {
     // 自动注入 JWT Token
-    const token = localStorage.getItem("access_token");
+    const token = localStorage.getItem("m2v_token");
     if (token) {
       options.headers = options.headers || {};
       if (typeof options.headers === "object" && !(options.headers instanceof Headers)) {
@@ -319,7 +319,7 @@ async function loadSong(taskId, stem) {
 
   // Load audio
   try {
-    const token = localStorage.getItem("access_token");
+    const token = localStorage.getItem("m2v_token");
     const audioUrl = `/api/editor/tasks/${encodeURIComponent(taskId)}/audio`;
     // WaveSurfer needs auth header for fetching audio
     ws.load(audioUrl, undefined, undefined, {

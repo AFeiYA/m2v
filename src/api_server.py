@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -229,25 +230,11 @@ async def upload_and_create_task(
     if len(lyrics_content) > 5 * 1024 * 1024:  # 歌词最大 5MB
         raise HTTPException(400, "歌词文件过大")
 
-    # 创建 Task 记录
-    task = Task(
-        user_id=user.id,
-        title=Path(mp3.filename).stem,
-        config_snapshot={
-            "language": language,
-            "skip_separation": skip_separation,
-            "ass_only": ass_only,
-            "beat_effects": beat_effects,
-        },
-    )
-    # 先 flush 拿到 task.id
-    db.add(task)
-    await db.flush()
-
-    # 保存文件到存储
+    # 保存文件到存储 (需要先拿到 key 再创建 Task，因为 key 是 NOT NULL)
     import tempfile
 
     storage = get_storage()
+    task_id = str(uuid.uuid4())
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=Path(mp3.filename).suffix) as f:
         f.write(mp3_content)
@@ -258,17 +245,31 @@ async def upload_and_create_task(
         lyrics_tmp = Path(f.name)
 
     try:
-        mp3_key = f"uploads/{user.id}/{task.id}/{mp3.filename}"
-        lyrics_key = f"uploads/{user.id}/{task.id}/{lyrics.filename}"
+        mp3_key = f"uploads/{user.id}/{task_id}/{mp3.filename}"
+        lyrics_key = f"uploads/{user.id}/{task_id}/{lyrics.filename}"
 
         await storage.save(mp3_key, mp3_tmp)
         await storage.save(lyrics_key, lyrics_tmp)
-
-        task.input_mp3_key = mp3_key
-        task.input_lyrics_key = lyrics_key
     finally:
         mp3_tmp.unlink(missing_ok=True)
         lyrics_tmp.unlink(missing_ok=True)
+
+    # 创建 Task 记录（所有 NOT NULL 字段已就绪）
+    task = Task(
+        id=task_id,
+        user_id=user.id,
+        title=Path(mp3.filename).stem,
+        input_mp3_key=mp3_key,
+        input_lyrics_key=lyrics_key,
+        config_snapshot={
+            "language": language,
+            "skip_separation": skip_separation,
+            "ass_only": ass_only,
+            "beat_effects": beat_effects,
+        },
+    )
+    db.add(task)
+    await db.flush()
 
     # 扣减配额
     user.credits -= 1

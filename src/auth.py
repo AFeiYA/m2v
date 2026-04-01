@@ -6,10 +6,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import bcrypt as _bcrypt
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,17 +20,15 @@ from src.settings import get_settings
 
 settings = get_settings()
 
-# ── 密码哈希 ─────────────────────────────────────────────
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# ── 密码哈希 (直接使用 bcrypt，兼容 4.x/5.x) ────────────
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return _bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
 # ── JWT 令牌 ─────────────────────────────────────────────

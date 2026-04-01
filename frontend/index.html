@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>M2V 时间轴编辑器</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="/static/style.css">
   <script src="https://unpkg.com/wavesurfer.js@7"></script>
   <script>
     // 编辑器需要登录 — 无 token 时跳转到仪表板登录
-    if (!localStorage.getItem("access_token")) {
+    if (!localStorage.getItem("m2v_token")) {
       location.href = "/?redirect=" + encodeURIComponent(location.pathname + location.search);
     }
   </script>
@@ -78,6 +78,6 @@
     </div>
   </main>
 
-  <script src="app.js"></script>
+  <script src="/static/app.js"></script>
 </body>
 </html>
