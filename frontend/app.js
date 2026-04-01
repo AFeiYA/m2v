@@ -398,7 +398,9 @@ function renderLyrics() {
   });
 }
 
-function selectLine(idx) {
+function selectLine(idx, options = {}) {
+  const { seek = true, scroll = false } = options;
+
   state.selectedLine = idx;
   state.selectedWord = -1;
 
@@ -409,8 +411,13 @@ function selectLine(idx) {
 
   // Seek waveform
   const line = state.alignment.lines[idx];
-  if (ws && line) {
+  if (seek && ws && line) {
     ws.setTime(line.start);
+  }
+
+  if (scroll) {
+    const row = dom.lyricsList.querySelector(`.lyric-row[data-idx="${idx}"]`);
+    if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
   // Show line editing controls
@@ -427,11 +434,7 @@ function selectAdjacentLine(delta) {
   if (!lines.length) return;
   let next = state.selectedLine + delta;
   next = Math.max(0, Math.min(next, lines.length - 1));
-  selectLine(next);
-
-  // Scroll into view
-  const row = dom.lyricsList.querySelector(`.lyric-row[data-idx="${next}"]`);
-  if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  selectLine(next, { scroll: true });
 }
 
 function highlightPlayingLine() {
@@ -468,6 +471,11 @@ function highlightPlayingLine() {
       span.classList.remove("sung", "singing");
     }
   });
+
+  // 播放时自动切换右侧字级编辑面板，但不要把播放位置跳回行首
+  if (activeLineIdx >= 0 && activeLineIdx !== state.selectedLine) {
+    selectLine(activeLineIdx, { seek: false, scroll: true });
+  }
 
   // 字面板高亮: 右侧 word-bar
   if (activeLineIdx >= 0 && activeLineIdx === state.selectedLine) {
