@@ -15,9 +15,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    runtime: nvidia
+    command: ["--input", "/app/input", "--output", "/app/output", "--config-file", "/app/pipeline.toml"]
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
+      - ./src:/app/src
+      - ./pipeline.toml:/app/pipeline.toml:ro
       - ./input:/app/input
       - ./output:/app/output
       - m2v-models:/app/models
@@ -83,6 +88,11 @@ services:
     profiles: ["web", "full"]
     ports:
       - "${PORT:-8000}:8000"
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
     environment:
       - DATABASE_URL=postgresql+asyncpg://m2v:${DB_PASSWORD:-m2v_dev_password}@postgres:5432/m2v
       - REDIS_URL=redis://redis:6379/0

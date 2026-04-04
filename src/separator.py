@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import subprocess
 import shutil
+import sys
 from pathlib import Path
 
 from src.config import SeparatorConfig
@@ -41,7 +42,7 @@ def separate_vocals(
 
     # 构建 demucs 命令
     cmd = [
-        "python", "-m", "demucs",
+        sys.executable, "-m", "demucs",
         "--name", config.model,
         "--two-stems", config.two_stems,
         "--out", str(output_dir),
@@ -58,9 +59,15 @@ def separate_vocals(
     # 执行，GPU 失败时回退 CPU
     try:
         _run_demucs(cmd)
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as exc:
         if config.device != "cpu":
             log.warning("GPU 分离失败，回退到 CPU 模式…")
+            if exc.stdout:
+                for line in exc.stdout.strip().splitlines():
+                    log.warning("[demucs-gpu stdout] %s", line)
+            if exc.stderr:
+                for line in exc.stderr.strip().splitlines():
+                    log.warning("[demucs-gpu stderr] %s", line)
             cmd_cpu = [c if c != config.device else "cpu" for c in cmd]
             _run_demucs(cmd_cpu)
         else:

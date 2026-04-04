@@ -5,13 +5,19 @@ FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 ENV HF_HOME=/app/models
+ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
 
 # 系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-venv \
     python3.11-distutils \
+    python3.11-dev \
     ffmpeg \
+    libavutil-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libavdevice-dev \
     libsndfile1 \
     git \
     curl \
@@ -33,10 +39,26 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # 冻结 torch 版本，防止后续安装时被 PyPI CPU 版覆盖
 RUN python -m pip freeze | grep -iE "^torch" > /tmp/torch-constraints.txt
 
-# 项目依赖 (含 web extras，从 PyPI，torch 由 constraints 锁定)
+# 先单独装重依赖（避免 pip resolution-too-deep）
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install -c /tmp/torch-constraints.txt \
+    "whisperx>=3.8.4" "demucs>=4.0.0"
+
+# 再安装项目 + web extras
 COPY pyproject.toml .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install -c /tmp/torch-constraints.txt ".[web]"
+    python -m pip install -c /tmp/torch-constraints.txt --no-deps .
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install -c /tmp/torch-constraints.txt \
+    "pyyaml>=6.0" "librosa>=0.11.0" "cn2an>=0.5.22" \
+    "opencc-python-reimplemented>=0.1.7" "chardet>=5.0.0" \
+    "moviepy>=2.0.0" "pypinyin>=0.50.0" \
+    "fastapi>=0.115" "uvicorn[standard]>=0.32" \
+    "sqlalchemy[asyncio]>=2.0" "aiosqlite>=0.20" "asyncpg>=0.30" \
+    "python-jose[cryptography]>=3.3" "passlib[bcrypt]>=1.7" \
+    "python-multipart>=0.0.9" "pydantic[email]>=2.0" \
+    "pydantic-settings>=2.0" "celery[redis]>=5.4" \
+    "redis>=5.0" "boto3>=1.35" "alembic>=1.13"
 
 # 源码
 COPY src/ src/
