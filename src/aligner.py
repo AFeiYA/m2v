@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -121,8 +122,9 @@ def align_lyrics(
     # -----------------------------------------------------------------------
     log.info("加载 Whisper 模型: %s (device=%s, compute=%s)",
              whisper_model, device, compute_type)
-    model = whisperx.load_model(
-        whisper_model,
+    model = _load_whisper_model_with_recovery(
+        whisperx=whisperx,
+        whisper_model=whisper_model,
         device=device,
         compute_type=compute_type,
         language=config.language,
@@ -214,6 +216,46 @@ def align_lyrics(
              len(result.lines),
              sum(len(line.words) for line in result.lines))
     return result
+
+
+def _load_whisper_model_with_recovery(
+    whisperx,
+    whisper_model: str,
+    device: str,
+    compute_type: str,
+    language: str,
+):
+    """
+    加载 Whisper 模型；若检测到损坏缓存（缺失 model.bin），
+    清理对应快照目录后自动重试一次。
+    """
+    load_kwargs = {
+        "device": device,
+        "compute_type": compute_type,
+        "language": language,
+    }
+
+    try:
+        return whisperx.load_model(whisper_model, **load_kwargs)
+    except RuntimeError as e:
+        broken_model_dir = _extract_broken_model_dir(str(e))
+        if not broken_model_dir:
+            raise
+
+        broken_path = Path(broken_model_dir)
+        log.warning("检测到损坏模型缓存: %s", broken_path)
+        if broken_path.exists():
+            shutil.rmtree(broken_path, ignore_errors=True)
+            log.warning("已清理损坏缓存，准备重新下载并重试…")
+
+        return whisperx.load_model(whisper_model, **load_kwargs)
+
+
+def _extract_broken_model_dir(error_text: str) -> str | None:
+    match = re.search(r"Unable to open file 'model\.bin' in model '([^']+)'", error_text)
+    if match:
+        return match.group(1)
+    return None
 
 
 # ---------------------------------------------------------------------------
