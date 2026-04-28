@@ -152,7 +152,23 @@ def align_lyrics(
 
     segments = transcribe_result.get("segments", [])
 
-    # 保存调试信息
+    # 确定实际使用的语言（Whisper 自动检测后取回）
+    detected_language: str = (
+        transcribe_result.get("language")
+        or config.language
+        or "zh"
+    )
+    log.info("对齐语言: %s", detected_language)
+
+    # -----------------------------------------------------------------------
+    # Step 2: WhisperX 对齐 — 用 Whisper 自己的文本做 forced alignment
+    # -----------------------------------------------------------------------
+    log.info("加载对齐模型 (language=%s)…", detected_language)
+    align_model, align_metadata = whisperx.load_align_model(
+        language_code=detected_language,
+        device=device,
+        model_name=config.align_model,
+    )
     _debug_path = vocals_path.parent / (vocals_path.stem + "_whisper_segments.json")
     try:
         import json as _json
@@ -161,16 +177,6 @@ def align_lyrics(
         log.info("Whisper segments 已保存: %s (%d 条)", _debug_path.name, len(segments))
     except Exception:
         pass
-
-    # -----------------------------------------------------------------------
-    # Step 2: WhisperX 对齐 — 用 Whisper 自己的文本做 forced alignment
-    # -----------------------------------------------------------------------
-    log.info("加载对齐模型 (language=%s)…", config.language)
-    align_model, align_metadata = whisperx.load_align_model(
-        language_code=config.language,
-        device=device,
-        model_name=config.align_model,
-    )
 
     log.info("执行字符级对齐…")
     align_result = whisperx.align(
@@ -216,6 +222,81 @@ def align_lyrics(
              len(result.lines),
              sum(len(line.words) for line in result.lines))
     return result
+
+
+def transcribe_audio(
+    vocals_path: Path,
+    config: "AlignerConfig | None" = None,
+) -> tuple[list["LyricLine"], str]:
+    """
+    用 Whisper 转写音频，自动检测语言，返回 (歌词行列表, 检测到的语言代码)。
+
+    歌词行直接来自 Whisper 的 segment 文本，每个 segment 一行。
+    可将结果直接传入 align_lyrics()，避免手动提供歌词文件。
+    """
+    from src.preprocessor import LyricLine
+
+    if config is None:
+        config = AlignerConfig()
+
+    try:
+        import whisperx
+        import torch
+    except ImportError as e:
+        raise ImportError("WhisperX 未安装。请运行: pip install whisperx") from e
+
+    device = config.device
+    fell_back_to_cpu = False
+    if device == "cuda" and not torch.cuda.is_available():
+        log.warning("CUDA 不可用，回退到 CPU 模式")
+        device = "cpu"
+        fell_back_to_cpu = True
+
+    compute_type = "int8" if fell_back_to_cpu else config.compute_type
+
+    _CPU_HEAVY_MODELS = {"large", "large-v1", "large-v2", "large-v3", "large-v3-turbo"}
+    whisper_model = config.whisper_model
+    if device == "cpu" and whisper_model in _CPU_HEAVY_MODELS:
+        whisper_model = "medium"
+        log.warning("CPU 模式: 自动降级为 medium")
+
+    log.info("加载 Whisper 模型: %s (device=%s, compute=%s)",
+             whisper_model, device, compute_type)
+    model = _load_whisper_model_with_recovery(
+        whisperx=whisperx,
+        whisper_model=whisper_model,
+        device=device,
+        compute_type=compute_type,
+        language=config.language,  # None = 自动检测
+    )
+
+    audio = whisperx.load_audio(str(vocals_path))
+    log.info("Whisper 转写中 (自动检测语言)…")
+    transcribe_result = model.transcribe(
+        audio,
+        batch_size=config.batch_size,
+        language=config.language,  # None → Whisper 自动检测
+    )
+
+    detected_lang: str = (
+        transcribe_result.get("language")
+        or config.language
+        or "zh"
+    )
+    log.info("检测到语言: %s", detected_lang)
+
+    segments = transcribe_result.get("segments", [])
+    if config.lyrics_start_time > 0:
+        segments = [s for s in segments if s.get("end", 0) > config.lyrics_start_time]
+
+    lines: list[LyricLine] = []
+    for seg in segments:
+        text = seg.get("text", "").strip()
+        if text:
+            lines.append(LyricLine(text=text))
+
+    log.info("转写完成: %d 行, 语言=%s", len(lines), detected_lang)
+    return lines, detected_lang
 
 
 def _load_whisper_model_with_recovery(

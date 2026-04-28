@@ -48,6 +48,7 @@ web = [
 
 [project.scripts]
 m2v = "src.main:main"
+ass2lrc = "src.ass2lrc:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

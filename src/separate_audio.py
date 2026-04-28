@@ -7,8 +7,8 @@ from src.config import SeparatorConfig
 from src.separator import separate_vocals
 
 # ── 默认值，按需修改 ──────────────────────────────────────
-DEFAULT_INPUT  = r"C:\Users\Luca\Downloads\左手在右手的左边F.wav"
-DEFAULT_OUTPUT = r"H:\AniMusic\audio\废不废"
+DEFAULT_INPUT  = r"E:\m2v\input\左手在右手的左边A05.wav"
+DEFAULT_OUTPUT = r"E:\m2v\input"
 DEFAULT_MODEL  = "htdemucs_ft"   # 可选: htdemucs / htdemucs_6s
 DEFAULT_SHIFTS = 1               # 越大越慢但效果更好，建议 1-4
 DEFAULT_CPU    = False           # True = 强制 CPU

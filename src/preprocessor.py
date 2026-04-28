@@ -27,6 +27,7 @@ class LyricLine:
     text: str
     timestamp: float | None = None   # 秒，来自 LRC 行级时间戳
     paragraph: int = 0               # 段落索引 (0-based)，由空行分隔
+    language: str | None = None      # "zh" / "en" / None=未检测
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +38,12 @@ _LRC_TAG_RE = re.compile(r"\[(\d{1,2}):(\d{2})(?:\.(\d{2,3}))?\]")
 _LRC_META_RE = re.compile(r"^\[(?:ti|ar|al|by|offset|re|ve):", re.IGNORECASE)
 # 不可发音符号（保留中文、字母、数字、基本标点、空格）
 _UNPRINTABLE_RE = re.compile(r"[^\u4e00-\u9fff\u3400-\u4dbf\w\s，。、！？；：""''…—\-,\.!?;:'\"]")
-
+# 章节标题: [Intro] / [Verse 1] / [Pre-Chorus] 等 (整行)
+_SECTION_HEADER_RE = re.compile(r"^\[.+\]$")
+# 整行都是括号注释: （Fast Kick + ...） / (Bass Drop)
+_FULL_ANNOTATION_RE = re.compile(r"^[（(].+[）)]$")
+# 行内括号注释 (用于剥离混合行中的编曲说明)
+_INLINE_ANNOTATION_RE = re.compile(r"[（(][^（）()]*[）)]")
 
 # ---------------------------------------------------------------------------
 # 主函数
@@ -71,6 +77,21 @@ def preprocess_lyrics(
         if not text:
             continue
 
+        # 跳过章节标题 [Intro] / [Verse 1] 等
+        if _SECTION_HEADER_RE.match(text):
+            log.debug("跳过章节标题: %s", text)
+            continue
+
+        # 跳过整行编曲说明 （Fast Kick + ...） / (Bass Drop)
+        if _FULL_ANNOTATION_RE.match(text):
+            log.debug("跳过编曲说明: %s", text)
+            continue
+
+        # 剥离行内编曲注释 e.g. "Let's go!（Drop）" → "Let's go!"
+        text = _INLINE_ANNOTATION_RE.sub("", text).strip()
+        if not text:
+            continue
+
         # 数字转中文
         if config.convert_numbers:
             text = _convert_numbers(text)
@@ -84,7 +105,8 @@ def preprocess_lyrics(
 
         text = text.strip()
         if text:
-            cleaned.append(LyricLine(text=text, timestamp=line.timestamp, paragraph=line.paragraph))
+            lang = _detect_language(text)
+            cleaned.append(LyricLine(text=text, timestamp=line.timestamp, paragraph=line.paragraph, language=lang))
 
     log.info("预处理完成: %d 行有效歌词", len(cleaned))
     return cleaned
@@ -206,3 +228,26 @@ def _convert_traditional(text: str, opencc_config: str = "t2s") -> str:
 def _clean_symbols(text: str) -> str:
     """去除不可发音的特殊符号，保留文字和基本标点"""
     return _UNPRINTABLE_RE.sub("", text)
+
+
+# ---------------------------------------------------------------------------
+# 语言检测
+# ---------------------------------------------------------------------------
+
+_ZH_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
+
+
+def _detect_language(text: str) -> str:
+    """
+    按字符比例判断行的主体语言。
+    - 中文字符占比 > 20% → "zh"
+    - 否则 → "en"
+    """
+    total = len(text.replace(" ", ""))
+    if total == 0:
+        return "zh"
+    zh_count = len(_ZH_RE.findall(text))
+    if zh_count / total > 0.2:
+        return "zh"
+    return "en"
