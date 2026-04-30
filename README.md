@@ -59,7 +59,19 @@ python -m src.main -i ./input -o ./output --alignment-json ./output/{stem}_align
 python -m src.main -i ./input -o ./output --config-file ./pipeline.toml
 ```
 
-### 方式 3: Web 服务 (SaaS 模式)
+### 方式 3: 本地编辑器（推荐）
+
+```bash
+# 启动轻量本地编辑器（无数据库、无登录、自动打开浏览器）
+m2v local-edit
+# 或
+python -m src.local_editor
+
+# 指定扫描目录
+m2v local-edit --dir ./output --port 8765
+```
+
+### 方式 4: Web 服务 (SaaS 模式)
 
 ```bash
 # 安装 Web 依赖
@@ -125,7 +137,8 @@ S3_BUCKET=m2v
 | 命令 | 说明 |
 |------|------|
 | `m2v` | 默认 CLI 模式，批量/单文件处理 |
-| `m2v serve` | 启动 Web 服务 (API + 编辑器 + 仪表板) |
+| `m2v local-edit` | 启动本地编辑器（无数据库/无登录） |
+| `m2v serve` | 启动 Web 服务 (API + 编辑器 + 仪表盘) |
 | `m2v edit` | 启动 Web 服务并自动打开编辑器 |
 
 ### 配置文件示例

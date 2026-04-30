@@ -15,12 +15,11 @@ from src.aligner import align_lyrics, transcribe_audio
 from src.subtitle import generate_ass
 from src.config import SubtitleConfig
 
-# ── 默认值，按需修改 ──────────────────────────────────────
-DEFAULT_AUDIO   = r"E:\m2v\input\左手在右手的左边A05_vocals.wav"
-# copy default to E:\m2v\input\
-
-DEFAULT_LYRICS  = r"E:\m2v\input\左手在右手的左边A05_vocals.txt"              # 留空 = 无歌词时自动转写
-DEFAULT_OUTPUT  = r"E:\m2v\output"
+# ── 默认值 ────────────────────────────────────────────────
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_AUDIO   = None                     # 必须由用户提供
+DEFAULT_LYRICS  = None                     # 留空 = 无歌词时自动转写
+DEFAULT_OUTPUT  = str(_PROJECT_ROOT / "output")
 DEFAULT_MODEL   = "large-v3"     # 可选: medium / large-v2 / large-v3
 DEFAULT_LANG    = None            # None = 自动检测语言；或填 "zh"/"en"/"ja"
 DEFAULT_DEVICE  = "cuda"         # "cpu" 强制 CPU
@@ -37,9 +36,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "audio",
-        nargs="?",
-        default=DEFAULT_AUDIO,
-        help=f"输入音频文件，默认: {DEFAULT_AUDIO}",
+        help="输入音频文件路径 (.wav/.mp3 等)",
     )
     parser.add_argument(
         "lyrics",
@@ -129,17 +126,23 @@ def main() -> None:
         lines, detected_lang = transcribe_audio(audio_path, trans_config)
         print(f"转写完成: {len(lines)} 行，检测语言: {detected_lang}")
 
-        # 保存转写文本供复查/下次对齐使用
+        # 保存转写文本供复查
         txt_path = output_dir / f"{stem}_transcribed.txt"
         txt_path.write_text("\n".join(l.text for l in lines), encoding="utf-8")
         print(f"转写歌词 → {txt_path}")
-        print("提示: 检查转写结果后，可将其作为歌词文件重新运行以进行对齐")
-        return
 
-    # ── 有歌词 → 预处理 + 对齐 ───────────────────────────
-    lyrics = preprocess_lyrics(lyrics_path, PreprocessorConfig())
-    print(f"歌词预处理完成: {len(lyrics)} 行")
+        # 用检测到的语言（除非用户显式指定）
+        if lang is None:
+            lang = detected_lang
 
+        lyrics = lines
+
+    else:
+        # ── 有歌词 → 预处理 ───────────────────────────────
+        lyrics = preprocess_lyrics(lyrics_path, PreprocessorConfig())
+        print(f"歌词预处理完成: {len(lyrics)} 行")
+
+    # ── 对齐 ─────────────────────────────────────────────
     config = AlignerConfig(
         whisper_model=args.model,
         device=device,

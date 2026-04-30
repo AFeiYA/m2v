@@ -70,6 +70,72 @@ class AlignmentResult:
 
 
 # ---------------------------------------------------------------------------
+# Whisper 初始化（共用逻辑）
+# ---------------------------------------------------------------------------
+
+_CPU_HEAVY_MODELS = {"large", "large-v1", "large-v2", "large-v3", "large-v3-turbo"}
+
+
+def _init_whisper(config: AlignerConfig, vocals_path: Path):
+    """
+    共用的 Whisper 初始化:
+    - 导入 whisperx
+    - 设备检测 + CPU 回退
+    - 大模型自动降级
+    - 模型加载（带缓存修复）
+    - 音频加载 + 转写
+
+    返回: (whisperx, audio, transcribe_result, device, compute_type, whisper_model)
+    """
+    try:
+        import whisperx
+        import torch
+    except ImportError as e:
+        raise ImportError(
+            "WhisperX 未安装。请运行: pip install whisperx\n"
+            "或使用 Docker 环境运行本项目。"
+        ) from e
+
+    device = config.device
+    fell_back_to_cpu = False
+    if device == "cuda" and not torch.cuda.is_available():
+        log.warning("CUDA 不可用，回退到 CPU 模式")
+        device = "cpu"
+        fell_back_to_cpu = True
+
+    compute_type = "int8" if fell_back_to_cpu else config.compute_type
+
+    whisper_model = config.whisper_model
+    if device == "cpu" and whisper_model in _CPU_HEAVY_MODELS:
+        whisper_model = "medium"
+        log.warning(
+            "CPU 模式下 %s 会极慢，已自动降级为 medium。"
+            " 如需指定模型请在 pipeline.toml [aligner] whisper_model 中设置。",
+            config.whisper_model,
+        )
+
+    log.info("加载 Whisper 模型: %s (device=%s, compute=%s)",
+             whisper_model, device, compute_type)
+    model = _load_whisper_model_with_recovery(
+        whisperx=whisperx,
+        whisper_model=whisper_model,
+        device=device,
+        compute_type=compute_type,
+        language=config.language,
+    )
+
+    audio = whisperx.load_audio(str(vocals_path))
+    log.info("Whisper 转写中…")
+    transcribe_result = model.transcribe(
+        audio,
+        batch_size=config.batch_size,
+        language=config.language,
+    )
+
+    return whisperx, audio, transcribe_result, device, compute_type, whisper_model
+
+
+# ---------------------------------------------------------------------------
 # 主函数
 # ---------------------------------------------------------------------------
 
@@ -89,54 +155,8 @@ def align_lyrics(
 
     log.info("开始词级对齐: %s (%d 行歌词)", vocals_path.name, len(lyrics))
 
-    try:
-        import whisperx
-        import torch
-    except ImportError as e:
-        raise ImportError(
-            "WhisperX 未安装。请运行: pip install whisperx\n"
-            "或使用 Docker 环境运行本项目。"
-        ) from e
-
-    device = config.device
-    fell_back_to_cpu = False
-    if device == "cuda" and not torch.cuda.is_available():
-        log.warning("CUDA 不可用，回退到 CPU 模式")
-        device = "cpu"
-        fell_back_to_cpu = True
-
-    compute_type = "int8" if fell_back_to_cpu else config.compute_type
-
-    _CPU_HEAVY_MODELS = {"large", "large-v1", "large-v2", "large-v3", "large-v3-turbo"}
-    whisper_model = config.whisper_model
-    if device == "cpu" and whisper_model in _CPU_HEAVY_MODELS:
-        whisper_model = "medium"
-        log.warning(
-            "CPU 模式下 %s 会极慢，已自动降级为 medium。"
-            " 如需指定模型请在 pipeline.toml [aligner] whisper_model 中设置。",
-            config.whisper_model,
-        )
-
-    # -----------------------------------------------------------------------
-    # Step 1: Whisper 自由转写
-    # -----------------------------------------------------------------------
-    log.info("加载 Whisper 模型: %s (device=%s, compute=%s)",
-             whisper_model, device, compute_type)
-    model = _load_whisper_model_with_recovery(
-        whisperx=whisperx,
-        whisper_model=whisper_model,
-        device=device,
-        compute_type=compute_type,
-        language=config.language,
-    )
-
-    audio = whisperx.load_audio(str(vocals_path))
-    log.info("Whisper 转写中…")
-    transcribe_result = model.transcribe(
-        audio,
-        batch_size=config.batch_size,
-        language=config.language,
-    )
+    whisperx, audio, transcribe_result, device, compute_type, whisper_model = \
+        _init_whisper(config, vocals_path)
 
     # 过滤前奏
     if config.lyrics_start_time > 0:
@@ -239,44 +259,7 @@ def transcribe_audio(
     if config is None:
         config = AlignerConfig()
 
-    try:
-        import whisperx
-        import torch
-    except ImportError as e:
-        raise ImportError("WhisperX 未安装。请运行: pip install whisperx") from e
-
-    device = config.device
-    fell_back_to_cpu = False
-    if device == "cuda" and not torch.cuda.is_available():
-        log.warning("CUDA 不可用，回退到 CPU 模式")
-        device = "cpu"
-        fell_back_to_cpu = True
-
-    compute_type = "int8" if fell_back_to_cpu else config.compute_type
-
-    _CPU_HEAVY_MODELS = {"large", "large-v1", "large-v2", "large-v3", "large-v3-turbo"}
-    whisper_model = config.whisper_model
-    if device == "cpu" and whisper_model in _CPU_HEAVY_MODELS:
-        whisper_model = "medium"
-        log.warning("CPU 模式: 自动降级为 medium")
-
-    log.info("加载 Whisper 模型: %s (device=%s, compute=%s)",
-             whisper_model, device, compute_type)
-    model = _load_whisper_model_with_recovery(
-        whisperx=whisperx,
-        whisper_model=whisper_model,
-        device=device,
-        compute_type=compute_type,
-        language=config.language,  # None = 自动检测
-    )
-
-    audio = whisperx.load_audio(str(vocals_path))
-    log.info("Whisper 转写中 (自动检测语言)…")
-    transcribe_result = model.transcribe(
-        audio,
-        batch_size=config.batch_size,
-        language=config.language,  # None → Whisper 自动检测
-    )
+    _, _, transcribe_result, _, _, _ = _init_whisper(config, vocals_path)
 
     detected_lang: str = (
         transcribe_result.get("language")

@@ -20,9 +20,10 @@ from src.aligner import AlignmentResult, AlignedLine, WordTimestamp
 from src.subtitle import generate_ass
 from src.config import SubtitleConfig
 
-# ── 默认值，按需修改 ──────────────────────────────────────
-DEFAULT_ALIGNMENT = r"H:\AniMusic\output\左手在右手的左边01A_alignment.json"
-DEFAULT_OUTPUT    = r"H:\AniMusic\output"
+# ── 默认值 ────────────────────────────────────────────────
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_ALIGNMENT = None                    # 必须由用户提供
+DEFAULT_OUTPUT    = str(_PROJECT_ROOT / "output")
 DEFAULT_AUDIO     = ""   # 可选，填入后节奏动画才生效；留空跳过
 # ─────────────────────────────────────────────────────────
 
@@ -34,9 +35,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "alignment",
-        nargs="?",
-        default=DEFAULT_ALIGNMENT,
-        help=f"alignment.json 路径，默认: {DEFAULT_ALIGNMENT}",
+        help="alignment.json 路径",
     )
     parser.add_argument(
         "--output", "-o",

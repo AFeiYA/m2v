@@ -6,9 +6,10 @@ from pathlib import Path
 from src.config import SeparatorConfig
 from src.separator import separate_vocals
 
-# ── 默认值，按需修改 ──────────────────────────────────────
-DEFAULT_INPUT  = r"E:\m2v\input\左手在右手的左边A05.wav"
-DEFAULT_OUTPUT = r"E:\m2v\input"
+# ── 默认值 ────────────────────────────────────────────────
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_INPUT  = None                       # 必须由用户提供
+DEFAULT_OUTPUT = str(_PROJECT_ROOT / "input")
 DEFAULT_MODEL  = "htdemucs_ft"   # 可选: htdemucs / htdemucs_6s
 DEFAULT_SHIFTS = 1               # 越大越慢但效果更好，建议 1-4
 DEFAULT_CPU    = False           # True = 强制 CPU
@@ -22,9 +23,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "input",
-        nargs="?",
-        default=DEFAULT_INPUT,
-        help=f"输入音频文件路径 (.wav/.mp3 等)，默认: {DEFAULT_INPUT}",
+        help="输入音频文件路径 (.wav/.mp3 等)",
     )
     parser.add_argument(
         "--output",

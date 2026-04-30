@@ -54,7 +54,20 @@ def _run_serve_subcommand() -> None:
     run_server(host=args.host, port=args.port)
 
 
+def _run_local_edit_subcommand() -> None:
+    """处理 `m2v local-edit` 子命令 — 启动轻量本地编辑器（无数据库/无登录）。"""
+    # 将 sys.argv 裁剪后传给 local_editor 自己的 argparse
+    sys.argv = [sys.argv[0]] + sys.argv[2:]
+    from src.local_editor import main as local_editor_main
+    local_editor_main()
+
+
 def main() -> None:
+    # 如果第一个参数是 local-edit，启动本地编辑器
+    if len(sys.argv) > 1 and sys.argv[1] == "local-edit":
+        _run_local_edit_subcommand()
+        return
+
     # 如果第一个参数是 edit，启动编辑器
     if len(sys.argv) > 1 and sys.argv[1] == "edit":
         _run_edit_subcommand()
