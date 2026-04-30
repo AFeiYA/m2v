@@ -20,6 +20,11 @@ import threading
 import webbrowser
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    tomllib = None
+
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
@@ -131,7 +136,8 @@ async def regen_ass(request: Request):
         stem = json_path.stem.replace("_alignment", "")
         ass_path = json_path.parent / f"{stem}.ass"
         audio_path = Path(audio_path_str) if audio_path_str else None
-        generate_ass(alignment, ass_path, SubtitleConfig(), audio_path=audio_path)
+        subtitle_config = getattr(app.state, "subtitle_config", SubtitleConfig())
+        generate_ass(alignment, ass_path, subtitle_config, audio_path=audio_path)
         log.info("ASS 重新生成: %s", ass_path.name)
         return {"status": "ok", "ass_path": str(ass_path)}
     except Exception as e:
@@ -197,6 +203,54 @@ def _validate(data: dict) -> list[str]:
     return errors[:20]
 
 
+def _load_subtitle_config(config_path: Path | None) -> SubtitleConfig:
+    """从 JSON / TOML 读取本地编辑器使用的 subtitle 配置。"""
+    config = SubtitleConfig()
+    if not config_path:
+        return config
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"配置文件不存在: {config_path}")
+
+    suffix = config_path.suffix.lower()
+    if suffix == ".toml":
+        if tomllib is None:
+            raise ValueError("当前 Python 环境不支持 TOML 解析，请使用 Python 3.11+ 或改用 .json 配置")
+        data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    elif suffix == ".json":
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    else:
+        raise ValueError("配置文件仅支持 .toml 或 .json")
+
+    subtitle_cfg = data.get("subtitle", {})
+    if not isinstance(subtitle_cfg, dict):
+        return config
+
+    if subtitle_cfg.get("template_path"):
+        template_path = Path(subtitle_cfg["template_path"]).expanduser()
+        if not template_path.is_absolute():
+            template_path = (config_path.parent / template_path).resolve()
+        config.template_path = template_path
+    if subtitle_cfg.get("style_name"):
+        config.style_name = str(subtitle_cfg["style_name"])
+    if subtitle_cfg.get("primary_colour"):
+        config.primary_colour = str(subtitle_cfg["primary_colour"])
+    if subtitle_cfg.get("secondary_colour"):
+        config.secondary_colour = str(subtitle_cfg["secondary_colour"])
+    if subtitle_cfg.get("outline_colour"):
+        config.outline_colour = str(subtitle_cfg["outline_colour"])
+    if subtitle_cfg.get("font_name"):
+        config.font_name = str(subtitle_cfg["font_name"])
+    if subtitle_cfg.get("font_size") is not None:
+        config.font_size = int(subtitle_cfg["font_size"])
+    if "enable_beat_effects" in subtitle_cfg:
+        config.enable_beat_effects = bool(subtitle_cfg["enable_beat_effects"])
+    if subtitle_cfg.get("beat_scale") is not None:
+        config.beat_scale = float(subtitle_cfg["beat_scale"])
+
+    return config
+
+
 
 # ======================================================================
 # 启动
@@ -211,6 +265,11 @@ def parse_args() -> argparse.Namespace:
                         help=f"alignment.json 所在目录，默认: {DEFAULT_DIR}")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", "-p", type=int, default=DEFAULT_PORT)
+    parser.add_argument(
+        "--config-file",
+        default=None,
+        help="可选配置文件 (.toml/.json)，读取 [subtitle] 字段用于本地重生 ASS",
+    )
     parser.add_argument("--no-browser", action="store_true",
                         help="不自动打开浏览器")
     return parser.parse_args()
@@ -224,9 +283,19 @@ def main() -> None:
         scan_dir.mkdir(parents=True, exist_ok=True)
     app.state.scan_dir = scan_dir
 
+    config_path = Path(args.config_file).expanduser().resolve() if args.config_file else None
+    try:
+        subtitle_config = _load_subtitle_config(config_path)
+    except Exception as e:
+        print(f"[错误] 配置文件加载失败: {e}")
+        raise SystemExit(1)
+    app.state.subtitle_config = subtitle_config
+
     url = f"http://{args.host}:{args.port}"
     print(f"M2V 本地编辑器启动: {url}")
     print(f"扫描目录: {scan_dir}")
+    if config_path:
+        print(f"字幕配置: {config_path}")
     print("Ctrl+C 退出")
 
     if not args.no_browser:

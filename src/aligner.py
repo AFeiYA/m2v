@@ -237,6 +237,11 @@ def align_lyrics(
     # -----------------------------------------------------------------------
     aligned_lines = _match_lyrics_to_timeline(lyrics, timeline)
 
+    # -----------------------------------------------------------------------
+    # Step 5: 审计时间戳单调性，检测并修正副歌重复导致的回退
+    # -----------------------------------------------------------------------
+    aligned_lines = _audit_alignment(aligned_lines)
+
     result = AlignmentResult(lines=aligned_lines)
     log.info("对齐完成: %d 行, %d 个词",
              len(result.lines),
@@ -484,6 +489,89 @@ def _fix_compressed_chars(
         log.info("共修复 %d 处压缩序列", fixes)
 
     return result
+
+
+def _audit_alignment(aligned: list[AlignedLine]) -> list[AlignedLine]:
+    """
+    审计对齐结果的时间戳单调性。
+
+    症状: 某行的 start 比前一行的 end 小 0.5s 以上，
+            通常意味着该行被匹配到了音频的较早位置（副歌重复错位）。
+
+    修正策略:
+    - 找到回退块（连续时间戳 < 前行 end 的行组）
+    - 整体向后平移，使其第一行 start 紧接在前一个正常行的 end 之后
+    - 修正基于估算，建议在编辑器中人工复核
+    """
+    if len(aligned) < 2:
+        return aligned
+
+    # --- 检测回退点 ---
+    regression_indices: list[int] = []
+    for i in range(1, len(aligned)):
+        if aligned[i].start < aligned[i - 1].end - 0.5:
+            regression_indices.append(i)
+
+    if not regression_indices:
+        return aligned
+
+    log.warning("对齐审计: 检测到 %d 处时间轴回退（可能是副歌重复导致的错位）", len(regression_indices))
+    for i in regression_indices:
+        log.warning(
+            "  第%d行 '%s…': start=%.2fs < 前行 end=%.2fs (倒退 %.2fs)",
+            i + 1, aligned[i].text[:12],
+            aligned[i].start, aligned[i - 1].end,
+            aligned[i - 1].end - aligned[i].start,
+        )
+
+    # --- 逐块修正 ---
+    working = list(aligned)   # 副本
+    corrected_count = 0
+
+    # 将连续回退行合并为块
+    blocks: list[tuple[int, int]] = []   # [(block_start_idx, block_end_idx), ...]
+    i = 0
+    while i < len(regression_indices):
+        blk_start = regression_indices[i]
+        # 找到这个回退块的结束位置: 第一个时间已经 >= 前一正常行 end 的行
+        anchor_end = working[blk_start - 1].end
+        blk_end = blk_start
+        while blk_end < len(working) and working[blk_end].start < anchor_end - 0.1:
+            blk_end += 1
+        blocks.append((blk_start, blk_end))
+        # 跳过已纳入块的所有回退点
+        while i < len(regression_indices) and regression_indices[i] < blk_end:
+            i += 1
+
+    for blk_start, blk_end in blocks:
+        anchor_end = working[blk_start - 1].end
+        old_start = working[blk_start].start
+        offset = anchor_end + 0.1 - old_start
+
+        log.warning(
+            "  修正第%d~%d行: 平移 +%.2fs（估算，建议在编辑器中复核）",
+            blk_start + 1, blk_end, offset,
+        )
+
+        for j in range(blk_start, blk_end):
+            ln = working[j]
+            new_words = [
+                WordTimestamp(w.word, round(w.start + offset, 3), round(w.end + offset, 3))
+                for w in ln.words
+            ]
+            working[j] = AlignedLine(
+                text=ln.text,
+                start=round(ln.start + offset, 3),
+                end=round(ln.end + offset, 3),
+                words=new_words,
+            )
+        corrected_count += 1
+
+    log.warning(
+        "对齐审计: 已自动尝试修正 %d 处回退（修正均基于估算，延迟可能不准）",
+        corrected_count,
+    )
+    return working
 
 
 # ---------------------------------------------------------------------------
