@@ -1,0 +1,772 @@
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+const state = {
+  allFiles: [],
+  currentFile: null,   // { name, json_path, audio_path, audio_tracks }
+  alignment: null,
+  selectedLine: -1,
+  selectedWord: -1,
+  undoStack: [],
+  redoStack: [],
+  dirty: false,
+};
+
+let ws = null;  // primary WaveSurfer (vocals or original fallback)
+let wsInst = null; // secondary WaveSurfer (instrumental)
+let vocalsReady = false, instReady = false;
+let trackMuted = { vocals: false, instrumental: false };
+
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+const dom = {};
+
+document.addEventListener("DOMContentLoaded", () => {
+  dom.songSelect          = $("#song-select");
+  dom.btnSave             = $("#btn-save");
+  dom.btnUndo             = $("#btn-undo");
+  dom.btnRedo             = $("#btn-redo");
+  dom.btnRegenAss         = $("#btn-regen-ass");
+  dom.statusMsg           = $("#status-msg");
+  dom.waveformVocals      = $("#waveform-vocals");
+  dom.waveformInst        = $("#waveform-instrumental");
+  dom.btnPlayPause        = $("#btn-play-pause");
+  dom.btnPlayLine         = $("#btn-play-line");
+  dom.timeDisplay         = $("#time-display");
+  dom.zoomSlider          = $("#zoom-slider");
+  dom.lyricsList          = $("#lyrics-list");
+  dom.wordTitle           = $("#word-panel-title");
+  dom.wordTimeline        = $("#word-timeline");
+  dom.btnShiftLeft        = $("#btn-shift-left");
+  dom.btnNudgeLeft        = $("#btn-nudge-left");
+  dom.btnNudgeRight       = $("#btn-nudge-right");
+  dom.btnShiftRight       = $("#btn-shift-right");
+  dom.btnEvenSplit        = $("#btn-even-split");
+  dom.btnPlayWord         = $("#btn-play-word");
+  dom.lineEditControls    = $("#line-edit-controls");
+  dom.btnLineNudgeLeftBig  = $("#btn-line-nudge-left-big");
+  dom.btnLineNudgeLeft     = $("#btn-line-nudge-left");
+  dom.btnLineNudgeRight    = $("#btn-line-nudge-right");
+  dom.btnLineNudgeRightBig = $("#btn-line-nudge-right-big");
+  dom.btnLineExpand       = $("#btn-line-expand");
+  dom.btnLineShrink       = $("#btn-line-shrink");
+  dom.btnMuteVocals       = $("#btn-mute-vocals");
+  dom.btnMuteInst         = $("#btn-mute-instrumental");
+  dom.trackVocals         = $("#track-vocals");
+  dom.trackInst           = $("#track-instrumental");
+
+  initWaveSurfer();
+  bindEvents();
+  loadFileList();
+});
+
+// ---------------------------------------------------------------------------
+// WaveSurfer (dual-track)
+// ---------------------------------------------------------------------------
+function initWaveSurfer() {
+  ws = WaveSurfer.create({
+    container: dom.waveformVocals,
+    waveColor: "#4a90d9", progressColor: "#e94560",
+    cursorColor: "#fff", height: 72,
+    barWidth: 2, barGap: 1, barRadius: 2,
+    normalize: true, backend: "WebAudio",
+  });
+  wsInst = WaveSurfer.create({
+    container: dom.waveformInst,
+    waveColor: "#50c878", progressColor: "#ff9800",
+    cursorColor: "#fff", height: 72,
+    barWidth: 2, barGap: 1, barRadius: 2,
+    normalize: true, backend: "WebAudio",
+  });
+
+  ws.on("ready", () => { vocalsReady = true; updateTimeDisplay(); status("人声轨已加载"); });
+  ws.on("audioprocess", () => { syncInstToVocals(); updateTimeDisplay(); highlightPlayingLine(); });
+  ws.on("timeupdate", () => { updateTimeDisplay(); highlightPlayingLine(); });
+  ws.on("seeking", () => { syncInstToVocals(); updateTimeDisplay(); });
+  ws.on("finish", () => {
+    if (wsInst && instReady) wsInst.pause();
+    dom.btnPlayPause.textContent = "▶ 播放";
+  });
+
+  wsInst.on("ready", () => { instReady = true; status("伴奏轨已加载"); });
+  // instrumental follows vocals — no independent events needed
+}
+
+function syncInstToVocals() {
+  if (!wsInst || !instReady || !vocalsReady) return;
+  const t = ws.getCurrentTime();
+  const instT = wsInst.getCurrentTime();
+  if (Math.abs(t - instT) > 0.15) wsInst.setTime(t);
+}
+
+function toggleMuteTrack(track) {
+  trackMuted[track] = !trackMuted[track];
+  const instance = track === "vocals" ? ws : wsInst;
+  const btn = track === "vocals" ? dom.btnMuteVocals : dom.btnMuteInst;
+  const row = track === "vocals" ? dom.trackVocals : dom.trackInst;
+  if (instance) instance.setVolume(trackMuted[track] ? 0 : 1);
+  btn.classList.toggle("active", !trackMuted[track]);
+  btn.classList.toggle("muted", trackMuted[track]);
+  row.classList.toggle("muted", trackMuted[track]);
+  status(trackMuted[track] ? `${track} 已静音` : `${track} 已取消静音`);
+}
+
+function updateTimeDisplay() {
+  if (!ws) return;
+  const cur = ws.getCurrentTime(), dur = ws.getDuration() || 0;
+  dom.timeDisplay.textContent = `${fmtTime(cur)} / ${fmtTime(dur)}`;
+}
+
+function fmtTime(s) {
+  const m = Math.floor(s / 60), sec = s - m * 60;
+  return `${m}:${sec.toFixed(3).padStart(6, "0")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Events
+// ---------------------------------------------------------------------------
+function bindEvents() {
+  dom.songSelect.addEventListener("change", () => {
+    const idx = dom.songSelect.value;
+    if (idx !== "") loadSong(parseInt(idx));
+  });
+  dom.btnSave.addEventListener("click", saveAlignment);
+  dom.btnUndo.addEventListener("click", undo);
+  dom.btnRedo.addEventListener("click", redo);
+  dom.btnRegenAss.addEventListener("click", regenAss);
+  dom.btnPlayPause.addEventListener("click", togglePlay);
+  dom.btnPlayLine.addEventListener("click", playSelectedLine);
+  dom.zoomSlider.addEventListener("input", () => {
+    const z = Number(dom.zoomSlider.value);
+    if (ws) ws.zoom(z);
+    if (wsInst && instReady) wsInst.zoom(z);
+  });
+  dom.btnShiftLeft.addEventListener("click",  () => nudgeWord(-0.05));
+  dom.btnNudgeLeft.addEventListener("click",  () => nudgeWord(-0.01));
+  dom.btnNudgeRight.addEventListener("click", () => nudgeWord(0.01));
+  dom.btnShiftRight.addEventListener("click", () => nudgeWord(0.05));
+  dom.btnEvenSplit.addEventListener("click",  evenSplitLine);
+  dom.btnPlayWord.addEventListener("click",   playSelectedWord);
+  dom.btnLineNudgeLeftBig.addEventListener("click",  () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, -0.2); });
+  dom.btnLineNudgeLeft.addEventListener("click",     () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, -0.05); });
+  dom.btnLineNudgeRight.addEventListener("click",    () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, 0.05); });
+  dom.btnLineNudgeRightBig.addEventListener("click", () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, 0.2); });
+  dom.btnLineExpand.addEventListener("click",  () => { if (state.selectedLine >= 0) resizeLine(state.selectedLine, -0.05, 0.05); });
+  dom.btnLineShrink.addEventListener("click",  () => { if (state.selectedLine >= 0) resizeLine(state.selectedLine, 0.05, -0.05); });
+  dom.btnMuteVocals.addEventListener("click", () => toggleMuteTrack("vocals"));
+  dom.btnMuteInst.addEventListener("click", () => toggleMuteTrack("instrumental"));
+  document.addEventListener("keydown", handleKey);
+}
+
+function handleKey(e) {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  const ctrl = e.ctrlKey || e.metaKey;
+  switch (true) {
+    case e.code === "Space":        e.preventDefault(); togglePlay(); break;
+    case ctrl && e.code === "KeyS": e.preventDefault(); saveAlignment(); break;
+    case ctrl && e.code === "KeyZ" && !e.shiftKey: e.preventDefault(); undo(); break;
+    case ctrl && (e.code === "KeyY" || (e.code === "KeyZ" && e.shiftKey)): e.preventDefault(); redo(); break;
+    case e.code === "ArrowLeft" && !ctrl:  e.preventDefault(); nudgeWord(-0.01); break;
+    case e.code === "ArrowRight" && !ctrl: e.preventDefault(); nudgeWord(0.01); break;
+    case e.code === "KeyA" && !ctrl: e.preventDefault(); nudgeWord(-0.05); break;
+    case e.code === "KeyD" && !ctrl: e.preventDefault(); nudgeWord(0.05); break;
+    case e.code === "ArrowUp":   e.preventDefault(); selectAdjacentLine(-1); break;
+    case e.code === "ArrowDown": e.preventDefault(); selectAdjacentLine(1); break;
+    case e.code === "Enter":     e.preventDefault(); playSelectedLine(); break;
+    case e.code === "Tab" && !ctrl: e.preventDefault(); selectAdjacentWord(e.shiftKey ? -1 : 1); break;
+    case e.code === "BracketLeft" && !ctrl && !e.shiftKey:  e.preventDefault(); if (state.selectedLine >= 0) nudgeLine(state.selectedLine, -0.05); break;
+    case e.code === "BracketRight" && !ctrl && !e.shiftKey: e.preventDefault(); if (state.selectedLine >= 0) nudgeLine(state.selectedLine, 0.05); break;
+    case e.code === "BracketLeft" && !ctrl && e.shiftKey:   e.preventDefault(); if (state.selectedLine >= 0) resizeLine(state.selectedLine, -0.05, 0.05); break;
+    case e.code === "BracketRight" && !ctrl && e.shiftKey:  e.preventDefault(); if (state.selectedLine >= 0) resizeLine(state.selectedLine, 0.05, -0.05); break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// File List & Loading
+// ---------------------------------------------------------------------------
+async function loadFileList() {
+  try {
+    const r = await fetch("/api/files");
+    state.allFiles = await r.json();
+    dom.songSelect.innerHTML = state.allFiles.length === 0
+      ? `<option value="">未找到 alignment.json</option>`
+      : `<option value="">— 请选择 —</option>` +
+        state.allFiles.map((f, i) =>
+          `<option value="${i}">${f.name}${f.audio_path ? " 🎵" : ""}</option>`
+        ).join("");
+    if (state.allFiles.length === 1) loadSong(0);
+  } catch(e) {
+    dom.songSelect.innerHTML = `<option value="">加载失败</option>`;
+    status("文件列表加载失败: " + e, true);
+  }
+}
+
+async function loadSong(idx) {
+  const file = state.allFiles[idx];
+  state.currentFile = file;
+  state.selectedLine = -1;
+  state.selectedWord = -1;
+  state.undoStack = [];
+  state.redoStack = [];
+  state.dirty = false;
+  vocalsReady = false; instReady = false;
+  trackMuted = { vocals: false, instrumental: false };
+  dom.songSelect.value = idx;
+  status(`加载 ${file.name}…`);
+
+  try {
+    const r = await fetch("/api/alignment?path=" + encodeURIComponent(file.json_path));
+    if (!r.ok) throw new Error(await r.text());
+    state.alignment = await r.json();
+  } catch(e) {
+    status("对齐数据加载失败: " + e, true);
+    state.alignment = null;
+    return;
+  }
+
+  // Load audio tracks
+  const tracks = file.audio_tracks || {};
+  const vocalsUrl = tracks.vocals ? "/api/audio?path=" + encodeURIComponent(tracks.vocals) : null;
+  const instUrl = tracks.instrumental ? "/api/audio?path=" + encodeURIComponent(tracks.instrumental) : null;
+  const origUrl = file.audio_path ? "/api/audio?path=" + encodeURIComponent(file.audio_path) : null;
+
+  // Primary track: vocals > original
+  const primaryUrl = vocalsUrl || origUrl;
+  if (primaryUrl) {
+    try { await ws.load(primaryUrl); } catch(e) { status("人声轨加载失败: " + e, true); }
+  }
+  // Secondary track: instrumental (only if we have separate tracks)
+  if (instUrl) {
+    try { await wsInst.load(instUrl); } catch(e) { status("伴奏轨加载失败: " + e, true); }
+    dom.trackInst.classList.remove("hidden");
+  } else {
+    dom.trackInst.classList.add("hidden");
+  }
+
+  // Update track labels
+  dom.btnMuteVocals.textContent = vocalsUrl ? "🎤 人声" : "🎵 原始";
+  dom.btnMuteVocals.classList.add("active"); dom.btnMuteVocals.classList.remove("muted");
+  dom.btnMuteInst.classList.add("active"); dom.btnMuteInst.classList.remove("muted");
+  dom.trackVocals.classList.remove("muted"); dom.trackInst.classList.remove("muted");
+
+  renderLyrics();
+  clearWordPanel();
+  const trackInfo = [vocalsUrl ? "人声" : null, instUrl ? "伴奏" : null, (!vocalsUrl && origUrl) ? "原始" : null].filter(Boolean).join("+");
+  status(`已加载: ${file.name} (${state.alignment.lines.length} 行, 音轨: ${trackInfo || "无"})`);
+  document.title = `${file.name} — M2V 编辑器`;
+}
+
+// ---------------------------------------------------------------------------
+// Lyrics Panel
+// ---------------------------------------------------------------------------
+function renderLyrics() {
+  const lines = state.alignment?.lines || [];
+  dom.lyricsList.innerHTML = "";
+
+  lines.forEach((line, i) => {
+    const row = document.createElement("div");
+    row.className = "lyric-row";
+    row.dataset.idx = i;
+    const charSpans = line.words.map((w, wi) =>
+      `<span class="lyric-char" data-line="${i}" data-word="${wi}">${escHtml(w.word)}</span>`
+    ).join("");
+    const dur = (line.end - line.start).toFixed(1);
+    row.innerHTML = `
+      <span class="lyric-num">${i + 1}</span>
+      <span class="lyric-text">${charSpans}</span>
+      <span class="lyric-time-edit">
+        <input type="text" class="time-input line-start-input" value="${fmtTimeShort(line.start)}" data-field="start" data-idx="${i}" title="行起始时间">
+        <span class="time-arrow">→</span>
+        <input type="text" class="time-input line-end-input" value="${fmtTimeShort(line.end)}" data-field="end" data-idx="${i}" title="行结束时间">
+        <span class="line-dur">${dur}s</span>
+        <button class="line-nudge-btn" data-idx="${i}" data-delta="-0.1" title="整行前移100ms">◁</button>
+        <button class="line-nudge-btn" data-idx="${i}" data-delta="0.1" title="整行后移100ms">▷</button>
+      </span>`;
+    row.addEventListener("click", (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
+      selectLine(i);
+    });
+    row.addEventListener("dblclick", (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
+      if (ws) {
+        ws.setTime(line.start); ws.play(); dom.btnPlayPause.textContent = "⏸ 暂停";
+        if (wsInst && instReady) { wsInst.setTime(line.start); wsInst.play(); }
+      }
+    });
+    dom.lyricsList.appendChild(row);
+  });
+
+  dom.lyricsList.querySelectorAll(".time-input").forEach(input => {
+    input.addEventListener("change", handleLineTimeInput);
+    input.addEventListener("keydown", (e) => { if (e.code === "Enter") e.target.blur(); e.stopPropagation(); });
+    input.addEventListener("focus", (e) => e.target.select());
+  });
+
+  dom.lyricsList.querySelectorAll(".line-nudge-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      nudgeLine(Number(btn.dataset.idx), Number(btn.dataset.delta));
+    });
+  });
+}
+
+function selectLine(idx, options = {}) {
+  const { seek = true, scroll = false } = options;
+  state.selectedLine = idx;
+  state.selectedWord = -1;
+  $$(".lyric-row").forEach((row, i) => row.classList.toggle("selected", i === idx));
+  const line = state.alignment.lines[idx];
+  if (seek && ws && line) ws.setTime(line.start);
+  if (scroll) {
+    const row = dom.lyricsList.querySelector(`.lyric-row[data-idx="${idx}"]`);
+    if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+  if (dom.lineEditControls) dom.lineEditControls.style.display = idx >= 0 ? "flex" : "none";
+  renderWords(idx);
+}
+
+function selectAdjacentLine(delta) {
+  const lines = state.alignment?.lines || [];
+  if (!lines.length) return;
+  let next = Math.max(0, Math.min(state.selectedLine + delta, lines.length - 1));
+  selectLine(next, { scroll: true });
+}
+
+function highlightPlayingLine() {
+  if (!ws || !state.alignment) return;
+  const t = ws.getCurrentTime();
+  const lines = state.alignment.lines;
+  let activeLineIdx = -1;
+
+  $$(".lyric-row").forEach((row, i) => {
+    const line = lines[i];
+    const playing = line && t >= line.start && t <= line.end;
+    row.classList.toggle("playing", playing);
+    if (playing) activeLineIdx = i;
+  });
+
+  $$(".lyric-char").forEach((span) => {
+    const li = Number(span.dataset.line), wi = Number(span.dataset.word);
+    const line = lines[li]; if (!line) { span.classList.remove("sung","singing"); return; }
+    const w = line.words[wi]; if (!w) { span.classList.remove("sung","singing"); return; }
+    if (t >= w.end) { span.classList.add("sung"); span.classList.remove("singing"); }
+    else if (t >= w.start) { span.classList.add("singing"); span.classList.remove("sung"); }
+    else { span.classList.remove("sung","singing"); }
+  });
+
+  if (activeLineIdx >= 0 && activeLineIdx !== state.selectedLine)
+    selectLine(activeLineIdx, { seek: false, scroll: true });
+
+  if (activeLineIdx >= 0 && activeLineIdx === state.selectedLine) {
+    const line = lines[activeLineIdx];
+    $$(".word-bar").forEach((bar) => {
+      const wi = Number(bar.dataset.idx), w = line.words[wi];
+      if (!w) { bar.classList.remove("bar-singing"); return; }
+      bar.classList.toggle("bar-singing", t >= w.start && t < w.end);
+    });
+  }
+
+  if (activeLineIdx >= 0) {
+    const row = dom.lyricsList.querySelector(`.lyric-row[data-idx="${activeLineIdx}"]`);
+    if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Word Panel
+// ---------------------------------------------------------------------------
+function renderWords(lineIdx) {
+  const line = state.alignment?.lines[lineIdx];
+  if (!line) { clearWordPanel(); return; }
+
+  const lineDurMs = ((line.end - line.start) * 1000).toFixed(0);
+  dom.wordTitle.textContent = `第 ${lineIdx + 1} 行 [${fmtTimeShort(line.start)} → ${fmtTimeShort(line.end)}, ${lineDurMs}ms]: ${line.text}`;
+  const words = line.words || [];
+  const lineStart = line.start, lineEnd = line.end, lineDur = lineEnd - lineStart || 1;
+
+  dom.wordTimeline.innerHTML = "";
+  const container = document.createElement("div");
+  container.className = "word-bar-container";
+
+  words.forEach((w, i) => {
+    const dur = w.end - w.start;
+    const widthPct = (dur / lineDur) * 100;
+    const bar = document.createElement("div");
+    bar.className = "word-bar" + (isPunct(w.word) ? " punct" : "");
+    bar.style.width = `${Math.max(widthPct, 1)}%`;
+    bar.dataset.idx = i;
+    bar.title = `${w.word}  ${fmtTime(w.start)} → ${fmtTime(w.end)}  (${(dur * 1000).toFixed(0)}ms)`;
+    bar.innerHTML = `
+      <span>${escHtml(w.word)}</span>
+      <span class="word-dur">${(dur * 1000).toFixed(0)}</span>
+      <div class="drag-handle" title="拖拽调整 | 双击=设为当前播放位置"></div>`;
+
+    bar.addEventListener("click", (e) => {
+      if (e.target.classList.contains("drag-handle")) return;
+      selectWord(i);
+    });
+    bar.addEventListener("dblclick", () => {
+      if (ws) {
+        ws.setTime(w.start); ws.play(); dom.btnPlayPause.textContent = "⏸ 暂停";
+        if (wsInst && instReady) { wsInst.setTime(w.start); wsInst.play(); }
+        const stopAt = w.end;
+        const check = () => {
+          if (ws.getCurrentTime() >= stopAt) {
+            ws.pause(); if (wsInst && instReady) wsInst.pause();
+            dom.btnPlayPause.textContent = "▶ 播放";
+          } else if (ws.isPlaying()) requestAnimationFrame(check);
+        };
+        requestAnimationFrame(check);
+      }
+    });
+
+    setupDragHandle(bar, i, lineIdx);
+    const handle = bar.querySelector(".drag-handle");
+    if (handle) handle.addEventListener("dblclick", (e) => { e.preventDefault(); e.stopPropagation(); snapSplitToPlayhead(lineIdx, i); });
+
+    container.appendChild(bar);
+  });
+
+  dom.wordTimeline.appendChild(container);
+  if (words.length > 0 && state.selectedWord < 0) selectWord(0);
+}
+
+function clearWordPanel() {
+  dom.wordTitle.textContent = "点击左侧歌词行查看字级时间";
+  dom.wordTimeline.innerHTML = "";
+}
+
+function selectWord(idx) {
+  state.selectedWord = idx;
+  $$(".word-bar").forEach((bar, i) => bar.classList.toggle("selected", i === idx));
+}
+
+function selectAdjacentWord(delta) {
+  if (state.selectedLine < 0) return;
+  const words = state.alignment?.lines[state.selectedLine]?.words || [];
+  if (!words.length) return;
+  selectWord(Math.max(0, Math.min(state.selectedWord + delta, words.length - 1)));
+}
+
+// ---------------------------------------------------------------------------
+// Drag to resize
+// ---------------------------------------------------------------------------
+function snapSplitToPlayhead(lineIdx, wordIdx) {
+  if (!ws) return;
+  const line = state.alignment.lines[lineIdx];
+  if (!line) return;
+  const words = line.words;
+  const isLast = (wordIdx === words.length - 1);
+  const t = ws.getCurrentTime();
+
+  if (isLast) {
+    const clamped = Math.round(Math.max(words[wordIdx].start + 0.01, t) * 1000) / 1000;
+    if (Math.abs(clamped - words[wordIdx].end) < 0.001) return;
+    pushUndo();
+    words[wordIdx].end = clamped; line.end = clamped;
+    renderLyrics(); selectLine(lineIdx); selectWord(wordIdx); markDirty();
+    status(`✂ 行尾 → ${fmtTimeShort(clamped)}`);
+  } else {
+    const minVal = words[wordIdx].start + 0.01, maxVal = words[wordIdx + 1].end - 0.01;
+    const clamped = Math.round(Math.max(minVal, Math.min(maxVal, t)) * 1000) / 1000;
+    if (Math.abs(clamped - words[wordIdx].end) < 0.001) return;
+    pushUndo();
+    words[wordIdx].end = clamped; words[wordIdx + 1].start = clamped;
+    syncLineFromWords(lineIdx); renderWords(lineIdx); selectWord(wordIdx); markDirty();
+    status(`✂ 分割点 ${wordIdx + 1}|${wordIdx + 2} → ${fmtTimeShort(clamped)}`);
+  }
+}
+
+function setupDragHandle(bar, wordIdx, lineIdx) {
+  const handle = bar.querySelector(".drag-handle");
+  if (!handle) return;
+  let startX = 0, startEnd = 0, containerWidth = 0, lineDur = 0;
+
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const line = state.alignment.lines[lineIdx];
+    const words = line.words;
+    if (wordIdx >= words.length - 1) return;
+    pushUndo();
+    startX = e.clientX; startEnd = words[wordIdx].end;
+    containerWidth = bar.parentElement.getBoundingClientRect().width;
+    lineDur = line.end - line.start;
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX, dt = (dx / containerWidth) * lineDur;
+      const newEnd = Math.round((startEnd + dt) * 1000) / 1000;
+      const minEnd = words[wordIdx].start + 0.01, maxEnd = words[wordIdx + 1].end - 0.01;
+      const clamped = Math.max(minEnd, Math.min(maxEnd, newEnd));
+      words[wordIdx].end = clamped; words[wordIdx + 1].start = clamped;
+      renderWords(lineIdx); selectWord(wordIdx); markDirty();
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      syncLineFromWords(lineIdx);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Word Editing
+// ---------------------------------------------------------------------------
+function nudgeWord(delta) {
+  if (state.selectedLine < 0 || state.selectedWord < 0) return;
+  const line = state.alignment.lines[state.selectedLine];
+  const words = line.words, idx = state.selectedWord;
+  if (!words[idx]) return;
+  pushUndo();
+  const newStart = Math.round((words[idx].start + delta) * 1000) / 1000;
+  const newEnd   = Math.round((words[idx].end + delta) * 1000) / 1000;
+  if (newStart < 0 || newEnd < 0) return;
+  if (idx > 0 && newStart < words[idx - 1].start + 0.01) return;
+  if (idx < words.length - 1 && newEnd > words[idx + 1].end - 0.01) return;
+  if (idx > 0) words[idx - 1].end = newStart;
+  if (idx < words.length - 1) words[idx + 1].start = newEnd;
+  words[idx].start = newStart; words[idx].end = newEnd;
+  syncLineFromWords(state.selectedLine);
+  renderWords(state.selectedLine); selectWord(idx); markDirty();
+}
+
+function evenSplitLine() {
+  if (state.selectedLine < 0) return;
+  const line = state.alignment.lines[state.selectedLine];
+  const words = line.words;
+  if (!words.length) return;
+  pushUndo();
+  const totalDur = line.end - line.start;
+  const charCount = words.reduce((sum, w) => sum + w.word.length, 0);
+  let t = line.start;
+  words.forEach((w) => {
+    const dur = (w.word.length / charCount) * totalDur;
+    w.start = Math.round(t * 1000) / 1000; t += dur;
+    w.end = Math.round(t * 1000) / 1000;
+  });
+  words[words.length - 1].end = line.end;
+  renderWords(state.selectedLine); markDirty();
+}
+
+function syncLineFromWords(lineIdx) {
+  const line = state.alignment.lines[lineIdx];
+  const words = line.words;
+  if (!words.length) return;
+  line.start = words[0].start; line.end = words[words.length - 1].end;
+  const row = dom.lyricsList.querySelector(`.lyric-row[data-idx="${lineIdx}"]`);
+  if (row) {
+    const si = row.querySelector(`.line-start-input`);
+    const ei = row.querySelector(`.line-end-input`);
+    if (si) si.value = fmtTimeShort(line.start);
+    if (ei) ei.value = fmtTimeShort(line.end);
+    const dur = row.querySelector(".line-dur");
+    if (dur) dur.textContent = (line.end - line.start).toFixed(1) + "s";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Line Editing
+// ---------------------------------------------------------------------------
+function nudgeLine(lineIdx, delta) {
+  const line = state.alignment.lines[lineIdx];
+  if (!line) return;
+  pushUndo();
+  const newStart = Math.round((line.start + delta) * 1000) / 1000;
+  if (newStart < 0) return;
+  line.words.forEach(w => {
+    w.start = Math.round((w.start + delta) * 1000) / 1000;
+    w.end   = Math.round((w.end + delta) * 1000) / 1000;
+  });
+  line.start = newStart;
+  line.end = Math.round((line.end + delta) * 1000) / 1000;
+  renderLyrics(); selectLine(lineIdx); markDirty();
+}
+
+function resizeLine(lineIdx, startDelta, endDelta) {
+  const line = state.alignment.lines[lineIdx];
+  if (!line || !line.words.length) return;
+  const oldStart = line.start, oldEnd = line.end, oldDur = oldEnd - oldStart;
+  if (oldDur <= 0) return;
+  let newStart = Math.round((oldStart + startDelta) * 1000) / 1000;
+  let newEnd   = Math.round((oldEnd + endDelta) * 1000) / 1000;
+  if (newStart < 0) newStart = 0;
+  if (newEnd - newStart < 0.1) return;
+  pushUndo();
+  const newDur = newEnd - newStart;
+  line.words.forEach(w => {
+    const relStart = (w.start - oldStart) / oldDur;
+    const relEnd   = (w.end - oldStart) / oldDur;
+    w.start = Math.round((newStart + relStart * newDur) * 1000) / 1000;
+    w.end   = Math.round((newStart + relEnd * newDur) * 1000) / 1000;
+  });
+  line.start = newStart; line.end = newEnd;
+  line.words[0].start = newStart;
+  line.words[line.words.length - 1].end = newEnd;
+  renderLyrics(); selectLine(lineIdx); markDirty();
+}
+
+function handleLineTimeInput(e) {
+  const input = e.target;
+  const idx = Number(input.dataset.idx), field = input.dataset.field;
+  const line = state.alignment?.lines[idx];
+  if (!line) return;
+  const parsed = parseTimeInput(input.value);
+  if (parsed === null) {
+    input.value = fmtTimeShort(line[field]);
+    status("时间格式错误，请输入 m:ss.xxx 或 秒数", true); return;
+  }
+  if (field === "start") resizeLine(idx, parsed - line.start, 0);
+  else resizeLine(idx, 0, parsed - line.end);
+}
+
+function parseTimeInput(str) {
+  str = str.trim();
+  const match = str.match(/^(?:(\d+):)?(\d+(?:\.\d+)?)$/);
+  if (!match) return null;
+  const mins = match[1] ? Number(match[1]) : 0;
+  const total = mins * 60 + Number(match[2]);
+  return total >= 0 ? Math.round(total * 1000) / 1000 : null;
+}
+
+function fmtTimeShort(s) {
+  const m = Math.floor(s / 60), sec = s - m * 60;
+  return `${m}:${sec.toFixed(3).padStart(6, "0")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Playback
+// ---------------------------------------------------------------------------
+function togglePlay() {
+  if (!ws) return;
+  if (ws.isPlaying()) {
+    ws.pause();
+    if (wsInst && instReady) wsInst.pause();
+    dom.btnPlayPause.textContent = "▶ 播放";
+  } else {
+    if (wsInst && instReady) { wsInst.setTime(ws.getCurrentTime()); wsInst.play(); }
+    ws.play();
+    dom.btnPlayPause.textContent = "⏸ 暂停";
+  }
+}
+
+function playSelectedLine() {
+  if (state.selectedLine < 0 || !ws) return;
+  const line = state.alignment.lines[state.selectedLine];
+  if (!line) return;
+  ws.setTime(line.start); ws.play(); dom.btnPlayPause.textContent = "⏸ 暂停";
+  if (wsInst && instReady) { wsInst.setTime(line.start); wsInst.play(); }
+  const stopAt = line.end;
+  const check = () => {
+    if (ws.getCurrentTime() >= stopAt) {
+      ws.pause(); if (wsInst && instReady) wsInst.pause();
+      dom.btnPlayPause.textContent = "▶ 播放";
+    } else if (ws.isPlaying()) requestAnimationFrame(check);
+  };
+  requestAnimationFrame(check);
+}
+
+function playSelectedWord() {
+  if (state.selectedLine < 0 || state.selectedWord < 0 || !ws) return;
+  const w = state.alignment.lines[state.selectedLine]?.words?.[state.selectedWord];
+  if (!w) return;
+  ws.setTime(w.start); ws.play(); dom.btnPlayPause.textContent = "⏸ 暂停";
+  if (wsInst && instReady) { wsInst.setTime(w.start); wsInst.play(); }
+  const stopAt = w.end;
+  const check = () => {
+    if (ws.getCurrentTime() >= stopAt) {
+      ws.pause(); if (wsInst && instReady) wsInst.pause();
+      dom.btnPlayPause.textContent = "▶ 播放";
+    } else if (ws.isPlaying()) requestAnimationFrame(check);
+  };
+  requestAnimationFrame(check);
+}
+
+// ---------------------------------------------------------------------------
+// Undo / Redo
+// ---------------------------------------------------------------------------
+function pushUndo() {
+  state.undoStack.push(JSON.stringify(state.alignment));
+  if (state.undoStack.length > 100) state.undoStack.shift();
+  state.redoStack = [];
+}
+
+function undo() {
+  if (!state.undoStack.length) { status("无可撤销操作"); return; }
+  state.redoStack.push(JSON.stringify(state.alignment));
+  state.alignment = JSON.parse(state.undoStack.pop());
+  renderLyrics();
+  if (state.selectedLine >= 0) { renderWords(state.selectedLine); selectLine(state.selectedLine); }
+  markDirty(); status("已撤销");
+}
+
+function redo() {
+  if (!state.redoStack.length) { status("无可重做操作"); return; }
+  state.undoStack.push(JSON.stringify(state.alignment));
+  state.alignment = JSON.parse(state.redoStack.pop());
+  renderLyrics();
+  if (state.selectedLine >= 0) { renderWords(state.selectedLine); selectLine(state.selectedLine); }
+  markDirty(); status("已重做");
+}
+
+function markDirty() {
+  state.dirty = true;
+  document.title = "● " + (state.currentFile?.name || "M2V") + " — 时间轴编辑器";
+}
+
+// ---------------------------------------------------------------------------
+// Save / Regen
+// ---------------------------------------------------------------------------
+async function saveAlignment() {
+  if (!state.currentFile || !state.alignment) return;
+  status("保存中…");
+  try {
+    const r = await fetch("/api/alignment?path=" + encodeURIComponent(state.currentFile.json_path), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state.alignment),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+      const errs = j.detail?.errors || [JSON.stringify(j.detail)];
+      status("校验错误: " + errs.join("; "), true);
+    } else {
+      state.dirty = false;
+      document.title = (state.currentFile?.name || "M2V") + " — 时间轴编辑器";
+      status("✅ 已保存");
+    }
+  } catch(e) { status("保存失败: " + e, true); }
+}
+
+async function regenAss() {
+  if (!state.currentFile) return;
+  status("生成 ASS 中…");
+  try {
+    const r = await fetch("/api/regen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ json_path: state.currentFile.json_path, audio_path: state.currentFile.audio_path || "" }),
+    });
+    const j = await r.json();
+    if (!r.ok) status("生成失败: " + (j.detail || JSON.stringify(j)), true);
+    else status("✅ ASS 已生成: " + j.ass_path);
+  } catch(e) { status("生成失败: " + e, true); }
+}
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+function status(msg, isError = false) {
+  dom.statusMsg.textContent = msg;
+  dom.statusMsg.style.color = isError ? "var(--accent)" : "var(--text-dim)";
+  if (!isError) setTimeout(() => { dom.statusMsg.textContent = ""; }, 4000);
+}
+function escHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function isPunct(ch) {
+  return /^[\s，。、！？；：""''（）《》…—·\-,.!?;:'"()\[\]{}]$/.test(ch);
+}
+window.addEventListener("beforeunload", (e) => {
+  if (state.dirty) { e.preventDefault(); e.returnValue = ""; }
+});
