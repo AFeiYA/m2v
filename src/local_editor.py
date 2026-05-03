@@ -145,6 +145,95 @@ async def regen_ass(request: Request):
         raise HTTPException(500, str(e))
 
 
+@app.post("/api/realign")
+async def realign(request: Request):
+    """
+    局部重对齐: 对 alignment JSON 中指定的行重新跑 WhisperX。
+
+    请求体:
+        json_path   : alignment JSON 文件路径
+        line_indices: 要重对齐的行索引列表 (0-based)
+        buffer      : 音频裁剪前后缓冲秒数，默认 2.0
+    """
+    from src.aligner import realign_lines
+
+    body = await request.json()
+    json_path = Path(body.get("json_path", ""))
+    line_indices: list[int] = body.get("line_indices", [])
+    buffer: float = float(body.get("buffer", 2.0))
+
+    if not json_path.exists():
+        raise HTTPException(404, f"JSON 不存在: {json_path}")
+    if not line_indices:
+        raise HTTPException(400, "line_indices 不能为空")
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    lines = data.get("lines", [])
+
+    invalid = [i for i in line_indices if i < 0 or i >= len(lines)]
+    if invalid:
+        raise HTTPException(400, f"索引越界: {invalid}，共 {len(lines)} 行")
+
+    selected = [lines[i] for i in line_indices]
+    rough_start = min(l["start"] for l in selected)
+    rough_end   = max(l["end"]   for l in selected)
+    texts       = [l["text"] for l in selected]
+
+    # 优先用 {stem}_vocals.wav，找不到再用原始音频
+    stem = json_path.stem.replace("_alignment", "")
+    scan_dir = _get_scan_dir()
+    vocals_path = scan_dir / f"{stem}_vocals.wav"
+    if not vocals_path.exists():
+        audio = _find_audio(stem)
+        if audio is None:
+            raise HTTPException(404, f"找不到人声文件: {stem}_vocals.wav")
+        vocals_path = audio
+        log.warning("未找到 vocals 文件，使用原始音频: %s", vocals_path.name)
+
+    log.info("局部重对齐请求: %s 第 %s 行 (%.2f~%.2fs)",
+             stem, line_indices, rough_start, rough_end)
+
+    try:
+        new_lines = realign_lines(
+            vocals_path=vocals_path,
+            texts=texts,
+            rough_start=rough_start,
+            rough_end=rough_end,
+            buffer=buffer,
+        )
+    except Exception as e:
+        log.error("局部重对齐失败: %s", e, exc_info=True)
+        raise HTTPException(500, str(e))
+
+    for list_pos, orig_idx in enumerate(line_indices):
+        if list_pos < len(new_lines):
+            nl = new_lines[list_pos]
+            lines[orig_idx] = {
+                "text":  nl.text,
+                "start": nl.start,
+                "end":   nl.end,
+                "words": [{"word": w.word, "start": w.start, "end": w.end}
+                          for w in nl.words],
+            }
+
+    bak = json_path.with_suffix(".json.bak")
+    shutil.copy2(json_path, bak)
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    log.info("局部重对齐完成，已写回: %s", json_path.name)
+    return {
+        "status": "ok",
+        "patched_indices": line_indices,
+        "lines": [
+            {"index": orig_idx, "start": lines[orig_idx]["start"],
+             "end": lines[orig_idx]["end"], "text": lines[orig_idx]["text"]}
+            for orig_idx in line_indices
+        ],
+    }
+
+
 @app.get("/api/audio")
 def stream_audio(path: str):
     """提供音频文件流（支持 Range 请求）"""

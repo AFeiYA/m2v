@@ -69,6 +69,9 @@ python -m src.local_editor
 
 # 指定扫描目录
 m2v local-edit --dir ./output --port 8765
+
+# 指定本地编辑器字幕配置文件（.toml/.json）
+m2v local-edit --dir ./output --config-file ./pipeline.toml
 ```
 
 ### 方式 4: Web 服务 (SaaS 模式)

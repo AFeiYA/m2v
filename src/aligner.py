@@ -997,6 +997,9 @@ def _close_line_gaps(
             result[next_li] = (round(mid, 3), result[next_li][1])
 
 
+# _fix_punct_durations 已移除: 标点符号始终保持零时长 (start == end)
+
+
 def _split_line_to_words(
     text: str,
     start: float,
@@ -1670,3 +1673,101 @@ def _postprocess_timing(
             line.end = line.words[-1].end
 
     return lines
+
+
+# ---------------------------------------------------------------------------
+# 局部重对齐
+# ---------------------------------------------------------------------------
+
+def realign_lines(
+    vocals_path: Path,
+    texts: list[str],
+    rough_start: float,
+    rough_end: float,
+    config: AlignerConfig | None = None,
+    buffer: float = 2.0,
+) -> list[AlignedLine]:
+    """
+    对指定时间段内的几行歌词进行局部重对齐。
+
+    流程:
+    1. 从 vocals_path 裁剪 [rough_start-buffer, rough_end+buffer] 的音频片段
+    2. 对该片段跑 WhisperX（转写 + 强制对齐）
+    3. 所有时间戳加回 clip_start 偏移量
+    4. 返回新的 AlignedLine 列表（长度 == len(texts)）
+
+    Args:
+        vocals_path:  人声 WAV 文件路径
+        texts:        要重对齐的歌词行文本列表（纯显示文本）
+        rough_start:  大致起始时间（秒），用于裁剪音频
+        rough_end:    大致结束时间（秒）
+        config:       对齐配置，None 则使用默认值
+        buffer:       音频片段前后各加多少秒的缓冲
+    Returns:
+        list[AlignedLine]，时间戳已换算回原始音频坐标系
+    """
+    import tempfile
+    import soundfile as sf
+    import numpy as np
+
+    if config is None:
+        config = AlignerConfig()
+
+    # --- 裁剪音频 ---
+    clip_start = max(0.0, rough_start - buffer)
+    clip_end = rough_end + buffer
+
+    log.info("局部重对齐: %.2fs ~ %.2fs (片段 %.2fs ~ %.2fs, buffer=%.1fs)",
+             rough_start, rough_end, clip_start, clip_end, buffer)
+
+    audio_data, sample_rate = sf.read(str(vocals_path), dtype="float32", always_2d=False)
+    start_sample = int(clip_start * sample_rate)
+    end_sample = int(clip_end * sample_rate)
+    end_sample = min(end_sample, len(audio_data))
+    clip = audio_data[start_sample:end_sample]
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    sf.write(str(tmp_path), clip, sample_rate)
+
+    try:
+        # 局部重对齐时不需要过滤前奏
+        local_config = AlignerConfig(
+            whisper_model=config.whisper_model,
+            device=config.device,
+            compute_type=config.compute_type,
+            batch_size=config.batch_size,
+            language=config.language,
+            use_pinyin=config.use_pinyin,
+            lyrics_start_time=0.0,  # 片段从 0 开始，不过滤
+            min_char_duration=config.min_char_duration,
+            max_char_duration=config.max_char_duration,
+        )
+        lyrics = [LyricLine(text=t) for t in texts]
+        local_result = align_lyrics(tmp_path, lyrics, local_config)
+    finally:
+        try:
+            tmp_path.unlink()
+        except Exception:
+            pass
+
+    # --- 时间戳加回 clip_start 偏移 ---
+    shifted: list[AlignedLine] = []
+    for line in local_result.lines:
+        new_words = [
+            WordTimestamp(
+                word=w.word,
+                start=round(w.start + clip_start, 3),
+                end=round(w.end + clip_start, 3),
+            )
+            for w in line.words
+        ]
+        shifted.append(AlignedLine(
+            text=line.text,
+            start=round(line.start + clip_start, 3),
+            end=round(line.end + clip_start, 3),
+            words=new_words,
+        ))
+
+    log.info("局部重对齐完成: %d 行", len(shifted))
+    return shifted

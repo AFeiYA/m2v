@@ -62,7 +62,19 @@ def _run_local_edit_subcommand() -> None:
     local_editor_main()
 
 
+def _run_suno_subcommand() -> None:
+    """处理 `m2v suno <url>` 子命令 — 从 Suno URL 下载歌曲并可选运行管线。"""
+    sys.argv = [sys.argv[0]] + sys.argv[2:]
+    from src.suno_fetch import main as suno_fetch_main
+    suno_fetch_main()
+
+
 def main() -> None:
+    # 如果第一个参数是 suno，自动获取 Suno 歌曲
+    if len(sys.argv) > 1 and sys.argv[1] == "suno":
+        _run_suno_subcommand()
+        return
+
     # 如果第一个参数是 local-edit，启动本地编辑器
     if len(sys.argv) > 1 and sys.argv[1] == "local-edit":
         _run_local_edit_subcommand()
@@ -247,6 +259,14 @@ def process_one(
             vocals_path, instrumental_path = separate_vocals(
                 mp3_path, temp_dir, config.separator
             )
+            # 把 vocals + instrumental 复制到输出目录，供本地编辑器双音轨使用
+            output_vocals = output_dir / f"{stem}_vocals.wav"
+            shutil.copy2(vocals_path, output_vocals)
+            log.info("人声文件已保存: %s", output_vocals.name)
+            if instrumental_path and instrumental_path.exists():
+                output_inst = output_dir / f"{stem}_instrumental.wav"
+                shutil.copy2(instrumental_path, output_inst)
+                log.info("伴奏文件已保存: %s", output_inst.name)
             _progress("separating", 30, "人声分离完成")
 
         # ---------------------------------------------------------------
