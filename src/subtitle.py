@@ -186,7 +186,9 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
         dist = (prev_lines + curr_lines) * 0.6 * config.font_size + 0.6 * config.font_size
         local_y[i] = local_y[i-1] + dist
         
-    center_y = 1080 / 2
+    # Apple Music 风格的焦点行通常偏上，给下方即将到来的歌词留出更多视野
+    # 距离屏幕顶部大约相当于 2-3 行的距离
+    center_y = config.font_size * 4.5
         
     def parse_color(ass_color: str) -> tuple[str, str]:
         if ass_color.startswith("&H") and len(ass_color) >= 10:
@@ -210,7 +212,7 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
 
     def get_tags(d: int, is_active: bool, is_before: bool, for_anim_end: bool = False) -> str:
         scale = max(100 - d * 5, 70) if d > 0 else 100
-        blur = d * 1.5
+        blur = d * 2.5
         alpha = get_alpha(d, a_sec)
         c = c_sec if is_before else c_pri
         
@@ -281,11 +283,22 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
             
             if k == j:
                 tag_steady = get_tags(0, True, False, False)
-                delay_cs = 0 
-                karaoke_text = f"{{\\kf{delay_cs}}}"
+                karaoke_text = ""
+                current_t = lines[j].start
+                
                 for word in lines[j].words:
-                    dur_cs = int((word.end - word.start) * 100)
-                    karaoke_text += f"{{\\kf{dur_cs}}}{word.word}"
+                    # 计算当前字和上一个字之间的静音空白 gap
+                    gap_cs = int((word.start - current_t) * 100)
+                    if gap_cs > 0:
+                        karaoke_text += f"{{\\k{gap_cs}}}"
+                    
+                    # 当前字的持续时间
+                    dur_cs = int((word.end - max(word.start, current_t)) * 100)
+                    if dur_cs < 0: 
+                        dur_cs = 0
+                        
+                    karaoke_text += f"{{\\k{dur_cs}}}{word.word}"
+                    current_t = max(word.end, current_t)
                 
                 # Active line uses tag_steady as its base!
                 # We prepend pos_tag to tag_steady
