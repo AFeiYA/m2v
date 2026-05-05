@@ -170,6 +170,56 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   border-radius: 4px; cursor: pointer; font-size: 13px;
 }
 #word-controls button:hover { background: var(--accent); }
+/* ── Storyboard Panel ── */
+#storyboard-panel {
+  padding: 12px; border-top: 1px solid var(--border);
+  background: var(--bg); display: flex; flex-direction: column; gap: 10px;
+  max-height: 300px;
+}
+#storyboard-header { font-size: 13px; font-weight: bold; color: var(--text-dim); }
+#storyboard-body { display: flex; gap: 16px; align-items: flex-start; }
+#asset-preview {
+  width: 120px; height: 90px; background: #000; border: 1px solid var(--border);
+  border-radius: 4px; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: var(--text-dim); flex-shrink: 0; overflow: hidden;
+}
+#asset-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
+#asset-form { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.asset-row { display: flex; align-items: center; gap: 12px; }
+.asset-row label { font-size: 12px; }
+#current-asset-name { font-size: 12px; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+#btn-browse-assets, #btn-asset-sync, #btn-asset-add {
+  background: var(--bg-hover); color: var(--text); border: 1px solid var(--border);
+  padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+}
+#btn-browse-assets:hover, #btn-asset-sync:hover, #btn-asset-add:hover { background: var(--accent); }
+
+#storyboard-list-container { flex: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-panel); }
+#storyboard-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+#storyboard-table th { background: #0d1117; padding: 6px; text-align: left; border-bottom: 1px solid var(--border); position: sticky; top: 0; }
+#storyboard-table td { padding: 6px; border-bottom: 1px solid #222; }
+.btn-delete-asset { color: var(--accent); cursor: pointer; border: none; background: transparent; }
+
+/* ── Modal ── */
+.modal {
+  display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%;
+  background-color: rgba(0,0,0,0.8);
+}
+.modal-content {
+  background-color: var(--bg-panel); margin: 5% auto; padding: 20px;
+  border: 1px solid var(--border); width: 80%; max-width: 800px; border-radius: 8px;
+}
+.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.close-btn { font-size: 24px; cursor: pointer; background: none; border: none; color: var(--text); }
+#asset-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 16px; max-height: 400px; overflow-y: auto; }
+.asset-card {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  padding: 8px; cursor: pointer; text-align: center; transition: all 0.2s;
+}
+.asset-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.asset-card img { width: 100%; height: 80px; object-fit: cover; border-radius: 2px; margin-bottom: 4px; }
+.asset-card span { font-size: 11px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }

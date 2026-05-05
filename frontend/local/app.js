@@ -26,7 +26,10 @@ document.addEventListener("DOMContentLoaded", () => {
   dom.btnSave             = $("#btn-save");
   dom.btnUndo             = $("#btn-undo");
   dom.btnRedo             = $("#btn-redo");
-  dom.btnRegenAss         = $("#btn-regen-ass");
+  dom.btnGenerate         = $("#btn-generate");
+  dom.generateModal       = $("#generate-modal");
+  dom.btnCloseGenerate    = $("#btn-close-generate");
+  dom.btnConfirmGenerate  = $("#btn-confirm-generate");
   dom.statusMsg           = $("#status-msg");
   dom.waveformVocals      = $("#waveform-vocals");
   dom.waveformInst        = $("#waveform-instrumental");
@@ -55,6 +58,21 @@ document.addEventListener("DOMContentLoaded", () => {
   dom.trackVocals         = $("#track-vocals");
   dom.trackInst           = $("#track-instrumental");
 
+  // Storyboard
+  dom.btnBrowseAssets     = $("#btn-browse-assets");
+  dom.assetModal          = $("#asset-modal");
+  dom.assetGrid           = $("#asset-grid");
+  dom.assetPreview        = $("#asset-preview");
+  dom.currentAssetName    = $("#current-asset-name");
+  dom.assetStart          = $("#asset-start");
+  dom.assetEnd            = $("#asset-end");
+  dom.btnAssetSync        = $("#btn-asset-sync");
+  dom.btnAssetAdd         = $("#btn-asset-add");
+  dom.storyboardList      = $("#storyboard-list");
+  dom.assetModalClose     = $("#btn-close-asset");
+  dom.assetFileInput      = $("#asset-file-input");
+  dom.uploadStatus        = $("#upload-status");
+
   initWaveSurfer();
   bindEvents();
   loadFileList();
@@ -69,14 +87,14 @@ function initWaveSurfer() {
     waveColor: "#4a90d9", progressColor: "#e94560",
     cursorColor: "#fff", height: 72,
     barWidth: 2, barGap: 1, barRadius: 2,
-    normalize: true, backend: "WebAudio",
+    normalize: true,
   });
   wsInst = WaveSurfer.create({
     container: dom.waveformInst,
     waveColor: "#50c878", progressColor: "#ff9800",
     cursorColor: "#fff", height: 72,
     barWidth: 2, barGap: 1, barRadius: 2,
-    normalize: true, backend: "WebAudio",
+    normalize: true,
   });
 
   ws.on("ready", () => { vocalsReady = true; updateTimeDisplay(); status("人声轨已加载"); });
@@ -133,7 +151,12 @@ function bindEvents() {
   dom.btnSave.addEventListener("click", saveAlignment);
   dom.btnUndo.addEventListener("click", undo);
   dom.btnRedo.addEventListener("click", redo);
-  dom.btnRegenAss.addEventListener("click", regenAss);
+  dom.btnGenerate.addEventListener("click", () => dom.generateModal.style.display = "flex");
+  dom.btnCloseGenerate.addEventListener("click", () => dom.generateModal.style.display = "none");
+  dom.btnConfirmGenerate.addEventListener("click", () => {
+    dom.generateModal.style.display = "none";
+    generateOutput();
+  });
   dom.btnPlayPause.addEventListener("click", togglePlay);
   dom.btnPlayLine.addEventListener("click", playSelectedLine);
   dom.zoomSlider.addEventListener("input", () => {
@@ -155,6 +178,17 @@ function bindEvents() {
   dom.btnLineShrink.addEventListener("click",  () => { if (state.selectedLine >= 0) resizeLine(state.selectedLine, 0.05, -0.05); });
   dom.btnMuteVocals.addEventListener("click", () => toggleMuteTrack("vocals"));
   dom.btnMuteInst.addEventListener("click", () => toggleMuteTrack("instrumental"));
+
+  // Storyboard events
+  dom.btnBrowseAssets.addEventListener("click", openAssetModal);
+  dom.assetModalClose.addEventListener("click", () => dom.assetModal.style.display = "none");
+  dom.btnAssetSync.addEventListener("click", syncAssetToCurrentLine);
+  dom.btnAssetAdd.addEventListener("click", addOrUpdateAssetEvent);
+  dom.assetFileInput.addEventListener("change", handleAssetUpload);
+  // 点击模态框背景关闭
+  dom.assetModal.addEventListener("click", (e) => { if (e.target === dom.assetModal) dom.assetModal.style.display = "none"; });
+  dom.generateModal.addEventListener("click", (e) => { if (e.target === dom.generateModal) dom.generateModal.style.display = "none"; });
+
   document.addEventListener("keydown", handleKey);
 }
 
@@ -251,6 +285,7 @@ async function loadSong(idx) {
 
   renderLyrics();
   clearWordPanel();
+  renderStoryboard();
   const trackInfo = [vocalsUrl ? "人声" : null, instUrl ? "伴奏" : null, (!vocalsUrl && origUrl) ? "原始" : null].filter(Boolean).join("+");
   status(`已加载: ${file.name} (${state.alignment.lines.length} 行, 音轨: ${trackInfo || "无"})`);
   document.title = `${file.name} — M2V 编辑器`;
@@ -738,18 +773,27 @@ async function saveAlignment() {
   } catch(e) { status("保存失败: " + e, true); }
 }
 
-async function regenAss() {
+async function generateOutput() {
   if (!state.currentFile) return;
-  status("生成 ASS 中…");
+
+  const mode = document.querySelector('input[name="gen-mode"]:checked').value;
+  const tagType = document.querySelector('input[name="gen-tag-type"]:checked').value;
+
+  status(mode === "video" ? "生成视频中，请稍候…" : "生成 ASS 中…");
   try {
     const r = await fetch("/api/regen", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ json_path: state.currentFile.json_path, audio_path: state.currentFile.audio_path || "" }),
+      body: JSON.stringify({ 
+        json_path: state.currentFile.json_path, 
+        audio_path: state.currentFile.audio_path || "",
+        mode: mode,
+        tag_type: tagType
+      }),
     });
     const j = await r.json();
     if (!r.ok) status("生成失败: " + (j.detail || JSON.stringify(j)), true);
-    else status("✅ ASS 已生成: " + j.ass_path);
+    else status(mode === "video" ? "✅ 视频已生成: " + j.video_path : "✅ ASS 已生成: " + j.ass_path);
   } catch(e) { status("生成失败: " + e, true); }
 }
 
@@ -770,3 +814,139 @@ function isPunct(ch) {
 window.addEventListener("beforeunload", (e) => {
   if (state.dirty) { e.preventDefault(); e.returnValue = ""; }
 });
+
+
+// ---------------------------------------------------------------------------
+// Storyboard / Asset Logic
+// ---------------------------------------------------------------------------
+
+let selectedAsset = null;
+
+async function openAssetModal() {
+  dom.assetModal.style.display = "flex";
+  dom.uploadStatus.textContent = "";
+  loadAssetGrid();
+}
+
+async function loadAssetGrid() {
+  dom.assetGrid.innerHTML = "加载中…";
+  try {
+    const r = await fetch("/api/assets");
+    const assets = await r.json();
+    if (assets.length === 0) {
+      dom.assetGrid.innerHTML = '<span style="color:var(--text-dim);font-size:13px;">暂无素材，请点击"上传图片"添加</span>';
+      return;
+    }
+    dom.assetGrid.innerHTML = assets.map(a => `
+      <div class="asset-card" data-path="${escHtml(a.path)}" data-url="${escHtml(a.url)}" data-name="${escHtml(a.name)}">
+        ${isImage(a.name) ? `<img src="${a.url}" alt="">` : `<div style="height:80px; display:flex; align-items:center; justify-content:center; background:#000;">📹</div>`}
+        <span>${escHtml(a.name)}</span>
+      </div>
+    `).join("");
+    
+    $$(".asset-card").forEach(card => {
+      card.addEventListener("click", () => {
+        selectAsset({
+          name: card.dataset.name,
+          path: card.dataset.path,
+          url: card.dataset.url
+        });
+        dom.assetModal.style.display = "none";
+      });
+    });
+  } catch(e) {
+    dom.assetGrid.innerHTML = "加载素材失败: " + e;
+  }
+}
+
+async function handleAssetUpload(e) {
+  const files = Array.from(e.target.files);
+  if (!files.length) return;
+  dom.uploadStatus.textContent = `上传中 (0/${files.length})…`;
+  let ok = 0;
+  for (const file of files) {
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const r = await fetch("/api/upload_asset", { method: "POST", body: fd });
+      if (r.ok) ok++;
+      else { const j = await r.json(); dom.uploadStatus.textContent = "上传失败: " + (j.detail || r.status); }
+    } catch(err) {
+      dom.uploadStatus.textContent = "上传失败: " + err;
+    }
+  }
+  e.target.value = "";
+  dom.uploadStatus.textContent = `✅ 已上传 ${ok}/${files.length}`;
+  loadAssetGrid();
+}
+
+function selectAsset(asset) {
+  selectedAsset = asset;
+  dom.currentAssetName.textContent = asset.name;
+  if (isImage(asset.name)) {
+    dom.assetPreview.innerHTML = `<img src="${asset.url}" alt="">`;
+  } else {
+    dom.assetPreview.innerHTML = `<span>📹 视频素材</span>`;
+  }
+}
+
+function syncAssetToCurrentLine() {
+  if (state.selectedLine < 0) { status("请先选中一行歌词", true); return; }
+  const line = state.alignment.lines[state.selectedLine];
+  dom.assetStart.value = fmtTimeShort(line.start);
+  dom.assetEnd.value = fmtTimeShort(line.end);
+}
+
+function addOrUpdateAssetEvent() {
+  if (!selectedAsset) { status("请先选择素材", true); return; }
+  const start = parseTimeInput(dom.assetStart.value);
+  const end = parseTimeInput(dom.assetEnd.value);
+  
+  if (start === null || end === null || end <= start) {
+    status("时间输入无效", true); return;
+  }
+  
+  pushUndo();
+  if (!state.alignment.storyboard) state.alignment.storyboard = [];
+  
+  // 简单逻辑：如果已经存在相同路径和时间的，就不重复加？
+  // 或者直接加。这里我们直接添加。
+  state.alignment.storyboard.push({
+    type: isImage(selectedAsset.name) ? "image" : "video",
+    path: selectedAsset.path,
+    start: start,
+    end: end
+  });
+  
+  // 按时间排序
+  state.alignment.storyboard.sort((a, b) => a.start - b.start);
+  
+  renderStoryboard();
+  markDirty();
+  status("✅ 已添加分镜事件");
+}
+
+function renderStoryboard() {
+  const events = state.alignment?.storyboard || [];
+  dom.storyboardList.innerHTML = events.map((e, i) => `
+    <tr>
+      <td title="${escHtml(e.path)}">${escHtml(e.path.split(/[\\/]/).pop())}</td>
+      <td>${fmtTimeShort(e.start)}</td>
+      <td>${fmtTimeShort(e.end)}</td>
+      <td><button class="btn-delete-asset" data-idx="${i}">删除</button></td>
+    </tr>
+  `).join("");
+  
+  dom.storyboardList.querySelectorAll(".btn-delete-asset").forEach(btn => {
+    btn.addEventListener("click", () => {
+      pushUndo();
+      state.alignment.storyboard.splice(Number(btn.dataset.idx), 1);
+      renderStoryboard();
+      markDirty();
+    });
+  });
+}
+
+function isImage(filename) {
+  return /\.(jpg|jpeg|png|webp)$/i.test(filename);
+}

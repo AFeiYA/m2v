@@ -18,7 +18,7 @@
     <button id="btn-undo" title="Ctrl+Z">↩ 撤销</button>
     <button id="btn-redo" title="Ctrl+Y">↪ 重做</button>
     <span class="sep">|</span>
-    <button id="btn-regen-ass">🔄 生成 ASS</button>
+    <button id="btn-generate">🎬 生成输出...</button>
     <span class="sep">|</span>
     <span id="status-msg"></span>
   </div>
@@ -67,6 +67,41 @@
         </div>
       </div>
       <div id="word-timeline"></div>
+
+      <div id="storyboard-panel">
+        <div id="storyboard-header">🎬 素材与分镜事件</div>
+        <div id="storyboard-body">
+          <div id="asset-preview"><span>无预览</span></div>
+          <div id="asset-form">
+            <div class="asset-row">
+              <button id="btn-browse-assets">选择素材</button>
+              <span id="current-asset-name">未选择</span>
+            </div>
+            <div class="asset-row">
+              <label>开始: <input type="text" id="asset-start" class="time-input" placeholder="0:00.000"></label>
+              <label>结束: <input type="text" id="asset-end" class="time-input" placeholder="0:00.000"></label>
+            </div>
+            <div class="asset-row">
+              <button id="btn-asset-sync">同步选中行</button>
+              <button id="btn-asset-add">➕ 添加/修改</button>
+            </div>
+          </div>
+        </div>
+        <div id="storyboard-list-container">
+          <table id="storyboard-table">
+            <thead>
+              <tr>
+                <th>素材</th>
+                <th>开始</th>
+                <th>结束</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="storyboard-list"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div id="word-controls">
         <button id="btn-shift-left" title="A">⬅ -50ms</button>
         <button id="btn-nudge-left" title="←">◁ -10ms</button>
@@ -79,6 +114,50 @@
     </section>
   </div>
 </main>
+
+<!-- 素材库弹窗（挂在body上，避免被overflow:hidden裁剪） -->
+<div id="asset-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>素材库</h3>
+      <button id="btn-close-asset" class="close-btn">&times;</button>
+    </div>
+    <div id="asset-upload-row" style="margin-bottom:12px; display:flex; align-items:center; gap:10px;">
+      <label id="btn-upload-asset" style="cursor:pointer; background:var(--bg-hover); color:var(--text); border:1px solid var(--border); padding:4px 12px; border-radius:4px; font-size:13px;">
+        📁 上传图片
+        <input type="file" id="asset-file-input" accept="image/*" multiple style="display:none;">
+      </label>
+      <span id="upload-status" style="font-size:12px; color:var(--text-dim);"></span>
+    </div>
+    <div id="asset-grid"></div>
+  </div>
+</div>
+
+<!-- 生成选项弹窗（挂在body上） -->
+<div id="generate-modal" class="modal">
+  <div class="modal-content" style="max-width: 400px; padding: 20px;">
+    <div class="modal-header">
+      <h3>🎬 生成选项</h3>
+      <button class="close-btn" id="btn-close-generate">&times;</button>
+    </div>
+    <div style="margin-top: 15px;">
+      <div style="margin-bottom: 15px;">
+        <label><strong>字幕模式:</strong></label><br>
+        <label style="margin-right: 15px;"><input type="radio" name="gen-tag-type" value="kf" checked> 平滑渐变 (\kf)</label>
+        <label><input type="radio" name="gen-tag-type" value="k"> 逐字跳跃 (\k)</label>
+      </div>
+      <div style="margin-bottom: 15px;">
+        <label><strong>输出类型:</strong></label><br>
+        <label style="margin-right: 15px;"><input type="radio" name="gen-mode" value="ass"> 仅包含字幕 (ASS)</label>
+        <label><input type="radio" name="gen-mode" value="video" checked> 视频与字幕合成</label>
+      </div>
+      <div style="color: var(--text-dim); font-size: 12px; margin-bottom: 20px;">
+        提示: 在"素材与分镜事件"中上传或选择图片素材后再合成视频。
+      </div>
+      <button id="btn-confirm-generate" style="width: 100%; padding: 10px; font-size: 16px;">开始生成</button>
+    </div>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>

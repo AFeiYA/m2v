@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
 from src.config import AlignerConfig
@@ -29,6 +29,14 @@ class WordTimestamp:
     start: float   # 秒
     end: float      # 秒
 
+@dataclass
+class StoryboardEvent:
+    """背景素材/图片事件"""
+    type: str          # "image" or "video"
+    path: str          # 文件相对路径或绝对路径
+    start: float       # 开始时间
+    end: float         # 结束时间
+
 
 @dataclass
 class AlignedLine:
@@ -43,9 +51,13 @@ class AlignedLine:
 class AlignmentResult:
     """完整对齐结果"""
     lines: list[AlignedLine]
+    storyboard: list[StoryboardEvent] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        return {"lines": [asdict(line) for line in self.lines]}
+        return {
+            "lines": [asdict(line) for line in self.lines],
+            "storyboard": [asdict(e) for e in self.storyboard]
+        }
 
     def save_json(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -66,7 +78,12 @@ class AlignmentResult:
                 end=line_data["end"],
                 words=words,
             ))
-        return cls(lines=lines)
+        
+        storyboard = []
+        for e_data in data.get("storyboard", []):
+            storyboard.append(StoryboardEvent(**e_data))
+            
+        return cls(lines=lines, storyboard=storyboard)
 
 
 # ---------------------------------------------------------------------------
