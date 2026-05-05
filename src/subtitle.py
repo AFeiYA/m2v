@@ -26,16 +26,7 @@ def generate_ass(
     audio_path: Path | None = None,
 ) -> Path:
     """
-    将对齐结果生成 ASS 卡拉OK字幕文件。
-
-    Args:
-        alignment:   词级对齐结果
-        output_path: 输出 .ass 文件路径
-        config:      字幕样式配置
-        audio_path:  原始音频路径 (用于节奏检测, 可选)
-
-    Returns:
-        输出文件路径
+    将对齐结果生成 ASS 卡拉OK字幕文件 (Apple Music 风格)。
     """
     if config is None:
         config = SubtitleConfig()
@@ -45,17 +36,19 @@ def generate_ass(
     # 加载模板头部
     header = _load_template_header(config)
 
+    # 自动换行处理 (Apple Music 风格)
+    max_width = 1920 - 200 # 左右边距各100
+    alignment = _wrap_lines(alignment, max_width, config.font_size, config.font_name)
+    log.info("自动换行后: %d 行", len(alignment.lines))
+
     # 可选: 检测节奏点
     beat_times: list[float] = []
     if config.enable_beat_effects and audio_path is not None:
         beat_times = _detect_beats(audio_path)
         log.info("检测到 %d 个节奏点", len(beat_times))
 
-    # 生成 Dialogue 行
-    dialogue_lines: list[str] = []
-    for line in alignment.lines:
-        ass_line = _create_dialogue_line(line, config, beat_times)
-        dialogue_lines.append(ass_line)
+    # 生成 Dialogue 行 (Apple Music 滚动效果)
+    dialogue_lines = _generate_apple_music_events(alignment, config, beat_times)
 
     # 组装完整 ASS 文件
     ass_content = header + "\n".join(dialogue_lines) + "\n"
@@ -65,6 +58,62 @@ def generate_ass(
 
     log.info("ASS 字幕已生成: %s (%d 行 Dialogue)", output_path.name, len(dialogue_lines))
     return output_path
+
+def _wrap_lines(alignment: AlignmentResult, max_width: int, font_size: int, font_name: str) -> AlignmentResult:
+    """使用 Pillow 计算文本宽度并自动换行"""
+    import platform
+    from PIL import ImageFont
+    
+    def get_fallback_font():
+        system = platform.system()
+        try:
+            if system == "Windows": return ImageFont.truetype("msyh.ttc", font_size)
+            elif system == "Darwin": return ImageFont.truetype("PingFang.ttc", font_size)
+            else: return ImageFont.truetype("NotoSansCJK-Regular.ttc", font_size)
+        except:
+            return ImageFont.load_default()
+            
+    try:
+        font = ImageFont.truetype(font_name, font_size)
+    except:
+        try:
+            font = ImageFont.truetype(f"{font_name}.ttf", font_size)
+        except:
+            font = get_fallback_font()
+            
+    new_lines = []
+    for line in alignment.lines:
+        current_words = []
+        current_width = 0.0
+        for word in line.words:
+            try:
+                w = font.getlength(word.word)
+            except AttributeError:
+                try:
+                    w = font.getsize(word.word)[0]
+                except:
+                    w = len(word.word) * font_size
+            
+            if current_width + w > max_width and current_words:
+                new_lines.append(AlignedLine(
+                    text="".join(ww.word for ww in current_words),
+                    start=current_words[0].start,
+                    end=current_words[-1].end,
+                    words=current_words
+                ))
+                current_words = [word]
+                current_width = w
+            else:
+                current_words.append(word)
+                current_width += w
+        if current_words:
+            new_lines.append(AlignedLine(
+                text="".join(ww.word for ww in current_words),
+                start=current_words[0].start,
+                end=current_words[-1].end,
+                words=current_words
+            ))
+    return AlignmentResult(lines=new_lines)
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +138,7 @@ def _load_template_header(config: SubtitleConfig) -> str:
         content = re.sub(pattern, replacement, content, flags=re.IGNORECASE)
 
         # 强制更新字体大小
-        content = re.sub(rf"(Style:\s*{config.style_name},[^,]+,)\d+", rf"\1{config.font_size}", content, flags=re.IGNORECASE)
+        content = re.sub(rf"(Style:\s*{config.style_name},[^,]+,)\d+", rf"\g<1>{config.font_size}", content, flags=re.IGNORECASE)
         # 确保以换行结尾
         if not content.endswith("\n"):
             content += "\n"
@@ -123,33 +172,117 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 # 单行 Dialogue 生成
 # ---------------------------------------------------------------------------
 
-def _create_dialogue_line(
-    line: AlignedLine,
-    config: SubtitleConfig,
-    beat_times: list[float],
-) -> str:
-    """
-    生成一行 ASS Dialogue，包含 \\k 卡拉OK标签。
+def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleConfig, beat_times: list[float]) -> list[str]:
+    lines = alignment.lines
+    N = len(lines)
+    if N == 0:
+        return []
+        
+    # 计算调度时间点
+    trans_start = [0.0] * N
+    trans_end = [0.0] * N
+    
+    trans_start[0] = max(0.0, lines[0].start - 0.3)
+    trans_end[0] = max(0.0, trans_start[0] + 0.1)
+    
+    for i in range(1, N):
+        s_t = max(lines[i-1].end, lines[i].start - 0.3)
+        e_t = max(lines[i].start, s_t + 0.1)
+        trans_start[i] = s_t
+        trans_end[i] = e_t
+        
+    # 计算相对 Y 坐标 (每个句子占用的垂直高度)
+    local_y = [0.0] * N
+    line_height = config.font_size * 1.8  # 行距
+    for i in range(1, N):
+        local_y[i] = local_y[i-1] + line_height
+        
+    center_y = 1080 / 2
+    events = []
+    
+    def parse_color(ass_color: str) -> tuple[str, str]:
+        if ass_color.startswith("&H") and len(ass_color) >= 10:
+            return "&H" + ass_color[2:4] + "&", "&H" + ass_color[4:10] + "&"
+        return "&H00&", ass_color
+        
+    a_pri, c_pri = parse_color(config.primary_colour)
+    a_sec, c_sec = parse_color(config.secondary_colour)
+    
+    def get_base_tags(state: str) -> str:
+        if state == "before":
+            return f"\\1c{c_sec}\\1a{a_sec}\\fscx90\\fscy90\\blur2"
+        elif state == "active_transition":
+            return f"\\1c{c_sec}\\1a{a_sec}\\fscx100\\fscy100\\blur0"
+        elif state == "active_steady":
+            return f"\\1c{c_pri}\\1a{a_pri}\\2c{c_sec}\\2a{a_sec}\\fscx100\\fscy100\\blur0"
+        elif state == "after_transition_start":
+            return f"\\1c{c_pri}\\1a{a_pri}\\fscx100\\fscy100\\blur0"
+        elif state == "after":
+            return f"\\1c{c_pri}\\1a{a_sec}\\fscx90\\fscy90\\blur2"
+        return ""
+    
+    for j in range(N):
+        # 仅在前后 3 行范围内可见
+        k_min = max(0, j-3)
+        k_max = min(N-1, j+3)
+        
+        for k in range(k_min, k_max + 1):
+            # 1. 切换过渡动画
+            if k > 0 and k >= k_min:
+                t_start = trans_start[k]
+                t_end = trans_end[k]
+                dur_ms = int((t_end - t_start) * 1000)
+                
+                y_prev = center_y + local_y[j] - local_y[k-1]
+                y_curr = center_y + local_y[j] - local_y[k]
+                
+                if k < j:
+                    tag_start = get_base_tags("before")
+                    tag_end = get_base_tags("before")
+                elif k == j:
+                    tag_start = get_base_tags("before")
+                    tag_end = get_base_tags("active_transition")
+                elif k == j + 1:
+                    tag_start = get_base_tags("after_transition_start")
+                    tag_end = get_base_tags("after")
+                else: # k > j + 1
+                    tag_start = get_base_tags("after")
+                    tag_end = get_base_tags("after")
+                
+                ass_t_start = seconds_to_ass_time(t_start)
+                ass_t_end = seconds_to_ass_time(t_end)
+                
+                tags = f"\\an4\\pos(100,{y_prev})\\move(100,{y_prev},100,{y_curr}){tag_start}\\t(0,{dur_ms},{tag_end})"
+                events.append(f"Dialogue: 0,{ass_t_start},{ass_t_end},{config.style_name},,0,0,0,,{{{tags}}}{lines[j].text}")
 
-    ASS \\k 语法:  {\\k<centiseconds>}字符
-    例: {\\k50}我  → "我" 字变色持续 500ms
-    """
-    start_time = seconds_to_ass_time(line.start)
-    end_time = seconds_to_ass_time(line.end)
+            # 2. 稳定期
+            t_start = trans_end[k]
+            t_end = trans_start[k+1] if k < N - 1 else lines[k].end + 3.0
+                
+            y_curr = center_y + local_y[j] - local_y[k]
+            ass_t_start = seconds_to_ass_time(t_start)
+            ass_t_end = seconds_to_ass_time(t_end)
+            
+            if k == j:
+                # 当前行激活，添加卡拉OK标签
+                tag_steady = get_base_tags("active_steady")
+                delay_cs = int((lines[j].start - t_start) * 100)
+                if delay_cs < 0: delay_cs = 0
+                karaoke_text = f"{{\\k{delay_cs}}}"
+                for word in lines[j].words:
+                    dur_cs = int((word.end - word.start) * 100)
+                    karaoke_text += f"{{\\k{dur_cs}}}{word.word}"
+                    
+                tags = f"\\an4\\pos(100,{y_curr}){tag_steady}"
+                events.append(f"Dialogue: 0,{ass_t_start},{ass_t_end},{config.style_name},,0,0,0,,{{{tags}}}{karaoke_text}")
+            else:
+                tag_steady = get_base_tags("before") if k < j else get_base_tags("after")
+                tags = f"\\an4\\pos(100,{y_curr}){tag_steady}"
+                events.append(f"Dialogue: 0,{ass_t_start},{ass_t_end},{config.style_name},,0,0,0,,{{{tags}}}{lines[j].text}")
 
-    # 构建卡拉OK文本
-    karaoke_text = ""
-    for word in line.words:
-        duration_cs = seconds_to_centiseconds(word.end - word.start)
-
-        # 可选: 在节奏点处添加缩放动画
-        beat_effect = ""
-        if beat_times and config.enable_beat_effects:
-            beat_effect = _get_beat_effect(word.start, word.end, beat_times, config)
-
-        karaoke_text += f"{{\\k{duration_cs}{beat_effect}}}{word.word}"
-
-    return f"Dialogue: 0,{start_time},{end_time},{config.style_name},,0,0,0,,{karaoke_text}"
+    # 按时间排序事件，让 ASS 文件看起来更整齐
+    events.sort(key=lambda x: x.split(",")[1])
+    return events
 
 
 # ---------------------------------------------------------------------------
