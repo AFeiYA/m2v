@@ -29,6 +29,8 @@ class LyricLine:
     paragraph: int = 0               # 段落索引 (0-based)，由空行分隔
     language: str | None = None      # "zh" / "en" / None=未检测
     occurrence: int = 0              # 同一段落内容第几次出现 (0=首次, 1=第二次, …)
+    is_annotation: bool = False      # 是否为编曲说明（如 [Intro], (Music)），跳过对齐
+
 
 
 # ---------------------------------------------------------------------------
@@ -80,14 +82,14 @@ def preprocess_lyrics(
         if not text:
             continue
 
-        # 跳过章节标题 [Intro] / [Verse 1] 等
+        # 标记章节标题 [Intro] / [Verse 1] 等
         if _SECTION_HEADER_RE.match(text):
-            log.debug("跳过章节标题: %s", text)
+            cleaned.append(LyricLine(text=text, paragraph=line.paragraph, is_annotation=True))
             continue
 
-        # 跳过整行编曲说明 （Fast Kick + ...） / (Bass Drop)
+        # 标记整行编曲说明 （Fast Kick + ...） / (Bass Drop)
         if _FULL_ANNOTATION_RE.match(text):
-            log.debug("跳过编曲说明: %s", text)
+            cleaned.append(LyricLine(text=text, paragraph=line.paragraph, is_annotation=True))
             continue
 
         # 剥离行内方括号指令 e.g. "[Vocal grit] 如果…" → "如果…"

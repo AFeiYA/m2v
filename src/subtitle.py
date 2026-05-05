@@ -7,6 +7,7 @@ Module 4: ASS 卡拉OK字幕生成器
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from src.aligner import AlignmentResult, AlignedLine
@@ -76,6 +77,19 @@ def _load_template_header(config: SubtitleConfig) -> str:
 
     if template_path.exists():
         content = template_path.read_text(encoding="utf-8")
+        # 强制校正分辨率，确保与 CompositorConfig (1920x1080) 一致
+        content = re.sub(r"PlayResX:\s*\d+", "PlayResX: 1920", content, flags=re.IGNORECASE)
+        content = re.sub(r"PlayResY:\s*\d+", "PlayResY: 1080", content, flags=re.IGNORECASE)
+        
+        # 强制应用配置中的颜色 (正则匹配 Style 行中的颜色部分)
+        # ASS Format: ..., PrimaryColour, SecondaryColour, OutlineColour, BackColour, ...
+        # 我们寻找指定的 Style 名称行并修改它
+        pattern = rf"(Style:\s*{config.style_name},[^,]+,[^,]+,)(&H[0-9A-F]+),(&H[0-9A-F]+),(&H[0-9A-F]+)"
+        replacement = rf"\1{config.primary_colour},{config.secondary_colour},{config.outline_colour}"
+        content = re.sub(pattern, replacement, content, flags=re.IGNORECASE)
+
+        # 强制更新字体大小
+        content = re.sub(rf"(Style:\s*{config.style_name},[^,]+,)\d+", rf"\1{config.font_size}", content, flags=re.IGNORECASE)
         # 确保以换行结尾
         if not content.endswith("\n"):
             content += "\n"

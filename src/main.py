@@ -120,6 +120,8 @@ def main() -> None:
         config.skip_separation = True
     if args.ass_only:
         config.ass_only = True
+    if args.no_ass_only:
+        config.ass_only = False
     if args.alignment_json:
         config.alignment_json = Path(args.alignment_json)
     if args.video_only:
@@ -136,22 +138,25 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 确定输入文件对
-    if args.lyrics:
-        # 单文件模式
+    if args.lyrics or args.alignment_json:
+        # 单文件模式: 显式指定了歌词或对齐结果
         mp3_path = Path(args.input)
-        lyrics_path = Path(args.lyrics)
+        lyrics_path = Path(args.lyrics) if args.lyrics else None
+        
         if not mp3_path.exists():
-            log.error("MP3 文件不存在: %s", mp3_path)
+            log.error("输入音频文件不存在: %s", mp3_path)
             sys.exit(1)
-        if not lyrics_path.exists():
+            
+        if lyrics_path and not lyrics_path.exists():
             log.error("歌词文件不存在: %s", lyrics_path)
             sys.exit(1)
+            
         pairs = [(mp3_path, lyrics_path)]
     else:
         # 批量模式: 扫描目录
         input_dir = Path(args.input)
         if not input_dir.is_dir():
-            log.error("输入路径不是目录: %s (若处理单文件请同时指定 --lyrics)", input_dir)
+            log.error("输入路径不是目录: %s (若处理单文件请同时指定 --lyrics 或 --alignment-json)", input_dir)
             sys.exit(1)
         pairs = discover_pairs(input_dir)
         if not pairs:
@@ -236,38 +241,44 @@ def process_one(
             return output_mp4
 
         # ---------------------------------------------------------------
-        # Step 1: 歌词预处理
+        # Step 1 & 2: 只有在不对齐 JSON 时才需要
         # ---------------------------------------------------------------
-        _progress("preprocessing", 5, "歌词预处理中…")
-        log.info("[1/5] 歌词预处理…")
-        from src.preprocessor import preprocess_lyrics
-        lyrics = preprocess_lyrics(lyrics_path, config.preprocessor)
-        _progress("preprocessing", 10, "歌词预处理完成")
-
-        # ---------------------------------------------------------------
-        # Step 2: 人声分离 (可跳过)
-        # ---------------------------------------------------------------
-        instrumental_path: Path | None = None
-        if config.skip_separation:
-            log.info("[2/5] 跳过人声分离，直接使用原音频进行对齐…")
-            vocals_path = mp3_path
-            _progress("separating", 30, "跳过人声分离")
+        if config.alignment_json:
+            log.info("检测到对齐 JSON，将跳过预处理和人声分离…")
+            vocals_path = mp3_path  # 占位，Step 3 会直接跳过对齐
+            instrumental_path = None
         else:
-            _progress("separating", 15, "人声分离中 (Demucs)…")
-            log.info("[2/5] 人声分离 (Demucs)…")
-            from src.separator import separate_vocals
-            vocals_path, instrumental_path = separate_vocals(
-                mp3_path, temp_dir, config.separator
-            )
-            # 把 vocals + instrumental 复制到输出目录，供本地编辑器双音轨使用
-            output_vocals = output_dir / f"{stem}_vocals.wav"
-            shutil.copy2(vocals_path, output_vocals)
-            log.info("人声文件已保存: %s", output_vocals.name)
-            if instrumental_path and instrumental_path.exists():
-                output_inst = output_dir / f"{stem}_instrumental.wav"
-                shutil.copy2(instrumental_path, output_inst)
-                log.info("伴奏文件已保存: %s", output_inst.name)
-            _progress("separating", 30, "人声分离完成")
+            # Step 1: 歌词预处理
+            _progress("preprocessing", 5, "歌词预处理中…")
+            log.info("[1/5] 歌词预处理…")
+            from src.preprocessor import preprocess_lyrics
+            if not lyrics_path:
+                raise ValueError("未提供歌词文件路径")
+            lyrics = preprocess_lyrics(lyrics_path, config.preprocessor)
+            _progress("preprocessing", 10, "歌词预处理完成")
+
+            # Step 2: 人声分离 (可跳过)
+            instrumental_path = None
+            if config.skip_separation:
+                log.info("[2/5] 跳过人声分离，直接使用原音频进行对齐…")
+                vocals_path = mp3_path
+                _progress("separating", 30, "跳过人声分离")
+            else:
+                _progress("separating", 15, "人声分离中 (Demucs)…")
+                log.info("[2/5] 人声分离 (Demucs)…")
+                from src.separator import separate_vocals
+                vocals_path, instrumental_path = separate_vocals(
+                    mp3_path, temp_dir, config.separator
+                )
+                # 把 vocals + instrumental 复制到输出目录，供本地编辑器双音轨使用
+                output_vocals = output_dir / f"{stem}_vocals.wav"
+                shutil.copy2(vocals_path, output_vocals)
+                log.info("人声文件已保存: %s", output_vocals.name)
+                if instrumental_path and instrumental_path.exists():
+                    output_inst = output_dir / f"{stem}_instrumental.wav"
+                    shutil.copy2(instrumental_path, output_inst)
+                    log.info("伴奏文件已保存: %s", output_inst.name)
+                _progress("separating", 30, "人声分离完成")
 
         # ---------------------------------------------------------------
         # Step 3: 词级对齐 (可复用 JSON)
@@ -283,8 +294,9 @@ def process_one(
             _progress("aligning", 60, "复用已有对齐结果")
 
             # 复制一份到输出目录，保持产物一致
-            output_json = output_dir / f"{stem}_alignment.json"
-            shutil.copy2(alignment_json, output_json)
+            output_json = (output_dir / f"{stem}_alignment.json").resolve()
+            if alignment_json.resolve() != output_json:
+                shutil.copy2(alignment_json, output_json)
         else:
             _progress("aligning", 35, "词级对齐中 (WhisperX)…")
             log.info("[3/5] 词级对齐 (WhisperX)…")
@@ -478,6 +490,11 @@ def parse_args() -> argparse.Namespace:
         "--ass-only",
         action="store_true",
         help="只输出 ASS + alignment.json，不合成 MP4",
+    )
+    parser.add_argument(
+        "--no-ass-only",
+        action="store_true",
+        help="强制合成视频（覆盖配置文件中的 ass_only=true）",
     )
     parser.add_argument(
         "--video-only",

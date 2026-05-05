@@ -600,6 +600,8 @@ def _match_lyrics_to_timeline(
     # --- 构建歌词字符序列 (只保留有声字符用于匹配) ---
     lyrics_chars: list[tuple[int, int, str]] = []  # (line_idx, char_idx_in_line, char)
     for li, ly in enumerate(lyrics):
+        if ly.is_annotation:
+            continue
         chars_in_line = [c for c in ly.text if not c.isspace()]
         for ci, ch in enumerate(chars_in_line):
             if _CHINESE_CHAR_RE.match(ch) or ch.isalnum():
@@ -641,9 +643,19 @@ def _match_lyrics_to_timeline(
 
     # --- 按行切分，生成 AlignedLine ---
     aligned_lines: list[AlignedLine] = []
-    # 重新遍历每行，包含所有字符（含标点）
-    lci = 0  # lyrics_chars 的游标
+    lci = 0  # lyrics_chars 的游标游走于所有正常歌词字符
+
     for li, ly in enumerate(lyrics):
+        if ly.is_annotation:
+            # 编曲说明行：先占位，稍后回填时间
+            aligned_lines.append(AlignedLine(
+                text=ly.text,
+                start=0.0,
+                end=0.0,
+                words=[WordTimestamp(word=ly.text, start=0.0, end=0.0)]
+            ))
+            continue
+
         chars_in_line = [c for c in ly.text if not c.isspace()]
         if not chars_in_line:
             continue
@@ -657,21 +669,73 @@ def _match_lyrics_to_timeline(
                 if t is not None:
                     words.append(WordTimestamp(word=ch, start=t[0], end=t[1]))
                 else:
-                    # 仍然没有时间 → 继承前字
-                    prev_end = words[-1].end if words else 0.0
+                    prev_end = words[-1].end if words else (aligned_lines[-1].end if aligned_lines else 0.0)
                     words.append(WordTimestamp(word=ch, start=prev_end, end=prev_end + 0.3))
             else:
-                # 标点: 零时长
-                prev_end = words[-1].end if words else 0.0
+                prev_end = words[-1].end if words else (aligned_lines[-1].end if aligned_lines else 0.0)
                 words.append(WordTimestamp(word=ch, start=prev_end, end=prev_end))
 
-        if words and any(w.end > w.start for w in words):
+        if words:
             aligned_lines.append(AlignedLine(
                 text=ly.text,
                 start=words[0].start,
                 end=words[-1].end,
                 words=words,
             ))
+
+    # --- 为编曲说明分配空隙时间 (支持多行平分) ---
+    i = 0
+    while i < len(aligned_lines):
+        al = aligned_lines[i]
+        # 判断是否为待处理的编曲说明行
+        if len(al.words) == 1 and al.words[0].word == al.text and al.start == 0 and al.end == 0:
+            # 找到连续的编曲说明块
+            block_start = i
+            while i < len(aligned_lines):
+                curr = aligned_lines[i]
+                if not (len(curr.words) == 1 and curr.words[0].word == curr.text and curr.start == 0 and curr.end == 0):
+                    break
+                i += 1
+            block_end = i  # 不包含
+            block_count = block_end - block_start
+
+            # 确定块的前后锚点
+            anchor_start = aligned_lines[block_start - 1].end if block_start > 0 else 0.0
+            anchor_end = aligned_lines[block_end].start if block_end < len(aligned_lines) else anchor_start + 5.0
+            total_gap = anchor_end - anchor_start
+
+            # 确定块的前后锚点 (绝对界限)
+            anchor_start = aligned_lines[block_start - 1].end if block_start > 0 else 0.0
+            anchor_end = aligned_lines[block_end].start if block_end < len(aligned_lines) else anchor_start + 5.0
+            total_gap = max(0.0, anchor_end - anchor_start)
+
+            # 设定理想参数
+            PREF_DUR = 3.0  # 每行最大持续时间 3秒
+
+            if block_start == 0:
+                # 情况 A: 前奏块 -> 从 0 开始往后排，但不超过第一句歌词
+                dur = min(total_gap / block_count, PREF_DUR)
+                for j in range(block_count):
+                    idx = block_start + j
+                    target = aligned_lines[idx]
+                    target.start = round(j * dur, 3)
+                    target.end = round((j + 1) * dur, 3)
+                    target.words[0].start, target.words[0].end = target.start, target.end
+            else:
+                # 情况 B: 中间或结尾块 -> 靠后对齐 (下一句开唱前)，绝不越界
+                actual_dur = min(total_gap / block_count, PREF_DUR)
+                # 整个块贴着 anchor_end 往前排
+                block_real_start = anchor_end - (actual_dur * block_count)
+                
+                for j in range(block_count):
+                    idx = block_start + j
+                    target = aligned_lines[idx]
+                    s = block_real_start + j * actual_dur
+                    e = s + actual_dur
+                    target.start, target.end = round(s, 3), round(e, 3)
+                    target.words[0].start, target.words[0].end = target.start, target.end
+        else:
+            i += 1
 
     return aligned_lines
 
