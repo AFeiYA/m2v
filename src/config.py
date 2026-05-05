@@ -59,6 +59,7 @@ class SubtitleConfig:
     # 渲染模式: "classic" (传统) / "apple" (滚动聚焦)
     render_mode: str = "apple"
     apple_pulse: bool = True              # 是否启用字级缩放呼吸感
+    use_karaoke_gradient: bool = True     # 开启时使用平滑过光渐变(\kf)，关闭时使用逐字跳跃(\k)
     # 节奏动画
     enable_beat_effects: bool = False
     beat_scale: float = 1.15              # 鼓点处放大倍数

@@ -297,7 +297,9 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
                     if dur_cs < 0: 
                         dur_cs = 0
                         
-                    karaoke_text += f"{{\\k{dur_cs}}}{word.word}"
+                    # 根据配置决定使用平滑过光 (\kf) 还是逐字跳跃 (\k)
+                    k_tag = "kf" if config.use_karaoke_gradient else "k"
+                    karaoke_text += f"{{\\{k_tag}{dur_cs}}}{word.word}"
                     current_t = max(word.end, current_t)
                 
                 # Active line uses tag_steady as its base!
