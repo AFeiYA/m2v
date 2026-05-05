@@ -60,7 +60,7 @@ def generate_ass(
     return output_path
 
 def _wrap_lines(alignment: AlignmentResult, max_width: int, font_size: int, font_name: str) -> AlignmentResult:
-    """使用 Pillow 计算文本宽度并自动换行"""
+    """使用 Pillow 计算文本宽度并在单行内插入 \\N 实现自动换行，避免产生新的物理行导致滚动抖动"""
     import platform
     from PIL import ImageFont
     
@@ -81,39 +81,30 @@ def _wrap_lines(alignment: AlignmentResult, max_width: int, font_size: int, font
         except:
             font = get_fallback_font()
             
-    new_lines = []
     for line in alignment.lines:
-        current_words = []
         current_width = 0.0
         for word in line.words:
+            # 清理可能存在的旧换行符
+            w_text = word.word.replace("\\N", "")
             try:
-                w = font.getlength(word.word)
+                w_len = font.getlength(w_text)
             except AttributeError:
                 try:
-                    w = font.getsize(word.word)[0]
+                    w_len = font.getsize(w_text)[0]
                 except:
-                    w = len(word.word) * font_size
+                    w_len = len(w_text) * font_size
             
-            if current_width + w > max_width and current_words:
-                new_lines.append(AlignedLine(
-                    text="".join(ww.word for ww in current_words),
-                    start=current_words[0].start,
-                    end=current_words[-1].end,
-                    words=current_words
-                ))
-                current_words = [word]
-                current_width = w
+            if current_width + w_len > max_width and current_width > 0:
+                word.word = "\\N" + w_text
+                current_width = w_len
             else:
-                current_words.append(word)
-                current_width += w
-        if current_words:
-            new_lines.append(AlignedLine(
-                text="".join(ww.word for ww in current_words),
-                start=current_words[0].start,
-                end=current_words[-1].end,
-                words=current_words
-            ))
-    return AlignmentResult(lines=new_lines)
+                word.word = w_text
+                current_width += w_len
+                
+        # 更新行的总文本
+        line.text = "".join(w.word for w in line.words)
+        
+    return alignment
 
 
 # ---------------------------------------------------------------------------
@@ -178,28 +169,25 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
     if N == 0:
         return []
         
-    # 计算调度时间点
-    trans_start = [0.0] * N
-    trans_end = [0.0] * N
-    
-    trans_start[0] = max(0.0, lines[0].start - 0.3)
-    trans_end[0] = max(0.0, trans_start[0] + 0.1)
-    
-    for i in range(1, N):
-        s_t = max(lines[i-1].end, lines[i].start - 0.3)
-        e_t = max(lines[i].start, s_t + 0.1)
-        trans_start[i] = s_t
-        trans_end[i] = e_t
+    # 构建时间槽 (Slots)
+    # Event k 占据 [S_k, S_{k+1}] 的时间。在这个时间段结束时（最后0.5秒），焦点平滑转移到 k+1。
+    slots = []
+    for i in range(N):
+        start_t = lines[i].start
+        end_t = lines[i+1].start if i < N - 1 else lines[i].end + 3.0
+        slots.append((start_t, end_t))
         
-    # 计算相对 Y 坐标 (每个句子占用的垂直高度)
+    # 计算相对 Y 坐标 (动态计算包含 \N 的多行文本高度)
     local_y = [0.0] * N
-    line_height = config.font_size * 1.8  # 行距
     for i in range(1, N):
-        local_y[i] = local_y[i-1] + line_height
+        prev_lines = lines[i-1].text.count("\\N") + 1
+        curr_lines = lines[i].text.count("\\N") + 1
+        # 每行文本的视觉高度占比约 1.2，块间距 0.6
+        dist = (prev_lines + curr_lines) * 0.6 * config.font_size + 0.6 * config.font_size
+        local_y[i] = local_y[i-1] + dist
         
     center_y = 1080 / 2
-    events = []
-    
+        
     def parse_color(ass_color: str) -> tuple[str, str]:
         if ass_color.startswith("&H") and len(ass_color) >= 10:
             return "&H" + ass_color[2:4] + "&", "&H" + ass_color[4:10] + "&"
@@ -220,64 +208,71 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
         elif state == "after":
             return f"\\1c{c_pri}\\1a{a_sec}\\fscx90\\fscy90\\blur2"
         return ""
-    
+        
+    events = []
     for j in range(N):
         # 仅在前后 3 行范围内可见
         k_min = max(0, j-3)
         k_max = min(N-1, j+3)
         
         for k in range(k_min, k_max + 1):
-            # 1. 切换过渡动画
-            if k > 0 and k >= k_min:
-                t_start = trans_start[k]
-                t_end = trans_end[k]
-                dur_ms = int((t_end - t_start) * 1000)
+            slot_start, slot_end = slots[k]
+            
+            # 过滤掉无效的过短槽位
+            if slot_end <= slot_start:
+                continue
                 
-                y_prev = center_y + local_y[j] - local_y[k-1]
-                y_curr = center_y + local_y[j] - local_y[k]
+            # 过渡动画 (滚动、缩放、模糊) 固定在槽位的最后 0.5 秒
+            trans_duration = 0.5
+            trans_start_t = max(slot_start, slot_end - trans_duration)
+            
+            # ASS 中的时间偏移 (毫秒)
+            t1 = int((trans_start_t - slot_start) * 1000)
+            t2 = int((slot_end - slot_start) * 1000)
+            
+            # 坐标计算
+            y_start = center_y + local_y[j] - local_y[k]
+            y_end = center_y + local_y[j] - local_y[k+1] if k < N - 1 else center_y + local_y[j] - local_y[k]
+            
+            # 状态选择
+            if k < j:
+                tag_start = get_base_tags("before")
+            elif k == j:
+                tag_start = get_base_tags("active_steady")
+            else:
+                tag_start = get_base_tags("after")
                 
-                if k < j:
-                    tag_start = get_base_tags("before")
-                    tag_end = get_base_tags("before")
-                elif k == j:
-                    tag_start = get_base_tags("before")
-                    tag_end = get_base_tags("active_transition")
-                elif k == j + 1:
-                    tag_start = get_base_tags("after_transition_start")
-                    tag_end = get_base_tags("after")
-                else: # k > j + 1
-                    tag_start = get_base_tags("after")
-                    tag_end = get_base_tags("after")
+            if k + 1 < j:
+                tag_end = get_base_tags("before")
+            elif k + 1 == j:
+                tag_end = get_base_tags("active_transition")
+            else:
+                tag_end = get_base_tags("after")
                 
-                ass_t_start = seconds_to_ass_time(t_start)
-                ass_t_end = seconds_to_ass_time(t_end)
+            # 构建 ASS 标签
+            ass_t_start = seconds_to_ass_time(slot_start)
+            ass_t_end = seconds_to_ass_time(slot_end)
+            
+            # 如果不移动（比如最后一行之后），就不使用 \move，避免无效移动
+            if y_start == y_end:
+                pos_tag = f"\\pos(100,{y_start:.1f})"
+            else:
+                pos_tag = f"\\move(100,{y_start:.1f},100,{y_end:.1f},{t1},{t2})"
                 
-                tags = f"\\an4\\pos(100,{y_prev})\\move(100,{y_prev},100,{y_curr}){tag_start}\\t(0,{dur_ms},{tag_end})"
-                events.append(f"Dialogue: 0,{ass_t_start},{ass_t_end},{config.style_name},,0,0,0,,{{{tags}}}{lines[j].text}")
-
-            # 2. 稳定期
-            t_start = trans_end[k]
-            t_end = trans_start[k+1] if k < N - 1 else lines[k].end + 3.0
-                
-            y_curr = center_y + local_y[j] - local_y[k]
-            ass_t_start = seconds_to_ass_time(t_start)
-            ass_t_end = seconds_to_ass_time(t_end)
+            # 只有当开始和结束状态不同时，才需要 \t 动画
+            anim_tag = f"\\t({t1},{t2},{tag_end})" if tag_start != tag_end else ""
+            
+            tags = f"\\an4{pos_tag}{tag_start}{anim_tag}"
             
             if k == j:
-                # 当前行激活，添加卡拉OK标签
-                tag_steady = get_base_tags("active_steady")
-                delay_cs = int((lines[j].start - t_start) * 100)
-                if delay_cs < 0: delay_cs = 0
+                # 注入卡拉OK时间标签
+                delay_cs = 0 # 因为事件的起点严格等于句子的起点 S_j，所以 delay 为 0!
                 karaoke_text = f"{{\\k{delay_cs}}}"
                 for word in lines[j].words:
                     dur_cs = int((word.end - word.start) * 100)
                     karaoke_text += f"{{\\k{dur_cs}}}{word.word}"
-                    
-                tags = f"\\an4\\pos(100,{y_curr}){tag_steady}"
                 events.append(f"Dialogue: 0,{ass_t_start},{ass_t_end},{config.style_name},,0,0,0,,{{{tags}}}{karaoke_text}")
             else:
-                tag_steady = get_base_tags("before") if k < j else get_base_tags("after")
-                tags = f"\\an4\\pos(100,{y_curr}){tag_steady}"
                 events.append(f"Dialogue: 0,{ass_t_start},{ass_t_end},{config.style_name},,0,0,0,,{{{tags}}}{lines[j].text}")
 
     # 按时间排序事件，让 ASS 文件看起来更整齐
