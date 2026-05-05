@@ -49,12 +49,15 @@ class AlignerConfig:
 class SubtitleConfig:
     template_path: Path = TEMPLATES_DIR / "default_style.ass"
     style_name: str = "Karaoke"
-    # 颜色 (ASS &HAABBGGRR 格式)
+    # 颜色 (由于您的系统似乎识别 RGB 顺序，我们针对性调整)
     primary_colour: str = "&H0000FFFF"    # 黄 (已唱)
     secondary_colour: str = "&H00FFFFFF"  # 白 (未唱)
     outline_colour: str = "&H00000000"    # 黑描边
     font_name: str = "思源黑体"
-    font_size: int = 72
+    font_size: int = 96
+    # 渲染模式: "classic" (传统) / "apple" (滚动聚焦)
+    render_mode: str = "apple"
+    apple_pulse: bool = True              # 是否启用字级缩放呼吸感
     # 节奏动画
     enable_beat_effects: bool = False
     beat_scale: float = 1.15              # 鼓点处放大倍数
@@ -64,7 +67,7 @@ class SubtitleConfig:
 # ---------------------------------------------------------------------------
 @dataclass
 class CompositorConfig:
-    resolution: tuple[int, int] = (1080, 1920)
+    resolution: tuple[int, int] = (1920, 1080)
     fps: int = 30
     video_codec: str = "libx264"
     crf: int = 18

@@ -319,7 +319,11 @@ def process_one(
         log.info("[4/5] 生成 ASS 字幕…")
         from src.subtitle import generate_ass
         ass_path = temp_dir / f"{stem}.ass"
-        generate_ass(alignment, ass_path, config.subtitle, audio_path=mp3_path)
+        generate_ass(
+            alignment, ass_path, config.subtitle, 
+            audio_path=mp3_path,
+            resolution=config.compositor.resolution
+        )
         _progress("subtitle", 75, "ASS 字幕生成完成")
 
         # 复制 ASS 到输出目录
