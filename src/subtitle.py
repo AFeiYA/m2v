@@ -196,24 +196,37 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
     a_pri, c_pri = parse_color(config.primary_colour)
     a_sec, c_sec = parse_color(config.secondary_colour)
     
-    def get_base_tags(state: str) -> str:
-        if state == "before":
-            return f"\\1c{c_sec}\\1a{a_sec}\\fscx90\\fscy90\\blur2"
-        elif state == "active_transition":
-            return f"\\1c{c_sec}\\1a{a_sec}\\fscx100\\fscy100\\blur0"
-        elif state == "active_steady":
-            return f"\\1c{c_pri}\\1a{a_pri}\\2c{c_sec}\\2a{a_sec}\\fscx100\\fscy100\\blur0"
-        elif state == "after_transition_start":
-            return f"\\1c{c_pri}\\1a{a_pri}\\fscx100\\fscy100\\blur0"
-        elif state == "after":
-            return f"\\1c{c_pri}\\1a{a_sec}\\fscx90\\fscy90\\blur2"
-        return ""
+    def get_alpha(d: int, base_a: str) -> str:
+        try:
+            base_val = int(base_a[2:4], 16)
+        except:
+            base_val = 128
+        if d == 0:
+            return base_a
+        target = 255
+        val = base_val + (target - base_val) * (d / 4.0)
+        val = min(255, max(0, int(val)))
+        return f"&H{val:02X}&"
+
+    def get_tags(d: int, is_active: bool, is_before: bool, for_anim_end: bool = False) -> str:
+        scale = max(100 - d * 5, 70) if d > 0 else 100
+        blur = d * 1.5
+        alpha = get_alpha(d, a_sec)
+        c = c_sec if is_before else c_pri
         
+        if is_active:
+            if for_anim_end:
+                return f"\\1c{c_sec}\\1a{a_sec}\\fscx100\\fscy100\\blur0"
+            else:
+                return f"\\1c{c_pri}\\1a{a_pri}\\2c{c_sec}\\2a{a_sec}\\fscx100\\fscy100\\blur0"
+        else:
+            return f"\\1c{c}\\1a{alpha}\\fscx{scale}\\fscy{scale}\\blur{blur:.1f}"
+            
     events = []
     for j in range(N):
-        # 仅在前后 3 行范围内可见
-        k_min = max(0, j-3)
-        k_max = min(N-1, j+3)
+        # 扩大视野到前后 4 行，以展示深远的模糊渐变
+        k_min = max(0, j-4)
+        k_max = min(N-1, j+4)
         
         for k in range(k_min, k_max + 1):
             slot_start, slot_end = slots[k]
@@ -222,56 +235,62 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
             if slot_end <= slot_start:
                 continue
                 
-            # 过渡动画 (滚动、缩放、模糊) 固定在槽位的最后 0.5 秒
-            trans_duration = 0.5
-            trans_start_t = max(slot_start, slot_end - trans_duration)
+            # 过渡动画总时长上限 0.6s
+            trans_duration = min(0.6, slot_end - slot_start)
+            t_base_start = slot_end - trans_duration
             
-            # ASS 中的时间偏移 (毫秒)
+            # 计算延迟: 距离新焦点 (k+1) 越远，动画开始得越晚 (果冻/级联效应)
+            d_new = abs(j - (k + 1))
+            delay_step = trans_duration * 0.15 
+            move_dur = trans_duration * 0.5    
+            
+            t1_offset = d_new * delay_step
+            if t1_offset + move_dur > trans_duration:
+                t1_offset = trans_duration - move_dur
+                
+            trans_start_t = t_base_start + t1_offset
+            trans_end_t = trans_start_t + move_dur
+            
             t1 = int((trans_start_t - slot_start) * 1000)
-            t2 = int((slot_end - slot_start) * 1000)
+            t2 = int((trans_end_t - slot_start) * 1000)
             
-            # 坐标计算
             y_start = center_y + local_y[j] - local_y[k]
             y_end = center_y + local_y[j] - local_y[k+1] if k < N - 1 else center_y + local_y[j] - local_y[k]
             
-            # 状态选择
-            if k < j:
-                tag_start = get_base_tags("before")
-            elif k == j:
-                tag_start = get_base_tags("active_steady")
-            else:
-                tag_start = get_base_tags("after")
-                
-            if k + 1 < j:
-                tag_end = get_base_tags("before")
-            elif k + 1 == j:
-                tag_end = get_base_tags("active_transition")
-            else:
-                tag_end = get_base_tags("after")
-                
-            # 构建 ASS 标签
+            # 状态生成
+            d_start = abs(j - k)
+            is_active_start = (k == j)
+            is_before_start = (k < j)
+            tag_start = get_tags(d_start, is_active_start, is_before_start, False)
+            
+            d_end = abs(j - (k + 1))
+            is_active_end = (k + 1 == j)
+            is_before_end = (k + 1 < j)
+            tag_end = get_tags(d_end, is_active_end, is_before_end, True)
+            
             ass_t_start = seconds_to_ass_time(slot_start)
             ass_t_end = seconds_to_ass_time(slot_end)
             
-            # 如果不移动（比如最后一行之后），就不使用 \move，避免无效移动
             if y_start == y_end:
                 pos_tag = f"\\pos(100,{y_start:.1f})"
             else:
                 pos_tag = f"\\move(100,{y_start:.1f},100,{y_end:.1f},{t1},{t2})"
                 
-            # 只有当开始和结束状态不同时，才需要 \t 动画
             anim_tag = f"\\t({t1},{t2},{tag_end})" if tag_start != tag_end else ""
-            
             tags = f"\\an4{pos_tag}{tag_start}{anim_tag}"
             
             if k == j:
-                # 注入卡拉OK时间标签
-                delay_cs = 0 # 因为事件的起点严格等于句子的起点 S_j，所以 delay 为 0!
-                karaoke_text = f"{{\\k{delay_cs}}}"
+                tag_steady = get_tags(0, True, False, False)
+                delay_cs = 0 
+                karaoke_text = f"{{\\kf{delay_cs}}}"
                 for word in lines[j].words:
                     dur_cs = int((word.end - word.start) * 100)
-                    karaoke_text += f"{{\\k{dur_cs}}}{word.word}"
-                events.append(f"Dialogue: 0,{ass_t_start},{ass_t_end},{config.style_name},,0,0,0,,{{{tags}}}{karaoke_text}")
+                    karaoke_text += f"{{\\kf{dur_cs}}}{word.word}"
+                
+                # Active line uses tag_steady as its base!
+                # We prepend pos_tag to tag_steady
+                tags_active = f"\\an4{pos_tag}{tag_steady}{anim_tag}"
+                events.append(f"Dialogue: 0,{ass_t_start},{ass_t_end},{config.style_name},,0,0,0,,{{{tags_active}}}{karaoke_text}")
             else:
                 events.append(f"Dialogue: 0,{ass_t_start},{ass_t_end},{config.style_name},,0,0,0,,{{{tags}}}{lines[j].text}")
 
