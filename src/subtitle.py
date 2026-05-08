@@ -47,8 +47,12 @@ def generate_ass(
         beat_times = _detect_beats(audio_path)
         log.info("检测到 %d 个节奏点", len(beat_times))
 
-    # 生成 Dialogue 行 (Apple Music 滚动效果)
-    dialogue_lines = _generate_apple_music_events(alignment, config, beat_times)
+    # 生成 Dialogue 行
+    if config.render_mode == "tv":
+        dialogue_lines = _generate_tv_events(alignment, config, beat_times)
+    else:
+        # Apple Music 滚动效果 (默认)
+        dialogue_lines = _generate_apple_music_events(alignment, config, beat_times)
 
     # 组装完整 ASS 文件
     ass_content = header + "\n".join(dialogue_lines) + "\n"
@@ -152,7 +156,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: {config.style_name},{config.font_name},{config.font_size},{config.primary_colour},{config.secondary_colour},{config.outline_colour},&H80000000,-1,0,0,0,100,100,2,0,1,3,1,2,30,30,60,1
+Style: {config.style_name},{config.font_name},{config.font_size},{config.primary_colour},{config.secondary_colour},{config.outline_colour},&HA0000000,-1,0,0,0,100,100,3,0,1,4,2,2,30,30,60,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -312,6 +316,114 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
     # 按时间排序事件，让 ASS 文件看起来更整齐
     events.sort(key=lambda x: x.split(",")[1])
     return events
+
+# TV 风格: 双行交替居中 (经典 KTV)
+# ---------------------------------------------------------------------------
+
+def _generate_tv_events(
+    alignment: AlignmentResult,
+    config: SubtitleConfig,
+    beat_times: list[float],
+) -> list[str]:
+    """
+    经典 KTV 双行交替字幕 — 始终显示两行:
+    - 屏幕下方固定两个位置 (上行 / 下行)
+    - 偶数句(0,2,4…)在上行，奇数句(1,3,5…)在下行
+    - 当前演唱行: 过光高亮 (\\k/\\kf)
+    - 下一行: 暗色预览，提前显示以便观众跟读
+    - 唱完后文字保持高亮，直到同位置的下一句替换它
+
+    时间轴 (以第 i 行为例):
+      预览阶段: lines[i-1].start → lines[i].start   (暗色静态)
+      演唱阶段: lines[i].start   → lines[i+1].start  (卡拉OK过光)
+    """
+    lines = alignment.lines
+    N = len(lines)
+    if N == 0:
+        return []
+
+    # 布局: 上行靠左，下行靠右，间距加大
+    # 1080p 下方区域
+    y_upper = 850    # 上行
+    y_lower = 960    # 下行 (间距 110px)
+    margin = 360
+    x_left  = margin    # 左对齐 x
+    x_right = 1920-margin   # 右对齐 x (1920 - 100)
+
+    # KTV 配色: 已唱=青色, 未唱=白色
+    # ASS BGR: 青色 RGB(0,255,255) → &H00FFFF00, 白色 → &H00FFFFFF
+    color_sung = "&HFFFF00&"     # 青色 (已唱/过光后)
+    color_unsunng = "&FFFFFFF&"  # 白色 (未唱)
+    color_dim = "&FFFFFFF&"      # 预览暗色 (白色+不透明)
+
+    events = []
+
+    def _build_karaoke(line, event_start) -> str:
+        """为一行构建带前导等待的卡拉OK标签文本"""
+        parts = []
+        current_t = event_start
+
+        for word in line.words:
+            gap_cs = int((word.start - current_t) * 100)
+            if gap_cs > 0:
+                parts.append(f"{{\\k{gap_cs}}}")
+
+            dur_cs = int((word.end - max(word.start, current_t)) * 100)
+            if dur_cs < 0:
+                dur_cs = 0
+
+            k_tag = "kf" if config.use_karaoke_gradient else "k"
+            parts.append(f"{{\\{k_tag}{dur_cs}}}{word.word}")
+            current_t = max(word.end, current_t)
+
+        return "".join(parts)
+
+    for i in range(N):
+        line = lines[i]
+        is_upper = (i % 2 == 0)
+        y_pos = y_upper if is_upper else y_lower
+        # 上行靠左(\an4), 下行靠右(\an6)
+        an = "\\an4" if is_upper else "\\an6"
+        x_pos = x_left if is_upper else x_right
+
+        # ── 预览阶段 (暗色白字) ──
+        if i > 0:
+            preview_start = lines[i - 1].start
+        else:
+            preview_start = max(0, line.start - 2.0)
+
+        preview_end = line.start
+
+        if preview_end > preview_start + 0.05:
+            ass_ps = seconds_to_ass_time(preview_start)
+            ass_pe = seconds_to_ass_time(preview_end)
+            dim_tags = f"{an}\\pos({x_pos},{y_pos})\\1c{color_dim}\\1a&H78&"
+            events.append(
+                f"Dialogue: 0,{ass_ps},{ass_pe},{config.style_name},,0,0,0,,"
+                f"{{{dim_tags}}}{line.text}"
+            )
+
+        # ── 演唱阶段 (白→青色过光) ──
+        active_start = line.start
+        if i + 1 < N:
+            active_end = lines[i + 1].start
+        else:
+            active_end = line.end + 2.0
+        active_end = max(active_end, line.end + 0.1)
+
+        ass_as = seconds_to_ass_time(active_start)
+        ass_ae = seconds_to_ass_time(active_end)
+
+        karaoke_text = _build_karaoke(line, active_start)
+        # \1c = 过光后颜色(已唱=青色), \2c = 过光前颜色(未唱=白色)
+        active_tags = f"{an}\\pos({x_pos},{y_pos})\\1c{color_sung}\\2c{color_unsunng}"
+        events.append(
+            f"Dialogue: 0,{ass_as},{ass_ae},{config.style_name},,0,0,0,,"
+            f"{{{active_tags}}}{karaoke_text}"
+        )
+
+    return events
+
 
 
 # ---------------------------------------------------------------------------

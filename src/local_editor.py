@@ -164,6 +164,7 @@ async def regen_ass(request: Request):
     audio_path_str = body.get("audio_path") or ""
     mode = body.get("mode", "ass")  # "ass" 或 "video"
     tag_type = body.get("tag_type", "kf")  # "\k" 或 "\kf"
+    render_mode = body.get("render_mode", "apple")  # "apple" 或 "tv"
 
     if not json_path.exists():
         raise HTTPException(404, f"JSON 不存在: {json_path}")
@@ -175,8 +176,9 @@ async def regen_ass(request: Request):
         audio_path = Path(audio_path_str) if audio_path_str else None
         subtitle_config = getattr(app.state, "subtitle_config", SubtitleConfig())
         
-        # 覆盖 tag_type 设置
+        # 覆盖设置
         subtitle_config.use_karaoke_gradient = (tag_type == "kf")
+        subtitle_config.render_mode = render_mode
         
         # 生成 ASS
         generate_ass(alignment, ass_path, subtitle_config, audio_path=audio_path)
@@ -190,21 +192,25 @@ async def regen_ass(request: Request):
             video_path = json_path.parent / f"{stem}.mp4"
             compositor_config = getattr(app.state, "compositor_config", CompositorConfig())
 
-            # 取分镜第一张图片作为背景，找不到则用纯黑
+            # 背景优先级: alignment.json 中的 background 字段 > 纯黑
             background: Path | None = None
-            for item in alignment.storyboard:
-                p = Path(item.path)
-                if p.exists() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
-                    background = p
-                    break
+            if alignment.background:
+                bg_p = Path(alignment.background)
+                if bg_p.exists():
+                    background = bg_p
+                    log.info("使用 alignment.json 中的背景: %s", bg_p.name)
+                else:
+                    log.warning("alignment.json 指定的背景不存在: %s", bg_p)
 
-            log.info("开始合成视频: %s (背景: %s)", video_path.name, background)
+            log.info("开始合成视频: %s (背景: %s, 分镜: %d 个)",
+                     video_path.name, background, len(alignment.storyboard))
             compose_video(
                 audio_path=audio_path,
                 subtitle_path=ass_path,
                 output_path=video_path,
                 background=background,
                 config=compositor_config,
+                storyboard=alignment.storyboard,
             )
             log.info("视频合成完成: %s", video_path.name)
             res["video_path"] = str(video_path)

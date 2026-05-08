@@ -52,12 +52,16 @@ class AlignmentResult:
     """完整对齐结果"""
     lines: list[AlignedLine]
     storyboard: list[StoryboardEvent] = field(default_factory=list)
+    background: str | None = None  # 默认背景图路径
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "lines": [asdict(line) for line in self.lines],
             "storyboard": [asdict(e) for e in self.storyboard]
         }
+        if self.background:
+            d["background"] = self.background
+        return d
 
     def save_json(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -82,8 +86,10 @@ class AlignmentResult:
         storyboard = []
         for e_data in data.get("storyboard", []):
             storyboard.append(StoryboardEvent(**e_data))
+        
+        background = data.get("background", None)
             
-        return cls(lines=lines, storyboard=storyboard)
+        return cls(lines=lines, storyboard=storyboard, background=background)
 
 
 # ---------------------------------------------------------------------------

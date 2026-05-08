@@ -338,12 +338,22 @@ def process_one(
         log.info("[5/5] 视频合成 (FFmpeg)…")
         from src.compositor import compose_video
         output_mp4 = output_dir / f"{stem}.mp4"
+        # 背景优先级: CLI --background > alignment.json 中的 background > config.default_bg
+        effective_bg = background
+        if effective_bg is None and hasattr(alignment, 'background') and alignment.background:
+            effective_bg = Path(alignment.background)
+            if effective_bg.exists():
+                log.info("使用 alignment.json 中的背景: %s", effective_bg.name)
+            else:
+                log.warning("alignment.json 指定的背景不存在: %s", effective_bg)
+                effective_bg = None
         compose_video(
             audio_path=mp3_path,
             subtitle_path=ass_path,
             output_path=output_mp4,
-            background=background,
+            background=effective_bg,
             config=config.compositor,
+            storyboard=alignment.storyboard if hasattr(alignment, 'storyboard') else None,
         )
 
         _progress("compositing", 100, "✅ 处理完成！")

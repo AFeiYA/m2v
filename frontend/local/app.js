@@ -72,6 +72,8 @@ document.addEventListener("DOMContentLoaded", () => {
   dom.assetModalClose     = $("#btn-close-asset");
   dom.assetFileInput      = $("#asset-file-input");
   dom.uploadStatus        = $("#upload-status");
+  dom.btnSetBg            = $("#btn-set-bg");
+  dom.bgName              = $("#bg-name");
 
   initWaveSurfer();
   bindEvents();
@@ -185,6 +187,7 @@ function bindEvents() {
   dom.btnAssetSync.addEventListener("click", syncAssetToCurrentLine);
   dom.btnAssetAdd.addEventListener("click", addOrUpdateAssetEvent);
   dom.assetFileInput.addEventListener("change", handleAssetUpload);
+  dom.btnSetBg.addEventListener("click", openBgPicker);
   // 点击模态框背景关闭
   dom.assetModal.addEventListener("click", (e) => { if (e.target === dom.assetModal) dom.assetModal.style.display = "none"; });
   dom.generateModal.addEventListener("click", (e) => { if (e.target === dom.generateModal) dom.generateModal.style.display = "none"; });
@@ -286,6 +289,7 @@ async function loadSong(idx) {
   renderLyrics();
   clearWordPanel();
   renderStoryboard();
+  updateBgDisplay();
   const trackInfo = [vocalsUrl ? "人声" : null, instUrl ? "伴奏" : null, (!vocalsUrl && origUrl) ? "原始" : null].filter(Boolean).join("+");
   status(`已加载: ${file.name} (${state.alignment.lines.length} 行, 音轨: ${trackInfo || "无"})`);
   document.title = `${file.name} — M2V 编辑器`;
@@ -778,6 +782,7 @@ async function generateOutput() {
 
   const mode = document.querySelector('input[name="gen-mode"]:checked').value;
   const tagType = document.querySelector('input[name="gen-tag-type"]:checked').value;
+  const renderMode = document.querySelector('input[name="gen-render-mode"]:checked').value;
 
   status(mode === "video" ? "生成视频中，请稍候…" : "生成 ASS 中…");
   try {
@@ -788,7 +793,8 @@ async function generateOutput() {
         json_path: state.currentFile.json_path, 
         audio_path: state.currentFile.audio_path || "",
         mode: mode,
-        tag_type: tagType
+        tag_type: tagType,
+        render_mode: renderMode
       }),
     });
     const j = await r.json();
@@ -949,4 +955,84 @@ function renderStoryboard() {
 
 function isImage(filename) {
   return /\.(jpg|jpeg|png|webp)$/i.test(filename);
+}
+
+// ---------------------------------------------------------------------------
+// Background Picker
+// ---------------------------------------------------------------------------
+
+let bgPickerMode = false;
+
+function openBgPicker() {
+  bgPickerMode = true;
+  dom.assetModal.style.display = "flex";
+  dom.uploadStatus.textContent = "";
+  loadAssetGridForBg();
+}
+
+async function loadAssetGridForBg() {
+  dom.assetGrid.innerHTML = "加载中…";
+  try {
+    const r = await fetch("/api/assets");
+    const assets = await r.json();
+    // 背景只显示图片
+    const images = assets.filter(a => isImage(a.name));
+    if (images.length === 0) {
+      dom.assetGrid.innerHTML = '<span style="color:var(--text-dim);font-size:13px;">暂无图片素材，请点击"上传图片"添加</span>';
+      return;
+    }
+
+    // 添加"清除背景"选项
+    dom.assetGrid.innerHTML = `
+      <div class="asset-card" data-path="" data-name="无背景">
+        <div style="height:80px; display:flex; align-items:center; justify-content:center; background:#111; color:var(--text-dim); font-size:24px;">✖</div>
+        <span>清除背景</span>
+      </div>
+    ` + images.map(a => `
+      <div class="asset-card" data-path="${escHtml(a.path)}" data-url="${escHtml(a.url)}" data-name="${escHtml(a.name)}">
+        <img src="${a.url}" alt="">
+        <span>${escHtml(a.name)}</span>
+      </div>
+    `).join("");
+
+    $$(".asset-card").forEach(card => {
+      card.addEventListener("click", () => {
+        if (bgPickerMode) {
+          setBackground(card.dataset.path, card.dataset.name);
+          dom.assetModal.style.display = "none";
+          bgPickerMode = false;
+        } else {
+          selectAsset({
+            name: card.dataset.name,
+            path: card.dataset.path,
+            url: card.dataset.url
+          });
+          dom.assetModal.style.display = "none";
+        }
+      });
+    });
+  } catch(e) {
+    dom.assetGrid.innerHTML = "加载素材失败: " + e;
+  }
+}
+
+function setBackground(path, name) {
+  if (!state.alignment) return;
+  pushUndo();
+  state.alignment.background = path || null;
+  updateBgDisplay();
+  markDirty();
+  status(path ? `✅ 背景已设置: ${name}` : "背景已清除");
+}
+
+function updateBgDisplay() {
+  const bg = state.alignment?.background;
+  if (bg) {
+    const name = bg.split(/[\\/]/).pop();
+    dom.bgName.textContent = name;
+    dom.bgName.title = bg;
+  } else {
+    dom.bgName.textContent = "未设置";
+    dom.bgName.title = "";
+  }
 }

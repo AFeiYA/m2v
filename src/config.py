@@ -51,11 +51,11 @@ class SubtitleConfig:
     style_name: str = "Karaoke"
     # 颜色 (Apple Style: 纯白变焦与透明度)
     primary_colour: str = "&H00FFFFFF"    # 纯白 (已唱)
-    secondary_colour: str = "&H80FFFFFF"  # 半透明白 (未唱)
-    outline_colour: str = "&H00000000"    # 无描边
-    font_name: str = "思源黑体 Light"
+    secondary_colour: str = "&H66FFFFFF"  # 半透明白 (未唱)
+    outline_colour: str = "&H99000000"    # 暗色半透明描边
+    font_name: str = "思源黑体"
     font_path: str = "C:/Windows/Fonts/msyh.ttc"  # 默认路径，Pillow 需要真实文件
-    font_size: int = 80
+    font_size: int = 72
     # 渲染模式: "classic" (传统) / "apple" (滚动聚焦)
     render_mode: str = "apple"
     apple_pulse: bool = True              # 是否启用字级缩放呼吸感
