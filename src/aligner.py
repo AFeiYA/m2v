@@ -36,6 +36,7 @@ class StoryboardEvent:
     path: str          # 文件相对路径或绝对路径
     start: float       # 开始时间
     end: float         # 结束时间
+    speed_align: bool = True
 
 
 @dataclass
@@ -45,6 +46,7 @@ class AlignedLine:
     start: float
     end: float
     words: list[WordTimestamp]
+    style_overrides: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -81,11 +83,18 @@ class AlignmentResult:
                 start=line_data["start"],
                 end=line_data["end"],
                 words=words,
+                style_overrides=line_data.get("style_overrides", {}),
             ))
         
         storyboard = []
         for e_data in data.get("storyboard", []):
-            storyboard.append(StoryboardEvent(**e_data))
+            storyboard.append(StoryboardEvent(
+                type=e_data["type"],
+                path=e_data["path"],
+                start=e_data["start"],
+                end=e_data["end"],
+                speed_align=e_data.get("speed_align", True)
+            ))
         
         background = data.get("background", None)
             

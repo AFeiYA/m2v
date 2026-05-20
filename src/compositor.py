@@ -100,11 +100,13 @@ def _filter_valid_storyboard(storyboard: list | None) -> list:
         # 支持 dict 或 dataclass
         if hasattr(ev, 'path'):
             path, start, end, etype = ev.path, ev.start, ev.end, ev.type
+            speed_align = getattr(ev, 'speed_align', True)
         elif isinstance(ev, dict):
             path = ev.get('path', '')
             start = ev.get('start', 0)
             end = ev.get('end', 0)
             etype = ev.get('type', 'image')
+            speed_align = ev.get('speed_align', True)
         else:
             continue
 
@@ -121,6 +123,7 @@ def _filter_valid_storyboard(storyboard: list | None) -> list:
             'start': start,
             'end': end,
             'type': etype,
+            'speed_align': speed_align,
         })
 
     valid.sort(key=lambda e: e['start'])
@@ -165,6 +168,25 @@ def _build_simple_cmd(
 # 三层合成: 默认背景 → 分镜 overlay → 字幕
 # ---------------------------------------------------------------------------
 
+def _get_video_duration(path: Path) -> float:
+    """获取视频的实际时长 (秒)。若获取失败或 ffprobe 不可用，返回 5.0 秒。"""
+    import shutil
+    if not shutil.which("ffprobe"):
+        log.warning("ffprobe 未找到，无法获取视频时长: %s", path.name)
+        return 5.0
+    cmd = [
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", str(path)
+    ]
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        if res.returncode == 0:
+            return float(res.stdout.strip())
+    except Exception as e:
+        log.warning("无法获取视频时长: %s, 错误: %s", path.name, e)
+    return 5.0
+
+
 def _build_storyboard_cmd(
     audio_path: Path,
     subtitle_path: Path,
@@ -181,7 +203,7 @@ def _build_storyboard_cmd(
     Layer 3 (顶层): ASS 字幕
     """
     w, h = config.resolution
-    sub_path_escaped = _escape_ffmpeg_path(subtitle_path)
+    sub_path_escaped = _escape_ffmpeg_path(subtitle_path) if subtitle_path else ""
 
     # ── 构建输入列表 ──
     inputs: list[str] = []
@@ -227,16 +249,42 @@ def _build_storyboard_cmd(
         overlay_label = f"ov{i}"
         scaled_label = f"sb{i}"
 
-        # 缩放分镜图片到目标分辨率
-        filters.append(
-            f"[{input_idx}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,"
-            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,"
-            f"setsar=1[{scaled_label}]"
-        )
-
-        # 在指定时间段叠加
+        p = ev['path']
         s = ev['start']
         e = ev['end']
+        D = e - s
+        is_video = not (ev['type'] == 'image' or p.suffix.lower() in (".jpg", ".jpeg", ".png", ".bmp", ".webp"))
+
+        if is_video:
+            # 视频做时间对齐 setpts：从首帧(0秒)开始播放，并在 S 秒开始叠加。可选拉伸/压缩以匹配 D 长度
+            L = _get_video_duration(p)
+            speed_align = ev.get('speed_align', True)
+            
+            if speed_align and L > 0:
+                speed_factor = D / L
+                setpts_filter = f"setpts=PTS*{speed_factor:.4f}+{s:.4f}/TB"
+                log.info("分镜视频 [%d] %s: 时长 %.2fs, 区间 %.2fs, 速度比例 %.4fx", 
+                         i, p.name, L, D, speed_factor)
+            else:
+                setpts_filter = f"setpts=PTS+{s:.4f}/TB"
+                log.info("分镜视频 [%d] %s: 时长 %.2fs, 区间 %.2fs, 保持原速并在 %.2fs 处切入", 
+                         i, p.name, L, D, s)
+                
+            filters.append(
+                f"[{input_idx}:v]{setpts_filter},"
+                f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,"
+                f"setsar=1[{scaled_label}]"
+            )
+        else:
+            # 缩放分镜图片到目标分辨率
+            filters.append(
+                f"[{input_idx}:v]scale={w}:{h}:force_original_aspect_ratio=decrease,"
+                f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,"
+                f"setsar=1[{scaled_label}]"
+            )
+
+        # 在指定时间段叠加
         filters.append(
             f"[{prev_label}][{scaled_label}]overlay=0:0:"
             f"enable='between(t,{s:.3f},{e:.3f})'[{overlay_label}]"
@@ -244,10 +292,13 @@ def _build_storyboard_cmd(
         prev_label = overlay_label
 
     # 第三步: 叠加 ASS 字幕
-    final_label = "final"
-    filters.append(
-        f"[{prev_label}]subtitles='{sub_path_escaped}'[{final_label}]"
-    )
+    if subtitle_path and config.enable_subtitles:
+        final_label = "final"
+        filters.append(
+            f"[{prev_label}]subtitles='{sub_path_escaped}'[{final_label}]"
+        )
+    else:
+        final_label = prev_label
 
     filter_complex = ";".join(filters)
 
@@ -283,16 +334,17 @@ def _build_image_bg_cmd(
 ) -> list[str]:
     """静态图片 → 循环为视频流，叠加字幕"""
     w, h = config.resolution
-    # 用 ffmpeg 的 subtitles 路径需要转义反斜杠和冒号
-    sub_path_escaped = _escape_ffmpeg_path(subtitle_path)
+    vf = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"
+    if subtitle_path and config.enable_subtitles:
+        sub_path_escaped = _escape_ffmpeg_path(subtitle_path)
+        vf += f",subtitles='{sub_path_escaped}'"
+        
     return [
         "ffmpeg", "-y",
         "-loop", "1",
         "-i", str(bg_path),
         "-i", str(audio_path),
-        "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-               f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,"
-               f"subtitles='{sub_path_escaped}'",
+        "-vf", vf,
         "-c:v", config.video_codec,
         "-tune", "stillimage",
         "-crf", str(config.crf),
@@ -319,15 +371,17 @@ def _build_video_bg_cmd(
 ) -> list[str]:
     """视频背景 → 循环播放，叠加字幕"""
     w, h = config.resolution
-    sub_path_escaped = _escape_ffmpeg_path(subtitle_path)
+    vf = f"scale={w}:{h}:force_original_aspect_ratio=decrease,pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black"
+    if subtitle_path and config.enable_subtitles:
+        sub_path_escaped = _escape_ffmpeg_path(subtitle_path)
+        vf += f",subtitles='{sub_path_escaped}'"
+        
     return [
         "ffmpeg", "-y",
         "-stream_loop", "-1",
         "-i", str(bg_path),
         "-i", str(audio_path),
-        "-vf", f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
-               f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:black,"
-               f"subtitles='{sub_path_escaped}'",
+        "-vf", vf,
         "-c:v", config.video_codec,
         "-crf", str(config.crf),
         "-c:a", config.audio_codec,
@@ -352,13 +406,18 @@ def _build_black_bg_cmd(
 ) -> list[str]:
     """使用 lavfi 生成纯黑背景"""
     w, h = config.resolution
-    sub_path_escaped = _escape_ffmpeg_path(subtitle_path)
+    if subtitle_path and config.enable_subtitles:
+        sub_path_escaped = _escape_ffmpeg_path(subtitle_path)
+        vf = f"subtitles='{sub_path_escaped}'"
+    else:
+        vf = "null"
+        
     return [
         "ffmpeg", "-y",
         "-f", "lavfi",
         "-i", f"color=c=black:s={w}x{h}:r={config.fps}",
         "-i", str(audio_path),
-        "-vf", f"subtitles='{sub_path_escaped}'",
+        "-vf", vf,
         "-c:v", config.video_codec,
         "-crf", str(config.crf),
         "-c:a", config.audio_codec,

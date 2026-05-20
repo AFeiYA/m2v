@@ -130,6 +130,8 @@ def main() -> None:
         config.ass_file = Path(args.ass_file)
     if args.lyrics_start is not None:
         config.aligner.lyrics_start_time = args.lyrics_start
+    if args.disable_subtitles:
+        config.compositor.enable_subtitles = False
 
     # 背景素材
     background = Path(args.background) if args.background else None
@@ -521,6 +523,11 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=None,
         help="歌词实际开唱时间(秒)，前奏/拟声词的 segment 会被过滤",
+    )
+    parser.add_argument(
+        "--disable-subtitles",
+        action="store_true",
+        help="禁用在合成最终视频时绘制 ASS 字幕（适用于字幕直接内置在 AI 生成视频的场景）",
     )
 
     return parser.parse_args()

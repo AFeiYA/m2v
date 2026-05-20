@@ -199,37 +199,42 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
             return "&H" + ass_color[2:4] + "&", "&H" + ass_color[4:10] + "&"
         return "&H00&", ass_color
         
-    a_pri, c_pri = parse_color(config.primary_colour)
-    a_sec, c_sec = parse_color(config.secondary_colour)
-    
-    def get_alpha(d: int, base_a: str) -> str:
-        try:
-            base_val = int(base_a[2:4], 16)
-        except:
-            base_val = 128
-        if d == 0:
-            return base_a
-        target = 255
-        val = base_val + (target - base_val) * (d / 4.0)
-        val = min(255, max(0, int(val)))
-        return f"&H{val:02X}&"
-
-    def get_tags(d: int, is_active: bool, is_before: bool, for_anim_end: bool = False) -> str:
-        scale = max(100 - d * 5, 70) if d > 0 else 100
-        blur = d * 2.5
-        alpha = get_alpha(d, a_sec)
-        c = c_sec if is_before else c_pri
-        
-        if is_active:
-            if for_anim_end:
-                return f"\\1c{c_sec}\\1a{a_sec}\\fscx100\\fscy100\\blur0"
-            else:
-                return f"\\1c{c_pri}\\1a{a_pri}\\2c{c_sec}\\2a{a_sec}\\fscx100\\fscy100\\blur0"
-        else:
-            return f"\\1c{c}\\1a{alpha}\\fscx{scale}\\fscy{scale}\\blur{blur:.1f}"
-            
     events = []
     for j in range(N):
+        # 提取当前行专属的颜色样式覆盖
+        overrides = getattr(lines[j], 'style_overrides', {}) if hasattr(lines[j], 'style_overrides') else {}
+        line_pri = overrides.get("primary_colour", config.primary_colour)
+        line_sec = overrides.get("secondary_colour", config.secondary_colour)
+        
+        a_pri, c_pri = parse_color(line_pri)
+        a_sec, c_sec = parse_color(line_sec)
+        
+        def get_alpha(d: int, base_a: str) -> str:
+            try:
+                base_val = int(base_a[2:4], 16)
+            except:
+                base_val = 128
+            if d == 0:
+                return base_a
+            target = 255
+            val = base_val + (target - base_val) * (d / 4.0)
+            val = min(255, max(0, int(val)))
+            return f"&H{val:02X}&"
+
+        def get_tags(d: int, is_active: bool, is_before: bool, for_anim_end: bool = False) -> str:
+            scale = max(100 - d * 5, 70) if d > 0 else 100
+            blur = d * 2.5
+            alpha = get_alpha(d, a_sec)
+            c = c_sec if is_before else c_pri
+            
+            if is_active:
+                if for_anim_end:
+                    return f"\\1c{c_sec}\\1a{a_sec}\\fscx100\\fscy100\\blur0"
+                else:
+                    return f"\\1c{c_pri}\\1a{a_pri}\\2c{c_sec}\\2a{a_sec}\\fscx100\\fscy100\\blur0"
+            else:
+                return f"\\1c{c}\\1a{alpha}\\fscx{scale}\\fscy{scale}\\blur{blur:.1f}"
+
         # 扩大视野到前后 4 行，以展示深远的模糊渐变
         k_min = max(0, j-4)
         k_max = min(N-1, j+4)
@@ -397,7 +402,7 @@ def _generate_tv_events(
         if preview_end > preview_start + 0.05:
             ass_ps = seconds_to_ass_time(preview_start)
             ass_pe = seconds_to_ass_time(preview_end)
-            dim_tags = f"{an}\\pos({x_pos},{y_pos})\\1c{color_dim}\\1a&H78&"
+            dim_tags = f"{an}\\pos({x_pos},{y_pos})\\1c{color_dim}\\1a&H00&"
             events.append(
                 f"Dialogue: 0,{ass_ps},{ass_pe},{config.style_name},,0,0,0,,"
                 f"{{{dim_tags}}}{line.text}"
@@ -415,8 +420,8 @@ def _generate_tv_events(
         ass_ae = seconds_to_ass_time(active_end)
 
         karaoke_text = _build_karaoke(line, active_start)
-        # \1c = 过光后颜色(已唱=青色), \2c = 过光前颜色(未唱=白色)
-        active_tags = f"{an}\\pos({x_pos},{y_pos})\\1c{color_sung}\\2c{color_unsunng}"
+        # \1c = 过光后颜色(已唱=青色), \2c = 过光前颜色(未唱=白色), \1a\2a = 强制不透明
+        active_tags = f"{an}\\pos({x_pos},{y_pos})\\1c{color_sung}\\2c{color_unsunng}\\1a&H00&\\2a&H00&"
         events.append(
             f"Dialogue: 0,{ass_as},{ass_ae},{config.style_name},,0,0,0,,"
             f"{{{active_tags}}}{karaoke_text}"

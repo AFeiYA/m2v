@@ -77,6 +77,7 @@ class CompositorConfig:
     audio_bitrate: str = "192k"
     pixel_format: str = "yuv420p"
     default_bg: Path = ASSETS_DIR / "default_bg.jpg"
+    enable_subtitles: bool = True
 
 # ---------------------------------------------------------------------------
 # 歌词预处理
