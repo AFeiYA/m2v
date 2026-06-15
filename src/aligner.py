@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
 from src.config import AlignerConfig
@@ -29,6 +29,15 @@ class WordTimestamp:
     start: float   # 秒
     end: float      # 秒
 
+@dataclass
+class StoryboardEvent:
+    """背景素材/图片事件"""
+    type: str          # "image" or "video"
+    path: str          # 文件相对路径或绝对路径
+    start: float       # 开始时间
+    end: float         # 结束时间
+    speed_align: bool = True
+
 
 @dataclass
 class AlignedLine:
@@ -37,15 +46,24 @@ class AlignedLine:
     start: float
     end: float
     words: list[WordTimestamp]
+    style_overrides: dict = field(default_factory=dict)
 
 
 @dataclass
 class AlignmentResult:
     """完整对齐结果"""
     lines: list[AlignedLine]
+    storyboard: list[StoryboardEvent] = field(default_factory=list)
+    background: str | None = None  # 默认背景图路径
 
     def to_dict(self) -> dict:
-        return {"lines": [asdict(line) for line in self.lines]}
+        d = {
+            "lines": [asdict(line) for line in self.lines],
+            "storyboard": [asdict(e) for e in self.storyboard]
+        }
+        if self.background:
+            d["background"] = self.background
+        return d
 
     def save_json(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -65,8 +83,22 @@ class AlignmentResult:
                 start=line_data["start"],
                 end=line_data["end"],
                 words=words,
+                style_overrides=line_data.get("style_overrides", {}),
             ))
-        return cls(lines=lines)
+        
+        storyboard = []
+        for e_data in data.get("storyboard", []):
+            storyboard.append(StoryboardEvent(
+                type=e_data["type"],
+                path=e_data["path"],
+                start=e_data["start"],
+                end=e_data["end"],
+                speed_align=e_data.get("speed_align", True)
+            ))
+        
+        background = data.get("background", None)
+            
+        return cls(lines=lines, storyboard=storyboard, background=background)
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +268,11 @@ def align_lyrics(
     # Step 4: 把歌词行模糊匹配到时间轴上
     # -----------------------------------------------------------------------
     aligned_lines = _match_lyrics_to_timeline(lyrics, timeline)
+
+    # -----------------------------------------------------------------------
+    # Step 5: 审计时间戳单调性，检测并修正副歌重复导致的回退
+    # -----------------------------------------------------------------------
+    aligned_lines = _audit_alignment(aligned_lines)
 
     result = AlignmentResult(lines=aligned_lines)
     log.info("对齐完成: %d 行, %d 个词",
@@ -486,6 +523,89 @@ def _fix_compressed_chars(
     return result
 
 
+def _audit_alignment(aligned: list[AlignedLine]) -> list[AlignedLine]:
+    """
+    审计对齐结果的时间戳单调性。
+
+    症状: 某行的 start 比前一行的 end 小 0.5s 以上，
+            通常意味着该行被匹配到了音频的较早位置（副歌重复错位）。
+
+    修正策略:
+    - 找到回退块（连续时间戳 < 前行 end 的行组）
+    - 整体向后平移，使其第一行 start 紧接在前一个正常行的 end 之后
+    - 修正基于估算，建议在编辑器中人工复核
+    """
+    if len(aligned) < 2:
+        return aligned
+
+    # --- 检测回退点 ---
+    regression_indices: list[int] = []
+    for i in range(1, len(aligned)):
+        if aligned[i].start < aligned[i - 1].end - 0.5:
+            regression_indices.append(i)
+
+    if not regression_indices:
+        return aligned
+
+    log.warning("对齐审计: 检测到 %d 处时间轴回退（可能是副歌重复导致的错位）", len(regression_indices))
+    for i in regression_indices:
+        log.warning(
+            "  第%d行 '%s…': start=%.2fs < 前行 end=%.2fs (倒退 %.2fs)",
+            i + 1, aligned[i].text[:12],
+            aligned[i].start, aligned[i - 1].end,
+            aligned[i - 1].end - aligned[i].start,
+        )
+
+    # --- 逐块修正 ---
+    working = list(aligned)   # 副本
+    corrected_count = 0
+
+    # 将连续回退行合并为块
+    blocks: list[tuple[int, int]] = []   # [(block_start_idx, block_end_idx), ...]
+    i = 0
+    while i < len(regression_indices):
+        blk_start = regression_indices[i]
+        # 找到这个回退块的结束位置: 第一个时间已经 >= 前一正常行 end 的行
+        anchor_end = working[blk_start - 1].end
+        blk_end = blk_start
+        while blk_end < len(working) and working[blk_end].start < anchor_end - 0.1:
+            blk_end += 1
+        blocks.append((blk_start, blk_end))
+        # 跳过已纳入块的所有回退点
+        while i < len(regression_indices) and regression_indices[i] < blk_end:
+            i += 1
+
+    for blk_start, blk_end in blocks:
+        anchor_end = working[blk_start - 1].end
+        old_start = working[blk_start].start
+        offset = anchor_end + 0.1 - old_start
+
+        log.warning(
+            "  修正第%d~%d行: 平移 +%.2fs（估算，建议在编辑器中复核）",
+            blk_start + 1, blk_end, offset,
+        )
+
+        for j in range(blk_start, blk_end):
+            ln = working[j]
+            new_words = [
+                WordTimestamp(w.word, round(w.start + offset, 3), round(w.end + offset, 3))
+                for w in ln.words
+            ]
+            working[j] = AlignedLine(
+                text=ln.text,
+                start=round(ln.start + offset, 3),
+                end=round(ln.end + offset, 3),
+                words=new_words,
+            )
+        corrected_count += 1
+
+    log.warning(
+        "对齐审计: 已自动尝试修正 %d 处回退（修正均基于估算，延迟可能不准）",
+        corrected_count,
+    )
+    return working
+
+
 # ---------------------------------------------------------------------------
 # 歌词 → 时间轴模糊匹配 (SequenceMatcher)
 # ---------------------------------------------------------------------------
@@ -512,6 +632,8 @@ def _match_lyrics_to_timeline(
     # --- 构建歌词字符序列 (只保留有声字符用于匹配) ---
     lyrics_chars: list[tuple[int, int, str]] = []  # (line_idx, char_idx_in_line, char)
     for li, ly in enumerate(lyrics):
+        if ly.is_annotation:
+            continue
         chars_in_line = [c for c in ly.text if not c.isspace()]
         for ci, ch in enumerate(chars_in_line):
             if _CHINESE_CHAR_RE.match(ch) or ch.isalnum():
@@ -553,9 +675,19 @@ def _match_lyrics_to_timeline(
 
     # --- 按行切分，生成 AlignedLine ---
     aligned_lines: list[AlignedLine] = []
-    # 重新遍历每行，包含所有字符（含标点）
-    lci = 0  # lyrics_chars 的游标
+    lci = 0  # lyrics_chars 的游标游走于所有正常歌词字符
+
     for li, ly in enumerate(lyrics):
+        if ly.is_annotation:
+            # 编曲说明行：先占位，稍后回填时间
+            aligned_lines.append(AlignedLine(
+                text=ly.text,
+                start=0.0,
+                end=0.0,
+                words=[WordTimestamp(word=ly.text, start=0.0, end=0.0)]
+            ))
+            continue
+
         chars_in_line = [c for c in ly.text if not c.isspace()]
         if not chars_in_line:
             continue
@@ -569,21 +701,73 @@ def _match_lyrics_to_timeline(
                 if t is not None:
                     words.append(WordTimestamp(word=ch, start=t[0], end=t[1]))
                 else:
-                    # 仍然没有时间 → 继承前字
-                    prev_end = words[-1].end if words else 0.0
+                    prev_end = words[-1].end if words else (aligned_lines[-1].end if aligned_lines else 0.0)
                     words.append(WordTimestamp(word=ch, start=prev_end, end=prev_end + 0.3))
             else:
-                # 标点: 零时长
-                prev_end = words[-1].end if words else 0.0
+                prev_end = words[-1].end if words else (aligned_lines[-1].end if aligned_lines else 0.0)
                 words.append(WordTimestamp(word=ch, start=prev_end, end=prev_end))
 
-        if words and any(w.end > w.start for w in words):
+        if words:
             aligned_lines.append(AlignedLine(
                 text=ly.text,
                 start=words[0].start,
                 end=words[-1].end,
                 words=words,
             ))
+
+    # --- 为编曲说明分配空隙时间 (支持多行平分) ---
+    i = 0
+    while i < len(aligned_lines):
+        al = aligned_lines[i]
+        # 判断是否为待处理的编曲说明行
+        if len(al.words) == 1 and al.words[0].word == al.text and al.start == 0 and al.end == 0:
+            # 找到连续的编曲说明块
+            block_start = i
+            while i < len(aligned_lines):
+                curr = aligned_lines[i]
+                if not (len(curr.words) == 1 and curr.words[0].word == curr.text and curr.start == 0 and curr.end == 0):
+                    break
+                i += 1
+            block_end = i  # 不包含
+            block_count = block_end - block_start
+
+            # 确定块的前后锚点
+            anchor_start = aligned_lines[block_start - 1].end if block_start > 0 else 0.0
+            anchor_end = aligned_lines[block_end].start if block_end < len(aligned_lines) else anchor_start + 5.0
+            total_gap = anchor_end - anchor_start
+
+            # 确定块的前后锚点 (绝对界限)
+            anchor_start = aligned_lines[block_start - 1].end if block_start > 0 else 0.0
+            anchor_end = aligned_lines[block_end].start if block_end < len(aligned_lines) else anchor_start + 5.0
+            total_gap = max(0.0, anchor_end - anchor_start)
+
+            # 设定理想参数
+            PREF_DUR = 3.0  # 每行最大持续时间 3秒
+
+            if block_start == 0:
+                # 情况 A: 前奏块 -> 从 0 开始往后排，但不超过第一句歌词
+                dur = min(total_gap / block_count, PREF_DUR)
+                for j in range(block_count):
+                    idx = block_start + j
+                    target = aligned_lines[idx]
+                    target.start = round(j * dur, 3)
+                    target.end = round((j + 1) * dur, 3)
+                    target.words[0].start, target.words[0].end = target.start, target.end
+            else:
+                # 情况 B: 中间或结尾块 -> 靠后对齐 (下一句开唱前)，绝不越界
+                actual_dur = min(total_gap / block_count, PREF_DUR)
+                # 整个块贴着 anchor_end 往前排
+                block_real_start = anchor_end - (actual_dur * block_count)
+                
+                for j in range(block_count):
+                    idx = block_start + j
+                    target = aligned_lines[idx]
+                    s = block_real_start + j * actual_dur
+                    e = s + actual_dur
+                    target.start, target.end = round(s, 3), round(e, 3)
+                    target.words[0].start, target.words[0].end = target.start, target.end
+        else:
+            i += 1
 
     return aligned_lines
 
@@ -907,6 +1091,9 @@ def _close_line_gaps(
             mid = curr_end + gap / 2
             result[curr_li] = (result[curr_li][0], round(mid, 3))
             result[next_li] = (round(mid, 3), result[next_li][1])
+
+
+# _fix_punct_durations 已移除: 标点符号始终保持零时长 (start == end)
 
 
 def _split_line_to_words(
@@ -1582,3 +1769,101 @@ def _postprocess_timing(
             line.end = line.words[-1].end
 
     return lines
+
+
+# ---------------------------------------------------------------------------
+# 局部重对齐
+# ---------------------------------------------------------------------------
+
+def realign_lines(
+    vocals_path: Path,
+    texts: list[str],
+    rough_start: float,
+    rough_end: float,
+    config: AlignerConfig | None = None,
+    buffer: float = 2.0,
+) -> list[AlignedLine]:
+    """
+    对指定时间段内的几行歌词进行局部重对齐。
+
+    流程:
+    1. 从 vocals_path 裁剪 [rough_start-buffer, rough_end+buffer] 的音频片段
+    2. 对该片段跑 WhisperX（转写 + 强制对齐）
+    3. 所有时间戳加回 clip_start 偏移量
+    4. 返回新的 AlignedLine 列表（长度 == len(texts)）
+
+    Args:
+        vocals_path:  人声 WAV 文件路径
+        texts:        要重对齐的歌词行文本列表（纯显示文本）
+        rough_start:  大致起始时间（秒），用于裁剪音频
+        rough_end:    大致结束时间（秒）
+        config:       对齐配置，None 则使用默认值
+        buffer:       音频片段前后各加多少秒的缓冲
+    Returns:
+        list[AlignedLine]，时间戳已换算回原始音频坐标系
+    """
+    import tempfile
+    import soundfile as sf
+    import numpy as np
+
+    if config is None:
+        config = AlignerConfig()
+
+    # --- 裁剪音频 ---
+    clip_start = max(0.0, rough_start - buffer)
+    clip_end = rough_end + buffer
+
+    log.info("局部重对齐: %.2fs ~ %.2fs (片段 %.2fs ~ %.2fs, buffer=%.1fs)",
+             rough_start, rough_end, clip_start, clip_end, buffer)
+
+    audio_data, sample_rate = sf.read(str(vocals_path), dtype="float32", always_2d=False)
+    start_sample = int(clip_start * sample_rate)
+    end_sample = int(clip_end * sample_rate)
+    end_sample = min(end_sample, len(audio_data))
+    clip = audio_data[start_sample:end_sample]
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    sf.write(str(tmp_path), clip, sample_rate)
+
+    try:
+        # 局部重对齐时不需要过滤前奏
+        local_config = AlignerConfig(
+            whisper_model=config.whisper_model,
+            device=config.device,
+            compute_type=config.compute_type,
+            batch_size=config.batch_size,
+            language=config.language,
+            use_pinyin=config.use_pinyin,
+            lyrics_start_time=0.0,  # 片段从 0 开始，不过滤
+            min_char_duration=config.min_char_duration,
+            max_char_duration=config.max_char_duration,
+        )
+        lyrics = [LyricLine(text=t) for t in texts]
+        local_result = align_lyrics(tmp_path, lyrics, local_config)
+    finally:
+        try:
+            tmp_path.unlink()
+        except Exception:
+            pass
+
+    # --- 时间戳加回 clip_start 偏移 ---
+    shifted: list[AlignedLine] = []
+    for line in local_result.lines:
+        new_words = [
+            WordTimestamp(
+                word=w.word,
+                start=round(w.start + clip_start, 3),
+                end=round(w.end + clip_start, 3),
+            )
+            for w in line.words
+        ]
+        shifted.append(AlignedLine(
+            text=line.text,
+            start=round(line.start + clip_start, 3),
+            end=round(line.end + clip_start, 3),
+            words=new_words,
+        ))
+
+    log.info("局部重对齐完成: %d 行", len(shifted))
+    return shifted

@@ -20,8 +20,13 @@ import threading
 import webbrowser
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    tomllib = None
+
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
 
 from src.aligner import AlignmentResult
@@ -82,6 +87,41 @@ def list_files():
     return result
 
 
+@app.get("/api/assets")
+def list_assets():
+    """列出可用图片/视频素材"""
+    scan_dir = _get_scan_dir()
+    input_dir = scan_dir.parent / "input"
+    assets_dir = scan_dir.parent / "assets"
+    
+    extensions = {".jpg", ".jpeg", ".png", ".webp", ".mp4"}
+    result = []
+    
+    # 查找 input 和 assets 目录下的文件
+    for d in [input_dir, assets_dir]:
+        if d.exists():
+            for f in d.iterdir():
+                if f.suffix.lower() in extensions:
+                    result.append({
+                        "name": f.name,
+                        "path": str(f.absolute()),
+                        "url": f"/api/asset_file?path={encode_path(str(f.absolute()))}"
+                    })
+    return result
+
+
+@app.get("/api/asset_file")
+def get_asset_file(path: str):
+    """提供素材文件流"""
+    p = _validate_path(Path(path))
+    return FileResponse(p)
+
+
+def encode_path(p: str) -> str:
+    import urllib.parse
+    return urllib.parse.quote(p)
+
+
 @app.get("/api/alignment")
 def get_alignment(path: str):
     """读取 alignment.json"""
@@ -118,10 +158,13 @@ async def save_alignment(path: str, request: Request):
 
 @app.post("/api/regen")
 async def regen_ass(request: Request):
-    """从 alignment.json 重新生成 .ass"""
+    """从 alignment.json 生成 .ass 或合成视频"""
     body = await request.json()
     json_path = Path(body.get("json_path", ""))
     audio_path_str = body.get("audio_path") or ""
+    mode = body.get("mode", "ass")  # "ass" 或 "video"
+    tag_type = body.get("tag_type", "kf")  # "\k" 或 "\kf"
+    render_mode = body.get("render_mode", "apple")  # "apple" 或 "tv"
 
     if not json_path.exists():
         raise HTTPException(404, f"JSON 不存在: {json_path}")
@@ -131,12 +174,175 @@ async def regen_ass(request: Request):
         stem = json_path.stem.replace("_alignment", "")
         ass_path = json_path.parent / f"{stem}.ass"
         audio_path = Path(audio_path_str) if audio_path_str else None
-        generate_ass(alignment, ass_path, SubtitleConfig(), audio_path=audio_path)
+        subtitle_config = getattr(app.state, "subtitle_config", SubtitleConfig())
+        
+        # 覆盖设置
+        subtitle_config.use_karaoke_gradient = (tag_type == "kf")
+        subtitle_config.render_mode = render_mode
+        
+        # 生成 ASS
+        generate_ass(alignment, ass_path, subtitle_config, audio_path=audio_path)
         log.info("ASS 重新生成: %s", ass_path.name)
-        return {"status": "ok", "ass_path": str(ass_path)}
+        
+        res = {"status": "ok", "ass_path": str(ass_path)}
+        
+        if mode == "video" and audio_path:
+            # 执行视频合成
+            from src.compositor import compose_video, CompositorConfig
+            video_path = json_path.parent / f"{stem}.mp4"
+            compositor_config = getattr(app.state, "compositor_config", CompositorConfig())
+
+            # 背景优先级: alignment.json 中的 background 字段 > 纯黑
+            background: Path | None = None
+            if alignment.background:
+                bg_p = Path(alignment.background)
+                if bg_p.exists():
+                    background = bg_p
+                    log.info("使用 alignment.json 中的背景: %s", bg_p.name)
+                else:
+                    log.warning("alignment.json 指定的背景不存在: %s", bg_p)
+
+            log.info("开始合成视频: %s (背景: %s, 分镜: %d 个)",
+                     video_path.name, background, len(alignment.storyboard))
+            compose_video(
+                audio_path=audio_path,
+                subtitle_path=ass_path,
+                output_path=video_path,
+                background=background,
+                config=compositor_config,
+                storyboard=alignment.storyboard,
+            )
+            log.info("视频合成完成: %s", video_path.name)
+            res["video_path"] = str(video_path)
+            res["mode"] = "video"
+        
+        return res
     except Exception as e:
-        log.error("重新生成失败: %s", e, exc_info=True)
+        log.error("生成失败: %s", e, exc_info=True)
         raise HTTPException(500, str(e))
+
+
+@app.post("/api/realign")
+async def realign(request: Request):
+    """
+    局部重对齐: 对 alignment JSON 中指定的行重新跑 WhisperX。
+
+    请求体:
+        json_path   : alignment JSON 文件路径
+        line_indices: 要重对齐的行索引列表 (0-based)
+        buffer      : 音频裁剪前后缓冲秒数，默认 2.0
+    """
+    from src.aligner import realign_lines
+
+    body = await request.json()
+    json_path = Path(body.get("json_path", ""))
+    line_indices: list[int] = body.get("line_indices", [])
+    buffer: float = float(body.get("buffer", 2.0))
+
+    if not json_path.exists():
+        raise HTTPException(404, f"JSON 不存在: {json_path}")
+    if not line_indices:
+        raise HTTPException(400, "line_indices 不能为空")
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    lines = data.get("lines", [])
+
+    invalid = [i for i in line_indices if i < 0 or i >= len(lines)]
+    if invalid:
+        raise HTTPException(400, f"索引越界: {invalid}，共 {len(lines)} 行")
+
+    selected = [lines[i] for i in line_indices]
+    rough_start = min(l["start"] for l in selected)
+    rough_end   = max(l["end"]   for l in selected)
+    texts       = [l["text"] for l in selected]
+
+    # 优先用 {stem}_vocals.wav，找不到再用原始音频
+    stem = json_path.stem.replace("_alignment", "")
+    scan_dir = _get_scan_dir()
+    vocals_path = scan_dir / f"{stem}_vocals.wav"
+    if not vocals_path.exists():
+        audio = _find_audio(stem)
+        if audio is None:
+            raise HTTPException(404, f"找不到人声文件: {stem}_vocals.wav")
+        vocals_path = audio
+        log.warning("未找到 vocals 文件，使用原始音频: %s", vocals_path.name)
+
+    log.info("局部重对齐请求: %s 第 %s 行 (%.2f~%.2fs)",
+             stem, line_indices, rough_start, rough_end)
+
+    try:
+        new_lines = realign_lines(
+            vocals_path=vocals_path,
+            texts=texts,
+            rough_start=rough_start,
+            rough_end=rough_end,
+            buffer=buffer,
+        )
+    except Exception as e:
+        log.error("局部重对齐失败: %s", e, exc_info=True)
+        raise HTTPException(500, str(e))
+
+    for list_pos, orig_idx in enumerate(line_indices):
+        if list_pos < len(new_lines):
+            nl = new_lines[list_pos]
+            lines[orig_idx] = {
+                "text":  nl.text,
+                "start": nl.start,
+                "end":   nl.end,
+                "words": [{"word": w.word, "start": w.start, "end": w.end}
+                          for w in nl.words],
+            }
+
+    bak = json_path.with_suffix(".json.bak")
+    shutil.copy2(json_path, bak)
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    log.info("局部重对齐完成，已写回: %s", json_path.name)
+    return {
+        "status": "ok",
+        "patched_indices": line_indices,
+        "lines": [
+            {"index": orig_idx, "start": lines[orig_idx]["start"],
+             "end": lines[orig_idx]["end"], "text": lines[orig_idx]["text"]}
+            for orig_idx in line_indices
+        ],
+    }
+
+
+@app.post("/api/upload_asset")
+async def upload_asset(file: UploadFile = File(...)):
+    """上传图片素材到 assets/ 目录"""
+    scan_dir = _get_scan_dir()
+    assets_dir = scan_dir.parent / "assets"
+    assets_dir.mkdir(exist_ok=True)
+
+    # 安全校验文件类型
+    allowed_suffixes = {".jpg", ".jpeg", ".png", ".webp"}
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in allowed_suffixes:
+        raise HTTPException(400, f"不支持的文件类型: {suffix}，仅允许 jpg/jpeg/png/webp")
+
+    # 安全文件名（去除路径分隔符）
+    safe_name = Path(file.filename).name
+    dest = assets_dir / safe_name
+
+    content = await file.read()
+    # 限制文件大小 50MB
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(400, "文件过大，最大支持 50MB")
+
+    with open(dest, "wb") as f:
+        f.write(content)
+
+    log.info("素材上传: %s -> %s", file.filename, dest)
+    return {
+        "status": "ok",
+        "name": safe_name,
+        "path": str(dest),
+        "url": f"/api/asset_file?path={encode_path(str(dest.absolute()))}"
+    }
 
 
 @app.get("/api/audio")
@@ -183,6 +389,8 @@ def _validate(data: dict) -> list[str]:
     lines = data.get("lines")
     if not isinstance(lines, list):
         return ["'lines' 必须是数组"]
+    
+    # 校验歌词行
     for i, line in enumerate(lines):
         words = line.get("words", [])
         if words:
@@ -194,7 +402,61 @@ def _validate(data: dict) -> list[str]:
                     f"第{i+1}行第{j+1}字'{w.get('word','')}': "
                     f"end({w.get('end',0):.2f}) < start({w.get('start',0):.2f})"
                 )
+    
+    # 校验分镜
+    storyboard = data.get("storyboard", [])
+    if not isinstance(storyboard, list):
+        errors.append("'storyboard' 必须是数组")
+    
     return errors[:20]
+
+
+def _load_subtitle_config(config_path: Path | None) -> SubtitleConfig:
+    """从 JSON / TOML 读取本地编辑器使用的 subtitle 配置。"""
+    config = SubtitleConfig()
+    if not config_path:
+        return config
+
+    if not config_path.exists():
+        raise FileNotFoundError(f"配置文件不存在: {config_path}")
+
+    suffix = config_path.suffix.lower()
+    if suffix == ".toml":
+        if tomllib is None:
+            raise ValueError("当前 Python 环境不支持 TOML 解析，请使用 Python 3.11+ 或改用 .json 配置")
+        data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    elif suffix == ".json":
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    else:
+        raise ValueError("配置文件仅支持 .toml 或 .json")
+
+    subtitle_cfg = data.get("subtitle", {})
+    if not isinstance(subtitle_cfg, dict):
+        return config
+
+    if subtitle_cfg.get("template_path"):
+        template_path = Path(subtitle_cfg["template_path"]).expanduser()
+        if not template_path.is_absolute():
+            template_path = (config_path.parent / template_path).resolve()
+        config.template_path = template_path
+    if subtitle_cfg.get("style_name"):
+        config.style_name = str(subtitle_cfg["style_name"])
+    if subtitle_cfg.get("primary_colour"):
+        config.primary_colour = str(subtitle_cfg["primary_colour"])
+    if subtitle_cfg.get("secondary_colour"):
+        config.secondary_colour = str(subtitle_cfg["secondary_colour"])
+    if subtitle_cfg.get("outline_colour"):
+        config.outline_colour = str(subtitle_cfg["outline_colour"])
+    if subtitle_cfg.get("font_name"):
+        config.font_name = str(subtitle_cfg["font_name"])
+    if subtitle_cfg.get("font_size") is not None:
+        config.font_size = int(subtitle_cfg["font_size"])
+    if "enable_beat_effects" in subtitle_cfg:
+        config.enable_beat_effects = bool(subtitle_cfg["enable_beat_effects"])
+    if subtitle_cfg.get("beat_scale") is not None:
+        config.beat_scale = float(subtitle_cfg["beat_scale"])
+
+    return config
 
 
 
@@ -211,6 +473,11 @@ def parse_args() -> argparse.Namespace:
                         help=f"alignment.json 所在目录，默认: {DEFAULT_DIR}")
     parser.add_argument("--host", default=DEFAULT_HOST)
     parser.add_argument("--port", "-p", type=int, default=DEFAULT_PORT)
+    parser.add_argument(
+        "--config-file",
+        default=None,
+        help="可选配置文件 (.toml/.json)，读取 [subtitle] 字段用于本地重生 ASS",
+    )
     parser.add_argument("--no-browser", action="store_true",
                         help="不自动打开浏览器")
     return parser.parse_args()
@@ -224,9 +491,19 @@ def main() -> None:
         scan_dir.mkdir(parents=True, exist_ok=True)
     app.state.scan_dir = scan_dir
 
+    config_path = Path(args.config_file).expanduser().resolve() if args.config_file else None
+    try:
+        subtitle_config = _load_subtitle_config(config_path)
+    except Exception as e:
+        print(f"[错误] 配置文件加载失败: {e}")
+        raise SystemExit(1)
+    app.state.subtitle_config = subtitle_config
+
     url = f"http://{args.host}:{args.port}"
     print(f"M2V 本地编辑器启动: {url}")
     print(f"扫描目录: {scan_dir}")
+    if config_path:
+        print(f"字幕配置: {config_path}")
     print("Ctrl+C 退出")
 
     if not args.no_browser:

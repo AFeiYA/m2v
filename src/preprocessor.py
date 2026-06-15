@@ -28,6 +28,9 @@ class LyricLine:
     timestamp: float | None = None   # 秒，来自 LRC 行级时间戳
     paragraph: int = 0               # 段落索引 (0-based)，由空行分隔
     language: str | None = None      # "zh" / "en" / None=未检测
+    occurrence: int = 0              # 同一段落内容第几次出现 (0=首次, 1=第二次, …)
+    is_annotation: bool = False      # 是否为编曲说明（如 [Intro], (Music)），跳过对齐
+
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +47,8 @@ _SECTION_HEADER_RE = re.compile(r"^\[.+\]$")
 _FULL_ANNOTATION_RE = re.compile(r"^[（(].+[）)]$")
 # 行内括号注释 (用于剥离混合行中的编曲说明)
 _INLINE_ANNOTATION_RE = re.compile(r"[（(][^（）()]*[）)]")
+# 行内方括号指令: [Vocal grit] / [Crescendo] 等 (内嵌于歌词行)
+_INLINE_BRACKET_RE = re.compile(r"\[[^\[\]]+\]")
 
 # ---------------------------------------------------------------------------
 # 主函数
@@ -77,17 +82,22 @@ def preprocess_lyrics(
         if not text:
             continue
 
-        # 跳过章节标题 [Intro] / [Verse 1] 等
+        # 标记章节标题 [Intro] / [Verse 1] 等
         if _SECTION_HEADER_RE.match(text):
-            log.debug("跳过章节标题: %s", text)
+            cleaned.append(LyricLine(text=text, paragraph=line.paragraph, is_annotation=True))
             continue
 
-        # 跳过整行编曲说明 （Fast Kick + ...） / (Bass Drop)
+        # 标记整行编曲说明 （Fast Kick + ...） / (Bass Drop)
         if _FULL_ANNOTATION_RE.match(text):
-            log.debug("跳过编曲说明: %s", text)
+            cleaned.append(LyricLine(text=text, paragraph=line.paragraph, is_annotation=True))
             continue
 
-        # 剥离行内编曲注释 e.g. "Let's go!（Drop）" → "Let's go!"
+        # 剥离行内方括号指令 e.g. "[Vocal grit] 如果…" → "如果…"
+        text = _INLINE_BRACKET_RE.sub("", text).strip()
+        if not text:
+            continue
+
+        # 剥离行内圆括号编曲注释 e.g. "Let's go!（Drop）" → "Let's go!"
         text = _INLINE_ANNOTATION_RE.sub("", text).strip()
         if not text:
             continue
@@ -108,8 +118,55 @@ def preprocess_lyrics(
             lang = _detect_language(text)
             cleaned.append(LyricLine(text=text, timestamp=line.timestamp, paragraph=line.paragraph, language=lang))
 
+    # --- 检测重复段落（副歌重复等）---
+    _mark_repeated_paragraphs(cleaned)
+
     log.info("预处理完成: %d 行有效歌词", len(cleaned))
     return cleaned
+
+
+# ---------------------------------------------------------------------------
+# 重复段落检测
+# ---------------------------------------------------------------------------
+
+def _mark_repeated_paragraphs(lines: list[LyricLine]) -> None:
+    """
+    检测内容完全相同的段落（副歌重复），为其 occurrence 字段赋值。
+    occurrence=0 表示首次出现，1 表示第二次出现，依此类推。
+    同时输出 WARNING 日志，提示可能发生对齐错位。
+    """
+    # 按段落索引收集文本
+    para_texts: dict[int, str] = {}
+    for line in lines:
+        p = line.paragraph
+        if p not in para_texts:
+            para_texts[p] = ""
+        para_texts[p] += line.text.replace(" ", "").replace("\u3000", "")
+
+    # 按段落顺序确定每段是第几次出现
+    text_count: dict[str, int] = {}   # normalized text -> seen count so far
+    para_occurrence: dict[int, int] = {}
+    for p_idx in sorted(para_texts):
+        t = para_texts[p_idx]
+        if not t:
+            para_occurrence[p_idx] = 0
+            continue
+        count = text_count.get(t, 0)
+        para_occurrence[p_idx] = count
+        text_count[t] = count + 1
+
+    # 回写到 LyricLine.occurrence
+    for line in lines:
+        line.occurrence = para_occurrence.get(line.paragraph, 0)
+
+    # 日志
+    repeated_paras = [(p, occ) for p, occ in para_occurrence.items() if occ > 0]
+    if repeated_paras:
+        desc = ", ".join(f"第{p+1}段(第{occ+1}次)" for p, occ in repeated_paras)
+        log.warning(
+            "检测到 %d 个重复段落 [%s]，副歌重复可能导致时间轴错位，建议对齐后在编辑器中复核",
+            len(repeated_paras), desc,
+        )
 
 
 # ---------------------------------------------------------------------------
