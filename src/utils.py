@@ -77,6 +77,22 @@ def seconds_to_centiseconds(seconds: float) -> int:
 # ---------------------------------------------------------------------------
 
 def check_ffmpeg() -> bool:
-    """检查 ffmpeg 是否在 PATH 中"""
+    """检查 ffmpeg 是否在 PATH 中，支持虚拟环境本地 bin 目录探测"""
     import shutil
-    return shutil.which("ffmpeg") is not None
+    import os
+    import sys
+    from pathlib import Path
+
+    # 1. 检查 PATH 环境变量
+    if shutil.which("ffmpeg") is not None:
+        return True
+
+    # 2. 检查当前 Python 虚拟环境 bin 目录
+    venv_bin_dir = Path(sys.executable).parent
+    ffmpeg_in_venv = venv_bin_dir / "ffmpeg"
+    if ffmpeg_in_venv.exists():
+        os.environ["PATH"] = str(venv_bin_dir) + os.pathsep + os.environ.get("PATH", "")
+        if shutil.which("ffmpeg") is not None:
+            return True
+
+    return False

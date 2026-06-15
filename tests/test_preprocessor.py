@@ -37,7 +37,9 @@ class TestParseTxt:
 
     def test_empty_lines(self):
         lines = _parse_txt("第一行\n\n第三行\n")
-        assert len(lines) == 4  # 包含空行
+        assert len(lines) == 2  # 空行不应包含在结果中，只作为段落分隔
+        assert lines[0].paragraph == 0
+        assert lines[1].paragraph == 1
 
 
 # ---------------------------------------------------------------------------

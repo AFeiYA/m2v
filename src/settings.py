@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     # ── Celery ────────────────────────────────────────────
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
+    CELERY_ALWAYS_EAGER: bool = False
 
     # ── 用户配额 ──────────────────────────────────────────
     FREE_MONTHLY_QUOTA: int = 5         # 免费用户每月可生成次数

@@ -42,6 +42,7 @@ celery_app.conf.update(
     timezone="UTC",
     task_track_started=True,
     task_default_queue="m2v",
+    task_always_eager=settings.CELERY_ALWAYS_EAGER,
     # GPU 任务防止 prefetch 抢占
     worker_prefetch_multiplier=1,
     # 单个任务最长 30 分钟

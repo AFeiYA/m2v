@@ -274,6 +274,9 @@ async def upload_and_create_task(
     # 扣减配额
     user.credits -= 1
 
+    # 提交到 Celery 队列前必须先 commit，确保数据已落地，避免 Worker 读取不到 (Race Condition) 并解决 SQLite 锁问题
+    await db.commit()
+
     # 提交到 Celery 队列
     try:
         from src.worker import process_song_task
@@ -284,10 +287,9 @@ async def upload_and_create_task(
             config_dict=task.config_snapshot,
         )
         task.celery_task_id = celery_result.id
+        await db.commit()
     except Exception as e:
         log.warning("Celery 不可用，任务将保持 pending 状态: %s", e)
-
-    await db.flush()
 
     return UploadResponse(
         mp3_key=mp3_key,
