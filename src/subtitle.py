@@ -297,12 +297,12 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
                 
                 for word in lines[j].words:
                     # 计算当前字和上一个字之间的静音空白 gap
-                    gap_cs = int((word.start - current_t) * 100)
+                    gap_cs = round((word.start - current_t) * 100)
                     if gap_cs > 0:
                         karaoke_text += f"{{\\k{gap_cs}}}"
                     
                     # 当前字的持续时间
-                    dur_cs = int((word.end - max(word.start, current_t)) * 100)
+                    dur_cs = round((word.end - max(word.start, current_t)) * 100)
                     if dur_cs < 0: 
                         dur_cs = 0
                         
@@ -369,11 +369,11 @@ def _generate_tv_events(
         current_t = event_start
 
         for word in line.words:
-            gap_cs = int((word.start - current_t) * 100)
+            gap_cs = round((word.start - current_t) * 100)
             if gap_cs > 0:
                 parts.append(f"{{\\k{gap_cs}}}")
 
-            dur_cs = int((word.end - max(word.start, current_t)) * 100)
+            dur_cs = round((word.end - max(word.start, current_t)) * 100)
             if dur_cs < 0:
                 dur_cs = 0
 
