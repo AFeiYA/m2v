@@ -345,6 +345,63 @@ async def upload_asset(file: UploadFile = File(...)):
     }
 
 
+@app.post("/api/suno/download")
+async def download_suno(request: Request):
+    """
+    输入 Suno URL，自动下载 MP3 并在本地执行管线还原
+    """
+    body = await request.json()
+    url = body.get("url", "").strip()
+    if not url:
+        raise HTTPException(400, "URL 不能为空")
+
+    scan_dir = _get_scan_dir()
+    input_dir = scan_dir.parent / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    log.info("本地编辑器收到 Suno 导入请求: %s", url)
+
+    try:
+        from src.suno_fetch import download_song
+        from src.main import process_one
+        from src.config import PipelineConfig
+        import torch
+
+        # 1. 下载歌曲和歌词
+        mp3_path, lyrics_path, song = download_song(url, input_dir)
+
+        # 2. 准备 PipelineConfig 并自动检测 GPU/CPU
+        pipeline_config = PipelineConfig()
+        if not torch.cuda.is_available():
+            pipeline_config.separator.device = "cpu"
+            pipeline_config.aligner.device = "cpu"
+            pipeline_config.aligner.compute_type = "int8"
+            log.info("本地未检测到 CUDA，已自动回退到 CPU 模式进行对齐")
+
+        # 3. 运行管线
+        # 我们将结果输出到本地编辑器的扫描目录（默认是 output/）
+        process_one(mp3_path, lyrics_path, scan_dir, None, pipeline_config)
+
+        # 4. 组装返回结果，以便前端更新文件列表并直接加载它
+        stem = mp3_path.stem
+        alignment_json = scan_dir / f"{stem}_alignment.json"
+        
+        return {
+            "status": "ok",
+            "title": song.title,
+            "artist": song.artist,
+            "duration": song.duration,
+            "file": {
+                "name": stem,
+                "json_path": str(alignment_json),
+                "audio_path": str(mp3_path)
+            }
+        }
+    except Exception as e:
+        log.error("Suno 导入并处理失败: %s", e, exc_info=True)
+        raise HTTPException(500, f"Suno 导入并对齐处理失败: {str(e)}")
+
+
 @app.get("/api/audio")
 def stream_audio(path: str):
     """提供音频文件流（支持 Range 请求）"""

@@ -74,6 +74,8 @@ document.addEventListener("DOMContentLoaded", () => {
   dom.uploadStatus        = $("#upload-status");
   dom.btnSetBg            = $("#btn-set-bg");
   dom.bgName              = $("#bg-name");
+  dom.sunoUrl             = $("#suno-url");
+  dom.btnSunoImport       = $("#btn-suno-import");
 
   initWaveSurfer();
   bindEvents();
@@ -188,6 +190,7 @@ function bindEvents() {
   dom.btnAssetAdd.addEventListener("click", addOrUpdateAssetEvent);
   dom.assetFileInput.addEventListener("change", handleAssetUpload);
   dom.btnSetBg.addEventListener("click", openBgPicker);
+  dom.btnSunoImport.addEventListener("click", importSuno);
   // 点击模态框背景关闭
   dom.assetModal.addEventListener("click", (e) => { if (e.target === dom.assetModal) dom.assetModal.style.display = "none"; });
   dom.generateModal.addEventListener("click", (e) => { if (e.target === dom.generateModal) dom.generateModal.style.display = "none"; });
@@ -293,6 +296,50 @@ async function loadSong(idx) {
   const trackInfo = [vocalsUrl ? "人声" : null, instUrl ? "伴奏" : null, (!vocalsUrl && origUrl) ? "原始" : null].filter(Boolean).join("+");
   status(`已加载: ${file.name} (${state.alignment.lines.length} 行, 音轨: ${trackInfo || "无"})`);
   document.title = `${file.name} — M2V 编辑器`;
+}
+
+async function importSuno() {
+  const url = dom.sunoUrl.value.trim();
+  if (!url) {
+    alert("请输入 Suno 歌曲的分享链接");
+    return;
+  }
+
+  dom.btnSunoImport.disabled = true;
+  dom.btnSunoImport.textContent = "⏳ 导入中...";
+  dom.statusMsg.textContent = "⏳ Suno 歌曲下载与对齐中，请稍候 (约 1-2 分钟)...";
+  dom.statusMsg.style.color = "var(--warning)";
+
+  try {
+    const response = await fetch("/api/suno/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: url })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.detail || "下载或对齐失败");
+    }
+
+    dom.sunoUrl.value = "";
+    status("✅ Suno 歌曲导入并对齐完成！");
+    
+    // 重新加载列表，并自动加载新导入的歌曲
+    await loadFileList();
+    
+    // 在重新加载后的列表中寻找对应的歌曲
+    const newSongIndex = state.allFiles.findIndex(f => f.name === data.file.name);
+    if (newSongIndex !== -1) {
+      loadSong(newSongIndex);
+    }
+  } catch (error) {
+    alert("导入失败: " + error.message);
+    status("❌ 导入失败: " + error.message, true);
+  } finally {
+    dom.btnSunoImport.disabled = false;
+    dom.btnSunoImport.textContent = "🎵 导入";
+  }
 }
 
 // ---------------------------------------------------------------------------

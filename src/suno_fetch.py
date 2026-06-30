@@ -67,6 +67,23 @@ def extract_song_id(url: str) -> str:
         if uuid_re.match(candidate):
             return candidate
 
+    # 如果无法直接提取（例如是 /s/3pkzqXgDSlZq9xcm 缩短链接），尝试进行一次网络请求以跟随重定向
+    try:
+        log.info("尝试跟随重定向解析 Suno URL: %s", url)
+        # 用 requests.get 跟随重定向，这里设置较短的 timeout 并只允许 GET
+        resp = requests.get(url, allow_redirects=True, timeout=10, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        })
+        final_url = resp.url
+        parsed_final = urlparse(final_url)
+        parts_final = [p for p in parsed_final.path.split('/') if p]
+        if len(parts_final) >= 2 and parts_final[0] in ('song', 's'):
+            candidate = parts_final[1]
+            if uuid_re.match(candidate):
+                return candidate
+    except Exception as e:
+        log.warning("跟随重定向解析失败: %s", e)
+
     raise ValueError(
         f"无法从 URL 提取歌曲 ID: {url}\n"
         "支持格式: https://suno.com/song/UUID 或 https://suno.com/s/UUID"
@@ -136,34 +153,43 @@ def _extract_clip_from_rsc(html: str) -> dict | None:
     RSC payload 格式: self.__next_f.push([1,"...escaped JSON..."])
     其中包含 "clip":{...} 或 "audio_url":"https://cdn1.suno.ai/..." 的片段。
     """
-    # 查找所有 RSC push 调用
-    pattern = re.compile(r'self\.__next_f\.push\(\[1,"(.+?)"\]\)', re.DOTALL)
+    # 查找页面中所有的 script 标签内容
+    script_contents = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
 
-    for match in pattern.finditer(html):
-        raw = match.group(1)
-        # RSC payload 使用 \" 和 \n 转义
+    for content in script_contents:
+        content = content.strip()
+        if "self.__next_f.push" not in content:
+            continue
+
+        # 查找数组边界以安全解析 JSON (避开正则表达式在匹配包含 ) 等字符时提前终止的问题)
+        start_idx = content.find("[")
+        end_idx = content.rfind("]")
+        if start_idx == -1 or end_idx == -1 or end_idx <= start_idx:
+            continue
+
+        array_str = content[start_idx:end_idx+1]
         try:
-            # 双重反转义: JSON 字符串内嵌的转义
-            unescaped = raw.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
-        except Exception:
-            continue
+            parsed_args = json.loads(array_str)
+            if not (isinstance(parsed_args, list) and len(parsed_args) >= 2 and isinstance(parsed_args[1], str)):
+                continue
+            
+            unescaped = parsed_args[1]
+            if '"audio_url"' not in unescaped or 'cdn1.suno.ai' not in unescaped:
+                continue
 
-        # 查找 "clip":{ 或 包含 "audio_url":"https://cdn1.suno.ai/" 的片段
-        if '"audio_url"' not in unescaped or 'cdn1.suno.ai' not in unescaped:
-            continue
-
-        # 尝试找到 clip JSON 对象
-        # 格式: 3b:["$","$L4d",null,{"clip":{...},...}]
-        clip_match = re.search(r'"clip"\s*:\s*\{', unescaped)
-        if clip_match:
-            # 从 clip_match 开始，找到匹配的 }
-            start = clip_match.start() + len('"clip":')
-            clip_json = _extract_json_object(unescaped, start)
-            if clip_json:
-                try:
-                    return json.loads(clip_json)
-                except json.JSONDecodeError:
-                    pass
+            # 尝试找到 clip JSON 对象
+            clip_match = re.search(r'"clip"\s*:\s*\{', unescaped)
+            if clip_match:
+                # 从 clip_match 开始，找到匹配的 }
+                start = clip_match.start() + len('"clip":')
+                clip_json = _extract_json_object(unescaped, start)
+                if clip_json:
+                    try:
+                        return json.loads(clip_json)
+                    except json.JSONDecodeError:
+                        pass
+        except Exception as e:
+            log.warning("解析 script 标签中的 RSC 数据失败: %s", e)
 
     return None
 
