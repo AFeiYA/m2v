@@ -254,7 +254,7 @@ def _clean_lyrics(prompt: str) -> str:
         if stripped.startswith('[') and stripped.endswith(']'):
             tag = stripped[1:-1].lower()
             # 纯器乐段落标记 → 跳过后续内容直到下一个标记
-            instrumental_tags = ['intro', 'outro', 'interlude', 'instrumental',
+            instrumental_tags = ['interlude', 'instrumental',
                                  'bridge instrumental', 'solo', 'guitar solo']
             if any(t in tag for t in instrumental_tags):
                 skip_until_next_section = True
