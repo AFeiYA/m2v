@@ -11,6 +11,26 @@ from __future__ import annotations
 import os
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
+# 自动把 imageio-ffmpeg 的 ffmpeg 路径加入 PATH，避免系统缺少 ffmpeg 导致报错
+try:
+    import imageio_ffmpeg
+    ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    ffmpeg_dir = os.path.dirname(ffmpeg_exe)
+    
+    # 确保在该目录下存在名为 ffmpeg 的软链接或拷贝
+    ffmpeg_symlink = os.path.join(ffmpeg_dir, "ffmpeg")
+    if not os.path.exists(ffmpeg_symlink):
+        try:
+            os.symlink(os.path.basename(ffmpeg_exe), ffmpeg_symlink)
+        except Exception:
+            import shutil
+            shutil.copy2(ffmpeg_exe, ffmpeg_symlink)
+            
+    os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
+    print(f"DEBUG: successfully added imageio-ffmpeg path to PATH: {ffmpeg_dir}")
+except Exception as e:
+    print(f"DEBUG: failed to add imageio-ffmpeg to PATH: {e}")
+
 import argparse
 import json
 import shutil

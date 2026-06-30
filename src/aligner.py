@@ -168,40 +168,32 @@ def ensure_local_model(model_name: str) -> str:
     if all_exist:
         log.info("模型已本地缓存: %s", cache_dir)
         return str(cache_dir)
-        
     # 执行手动极速下载
     try:
-        import requests
-        log.info("开始通过镜像源手动下载模型 %s 到本地缓存...", model_name)
+        import subprocess
+        log.info("开始通过 curl 从 ModelScope 镜像源手动下载模型 %s 到本地缓存...", model_name)
         for f in files:
             dest_path = cache_dir / f
             if dest_path.exists() and dest_path.stat().st_size > 0:
                 continue
                 
-            url = f"https://hf-mirror.com/{repo}/resolve/main/{f}"
-            log.info("下载中: %s", url)
+            url = f"https://modelscope.cn/api/v1/models/{repo}/repo?Revision=master&FilePath={f}"
+            log.info("下载中: %s -> %s", url, dest_path.name)
             
             temp_dest = dest_path.with_suffix(".tmp")
-            response = requests.get(url, stream=True, timeout=30)
-            response.raise_for_status()
             
-            total_size = int(response.headers.get('content-length', 0))
-            downloaded = 0
-            last_log = time.time()
+            # 使用 curl -L 进行下载。设置低速限制：如果速度低于 1000B/s 持续 10 秒则超时并重试。
+            cmd = [
+                "curl", "-L",
+                "-y", "10", "-Y", "1000",
+                "--connect-timeout", "30",
+                "--retry", "5",
+                "--retry-delay", "2",
+                "-o", str(temp_dest),
+                url
+            ]
             
-            with open(temp_dest, "wb") as out_f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        out_f.write(chunk)
-                        downloaded += len(chunk)
-                        now = time.time()
-                        if now - last_log > 5:
-                            if total_size > 0:
-                                percent = (downloaded / total_size) * 100
-                                log.info("  进度 %s: %.1f%% (%d/%d MB)", f, percent, downloaded // (1024*1024), total_size // (1024*1024))
-                            else:
-                                log.info("  进度 %s: %d MB", f, downloaded // (1024*1024))
-                            last_log = now
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
             
             temp_dest.rename(dest_path)
             log.info("下载完成: %s", f)
@@ -248,7 +240,7 @@ def _init_whisper(config: AlignerConfig, vocals_path: Path):
         device = "cpu"
         fell_back_to_cpu = True
 
-    compute_type = "int8" if fell_back_to_cpu else config.compute_type
+    compute_type = "int8" if device == "cpu" else config.compute_type
 
     whisper_model = config.whisper_model
     if device == "cpu" and whisper_model in _CPU_HEAVY_MODELS:
@@ -337,7 +329,11 @@ def align_lyrics(
         except Exception:
             pass
 
-    align_model_name = ensure_local_model(config.align_model)
+    align_model = config.align_model
+    if align_model is None and detected_language == "zh":
+        align_model = "jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn"
+
+    align_model_name = ensure_local_model(align_model) if align_model else None
     log.info("加载对齐模型 (language=%s, device=%s, path=%s)…", detected_language, align_device, align_model_name)
     align_model, align_metadata = whisperx.load_align_model(
         language_code=detected_language,
