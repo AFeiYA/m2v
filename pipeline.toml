@@ -4,8 +4,8 @@ ass_only = true          # 只生成 ASS + alignment.json，不合成 MP4
 
 [aligner]
 # GPU 模式：large-v3 + float16（效果最好）
-# 若 CUDA 不可用会自动回退 CPU + int8 + medium
-whisper_model = "large-v3"
+# 若 CUDA 不可用会自动回退 CPU + int8
+whisper_model = "small"
 device = "cuda"
 compute_type = "float16"
 batch_size = 8

@@ -19,6 +19,9 @@
     </div>
     <div id="suno-import-container" style="display: flex; align-items: center; gap: 6px;">
       <input type="text" id="suno-url" placeholder="输入 Suno 歌曲链接..." style="background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 4px 8px; border-radius: 4px; font-size: 13px; width: 220px;">
+      <label style="font-size: 11px; display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none; white-space: nowrap;" title="跳过人声分离(Demucs)，对齐速度提升 70% 以上">
+        <input type="checkbox" id="suno-quick-mode" checked style="cursor: pointer;"> ⚡快速模式
+      </label>
       <button id="btn-suno-import" style="background: var(--bg-hover); color: var(--text); border: 1px solid var(--border); padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 13px;">🎵 导入</button>
     </div>
     <div id="toolbar">

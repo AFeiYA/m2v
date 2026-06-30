@@ -13,6 +13,9 @@
 """
 from __future__ import annotations
 
+import os
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
 import argparse
 import json
 import shutil
@@ -26,7 +29,7 @@ except ModuleNotFoundError:  # Python < 3.11
     tomllib = None
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, BackgroundTasks
 from fastapi.responses import FileResponse, HTMLResponse
 
 from src.aligner import AlignmentResult
@@ -42,6 +45,7 @@ DEFAULT_PORT  = 8765
 # ─────────────────────────────────────────────────────────
 
 app = FastAPI(title="M2V 本地编辑器", docs_url=None, redoc_url=None)
+app.state.running_tasks = {}
 
 
 # ======================================================================
@@ -345,33 +349,33 @@ async def upload_asset(file: UploadFile = File(...)):
     }
 
 
-@app.post("/api/suno/download")
-async def download_suno(request: Request):
-    """
-    输入 Suno URL，自动下载 MP3 并在本地执行管线还原
-    """
-    body = await request.json()
-    url = body.get("url", "").strip()
-    if not url:
-        raise HTTPException(400, "URL 不能为空")
-
-    scan_dir = _get_scan_dir()
-    input_dir = scan_dir.parent / "input"
-    input_dir.mkdir(parents=True, exist_ok=True)
-
-    log.info("本地编辑器收到 Suno 导入请求: %s", url)
-
+def _run_suno_pipeline_task(url: str, input_dir: Path, scan_dir: Path, skip_separation: bool, task_id: str):
     try:
         from src.suno_fetch import download_song
         from src.main import process_one
         from src.config import PipelineConfig
         import torch
 
-        # 1. 下载歌曲和歌词
+        # 1. 更新状态：下载中
+        app.state.running_tasks[task_id]["title"] = "下载音频与歌词中..."
         mp3_path, lyrics_path, song = download_song(url, input_dir)
+        app.state.running_tasks[task_id]["title"] = f"正在对齐: {song.title}"
 
         # 2. 准备 PipelineConfig 并自动检测 GPU/CPU
         pipeline_config = PipelineConfig()
+        
+        # 尝试从项目根目录的 pipeline.toml 加载配置（如果存在）
+        toml_path = _PROJECT_ROOT / "pipeline.toml"
+        if toml_path.exists():
+            try:
+                from src.main import _apply_config_file
+                _apply_config_file(pipeline_config, toml_path)
+                log.info("本地编辑器已从 pipeline.toml 加载配置")
+            except Exception as e:
+                log.warning("加载 pipeline.toml 失败: %s", e)
+
+        pipeline_config.skip_separation = skip_separation
+        
         if torch.cuda.is_available():
             pipeline_config.separator.device = "cuda"
             pipeline_config.aligner.device = "cuda"
@@ -388,12 +392,12 @@ async def download_suno(request: Request):
         # 我们将结果输出到本地编辑器的扫描目录（默认是 output/）
         process_one(mp3_path, lyrics_path, scan_dir, None, pipeline_config)
 
-        # 4. 组装返回结果，以便前端更新文件列表并直接加载它
+        # 4. 更新状态为成功
         stem = mp3_path.stem
         alignment_json = scan_dir / f"{stem}_alignment.json"
         
-        return {
-            "status": "ok",
+        app.state.running_tasks[task_id].update({
+            "status": "completed",
             "title": song.title,
             "artist": song.artist,
             "duration": song.duration,
@@ -402,10 +406,71 @@ async def download_suno(request: Request):
                 "json_path": str(alignment_json),
                 "audio_path": str(mp3_path)
             }
-        }
+        })
+        log.info("后台 Suno 处理成功 [%s]: %s", task_id, song.title)
     except Exception as e:
-        log.error("Suno 导入并处理失败: %s", e, exc_info=True)
-        raise HTTPException(500, f"Suno 导入并对齐处理失败: {str(e)}")
+        log.error("后台 Suno 处理失败 [%s]: %s", task_id, e, exc_info=True)
+        app.state.running_tasks[task_id].update({
+            "status": "failed",
+            "error": str(e)
+        })
+
+
+@app.post("/api/suno/download")
+async def download_suno(request: Request, background_tasks: BackgroundTasks):
+    """
+    输入 Suno URL，自动异步下载 MP3 并在本地执行管线还原
+    """
+    body = await request.json()
+    url = body.get("url", "").strip()
+    skip_separation = body.get("skip_separation", True)  # 默认开启快速模式
+    
+    if not url:
+        raise HTTPException(400, "URL 不能为空")
+
+    scan_dir = _get_scan_dir()
+    input_dir = scan_dir.parent / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    # 随机生成一个唯一的 task_id
+    import uuid
+    task_id = str(uuid.uuid4())
+    
+    # 初始化任务状态
+    app.state.running_tasks[task_id] = {
+        "status": "processing",
+        "title": "初始化任务...",
+        "error": None,
+        "file": None
+    }
+    
+    log.info("本地编辑器收到 Suno 异步导入请求 [%s]: %s (skip_separation=%s)", task_id, url, skip_separation)
+    
+    # 提交后台任务
+    background_tasks.add_task(
+        _run_suno_pipeline_task,
+        url=url,
+        input_dir=input_dir,
+        scan_dir=scan_dir,
+        skip_separation=skip_separation,
+        task_id=task_id
+    )
+    
+    return {
+        "status": "processing",
+        "task_id": task_id
+    }
+
+
+@app.get("/api/suno/task/{task_id}")
+def get_suno_task(task_id: str):
+    """
+    查询 Suno 导入后台任务状态
+    """
+    task = app.state.running_tasks.get(task_id)
+    if not task:
+        raise HTTPException(404, "未找到该任务")
+    return task
 
 
 @app.get("/api/audio")

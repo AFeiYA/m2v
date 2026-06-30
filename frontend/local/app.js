@@ -76,6 +76,7 @@ document.addEventListener("DOMContentLoaded", () => {
   dom.bgName              = $("#bg-name");
   dom.sunoUrl             = $("#suno-url");
   dom.btnSunoImport       = $("#btn-suno-import");
+  dom.sunoQuickMode       = $("#suno-quick-mode");
 
   initWaveSurfer();
   bindEvents();
@@ -305,41 +306,79 @@ async function importSuno() {
     return;
   }
 
+  const skipSeparation = dom.sunoQuickMode ? dom.sunoQuickMode.checked : true;
+
   dom.btnSunoImport.disabled = true;
-  dom.btnSunoImport.textContent = "⏳ 导入中...";
-  dom.statusMsg.textContent = "⏳ Suno 歌曲下载与对齐中，请稍候 (约 1-2 分钟)...";
+  dom.btnSunoImport.textContent = "⏳ 提交中...";
+  dom.statusMsg.textContent = "⏳ 正在提交任务...";
   dom.statusMsg.style.color = "var(--warning)";
 
   try {
     const response = await fetch("/api/suno/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: url })
+      body: JSON.stringify({ url: url, skip_separation: skipSeparation })
     });
 
     const data = await response.json();
     if (!response.ok) {
-      throw new Error(data.detail || "下载或对齐失败");
+      throw new Error(data.detail || "任务提交失败");
     }
 
+    const taskId = data.task_id;
     dom.sunoUrl.value = "";
-    status("✅ Suno 歌曲导入并对齐完成！");
     
-    // 重新加载列表，并自动加载新导入的歌曲
-    await loadFileList();
-    
-    // 在重新加载后的列表中寻找对应的歌曲
-    const newSongIndex = state.allFiles.findIndex(f => f.name === data.file.name);
-    if (newSongIndex !== -1) {
-      loadSong(newSongIndex);
-    }
+    // 开始轮询任务状态
+    pollSunoTask(taskId);
   } catch (error) {
     alert("导入失败: " + error.message);
     status("❌ 导入失败: " + error.message, true);
-  } finally {
     dom.btnSunoImport.disabled = false;
     dom.btnSunoImport.textContent = "🎵 导入";
   }
+}
+
+function pollSunoTask(taskId) {
+  const interval = setInterval(async () => {
+    try {
+      const response = await fetch(`/api/suno/task/${taskId}`);
+      if (!response.ok) {
+        throw new Error("查询状态失败");
+      }
+      const task = await response.json();
+      
+      if (task.status === "processing") {
+        dom.statusMsg.textContent = `⏳ ${task.title || "处理中..."}`;
+        dom.statusMsg.style.color = "var(--warning)";
+        dom.btnSunoImport.textContent = "⏳ 处理中...";
+      } else if (task.status === "completed") {
+        clearInterval(interval);
+        status("✅ Suno 歌曲导入并对齐完成！");
+        
+        dom.btnSunoImport.disabled = false;
+        dom.btnSunoImport.textContent = "🎵 导入";
+        
+        await loadFileList();
+        
+        const newSongIndex = state.allFiles.findIndex(f => f.name === task.file.name);
+        if (newSongIndex !== -1) {
+          loadSong(newSongIndex);
+        }
+      } else if (task.status === "failed") {
+        clearInterval(interval);
+        alert("导入失败: " + task.error);
+        status("❌ 导入失败: " + task.error, true);
+        dom.btnSunoImport.disabled = false;
+        dom.btnSunoImport.textContent = "🎵 导入";
+      }
+    } catch (error) {
+      clearInterval(interval);
+      alert("导入失败: " + error.message);
+      status("❌ 导入失败: " + error.message, true);
+      dom.btnSunoImport.disabled = false;
+      dom.btnSunoImport.textContent = "🎵 导入";
+    }
+  }, 2000);
 }
 
 // ---------------------------------------------------------------------------

@@ -108,6 +108,119 @@ class AlignmentResult:
 _CPU_HEAVY_MODELS = {"large", "large-v1", "large-v2", "large-v3", "large-v3-turbo"}
 
 
+def ensure_local_model(model_name: str) -> str:
+    """
+    如果是在国内网络环境，使用 requests 从镜像源手动下载模型文件到本地，
+    以避免 huggingface_hub 各种 HEAD/metadata 握手故障。
+    """
+    import os
+    import time
+    from pathlib import Path
+    
+    # 仅针对特定的常用模型进行本地托管下载
+    supported_models = {
+        "tiny": {
+            "repo": "Systran/faster-whisper-tiny",
+            "files": ["config.json", "tokenizer.json", "vocabulary.txt", "model.bin"]
+        },
+        "base": {
+            "repo": "Systran/faster-whisper-base",
+            "files": ["config.json", "tokenizer.json", "vocabulary.txt", "model.bin"]
+        },
+        "small": {
+            "repo": "Systran/faster-whisper-small",
+            "files": ["config.json", "tokenizer.json", "vocabulary.txt", "model.bin"]
+        },
+        "medium": {
+            "repo": "Systran/faster-whisper-medium",
+            "files": ["config.json", "tokenizer.json", "vocabulary.txt", "model.bin"]
+        },
+        "large-v3": {
+            "repo": "Systran/faster-whisper-large-v3",
+            "files": ["config.json", "tokenizer.json", "vocabulary.txt", "model.bin"]
+        },
+        "jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn": {
+            "repo": "jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn",
+            "files": ["config.json", "vocab.json", "preprocessor_config.json", "special_tokens_map.json", "pytorch_model.bin"]
+        }
+    }
+    
+    if model_name not in supported_models:
+        return model_name
+        
+    cache_dir = Path.home() / ".cache" / "m2v_local_models" / model_name.replace("/", "--")
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    
+    model_info = supported_models[model_name]
+    repo = model_info["repo"]
+    files = model_info["files"]
+    
+    log.info("检查本地模型缓存: %s...", model_name)
+    
+    # 检查是否所有文件都已完整下载
+    all_exist = True
+    for f in files:
+        f_path = cache_dir / f
+        if not f_path.exists() or f_path.stat().st_size == 0:
+            all_exist = False
+            break
+            
+    if all_exist:
+        log.info("模型已本地缓存: %s", cache_dir)
+        return str(cache_dir)
+        
+    # 执行手动极速下载
+    try:
+        import requests
+        log.info("开始通过镜像源手动下载模型 %s 到本地缓存...", model_name)
+        for f in files:
+            dest_path = cache_dir / f
+            if dest_path.exists() and dest_path.stat().st_size > 0:
+                continue
+                
+            url = f"https://hf-mirror.com/{repo}/resolve/main/{f}"
+            log.info("下载中: %s", url)
+            
+            temp_dest = dest_path.with_suffix(".tmp")
+            response = requests.get(url, stream=True, timeout=30)
+            response.raise_for_status()
+            
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded = 0
+            last_log = time.time()
+            
+            with open(temp_dest, "wb") as out_f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        out_f.write(chunk)
+                        downloaded += len(chunk)
+                        now = time.time()
+                        if now - last_log > 5:
+                            if total_size > 0:
+                                percent = (downloaded / total_size) * 100
+                                log.info("  进度 %s: %.1f%% (%d/%d MB)", f, percent, downloaded // (1024*1024), total_size // (1024*1024))
+                            else:
+                                log.info("  进度 %s: %d MB", f, downloaded // (1024*1024))
+                            last_log = now
+            
+            temp_dest.rename(dest_path)
+            log.info("下载完成: %s", f)
+            
+        log.info("模型 %s 全部分流下载成功，已加载自: %s", model_name, cache_dir)
+        return str(cache_dir)
+    except Exception as e:
+        log.warning("手动下载本地缓存模型失败，回退到 huggingface_hub 原生加载: %s", e)
+        # 清理可能下载了一半的文件
+        for f in files:
+            f_path = cache_dir / f
+            if f_path.exists():
+                try:
+                    f_path.unlink()
+                except Exception:
+                    pass
+        return model_name
+
+
 def _init_whisper(config: AlignerConfig, vocals_path: Path):
     """
     共用的 Whisper 初始化:
@@ -146,11 +259,12 @@ def _init_whisper(config: AlignerConfig, vocals_path: Path):
             config.whisper_model,
         )
 
-    log.info("加载 Whisper 模型: %s (device=%s, compute=%s)",
-             whisper_model, device, compute_type)
+    whisper_model_path = ensure_local_model(whisper_model)
+    log.info("加载 Whisper 模型: %s (path=%s, device=%s, compute=%s)",
+             whisper_model, whisper_model_path, device, compute_type)
     model = _load_whisper_model_with_recovery(
         whisperx=whisperx,
-        whisper_model=whisper_model,
+        whisper_model=whisper_model_path,
         device=device,
         compute_type=compute_type,
         language=config.language,
@@ -212,14 +326,23 @@ def align_lyrics(
     )
     log.info("对齐语言: %s", detected_language)
 
-    # -----------------------------------------------------------------------
-    # Step 2: WhisperX 对齐 — 用 Whisper 自己的文本做 forced alignment
-    # -----------------------------------------------------------------------
-    log.info("加载对齐模型 (language=%s)…", detected_language)
+    # 确定对齐模型使用的设备，在 Mac 上可使用 PyTorch mps 硬件加速
+    align_device = device
+    if device == "cpu":
+        try:
+            import torch
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                align_device = "mps"
+                log.info("检测到 Mac Apple Silicon GPU (MPS)，对齐模型 (Wav2Vec2) 将在 GPU (MPS) 上运行加速")
+        except Exception:
+            pass
+
+    align_model_name = ensure_local_model(config.align_model)
+    log.info("加载对齐模型 (language=%s, device=%s, path=%s)…", detected_language, align_device, align_model_name)
     align_model, align_metadata = whisperx.load_align_model(
         language_code=detected_language,
-        device=device,
-        model_name=config.align_model,
+        device=align_device,
+        model_name=align_model_name,
     )
     _debug_path = vocals_path.parent / (vocals_path.stem + "_whisper_segments.json")
     try:
@@ -236,7 +359,7 @@ def align_lyrics(
         align_model,
         align_metadata,
         audio,
-        device=device,
+        device=align_device,
         return_char_alignments=True,
     )
 
