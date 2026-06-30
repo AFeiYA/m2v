@@ -69,6 +69,22 @@ def _run_suno_subcommand() -> None:
     suno_fetch_main()
 
 
+def _detect_devices() -> tuple[str, str]:
+    """
+    智能检测当前环境支持的加速设备。
+    返回: (separator_device, aligner_device)
+    """
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda", "cuda"
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return "mps", "cpu"
+    except Exception:
+        pass
+    return "cpu", "cpu"
+
+
 def main() -> None:
     # 如果第一个参数是 suno，自动获取 Suno 歌曲
     if len(sys.argv) > 1 and sys.argv[1] == "suno":
@@ -107,6 +123,11 @@ def main() -> None:
         config.separator.device = "cpu"
         config.aligner.device = "cpu"
         config.aligner.compute_type = "int8"
+    else:
+        sep_dev, align_dev = _detect_devices()
+        config.separator.device = sep_dev
+        config.aligner.device = align_dev
+        log.info("智能加速设备检测: 人声分离(Demucs) -> %s, 歌词对齐(WhisperX) -> %s", sep_dev, align_dev)
 
     # 启用节奏动画
     if args.beat_effects:

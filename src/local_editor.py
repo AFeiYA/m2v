@@ -372,11 +372,17 @@ async def download_suno(request: Request):
 
         # 2. 准备 PipelineConfig 并自动检测 GPU/CPU
         pipeline_config = PipelineConfig()
-        if not torch.cuda.is_available():
+        if torch.cuda.is_available():
+            pipeline_config.separator.device = "cuda"
+            pipeline_config.aligner.device = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            pipeline_config.separator.device = "mps"
+            pipeline_config.aligner.device = "cpu"
+            log.info("检测到 Mac Apple Silicon GPU (MPS)，人声分离将使用 mps 加速，歌词对齐使用 CPU")
+        else:
             pipeline_config.separator.device = "cpu"
             pipeline_config.aligner.device = "cpu"
-            pipeline_config.aligner.compute_type = "int8"
-            log.info("本地未检测到 CUDA，已自动回退到 CPU 模式进行对齐")
+            log.info("本地未检测到 CUDA 或 MPS，回退到 CPU 模式")
 
         # 3. 运行管线
         # 我们将结果输出到本地编辑器的扫描目录（默认是 output/）
