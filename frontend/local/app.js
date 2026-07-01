@@ -248,6 +248,32 @@ function bindEvents() {
   dom.assetModal.addEventListener("click", (e) => { if (e.target === dom.assetModal) dom.assetModal.style.display = "none"; });
   dom.generateModal.addEventListener("click", (e) => { if (e.target === dom.generateModal) dom.generateModal.style.display = "none"; });
 
+  // Autoplay game modal events
+  const btnAutoplay = $("#btn-autoplay");
+  const gameModal = $("#game-modal");
+  const btnCloseGame = $("#btn-close-game");
+  const gameAutoplayToggle = $("#game-autoplay-toggle");
+
+  if (btnAutoplay) {
+    btnAutoplay.addEventListener("click", () => {
+      gameModal.style.display = "flex";
+      startGameMode();
+    });
+  }
+  if (btnCloseGame) {
+    btnCloseGame.addEventListener("click", () => {
+      gameModal.style.display = "none";
+      stopGameMode();
+    });
+  }
+  if (gameAutoplayToggle) {
+    gameAutoplayToggle.addEventListener("change", (e) => {
+      if (window.gameInstance) {
+        window.gameInstance.autoplay = e.target.checked;
+      }
+    });
+  }
+
   document.addEventListener("keydown", handleKey);
 }
 
@@ -1256,5 +1282,369 @@ function updateBgDisplay() {
   } else {
     dom.bgName.textContent = "未设置";
     dom.bgName.title = "";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rhythm Game Autoplay Preview
+// ---------------------------------------------------------------------------
+let gameAudioCtx = null;
+window.gameInstance = null;
+
+function handleGameKeyDown(e) {
+  if (window.gameInstance) window.gameInstance.handleKeyDown(e);
+}
+function handleGameKeyUp(e) {
+  if (window.gameInstance) window.gameInstance.handleKeyUp(e);
+}
+
+function startGameMode() {
+  if (!state.currentFile || !state.alignment) {
+    alert("请先加载歌曲！");
+    $("#game-modal").style.display = "none";
+    return;
+  }
+  
+  if (ws) ws.pause();
+  
+  const notes = [];
+  let noteId = 1;
+  state.alignment.lines.forEach((line) => {
+    line.words.forEach((word, wordIdx) => {
+      const lane = wordIdx % 4;
+      const type = (word.end - word.start > 0.5) ? 'hold' : 'tap';
+      notes.push({
+        id: noteId++,
+        char: word.word,
+        type: type,
+        time: word.start,
+        end_time: word.end,
+        lane: lane,
+        hit: false,
+        released: false
+      });
+    });
+  });
+  
+  const chartData = {
+    song_name: state.currentFile.name,
+    notes: notes
+  };
+  
+  let audioUrl = state.origUrl;
+  const selectSource = $("#select-audio-source");
+  if (selectSource && selectSource.value === "vocals" && state.vocalsUrl) {
+    audioUrl = state.vocalsUrl;
+  }
+  
+  gameAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  $("#game-status-label").innerText = "加载音频中...";
+  $("#game-status-label").style.color = "#ff9800";
+  $("#game-score-label").innerText = "0";
+  $("#game-combo-label").innerText = "0";
+  
+  fetch(audioUrl)
+    .then(res => {
+      if (!res.ok) throw new Error("音频下载失败");
+      return res.arrayBuffer();
+    })
+    .then(buffer => gameAudioCtx.decodeAudioData(buffer))
+    .then(audioBuffer => {
+      $("#game-status-label").innerText = "正在播放";
+      $("#game-status-label").style.color = "#00f6ff";
+      
+      const canvas = document.getElementById("game-canvas");
+      window.gameInstance = new RhythmGame(canvas, chartData, audioBuffer, gameAudioCtx);
+      window.gameInstance.autoplay = document.getElementById("game-autoplay-toggle").checked;
+      window.gameInstance.start();
+      
+      window.addEventListener("keydown", handleGameKeyDown);
+      window.addEventListener("keyup", handleGameKeyUp);
+    })
+    .catch(err => {
+      alert("音谱初始化失败: " + err.message);
+      stopGameMode();
+      $("#game-modal").style.display = "none";
+    });
+}
+
+function stopGameMode() {
+  window.removeEventListener("keydown", handleGameKeyDown);
+  window.removeEventListener("keyup", handleGameKeyUp);
+  
+  if (window.gameInstance) {
+    window.gameInstance.stop();
+    window.gameInstance = null;
+  }
+  if (gameAudioCtx) {
+    if (gameAudioCtx.state !== 'closed') {
+      gameAudioCtx.close();
+    }
+    gameAudioCtx = null;
+  }
+  $("#game-status-label").innerText = "已停止";
+  $("#game-status-label").style.color = "var(--text-dim)";
+}
+
+class RhythmGame {
+  constructor(canvas, chartData, audioBuffer, audioContext) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.chart = chartData;
+    this.buffer = audioBuffer;
+    this.ctxAudio = audioContext;
+    this.startTime = 0;
+    this.isPlaying = false;
+    
+    this.autoplay = true;   
+    this.combo = 0;
+    this.maxCombo = 0;
+    this.score = 0;
+    this.lastHitRating = "";
+    this.lastHitChar = "";
+    this.hitParticles = []; 
+    
+    this.laneWidth = 80;
+    this.hitPosition = 460;
+    this.noteSpeed = 300;   
+    
+    this.laneActive = [false, false, false, false];
+  }
+
+  start() {
+    this.audioSource = this.ctxAudio.createBufferSource();
+    this.audioSource.buffer = this.buffer;
+    this.audioSource.connect(this.ctxAudio.destination);
+    
+    this.isPlaying = true;
+    this.startTime = this.ctxAudio.currentTime;
+    this.audioSource.start(0);
+    
+    this.animate();
+  }
+  
+  stop() {
+    this.isPlaying = false;
+    if (this.audioSource) {
+      try {
+        this.audioSource.stop();
+      } catch(e) {}
+    }
+  }
+
+  animate() {
+    if (!this.isPlaying) return;
+    requestAnimationFrame(() => this.animate());
+
+    const time = this.ctxAudio.currentTime - this.startTime;
+    
+    if (this.autoplay) {
+      this.chart.notes.forEach(note => {
+        if (!note.hit && time >= note.time) {
+          note.hit = true;
+          this.triggerHitFeedback(note, 'Perfect');
+        }
+        if (note.type === 'hold' && note.hit && !note.released && time >= note.end_time) {
+          note.released = true;
+          this.triggerReleaseFeedback(note, 'Perfect');
+        }
+      });
+    } else {
+      this.chart.notes.forEach(note => {
+        if (!note.hit && time > note.time + 0.15) {
+          note.hit = true;
+          note.missed = true;
+          this.triggerMissFeedback();
+        }
+        if (note.type === 'hold' && note.hit && !note.released && !note.missed && time > note.end_time + 0.15) {
+          note.released = true;
+          this.triggerMissFeedback();
+        }
+      });
+    }
+
+    this.updateParticles();
+    this.draw(time);
+  }
+
+  handleKeyDown(e) {
+    if (this.autoplay) return;
+    const keyToLane = { 'd': 0, 'f': 1, 'j': 2, 'k': 3 };
+    const lane = keyToLane[e.key.toLowerCase()];
+    if (lane !== undefined) {
+      this.laneActive[lane] = true;
+      
+      const time = this.ctxAudio.currentTime - this.startTime;
+      const note = this.chart.notes.find(n => n.lane === lane && !n.hit && Math.abs(n.time - time) < 0.15);
+      if (note) {
+        note.hit = true;
+        const diff = Math.abs(note.time - time);
+        let rating = 'Perfect';
+        if (diff > 0.04) rating = 'Great';
+        if (diff > 0.08) rating = 'Good';
+        this.triggerHitFeedback(note, rating);
+      }
+    }
+  }
+
+  handleKeyUp(e) {
+    if (this.autoplay) return;
+    const keyToLane = { 'd': 0, 'f': 1, 'j': 2, 'k': 3 };
+    const lane = keyToLane[e.key.toLowerCase()];
+    if (lane !== undefined) {
+      this.laneActive[lane] = false;
+      
+      const time = this.ctxAudio.currentTime - this.startTime;
+      const note = this.chart.notes.find(n => n.lane === lane && n.hit && !n.released && !n.missed && n.type === 'hold' && Math.abs(n.end_time - time) < 0.15);
+      if (note) {
+        note.released = true;
+        const diff = Math.abs(note.end_time - time);
+        let rating = 'Perfect';
+        if (diff > 0.04) rating = 'Great';
+        if (diff > 0.08) rating = 'Good';
+        this.triggerReleaseFeedback(note, rating);
+      }
+    }
+  }
+
+  triggerHitFeedback(note, rating) {
+    this.lastHitRating = rating;
+    this.lastHitChar = note.char;
+    this.combo++;
+    if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+    this.score += rating === 'Perfect' ? 100 : rating === 'Great' ? 80 : 50;
+    
+    document.getElementById("game-score-label").innerText = this.score;
+    document.getElementById("game-combo-label").innerText = `${this.combo} (Max: ${this.maxCombo})`;
+    
+    this.hitParticles.push({
+      char: note.char,
+      x: note.lane * this.laneWidth + this.laneWidth / 2,
+      y: this.hitPosition,
+      alpha: 1.0,
+      scale: 1.0,
+      vx: (Math.random() - 0.5) * 4,
+      vy: -Math.random() * 5 - 3
+    });
+  }
+
+  triggerReleaseFeedback(note, rating) {
+    this.lastHitRating = rating;
+    this.score += 50;
+    document.getElementById("game-score-label").innerText = this.score;
+  }
+
+  triggerMissFeedback() {
+    this.lastHitRating = "MISS";
+    this.combo = 0;
+    document.getElementById("game-combo-label").innerText = `0 (Max: ${this.maxCombo})`;
+  }
+
+  updateParticles() {
+    this.hitParticles.forEach(p => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.alpha -= 0.025;
+      p.scale += 0.012;
+    });
+    this.hitParticles = this.hitParticles.filter(p => p.alpha > 0);
+  }
+
+  draw(time) {
+    this.ctx.fillStyle = '#0f0f1e';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    for (let i = 0; i < 4; i++) {
+      if (this.laneActive[i]) {
+        this.ctx.fillStyle = 'rgba(0, 246, 255, 0.08)';
+        this.ctx.fillRect(i * this.laneWidth, 0, this.laneWidth, this.canvas.height);
+      }
+      this.ctx.strokeStyle = '#222538';
+      this.ctx.lineWidth = 1;
+      this.ctx.strokeRect(i * this.laneWidth, 0, this.laneWidth, this.canvas.height);
+    }
+
+    this.ctx.strokeStyle = '#e94560';
+    this.ctx.lineWidth = 4;
+    this.ctx.shadowBlur = 15;
+    this.ctx.shadowColor = '#e94560';
+    this.ctx.beginPath();
+    this.ctx.moveTo(0, this.hitPosition);
+    this.ctx.lineTo(4 * this.laneWidth, this.hitPosition);
+    this.ctx.stroke();
+    this.ctx.shadowBlur = 0;
+
+    this.chart.notes.forEach(note => {
+      const timeDiff = note.time - time;
+      
+      if (note.type === 'tap' && note.hit) return;
+      if (note.missed) return;
+      
+      if (timeDiff > -0.2 && timeDiff < 2.0) {
+        const x = note.lane * this.laneWidth + 10;
+        const y = this.hitPosition - (timeDiff * this.noteSpeed);
+
+        if (note.type === 'tap') {
+          this.ctx.fillStyle = '#4a90d9';
+          this.ctx.fillRect(x, y - 10, this.laneWidth - 20, 20);
+          this.ctx.fillStyle = '#fff';
+          this.ctx.font = 'bold 14px Arial';
+          this.ctx.fillText(note.char, x + this.laneWidth / 2 - 17, y + 5);
+        } else if (note.type === 'hold') {
+          const startY = note.hit ? this.hitPosition : y;
+          const endDiff = note.end_time - time;
+          const endY = this.hitPosition - (endDiff * this.noteSpeed);
+          const holdLength = startY - endY;
+          
+          if (holdLength > 0) {
+            this.ctx.fillStyle = note.hit ? 'rgba(255, 152, 0, 0.4)' : '#ff9800';
+            this.ctx.fillRect(x, endY, this.laneWidth - 20, holdLength);
+            this.ctx.fillStyle = '#fff';
+            this.ctx.font = 'bold 14px Arial';
+            this.ctx.fillText(note.char, x + this.laneWidth / 2 - 17, startY - 8);
+          }
+        }
+      }
+    });
+
+    this.hitParticles.forEach(p => {
+      this.ctx.save();
+      this.ctx.globalAlpha = p.alpha;
+      this.ctx.fillStyle = '#00f6ff';
+      this.ctx.font = `bold ${Math.floor(22 * p.scale)}px sans-serif`;
+      this.ctx.shadowBlur = 10;
+      this.ctx.shadowColor = '#00f6ff';
+      this.ctx.fillText(p.char, p.x - 10, p.y);
+      this.ctx.restore();
+    });
+
+    if (this.autoplay) {
+      this.ctx.fillStyle = 'rgba(0, 246, 255, 0.15)';
+      this.ctx.fillRect(10, 10, 110, 28);
+      this.ctx.fillStyle = '#00f6ff';
+      this.ctx.font = 'bold 12px monospace';
+      this.ctx.fillText('⚡ AUTOPLAY', 20, 28);
+    } else {
+      this.ctx.fillStyle = 'rgba(233, 69, 96, 0.15)';
+      this.ctx.fillRect(10, 10, 110, 28);
+      this.ctx.fillStyle = '#e94560';
+      this.ctx.font = 'bold 12px monospace';
+      this.ctx.fillText('🎮 MANUAL', 25, 28);
+    }
+
+    if (this.combo > 0) {
+      this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      this.ctx.font = 'bold 24px Arial';
+      this.ctx.fillText(`${this.combo} COMBO`, 20, 100);
+      
+      this.ctx.fillStyle = this.lastHitRating === 'Perfect' ? '#00f6ff' : this.lastHitRating === 'Great' ? '#ff9800' : '#4a90d9';
+      this.ctx.font = 'bold 18px Arial';
+      this.ctx.fillText(this.lastHitRating, 20, 130);
+    } else if (this.lastHitRating === 'MISS') {
+      this.ctx.shadowBlur = 0;
+      this.ctx.fillStyle = '#e94560';
+      this.ctx.font = 'bold 24px Arial';
+      this.ctx.fillText('MISS', 20, 100);
+    }
   }
 }
