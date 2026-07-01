@@ -342,9 +342,8 @@ def align_lyrics(
     )
     _debug_path = vocals_path.parent / (vocals_path.stem + "_whisper_segments.json")
     try:
-        import json as _json
         with open(_debug_path, "w", encoding="utf-8") as _f:
-            _json.dump(segments, _f, ensure_ascii=False, indent=2)
+            json.dump(segments, _f, ensure_ascii=False, indent=2)
         log.info("Whisper segments 已保存: %s (%d 条)", _debug_path.name, len(segments))
     except Exception:
         pass
@@ -376,7 +375,7 @@ def align_lyrics(
     _tl_path = vocals_path.parent / (vocals_path.stem + "_timeline.json")
     try:
         with open(_tl_path, "w", encoding="utf-8") as _f:
-            _json.dump(
+            json.dump(
                 [{"char": c, "start": s, "end": e} for c, s, e in timeline],
                 _f, ensure_ascii=False, indent=2,
             )
