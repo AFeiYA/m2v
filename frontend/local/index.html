@@ -42,8 +42,11 @@
     <section id="waveform-section">
       <!-- 人声轨 -->
       <div class="track-row" id="track-vocals">
-        <div class="track-label">
+        <div class="track-label" style="display: flex; flex-direction: column; gap: 4px; align-items: center; padding: 4px;">
           <button class="track-mute-btn active" id="btn-mute-vocals" title="静音/取消静音人声轨">🎤 人声</button>
+          <select id="select-audio-source" style="background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 1px 2px; font-size: 10px; cursor: pointer; width: 64px; text-align: center; outline: none;" title="选择音频源">
+            <option value="original">🎵 原始</option>
+          </select>
         </div>
         <div class="track-waveform" id="waveform-vocals"></div>
       </div>

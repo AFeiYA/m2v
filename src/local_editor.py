@@ -83,10 +83,28 @@ def list_files():
     for f in files:
         stem = f.stem.replace("_alignment", "")
         audio = _find_audio(stem)
+        
+        # 寻找分离的音轨
+        vocals = None
+        instrumental = None
+        exts = [".wav", ".mp3", ".flac", ".m4a", ".ogg"]
+        for d in [scan_dir, scan_dir.parent / "input", scan_dir.parent]:
+            for ext in exts:
+                v_p = d / f"{stem}_vocals{ext}"
+                if v_p.exists() and not vocals:
+                    vocals = str(v_p.absolute())
+                i_p = d / f"{stem}_instrumental{ext}"
+                if i_p.exists() and not instrumental:
+                    instrumental = str(i_p.absolute())
+                    
         result.append({
             "name": stem,
             "json_path": str(f),
             "audio_path": str(audio) if audio else None,
+            "audio_tracks": {
+                "vocals": vocals,
+                "instrumental": instrumental,
+            }
         })
     return result
 
@@ -349,6 +367,67 @@ async def upload_asset(file: UploadFile = File(...)):
     }
 
 
+def _run_separate_task(audio_path: Path, task_id: str):
+    try:
+        from src.separator import separate_vocals
+        from src.config import SeparatorConfig
+        import torch
+        import shutil
+
+        # 1. 准备配置并检测设备
+        config = SeparatorConfig()
+        toml_path = _PROJECT_ROOT / "pipeline.toml"
+        if toml_path.exists():
+            try:
+                from src.main import _apply_config_file
+                from src.config import PipelineConfig
+                pc = PipelineConfig()
+                _apply_config_file(pc, toml_path)
+                config = pc.separator
+            except Exception as e:
+                log.warning("加载 pipeline.toml 失败: %s", e)
+
+        if torch.cuda.is_available():
+            config.device = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            config.device = "mps"
+        else:
+            config.device = "cpu"
+
+        scan_dir = _get_scan_dir()
+        temp_dir = scan_dir.parent / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        log.info("开始后台人声分离任务 [%s]: %s (device=%s)", task_id, audio_path.name, config.device)
+        vocals_path, instrumental_path = separate_vocals(audio_path, temp_dir, config)
+
+        stem = audio_path.stem
+        output_vocals = scan_dir / f"{stem}_vocals.wav"
+        shutil.copy2(vocals_path, output_vocals)
+        log.info("人声已保存至本地编辑器: %s", output_vocals.name)
+
+        output_inst = None
+        if instrumental_path and instrumental_path.exists():
+            output_inst = scan_dir / f"{stem}_instrumental.wav"
+            shutil.copy2(instrumental_path, output_inst)
+            log.info("伴奏已保存至本地编辑器: %s", output_inst.name)
+
+        app.state.running_tasks[task_id].update({
+            "status": "completed",
+            "title": f"分离人声完成: {stem}",
+            "file": {
+                "vocals": str(output_vocals),
+                "instrumental": str(output_inst) if output_inst else None
+            }
+        })
+    except Exception as e:
+        log.error("后台人声分离失败 [%s]: %s", task_id, e, exc_info=True)
+        app.state.running_tasks[task_id].update({
+            "status": "failed",
+            "error": str(e)
+        })
+
+
 def _run_suno_pipeline_task(url: str, input_dir: Path, scan_dir: Path, skip_separation: bool, task_id: str):
     try:
         from src.suno_fetch import download_song
@@ -456,6 +535,40 @@ async def download_suno(request: Request, background_tasks: BackgroundTasks):
         task_id=task_id
     )
     
+    return {
+        "status": "processing",
+        "task_id": task_id
+    }
+
+
+@app.post("/api/separate")
+async def separate_audio_endpoint(request: Request, background_tasks: BackgroundTasks):
+    """
+    对指定的原始音频路径执行后台 Demucs 人声分离
+    """
+    body = await request.json()
+    audio_path_str = body.get("audio_path", "")
+    if not audio_path_str:
+        raise HTTPException(400, "audio_path 不能为空")
+
+    audio_path = _validate_path(Path(audio_path_str))
+
+    import uuid
+    task_id = str(uuid.uuid4())
+
+    app.state.running_tasks[task_id] = {
+        "status": "processing",
+        "title": f"正在分离人声: {audio_path.name}...",
+        "error": None,
+        "file": None
+    }
+
+    background_tasks.add_task(
+        _run_separate_task,
+        audio_path=audio_path,
+        task_id=task_id
+    )
+
     return {
         "status": "processing",
         "task_id": task_id

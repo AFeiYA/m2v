@@ -184,6 +184,58 @@ function bindEvents() {
   dom.btnMuteVocals.addEventListener("click", () => toggleMuteTrack("vocals"));
   dom.btnMuteInst.addEventListener("click", () => toggleMuteTrack("instrumental"));
 
+  const selectSource = $("#select-audio-source");
+  if (selectSource) {
+    selectSource.addEventListener("change", async (e) => {
+      const val = e.target.value;
+      if (val === "separate") {
+        if (!state.currentFile || !state.currentFile.audio_path) {
+          alert("无可用音频文件进行分离");
+          selectSource.value = "original";
+          return;
+        }
+        if (confirm("确定要在后台启动人声分离吗？\n（在 Apple Silicon GPU 下耗时约 10-15 秒，分离后将自动刷新音轨）")) {
+          try {
+            status("⏳ 提交人声分离任务中...", false);
+            const r = await fetch("/api/separate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ audio_path: state.currentFile.audio_path })
+            });
+            if (!r.ok) throw new Error(await r.text());
+            const data = await r.json();
+            pollSeparateTask(data.task_id);
+          } catch(err) {
+            alert("人声分离启动失败: " + err.message);
+            selectSource.value = "original";
+          }
+        } else {
+          selectSource.value = "original";
+        }
+      } else if (val === "vocals") {
+        if (state.vocalsUrl) {
+          const currentTime = ws.getCurrentTime();
+          const isPlaying = ws.isPlaying();
+          await ws.load(state.vocalsUrl);
+          ws.setTime(currentTime);
+          if (isPlaying) ws.play();
+          dom.btnMuteVocals.textContent = "🎤 人声";
+          status("已切换至人声轨");
+        }
+      } else if (val === "original") {
+        if (state.origUrl) {
+          const currentTime = ws.getCurrentTime();
+          const isPlaying = ws.isPlaying();
+          await ws.load(state.origUrl);
+          ws.setTime(currentTime);
+          if (isPlaying) ws.play();
+          dom.btnMuteVocals.textContent = "🎵 原始";
+          status("已切换至原始音轨");
+        }
+      }
+    });
+  }
+
   // Storyboard events
   dom.btnBrowseAssets.addEventListener("click", openAssetModal);
   dom.assetModalClose.addEventListener("click", () => dom.assetModal.style.display = "none");
@@ -285,7 +337,10 @@ async function loadSong(idx) {
   }
 
   // Update track labels
-  dom.btnMuteVocals.textContent = vocalsUrl ? "🎤 人声" : "🎵 原始";
+  state.vocalsUrl = vocalsUrl;
+  state.origUrl = origUrl;
+  updateAudioSourceDropdown(vocalsUrl, instUrl, origUrl);
+
   dom.btnMuteVocals.classList.add("active"); dom.btnMuteVocals.classList.remove("muted");
   dom.btnMuteInst.classList.add("active"); dom.btnMuteInst.classList.remove("muted");
   dom.trackVocals.classList.remove("muted"); dom.trackInst.classList.remove("muted");
@@ -377,6 +432,87 @@ function pollSunoTask(taskId) {
       status("❌ 导入失败: " + error.message, true);
       dom.btnSunoImport.disabled = false;
       dom.btnSunoImport.textContent = "🎵 导入";
+    }
+  }, 2000);
+}
+
+function updateAudioSourceDropdown(vocalsUrl, instUrl, origUrl) {
+  const select = document.getElementById("select-audio-source");
+  if (!select) return;
+
+  select.innerHTML = "";
+
+  if (vocalsUrl) {
+    const optVocals = document.createElement("option");
+    optVocals.value = "vocals";
+    optVocals.textContent = "🎤 人声";
+    select.appendChild(optVocals);
+  }
+
+  if (origUrl) {
+    const optOrig = document.createElement("option");
+    optOrig.value = "original";
+    optOrig.textContent = "🎵 原始";
+    select.appendChild(optOrig);
+  }
+
+  if (!vocalsUrl && origUrl) {
+    const optSeparate = document.createElement("option");
+    optSeparate.value = "separate";
+    optSeparate.textContent = "⚡分离人声";
+    select.appendChild(optSeparate);
+  }
+
+  if (vocalsUrl) {
+    select.value = "vocals";
+    dom.btnMuteVocals.textContent = "🎤 人声";
+  } else {
+    select.value = "original";
+    dom.btnMuteVocals.textContent = "🎵 原始";
+  }
+}
+
+function pollSeparateTask(taskId) {
+  const interval = setInterval(async () => {
+    try {
+      const response = await fetch(`/api/suno/task/${taskId}`);
+      if (!response.ok) {
+        throw new Error("查询状态失败");
+      }
+      const task = await response.json();
+      
+      const select = document.getElementById("select-audio-source");
+      if (task.status === "processing") {
+        status(`⏳ ${task.title || "正在分离人声..."}`, false);
+        if (select) select.disabled = true;
+      } else if (task.status === "completed") {
+        clearInterval(interval);
+        status("✅ 人声分离完成！正在重新加载音轨...");
+        if (select) select.disabled = false;
+        
+        const oldIndex = state.currentIndex;
+        await loadFileList();
+        if (oldIndex !== -1 && oldIndex < state.allFiles.length) {
+          await loadSong(oldIndex);
+        }
+      } else if (task.status === "failed") {
+        clearInterval(interval);
+        alert("人声分离失败: " + task.error);
+        status("❌ 人声分离失败: " + task.error, true);
+        if (select) {
+          select.disabled = false;
+          select.value = "original";
+        }
+      }
+    } catch (error) {
+      clearInterval(interval);
+      alert("人声分离失败: " + error.message);
+      status("❌ 人声分离失败: " + error.message, true);
+      const select = document.getElementById("select-audio-source");
+      if (select) {
+        select.disabled = false;
+        select.value = "original";
+      }
     }
   }, 2000);
 }
