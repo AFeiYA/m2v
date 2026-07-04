@@ -136,67 +136,8 @@ function toggleMuteTrack(track) {
 
 function updateTimeDisplay() {
   if (!ws) return;
-  const cur = getCompensatedTime(), dur = ws.getDuration() || 0;
+  const cur = ws.getCurrentTime(), dur = ws.getDuration() || 0;
   dom.timeDisplay.textContent = `${fmtTime(cur)} / ${fmtTime(dur)}`;
-}
-
-/**
- * 获取经过音频同步偏移补偿后的当前播放时间。
- * 
- * 问题根因: WaveSurfer v7 默认使用 HTMLMediaElement (<audio>) 播放,
- * 其 currentTime 属性反映的是浏览器内部解码位置, 而非扬声器实际发声的时刻。
- * macOS 的 CoreAudio 输出缓冲区通常引入 100-250ms 的不可避免延迟,
- * 导致编辑器中高亮/吸附操作看起来总是比听到的声音"慢了一拍"。
- *
- * 解决方案: 
- * 1. 尝试读取 AudioContext.outputLatency (Chrome 64+) 自动补偿
- * 2. 提供用户可调的同步偏移滑块 (syncOffsetMs) 做精细校准
- */
-let syncOffsetMs = 0; // 用户可调的同步偏移，正值=高亮提前，负值=延后
-
-function getCompensatedTime() {
-  if (!ws) return 0;
-  const raw = ws.getCurrentTime();
-  // 仅在播放时补偿延迟，暂停/seek 状态下无需补偿
-  if (!ws.isPlaying()) return raw;
-  
-  // 自动检测浏览器音频输出延迟
-  let autoLatency = 0;
-  try {
-    // WaveSurfer v7 内部 media 元素的 AudioContext
-    const mediaEl = ws.getMediaElement ? ws.getMediaElement() : ws.media;
-    if (mediaEl && mediaEl.captureStream) {
-      // 如果有全局探测到的延迟值则使用
-      if (window._detectedAudioLatency !== undefined) {
-        autoLatency = window._detectedAudioLatency;
-      }
-    }
-  } catch(e) {}
-  
-  return raw + autoLatency + (syncOffsetMs / 1000);
-}
-
-/**
- * 在页面加载后尝试探测系统音频输出延迟。
- * 创建临时 AudioContext 读取 outputLatency / baseLatency。
- */
-function detectAudioLatency() {
-  try {
-    const testCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const latency = testCtx.outputLatency || testCtx.baseLatency || 0;
-    window._detectedAudioLatency = latency;
-    testCtx.close();
-    if (latency > 0.01) {
-      console.log(`[M2V] 检测到音频输出延迟: ${(latency * 1000).toFixed(0)}ms，已自动补偿`);
-    }
-  } catch(e) {
-    window._detectedAudioLatency = 0;
-  }
-}
-
-// 页面加载后执行延迟探测
-if (typeof window !== 'undefined') {
-  detectAudioLatency();
 }
 
 function fmtTime(s) {
@@ -228,23 +169,6 @@ function bindEvents() {
     if (ws) ws.zoom(z);
     if (wsInst && instReady) wsInst.zoom(z);
   });
-
-  // 同步偏移滑块: 补偿音频输出延迟
-  const syncSlider = $("#sync-offset-slider");
-  const syncLabel = $("#sync-offset-label");
-  if (syncSlider) {
-    // 初始化: 将自动检测的延迟设为默认值
-    const autoMs = Math.round((window._detectedAudioLatency || 0) * 1000);
-    if (autoMs > 10) {
-      syncSlider.value = autoMs;
-      syncOffsetMs = autoMs;
-      syncLabel.textContent = `${autoMs}ms (自动)`;
-    }
-    syncSlider.addEventListener("input", () => {
-      syncOffsetMs = Number(syncSlider.value);
-      syncLabel.textContent = `${syncOffsetMs}ms`;
-    });
-  }
   dom.btnShiftLeft.addEventListener("click",  () => nudgeWord(-0.05));
   dom.btnNudgeLeft.addEventListener("click",  () => nudgeWord(-0.01));
   dom.btnNudgeRight.addEventListener("click", () => nudgeWord(0.01));
@@ -697,7 +621,7 @@ function selectAdjacentLine(delta) {
 
 function highlightPlayingLine() {
   if (!ws || !state.alignment) return;
-  const t = getCompensatedTime();
+  const t = ws.getCurrentTime();
   const lines = state.alignment.lines;
   let activeLineIdx = -1;
 
@@ -726,7 +650,6 @@ function highlightPlayingLine() {
       const wi = Number(bar.dataset.idx), w = line.words[wi];
       if (!w) { bar.classList.remove("bar-singing"); return; }
       bar.classList.toggle("bar-singing", t >= w.start && t < w.end);
-      bar.classList.toggle("bar-upcoming", t >= w.start - 0.15 && t < w.start);
     });
   }
 
@@ -775,7 +698,7 @@ function renderWords(lineIdx) {
         if (wsInst && instReady) { wsInst.setTime(w.start); wsInst.play(); }
         const stopAt = w.end;
         const check = () => {
-          if (getCompensatedTime() >= stopAt) {
+          if (ws.getCurrentTime() >= stopAt) {
             ws.pause(); if (wsInst && instReady) wsInst.pause();
             dom.btnPlayPause.textContent = "▶ 播放";
           } else if (ws.isPlaying()) requestAnimationFrame(check);
@@ -821,7 +744,7 @@ function snapSplitToPlayhead(lineIdx, wordIdx) {
   if (!line) return;
   const words = line.words;
   const isLast = (wordIdx === words.length - 1);
-  const t = getCompensatedTime();
+  const t = ws.getCurrentTime();
 
   if (isLast) {
     const clamped = Math.round(Math.max(words[wordIdx].start + 0.01, t) * 1000) / 1000;
@@ -1022,7 +945,7 @@ function playSelectedLine() {
   if (wsInst && instReady) { wsInst.setTime(line.start); wsInst.play(); }
   const stopAt = line.end;
   const check = () => {
-    if (getCompensatedTime() >= stopAt) {
+    if (ws.getCurrentTime() >= stopAt) {
       ws.pause(); if (wsInst && instReady) wsInst.pause();
       dom.btnPlayPause.textContent = "▶ 播放";
     } else if (ws.isPlaying()) requestAnimationFrame(check);
@@ -1038,7 +961,7 @@ function playSelectedWord() {
   if (wsInst && instReady) { wsInst.setTime(w.start); wsInst.play(); }
   const stopAt = w.end;
   const check = () => {
-    if (getCompensatedTime() >= stopAt) {
+    if (ws.getCurrentTime() >= stopAt) {
       ws.pause(); if (wsInst && instReady) wsInst.pause();
       dom.btnPlayPause.textContent = "▶ 播放";
     } else if (ws.isPlaying()) requestAnimationFrame(check);

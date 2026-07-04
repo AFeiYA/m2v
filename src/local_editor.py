@@ -636,8 +636,11 @@ def _analyze_audio_rhythm(audio_path: Path) -> dict:
     )
     bass_times = librosa.frames_to_time(bass_onsets, sr=sr).tolist()
     
+    # librosa >= 0.10.0 返回 np.ndarray (1D 数组)，需要获取首个元素转换为标量 float
+    tempo_val = float(tempo[0]) if hasattr(tempo, "__len__") else float(tempo)
+    
     return {
-        "bpm": round(float(tempo), 1),
+        "bpm": round(tempo_val, 1),
         "beat_times": [round(t, 3) for t in beat_times],
         "energy": [round(e, 3) for e in normalized_rms],
         "energy_interval": 0.1,
