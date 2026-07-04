@@ -597,6 +597,92 @@ def stream_audio(path: str):
     return FileResponse(p, media_type=media_type, headers={"Accept-Ranges": "bytes"})
 
 
+def _analyze_audio_rhythm(audio_path: Path) -> dict:
+    import librosa
+    import numpy as np
+    
+    # 启用 librosa 高效加载
+    y, sr = librosa.load(str(audio_path), sr=None)
+    
+    # 1. 估算 BPM 和四分音符网格
+    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr).tolist()
+    
+    # 2. 伴奏能量强弱包络 (RMS)，每 100ms 采样一次
+    hop_length = int(sr * 0.1)
+    rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]
+    max_rms = np.max(rms) if np.max(rms) > 1e-5 else 1.0
+    normalized_rms = (rms / max_rms).tolist()
+    
+    # 3. 傅里叶变换提取多频段瞬态
+    S = np.abs(librosa.stft(y))
+    frequencies = librosa.fft_frequencies(sr=sr)
+    
+    # 高频瞬态 (Snare / Cymbal 频段，4kHz 以上)
+    high_freq_mask = frequencies > 4000
+    high_energy = np.mean(S[high_freq_mask, :], axis=0) if np.any(high_freq_mask) else np.zeros(S.shape[1])
+    max_high = np.max(high_energy) if np.max(high_energy) > 1e-5 else 1.0
+    treble_onsets = librosa.util.peak_pick(
+        high_energy, pre_max=3, post_max=3, pre_avg=3, post_avg=3, delta=0.1 * max_high, wait=5
+    )
+    treble_times = librosa.frames_to_time(treble_onsets, sr=sr).tolist()
+    
+    # 低频重低音 (Kick / Bass 频段，250Hz 以下)
+    low_freq_mask = frequencies < 250
+    low_energy = np.mean(S[low_freq_mask, :], axis=0) if np.any(low_freq_mask) else np.zeros(S.shape[1])
+    max_low = np.max(low_energy) if np.max(low_energy) > 1e-5 else 1.0
+    bass_onsets = librosa.util.peak_pick(
+        low_energy, pre_max=3, post_max=3, pre_avg=3, post_avg=3, delta=0.12 * max_low, wait=5
+    )
+    bass_times = librosa.frames_to_time(bass_onsets, sr=sr).tolist()
+    
+    return {
+        "bpm": round(float(tempo), 1),
+        "beat_times": [round(t, 3) for t in beat_times],
+        "energy": [round(e, 3) for e in normalized_rms],
+        "energy_interval": 0.1,
+        "treble_onsets": [round(t, 3) for t in treble_times],
+        "bass_onsets": [round(t, 3) for t in bass_times]
+    }
+
+
+@app.get("/api/audio-analysis")
+def audio_analysis_endpoint(name: str):
+    """
+    对指定的歌曲执行 Librosa 节奏分析，提取 BPM、节拍时间轴、强弱包络和频率打击瞬态
+    """
+    if not name:
+        raise HTTPException(400, "name 不能为空")
+        
+    scan_dir = _get_scan_dir()
+    
+    # 优先分析伴奏轨，找不到则分析原轨
+    candidates = [
+        scan_dir / f"{name}_instrumental.wav",
+        scan_dir.parent / "input" / f"{name}_instrumental.wav",
+        scan_dir / f"{name}.wav",
+        scan_dir / f"{name}.mp3",
+        scan_dir.parent / "input" / f"{name}.wav",
+        scan_dir.parent / "input" / f"{name}.mp3",
+    ]
+    
+    audio_path = None
+    for c in candidates:
+        if c.exists():
+            audio_path = c
+            break
+            
+    if not audio_path:
+        raise HTTPException(404, f"未找到可分析的音频文件: {name}")
+        
+    try:
+        analysis = _analyze_audio_rhythm(audio_path)
+        return analysis
+    except Exception as e:
+        log.exception("音频节奏特征提取失败")
+        raise HTTPException(500, f"音频分析失败: {str(e)}")
+
+
 
 # ── 静态文件: 从 frontend/local/ 目录提供 HTML/CSS/JS ──
 _FRONTEND_DIR = _PROJECT_ROOT / "frontend" / "local"

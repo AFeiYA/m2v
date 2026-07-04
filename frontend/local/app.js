@@ -1307,29 +1307,7 @@ function startGameMode() {
   
   if (ws) ws.pause();
   
-  const notes = [];
-  let noteId = 1;
-  state.alignment.lines.forEach((line) => {
-    line.words.forEach((word, wordIdx) => {
-      const lane = wordIdx % 4;
-      const type = (word.end - word.start > 0.5) ? 'hold' : 'tap';
-      notes.push({
-        id: noteId++,
-        char: word.word,
-        type: type,
-        time: word.start,
-        end_time: word.end,
-        lane: lane,
-        hit: false,
-        released: false
-      });
-    });
-  });
-  
-  const chartData = {
-    song_name: state.currentFile.name,
-    notes: notes
-  };
+  const name = state.currentFile.name;
   
   let audioUrl = state.origUrl;
   const selectSource = $("#select-audio-source");
@@ -1338,34 +1316,115 @@ function startGameMode() {
   }
   
   gameAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  $("#game-status-label").innerText = "加载音频中...";
+  $("#game-status-label").innerText = "正在分析音频节奏与能量...";
   $("#game-status-label").style.color = "#ff9800";
   $("#game-score-label").innerText = "0";
   $("#game-combo-label").innerText = "0";
   
-  fetch(audioUrl)
-    .then(res => {
-      if (!res.ok) throw new Error("音频下载失败");
-      return res.arrayBuffer();
-    })
-    .then(buffer => gameAudioCtx.decodeAudioData(buffer))
-    .then(audioBuffer => {
-      $("#game-status-label").innerText = "正在播放";
-      $("#game-status-label").style.color = "#00f6ff";
-      
-      const canvas = document.getElementById("game-canvas");
-      window.gameInstance = new RhythmGame(canvas, chartData, audioBuffer, gameAudioCtx);
-      window.gameInstance.autoplay = document.getElementById("game-autoplay-toggle").checked;
-      window.gameInstance.start();
-      
-      window.addEventListener("keydown", handleGameKeyDown);
-      window.addEventListener("keyup", handleGameKeyUp);
-    })
-    .catch(err => {
-      alert("音谱初始化失败: " + err.message);
-      stopGameMode();
-      $("#game-modal").style.display = "none";
+  // 并行加载音频数据与 Librosa 节奏特征分析数据
+  Promise.all([
+    fetch(audioUrl)
+      .then(res => {
+        if (!res.ok) throw new Error("音频下载失败");
+        return res.arrayBuffer();
+      })
+      .then(buffer => gameAudioCtx.decodeAudioData(buffer)),
+    fetch(`/api/audio-analysis?name=${encodeURIComponent(name)}`)
+      .then(res => res.ok ? res.json() : null)
+      .catch(() => null) // 容错降级
+  ])
+  .then(([audioBuffer, analysisData]) => {
+    $("#game-status-label").innerText = "正在播放";
+    $("#game-status-label").style.color = "#00f6ff";
+    
+    // 编译谱面音符 (融合歌词和伴奏鼓点特征)
+    const notes = [];
+    let noteId = 1;
+    
+    // 1. 添加歌词人声音符
+    state.alignment.lines.forEach((line) => {
+      line.words.forEach((word, wordIdx) => {
+        const lane = wordIdx % 4;
+        const type = (word.end - word.start > 0.5) ? 'hold' : 'tap';
+        notes.push({
+          id: noteId++,
+          char: word.word,
+          type: type,
+          time: word.start,
+          end_time: word.end,
+          lane: lane,
+          hit: false,
+          released: false
+        });
+      });
     });
+    
+    // 2. 如果存在音频分析数据，融入乐器打击音符 (Bass / Treble)
+    if (analysisData) {
+      const lyricGapThreshold = 0.20; // 避开歌词前后 200ms
+      
+      const isConflicting = (t) => {
+        return notes.some(n => Math.abs(n.time - t) < lyricGapThreshold);
+      };
+      
+      // 融合低频鼓点 (Bass Onsets)
+      if (analysisData.bass_onsets) {
+        analysisData.bass_onsets.forEach(t => {
+          if (!isConflicting(t)) {
+            // 在轨道 0 或 3 随机放入架子鼓音符
+            const lane = (Math.random() > 0.5) ? 0 : 3;
+            notes.push({
+              id: noteId++,
+              char: "🥁",
+              type: "drum-bass",
+              time: t,
+              lane: lane,
+              hit: false
+            });
+          }
+        });
+      }
+      
+      // 融合高频响弦 (Treble Onsets)
+      if (analysisData.treble_onsets) {
+        analysisData.treble_onsets.forEach(t => {
+          if (!isConflicting(t)) {
+            // 在轨道 1 或 2 放入铃铛/擦音符
+            const lane = (Math.random() > 0.5) ? 1 : 2;
+            notes.push({
+              id: noteId++,
+              char: "🔔",
+              type: "drum-treble",
+              time: t,
+              lane: lane,
+              hit: false
+            });
+          }
+        });
+      }
+    }
+    
+    // 依照时间排序音符
+    notes.sort((a, b) => a.time - b.time);
+    
+    const chartData = {
+      song_name: state.currentFile.name,
+      notes: notes
+    };
+    
+    const canvas = document.getElementById("game-canvas");
+    window.gameInstance = new RhythmGame(canvas, chartData, audioBuffer, gameAudioCtx, analysisData);
+    window.gameInstance.autoplay = document.getElementById("game-autoplay-toggle").checked;
+    window.gameInstance.start();
+    
+    window.addEventListener("keydown", handleGameKeyDown);
+    window.addEventListener("keyup", handleGameKeyUp);
+  })
+  .catch(err => {
+    alert("音频特征解析失败: " + err.message);
+    stopGameMode();
+    $("#game-modal").style.display = "none";
+  });
 }
 
 function stopGameMode() {
@@ -1387,12 +1446,13 @@ function stopGameMode() {
 }
 
 class RhythmGame {
-  constructor(canvas, chartData, audioBuffer, audioContext) {
+  constructor(canvas, chartData, audioBuffer, audioContext, analysisData) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.chart = chartData;
     this.buffer = audioBuffer;
     this.ctxAudio = audioContext;
+    this.analysis = analysisData; // 存储伴奏音频分析（BPM、energy 数组、鼓点 Onsets）
     this.startTime = 0;
     this.isPlaying = false;
     
@@ -1406,9 +1466,11 @@ class RhythmGame {
     
     this.laneWidth = 80;
     this.hitPosition = 460;
-    this.noteSpeed = 300;   
+    this.noteSpeed = 300;   // 随音频能量动态变化的基础下落速度
     
     this.laneActive = [false, false, false, false];
+    this.feverMode = false;
+    this.feverPulse = 0;
   }
 
   start() {
@@ -1512,25 +1574,35 @@ class RhythmGame {
     this.lastHitChar = note.char;
     this.combo++;
     if (this.combo > this.maxCombo) this.maxCombo = this.combo;
-    this.score += rating === 'Perfect' ? 100 : rating === 'Great' ? 80 : 50;
+    
+    const multiplier = this.feverMode ? 2 : 1;
+    this.score += (rating === 'Perfect' ? 100 : rating === 'Great' ? 80 : 50) * multiplier;
     
     document.getElementById("game-score-label").innerText = this.score;
     document.getElementById("game-combo-label").innerText = `${this.combo} (Max: ${this.maxCombo})`;
     
+    // 设置击中粒子主题颜色
+    let color = '#00f6ff'; // cyan (歌词)
+    if (note.type === 'drum-bass') color = '#2ebd59'; // green (低音鼓)
+    if (note.type === 'drum-treble') color = '#ffeb3b'; // yellow (高音铃)
+    if (this.feverMode) color = '#ff007f'; // pink (狂热模式)
+    
     this.hitParticles.push({
       char: note.char,
+      color: color,
       x: note.lane * this.laneWidth + this.laneWidth / 2,
       y: this.hitPosition,
       alpha: 1.0,
       scale: 1.0,
-      vx: (Math.random() - 0.5) * 4,
-      vy: -Math.random() * 5 - 3
+      vx: (Math.random() - 0.5) * 5,
+      vy: -Math.random() * 6 - 3
     });
   }
 
   triggerReleaseFeedback(note, rating) {
     this.lastHitRating = rating;
-    this.score += 50;
+    const multiplier = this.feverMode ? 2 : 1;
+    this.score += 50 * multiplier;
     document.getElementById("game-score-label").innerText = this.score;
   }
 
@@ -1544,104 +1616,195 @@ class RhythmGame {
     this.hitParticles.forEach(p => {
       p.x += p.vx;
       p.y += p.vy;
-      p.alpha -= 0.025;
-      p.scale += 0.012;
+      p.alpha -= 0.022;
+      p.scale += 0.015;
     });
     this.hitParticles = this.hitParticles.filter(p => p.alpha > 0);
   }
 
   draw(time) {
-    this.ctx.fillStyle = '#0f0f1e';
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-    for (let i = 0; i < 4; i++) {
-      if (this.laneActive[i]) {
-        this.ctx.fillStyle = 'rgba(0, 246, 255, 0.08)';
-        this.ctx.fillRect(i * this.laneWidth, 0, this.laneWidth, this.canvas.height);
+    // A. 提取当前时刻的伴奏音频能量值 (100ms 间隔采样)
+    let curEnergy = 0.25;
+    if (this.analysis && this.analysis.energy) {
+      const idx = Math.floor(time / this.analysis.energy_interval);
+      if (idx >= 0 && idx < this.analysis.energy.length) {
+        curEnergy = this.analysis.energy[idx];
       }
-      this.ctx.strokeStyle = '#222538';
-      this.ctx.lineWidth = 1;
-      this.ctx.strokeRect(i * this.laneWidth, 0, this.laneWidth, this.canvas.height);
+    }
+    
+    // B. 下落速度随音频强度动态起伏 (类似 Audiosurf 的速度张力感)
+    this.noteSpeed = 220 + curEnergy * 240; 
+    
+    // C. 若瞬间音频能量超过阈值，进入 Fever 狂热加分模式
+    this.feverMode = (curEnergy > 0.65);
+    if (this.feverMode) {
+      this.feverPulse = (this.feverPulse + 0.15) % (Math.PI * 2);
     }
 
-    this.ctx.strokeStyle = '#e94560';
-    this.ctx.lineWidth = 4;
-    this.ctx.shadowBlur = 15;
-    this.ctx.shadowColor = '#e94560';
-    this.ctx.beginPath();
-    this.ctx.moveTo(0, this.hitPosition);
-    this.ctx.lineTo(4 * this.laneWidth, this.hitPosition);
-    this.ctx.stroke();
-    this.ctx.shadowBlur = 0;
+    // 1. 清屏 (Fever 状态下背景呼吸闪烁)
+    if (this.feverMode) {
+      const redness = Math.floor(10 + Math.sin(this.feverPulse) * 8);
+      this.ctx.fillStyle = `rgb(${redness}, 10, 30)`;
+    } else {
+      this.ctx.fillStyle = '#0f0f1e';
+    }
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
+    // 2. 绘制随音乐强度弯曲的下落轨道 (类似 Audiosurf 过山车赛道)
+    this.ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      this.ctx.strokeStyle = this.feverMode ? 'rgba(255, 0, 127, 0.4)' : '#222538';
+      this.ctx.beginPath();
+      for (let y = 0; y <= this.canvas.height; y += 25) {
+        // 利用 y 轴反推时间差
+        const timeOffset = (this.hitPosition - y) / this.noteSpeed;
+        const lookAheadTime = time + timeOffset;
+        
+        let lookAheadEnergy = 0.25;
+        if (this.analysis && this.analysis.energy) {
+          const laIdx = Math.floor(lookAheadTime / this.analysis.energy_interval);
+          if (laIdx >= 0 && laIdx < this.analysis.energy.length) {
+            lookAheadEnergy = this.analysis.energy[laIdx];
+          }
+        }
+        
+        // 正弦波在不同能量下的偏移，造成赛道晃动弯曲
+        const bendX = Math.sin(lookAheadTime * 1.6) * (lookAheadEnergy * 38);
+        const x = i * this.laneWidth + bendX;
+        
+        if (y === 0) this.ctx.moveTo(x, y);
+        else this.ctx.lineTo(x, y);
+      }
+      this.ctx.stroke();
+    }
+
+    // 3. 绘制轨道按键压下反馈
+    for (let i = 0; i < 4; i++) {
+      if (this.laneActive[i]) {
+        this.ctx.fillStyle = this.feverMode ? 'rgba(255, 0, 127, 0.12)' : 'rgba(0, 246, 255, 0.08)';
+        this.ctx.fillRect(i * this.laneWidth, 0, this.laneWidth, this.canvas.height);
+      }
+    }
+
+    // 4. 绘制判定线 (带有霓虹发光效)
+    this.ctx.strokeStyle = this.feverMode ? '#ff007f' : '#e94560';
+    this.ctx.lineWidth = 4;
+    this.ctx.shadowBlur = this.feverMode ? 22 : 12;
+    this.ctx.shadowColor = this.feverMode ? '#ff007f' : '#e94560';
+    this.ctx.beginPath();
+    
+    // 判定线坐标配合轨道晃动弯曲
+    const curBendX = Math.sin(time * 1.6) * (curEnergy * 38);
+    this.ctx.moveTo(curBendX, this.hitPosition);
+    this.ctx.lineTo(4 * this.laneWidth + curBendX, this.hitPosition);
+    this.ctx.stroke();
+    this.ctx.shadowBlur = 0; 
+
+    // 5. 绘制顺沿弯曲音轨下落的音符 (Notes)
     this.chart.notes.forEach(note => {
       const timeDiff = note.time - time;
       
-      if (note.type === 'tap' && note.hit) return;
+      if (note.hit && note.type !== 'hold') return;
       if (note.missed) return;
       
-      if (timeDiff > -0.2 && timeDiff < 2.0) {
-        const x = note.lane * this.laneWidth + 10;
+      if (timeDiff > -0.2 && timeDiff < 2.2) {
+        // 音符下落时的水平位移也使用正弦波弯曲，以贴合轨道
+        let noteEnergy = 0.25;
+        if (this.analysis && this.analysis.energy) {
+          const nIdx = Math.floor(note.time / this.analysis.energy_interval);
+          if (nIdx >= 0 && nIdx < this.analysis.energy.length) {
+            noteEnergy = this.analysis.energy[nIdx];
+          }
+        }
+        
+        const noteBendX = Math.sin(note.time * 1.6) * (noteEnergy * 38);
+        const x = note.lane * this.laneWidth + 10 + noteBendX;
         const y = this.hitPosition - (timeDiff * this.noteSpeed);
 
-        if (note.type === 'tap') {
-          this.ctx.fillStyle = '#4a90d9';
+        let fillColor = '#4a90d9'; // 基础青色 (歌词)
+        
+        if (note.type === 'drum-bass') {
+          fillColor = '#2ebd59'; // 绿色重击鼓
+        } else if (note.type === 'drum-treble') {
+          fillColor = '#ffeb3b'; // 黄色脆铃
+        } else if (note.type === 'hold') {
+          fillColor = '#ff9800'; // 橙色长按
+        }
+        
+        if (this.feverMode && note.type !== 'hold') {
+          fillColor = '#ff007f'; // 狂热霓虹红
+        }
+
+        this.ctx.fillStyle = fillColor;
+
+        if (note.type !== 'hold') {
           this.ctx.fillRect(x, y - 10, this.laneWidth - 20, 20);
           this.ctx.fillStyle = '#fff';
-          this.ctx.font = 'bold 14px Arial';
-          this.ctx.fillText(note.char, x + this.laneWidth / 2 - 17, y + 5);
-        } else if (note.type === 'hold') {
+          this.ctx.font = 'bold 12px sans-serif';
+          this.ctx.fillText(note.char, x + this.laneWidth / 2 - 16, y + 5);
+        } else {
+          // 绘制 Hold 持续条
           const startY = note.hit ? this.hitPosition : y;
           const endDiff = note.end_time - time;
+          
+          let endEnergy = 0.25;
+          if (this.analysis && this.analysis.energy) {
+            const eIdx = Math.floor(note.end_time / this.analysis.energy_interval);
+            if (eIdx >= 0 && eIdx < this.analysis.energy.length) {
+              endEnergy = this.analysis.energy[eIdx];
+            }
+          }
+          const endBendX = Math.sin(note.end_time * 1.6) * (endEnergy * 38);
           const endY = this.hitPosition - (endDiff * this.noteSpeed);
           const holdLength = startY - endY;
           
           if (holdLength > 0) {
-            this.ctx.fillStyle = note.hit ? 'rgba(255, 152, 0, 0.4)' : '#ff9800';
+            this.ctx.fillStyle = note.hit ? 'rgba(255, 152, 0, 0.35)' : 'rgba(255, 152, 0, 0.85)';
             this.ctx.fillRect(x, endY, this.laneWidth - 20, holdLength);
             this.ctx.fillStyle = '#fff';
-            this.ctx.font = 'bold 14px Arial';
-            this.ctx.fillText(note.char, x + this.laneWidth / 2 - 17, startY - 8);
+            this.ctx.font = 'bold 12px sans-serif';
+            this.ctx.fillText(note.char, x + this.laneWidth / 2 - 16, startY - 8);
           }
         }
       }
     });
 
+    // 6. 绘制击中特效粒子
     this.hitParticles.forEach(p => {
       this.ctx.save();
       this.ctx.globalAlpha = p.alpha;
-      this.ctx.fillStyle = '#00f6ff';
-      this.ctx.font = `bold ${Math.floor(22 * p.scale)}px sans-serif`;
-      this.ctx.shadowBlur = 10;
-      this.ctx.shadowColor = '#00f6ff';
-      this.ctx.fillText(p.char, p.x - 10, p.y);
+      this.ctx.fillStyle = p.color;
+      this.ctx.font = `bold ${Math.floor(23 * p.scale)}px sans-serif`;
+      this.ctx.shadowBlur = 12;
+      this.ctx.shadowColor = p.color;
+      this.ctx.fillText(p.char, p.x - 12, p.y);
       this.ctx.restore();
     });
 
+    // 7. HUD 显示 (Autoplay 标识、狂热模式、分数、Combo)
     if (this.autoplay) {
-      this.ctx.fillStyle = 'rgba(0, 246, 255, 0.15)';
+      this.ctx.fillStyle = this.feverMode ? 'rgba(255, 0, 127, 0.25)' : 'rgba(0, 246, 255, 0.15)';
       this.ctx.fillRect(10, 10, 110, 28);
-      this.ctx.fillStyle = '#00f6ff';
-      this.ctx.font = 'bold 12px monospace';
-      this.ctx.fillText('⚡ AUTOPLAY', 20, 28);
+      this.ctx.fillStyle = this.feverMode ? '#ff007f' : '#00f6ff';
+      this.ctx.font = 'bold 11px monospace';
+      this.ctx.fillText(this.feverMode ? '⚡ FEVER AUTO' : '⚡ AUTOPLAY', 18, 28);
     } else {
       this.ctx.fillStyle = 'rgba(233, 69, 96, 0.15)';
       this.ctx.fillRect(10, 10, 110, 28);
       this.ctx.fillStyle = '#e94560';
-      this.ctx.font = 'bold 12px monospace';
-      this.ctx.fillText('🎮 MANUAL', 25, 28);
+      this.ctx.font = 'bold 11px monospace';
+      this.ctx.fillText(this.feverMode ? '🔥 FEVER TIME' : '🎮 MANUAL', 20, 28);
     }
 
     if (this.combo > 0) {
-      this.ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      this.ctx.fillStyle = '#fff';
       this.ctx.font = 'bold 24px Arial';
       this.ctx.fillText(`${this.combo} COMBO`, 20, 100);
       
       this.ctx.fillStyle = this.lastHitRating === 'Perfect' ? '#00f6ff' : this.lastHitRating === 'Great' ? '#ff9800' : '#4a90d9';
       this.ctx.font = 'bold 18px Arial';
-      this.ctx.fillText(this.lastHitRating, 20, 130);
+      this.ctx.fillText(this.lastHitRating + (this.feverMode ? " x2" : ""), 20, 130);
     } else if (this.lastHitRating === 'MISS') {
-      this.ctx.shadowBlur = 0;
       this.ctx.fillStyle = '#e94560';
       this.ctx.font = 'bold 24px Arial';
       this.ctx.fillText('MISS', 20, 100);
