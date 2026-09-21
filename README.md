@@ -1,267 +1,128 @@
-# Auto-Karaoke MV Generator
+# M2V (Music-to-Video) 自动化视听与卡拉OK制作管线
 
-将 Suno 生成的 MP3 音频 + 本地歌词文件，通过全自动 Python 管线，产出具有专业卡拉OK逐字变色效果的宣传视频。
+M2V 是一个专为 AI 音乐（Suno 等）及本地歌曲打造的**全自动化端到端视听制作与字幕对齐系统**。从 Suno 链接或本地音频出发，自动化完成人声分离、词级时间轴对齐、音乐乐段解析、影视级多行流动字幕与分镜视频合成。
 
-## 功能特性
+---
 
-- 🎤 **全自动管线**: MP3 + 歌词 → 人声分离 → 词级对齐 → 卡拉OK字幕 → 视频
-- ✏️ **可视化编辑器**: WaveSurfer.js 波形 + 字级时间轴拖拽编辑
-- 🌐 **SaaS Web 服务**: 用户注册/登录、文件上传、异步任务处理、实时进度
-- 📦 **Docker 一键部署**: 支持 CLI 单机 / Web 多服务两种模式
+## 🌟 核心特性
 
-## 快速开始
+- ⚡ **Suno 一键直达**：直接输入 Suno 歌曲分享链接，全自动抓取音频与歌词、分离伴奏与人声、智能切分乐段并完成字级高精度时间轴对齐。
+- 🎵 **音乐乐段结构化（Musical Sections）**：自动解析 `[Intro] (前奏)`, `[Verse] (主歌)`, `[Chorus] (副歌)`, `[Bridge] (桥段)`, `[Outro] (尾奏)`，建立具备视听导演视角的乐段骨架。
+- 🎨 **Apple Music 级联动态字幕**：不仅支持经典 KTV 双行交替过光，更有复刻 Apple Music 的垂直平滑级联滚动聚焦、景深模糊渐变与 `\kf` 平滑渐变变色效果。
+- 🛠️ **双独立可视化编辑器 (零数据库轻量运行)**：
+  - **歌词时间轴精调 (`/`)**：双轨 WaveSurfer 人声/伴奏波形、段落徽标双击跳播、毫秒级逐字拖拽伸缩、微调面板、一键重新生成 ASS 字幕。
+  - **视频分镜制作 (`/storyboard`)**：素材库浏览上传、镜头时间区间绑定、整句快速同步、全局背景切换与一键合成 MP4 视频。
+- 📐 **Pydantic v2 强类型数据契约**：以 `AlignmentProject` 为核心标准 JSON Schema，内嵌时间戳倒挂自纠正校验，无缝桥接 LLM 影视剧本与分镜提示词生成。
+- 📁 **专属歌曲目录管理**：遵循 `input/{song_name}/` 与 `output/{song_name}/` 结构，各歌曲工程独立归档，干净井然。
 
-### 方式 1: Docker (推荐)
+---
 
-```bash
-# 构建镜像
-docker compose build
+## 🚀 快速开始
 
-# 将 MP3 和同名 TXT/LRC 放入 input/ 目录
-cp song.mp3 song.txt input/
+### 1. 环境准备
 
-# 运行 CLI 管线
-docker compose up
-# 输出在 output/ 目录
-```
-
-### 方式 2: 本地 CLI 运行
+推荐使用 Conda 管理 Python 3.11+ 环境，并确保系统已安装 FFmpeg：
 
 ```bash
-# 安装依赖 (需要 Python 3.11+, CUDA, FFmpeg)
+# 1. 创建并激活 Conda 环境
+conda create -n m2v python=3.11 -y
+conda activate m2v
+
+# 2. 安装项目依赖 (包含 PyTorch, WhisperX, Demucs, FastAPI 等)
 pip install -e .
-
-# 批量处理
-python -m src.main --input ./input --output ./output
-
-# 单文件处理
-python -m src.main -i song.mp3 -l song.txt -o ./output
-
-# 使用背景图
-python -m src.main -i ./input -o ./output -bg background.jpg
-
-# CPU 模式 (无 GPU)
-python -m src.main -i ./input -o ./output --cpu
-
-# 启用节奏动画
-python -m src.main -i ./input -o ./output --beat-effects
-
-# 已经是纯人声，跳过 Demucs
-python -m src.main -i ./input -o ./output --skip-separation
-
-# 只生成 ASS 字幕 + 对齐 JSON
-python -m src.main -i ./input -o ./output --ass-only
-
-# 复用已有对齐结果，直接生成 ASS/视频
-python -m src.main -i ./input -o ./output --alignment-json ./output/{stem}_alignment.json
-
-# 使用配置文件控制流程
-python -m src.main -i ./input -o ./output --config-file ./pipeline.toml
 ```
 
-### 方式 3: 本地编辑器（推荐）
+### 2. 启动本地双工作流编辑器（推荐）
+
+无需配置数据库或 Docker，一条命令即可启动本地全功能 Web 编辑器：
 
 ```bash
-# 启动轻量本地编辑器（无数据库、无登录、自动打开浏览器）
-m2v local-edit
-# 或
 python -m src.local_editor
-
-# 指定扫描目录
-m2v local-edit --dir ./output --port 8765
-
-# 指定本地编辑器字幕配置文件（.toml/.json）
-m2v local-edit --dir ./output --config-file ./pipeline.toml
 ```
+- 服务启动后将自动在浏览器打开：
+  - 🎤 **歌词与字幕精调**：`http://127.0.0.1:8000/`
+  - 🎬 **视频分镜与素材合成**：`http://127.0.0.1:8000/storyboard`
 
-### 方式 4: Web 服务 (SaaS 模式)
+在编辑器左上方直接粘贴 Suno 歌曲链接（如 `https://suno.com/song/...`），点击 **⚡ 导入对齐** 即可开始全流程处理。
 
+---
+
+## 💻 核心操作与 CLI 使用
+
+### 1. 从 Suno 链接全自动拉取并对齐
 ```bash
-# 安装 Web 依赖
-pip install -e ".[web]"
-
-# 启动统一服务 (API + 编辑器 + 仪表板)
-m2v serve --port 8000
-# → 仪表板: http://localhost:8000
-# → 编辑器: http://localhost:8000/editor/{task_id}
+# 下载、分轨、解析乐段并输出对齐工程
+python -m src.suno_fetch https://suno.com/song/<song_id>
 ```
 
-**Docker 多服务部署 (PostgreSQL + Redis + MinIO):**
-
+### 2. 本地全自动管线批处理
 ```bash
-# Web 模式 (PG + Redis + API + Worker)
-docker compose --profile web up -d
+# 针对单首歌曲执行完整流程 (人声分离 → 词级对齐 → ASS压制 → 视频合成)
+python -m src.main -i input/如其所是01/audio.wav -o output/
 
-# 完整模式 (+ MinIO 对象存储)
-docker compose --profile full up -d
+# 已经是纯人声干音，跳过 Demucs 分离
+python -m src.main -i input/如其所是01/vocals.wav -o output/ --skip-separation
+
+# 仅生成 ASS 字幕文件与对齐 JSON
+python -m src.main -i input/如其所是01/audio.wav -o output/ --ass-only
+
+# 复用已有对齐 JSON 直接生成 ASS/视频
+python -m src.main -i input/如其所是01/audio.wav -o output/ --alignment-json output/如其所是01/如其所是01_alignment.json
 ```
 
-**环境变量配置 (`.env` 文件):**
+### 3. LLM 影视分镜与提示词自动化
+```bash
+# 1. 根据对齐歌词自动生成导演 Prompt 模板
+python -m src.llm_director -i output/如其所是01/如其所是01_alignment.json -a prompt
 
-```env
-# 数据库 (默认 SQLite)
-DATABASE_URL=postgresql+asyncpg://m2v:password@localhost:5432/m2v
-
-# JWT 密钥 (生产必须更改)
-SECRET_KEY=your-secret-key-here
-
-# Redis
-REDIS_URL=redis://localhost:6379/0
-
-# 文件存储 ("local" 或 "s3")
-STORAGE_BACKEND=local
-
-# S3/MinIO (STORAGE_BACKEND=s3 时生效)
-S3_ENDPOINT_URL=http://localhost:9000
-S3_ACCESS_KEY=minioadmin
-S3_SECRET_KEY=minioadmin
-S3_BUCKET=m2v
+# 2. 将大模型生成的镜头与动效设计合并回工程
+python -m src.llm_director -i output/如其所是01/如其所是01_alignment.json -a merge -r output/如其所是01/llm_response.json
 ```
 
-## CLI 参数
+---
 
-| 参数 | 说明 |
-|------|------|
-| `--input, -i` | 输入目录 (批量) 或 MP3 文件路径 (单文件) |
-| `--lyrics, -l` | 歌词文件路径，单文件模式使用 |
-| `--output, -o` | 输出目录，默认 `./output` |
-| `--background, -bg` | 背景素材 (.jpg/.png/.mp4)，不指定则纯黑 |
-| `--language` | 语言代码，默认 `zh` |
-| `--cpu` | 强制 CPU 模式 |
-| `--beat-effects` | 启用节奏同步字幕动画 |
-| `--keep-temp` | 保留中间文件 (调试用) |
-| `--skip-separation` | 跳过 Demucs 人声分离，直接用原音频对齐 |
-| `--alignment-json` | 复用已有对齐 JSON（支持 `{stem}` 占位符） |
-| `--ass-only` | 只生成 ASS + 对齐 JSON，不生成 MP4 |
-| `--config-file` | 加载 `.toml/.json` 配置文件控制步骤 |
+## 📂 工程与输出目录规范
 
-### 子命令
-
-| 命令 | 说明 |
-|------|------|
-| `m2v` | 默认 CLI 模式，批量/单文件处理 |
-| `m2v local-edit` | 启动本地编辑器（无数据库/无登录） |
-| `m2v serve` | 启动 Web 服务 (API + 编辑器 + 仪表盘) |
-| `m2v edit` | 启动 Web 服务并自动打开编辑器 |
-
-### 配置文件示例
-
-pipeline.toml:
-
-```toml
-[pipeline]
-skip_separation = true
-ass_only = true
-alignment_json = "./output/{stem}_alignment.json"
-```
-
-## 系统架构
-
-### CLI 管线
-
-```
-MP3 + TXT/LRC
-    → [歌词预处理] 数字转文字/繁简转换/符号清理
-    → [Demucs] 人声分离 → vocals.wav
-    → [WhisperX] 词级对齐 → timestamps.json
-    → [ASS生成] 卡拉OK \k 标签 → karaoke.ass
-    → [FFmpeg] 视频合成 → final.mp4
-```
-
-### Web 服务架构
-
-```
-浏览器
-  │
-  ├─ /              仪表板 (注册/登录/上传/任务管理)
-  ├─ /editor/{id}   时间轴编辑器 (波形/拖拽/保存)
-  │
-  └──▶ FastAPI 统一服务 :8000
-        ├── /api/auth/*           JWT 注册/登录/刷新
-        ├── /api/upload           MP3 + 歌词上传
-        ├── /api/tasks/*          任务 CRUD + 进度查询
-        ├── /api/editor/*         时间轴编辑器 API
-        ├── /ws/tasks/{id}/progress  WebSocket 实时进度
-        │
-        ├── SQLAlchemy 2.0 async → SQLite (dev) / PG (prod)
-        ├── Celery + Redis       → 异步 GPU 任务
-        └── Storage 抽象层       → Local / S3 / MinIO
-```
-
-## 输出文件
-
-```
-output/
-├── song.mp4              # 最终卡拉OK视频
-├── song.ass              # ASS 字幕文件 (可单独使用)
-└── song_alignment.json   # 词级对齐数据 (可复用/可编辑)
-```
-
-## 技术栈
-
-### 核心管线
-- **Demucs v4**: 人声分离 (htdemucs_ft)
-- **WhisperX**: 词级 forced alignment
-- **ASS**: 卡拉OK `\k` 变色标签
-- **FFmpeg**: 视频合成
-- **Librosa**: 节奏检测 (可选)
-
-### SaaS Web 层
-- **FastAPI**: API 服务 + WebSocket
-- **SQLAlchemy 2.0**: 异步 ORM (User / Task)
-- **JWT** (python-jose): 认证系统
-- **Celery + Redis**: 异步任务队列
-- **Storage** 抽象层: LocalStorage / S3Storage
-- **Alembic**: 数据库迁移
-
-### 前端
-- **WaveSurfer.js 7.x**: 波形渲染 + Regions
-- **Vanilla JS**: 零构建工具，暗色主题
-
-## 项目结构
-
-```
+```text
 m2v/
-├── src/
-│   ├── main.py              # CLI 入口 (m2v / m2v serve / m2v edit)
-│   ├── config.py            # Pipeline 配置
-│   ├── preprocessor.py      # 歌词预处理
-│   ├── separator.py         # Demucs 人声分离
-│   ├── aligner.py           # WhisperX 词级对齐
-│   ├── subtitle.py          # ASS 字幕生成
-│   ├── compositor.py        # FFmpeg 视频合成
-│   ├── utils.py             # 工具函数
-│   ├── settings.py          # 环境配置 (pydantic-settings)
-│   ├── database.py          # SQLAlchemy 异步引擎
-│   ├── models.py            # User + Task ORM
-│   ├── schemas.py           # Pydantic 请求/响应模型
-│   ├── auth.py              # JWT 认证
-│   ├── storage.py           # 文件存储抽象层
-│   ├── worker.py            # Celery 异步任务
-│   ├── api_server.py        # FastAPI 主应用
-│   └── editor_server.py     # 时间轴编辑器 APIRouter
-├── frontend/
-│   ├── index.html           # 编辑器页面
-│   ├── app.js               # 编辑器逻辑
-│   ├── style.css            # 编辑器样式
-│   ├── dashboard.html       # 仪表板页面
-│   ├── dashboard.js         # 仪表板逻辑
-│   └── dashboard.css        # 仪表板样式
-├── alembic/                 # 数据库迁移
-├── templates/               # ASS 样式模板
-├── tests/                   # 单元测试
-├── Dockerfile               # CLI 镜像
-├── Dockerfile.web           # Web 服务镜像
-├── docker-compose.yml       # 多服务编排
-└── pyproject.toml           # 依赖 (core / web extras)
+├── input/
+│   └── {song_name}/                # 专属歌曲输入目录
+│       ├── {song_name}.mp3         # 原始音频
+│       └── {song_name}.txt         # 原始歌词（含乐段提示）
+├── output/
+│   └── {song_name}/                # 专属歌曲产物目录
+│       ├── {song_name}_vocals.wav        # Demucs 提取的高保真人声干音
+│       ├── {song_name}_instrumental.wav  # Demucs 提取的伴奏音频
+│       ├── {song_name}_alignment.json    # Pydantic v2 标准视听工程文件
+│       ├── {song_name}.ass               # Apple Music / KTV 双风格卡拉OK字幕
+│       └── {song_name}.mp4               # 最终合成的卡拉OK宣传视频
+└── assets/                         # 放置供分镜使用的图片/视频素材 (git忽略)
 ```
 
-## 开发进度
+---
 
-| 阶段 | 状态 | 说明 |
-|------|------|------|
-| Phase 1: 核心管线 | ✅ 完成 | MP3+TXT → 卡拉OK MP4 全流程 |
-| Phase 2: 质量优化 | ✅ 完成 | Fallback 策略、节奏动画、多样式 |
-| Phase 3: 时间轴编辑器 | ✅ 完成 | 波形预览、字级拖拽、保存/重新生成 |
-| Phase 4: SaaS Web 服务 | 🔄 开发中 | 认证/存储/任务系统已完成，待集成测试 |
-| Phase 5: 进阶功能 | 📋 计划中 | 音节拆分、双语字幕、AI 背景 |
+## 🏗️ 系统架构与数据模型
+
+### 1. 数据契约引擎 (`src/storyboard_schema.py`)
+整个系统的数据流均依托 Pydantic v2 构建严格的数据不变量约束：
+- **`WordTimestamp`**：单个汉字/英文单词的起止秒数（保证 `end >= start`）。
+- **`AlignedLine`**：整行歌词，内嵌校验器自动基于单字时间戳同步修正行 `start` 与 `end`，携带 `section` 乐段归属。
+- **`MusicSection`**：前奏、主歌、副歌等乐段的绝对时域与情绪/风格元数据。
+- **`ShotPlan`**：分镜镜头模型，兼备物理合成属性（`path`, `speed_align`）与影视属性（`scale`, `camera_movement`, `prompt_zh`, `prompt_en`）。
+- **`AlignmentProject`**：聚合全部对齐信息与视觉圣经（Visual Bible）的根工程对象。
+
+### 2. 前端模块解耦架构 (`frontend/local/`)
+- **`common.js`**：双轨 WaveSurfer 波形播放、歌曲选择器、Suno 导入、状态通知、撤销/重做栈与底层时间工具。
+- **`lyric_editor.js`**：词级编辑器专用逻辑（字级轴拖拽抓取、微调步进、乐段徽标渲染、整行伸缩、ASS 重新生成）。
+- **`storyboard_editor.js`**：分镜制作专用逻辑（素材库弹窗/上传、镜头列表维护、整行时间同步、视频渲染配置）。
+
+---
+
+## 🧪 测试与质量保证
+
+本项目包含完整的自动化测试集，覆盖歌词预处理、ASS 标签计算、LRC 转换以及对齐器核心：
+
+```bash
+pytest tests/
+```
+*(当前 28 项单元测试保持 100% 通过)*
