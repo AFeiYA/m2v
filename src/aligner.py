@@ -8,9 +8,10 @@ Module 3: 词级对齐引擎
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
 from src.config import AlignerConfig
@@ -19,54 +20,18 @@ from src.utils import log
 
 
 # ---------------------------------------------------------------------------
-# 数据结构
+# 数据结构 (基于 Pydantic v2 强类型体系)
 # ---------------------------------------------------------------------------
-
-@dataclass
-class WordTimestamp:
-    """单个字/词的时间戳"""
-    word: str
-    start: float   # 秒
-    end: float      # 秒
-
-
-@dataclass
-class AlignedLine:
-    """一行对齐后的歌词"""
-    text: str
-    start: float
-    end: float
-    words: list[WordTimestamp]
-
-
-@dataclass
-class AlignmentResult:
-    """完整对齐结果"""
-    lines: list[AlignedLine]
-
-    def to_dict(self) -> dict:
-        return {"lines": [asdict(line) for line in self.lines]}
-
-    def save_json(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
-        log.info("对齐结果已保存: %s", path.name)
-
-    @classmethod
-    def load_json(cls, path: Path) -> "AlignmentResult":
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        lines = []
-        for line_data in data["lines"]:
-            words = [WordTimestamp(**w) for w in line_data["words"]]
-            lines.append(AlignedLine(
-                text=line_data["text"],
-                start=line_data["start"],
-                end=line_data["end"],
-                words=words,
-            ))
-        return cls(lines=lines)
+from src.storyboard_schema import (
+    WordTimestamp,
+    AlignedLine,
+    MusicSection,
+    ShotPlan,
+    StoryboardEvent,
+    VisualBible,
+    AlignmentProject,
+    AlignmentResult,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +149,11 @@ def align_lyrics(
     # Step 2: WhisperX 对齐 — 用 Whisper 自己的文本做 forced alignment
     # -----------------------------------------------------------------------
     log.info("加载对齐模型 (language=%s)…", detected_language)
+    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+    if detected_language == "zh" and (cache_dir / "models--jonatasgrosman--wav2vec2-large-xlsr-53-chinese-zh-cn").exists():
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
     align_model, align_metadata = whisperx.load_align_model(
         language_code=detected_language,
         device=device,

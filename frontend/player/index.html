@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>M2V 音乐播放器 — 逐字过光卡拉OK</title>
+  <meta name="description" content="沉浸式逐字过光歌词播放器，精准同步每一个字">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+  <!-- Background layer -->
+  <div id="bg-layer">
+    <div id="bg-image" class="bg-img"></div>
+    <div id="bg-image-next" class="bg-img"></div>
+    <div id="bg-overlay" class="inactive"></div>
+    <div id="bg-gradient"></div>
+    <div id="bg-particles"></div>
+  </div>
+
+  <!-- Main player container -->
+  <div id="player-container">
+
+    <!-- Top bar -->
+    <header id="top-bar">
+      <div id="song-info">
+        <h1 id="song-title">M2V Player</h1>
+        <p id="song-subtitle">选择歌曲开始播放</p>
+      </div>
+      <div id="top-actions">
+        <!-- 3D Ride Game Mode Button -->
+        <a id="btn-game-mode" href="game.html" class="mode-btn" title="进入 3D 节奏飞车模式">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle; margin-right: 6px;">
+            <path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm3-3c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
+          </svg>
+          3D 节奏飞车
+        </a>
+        <!-- Song selector -->
+        <select id="song-select">
+          <option value="">加载中…</option>
+        </select>
+      </div>
+    </header>
+
+    <!-- Lyrics display area -->
+    <section id="lyrics-viewport">
+      <div id="lyrics-scroll-container">
+        <!-- Lyrics lines will be injected here -->
+      </div>
+    </section>
+
+    <!-- Bottom player controls -->
+    <footer id="player-controls">
+      <!-- Progress bar -->
+      <div id="progress-wrapper">
+        <div id="progress-bar">
+          <div id="progress-fill"></div>
+          <div id="progress-glow"></div>
+          <div id="progress-thumb"></div>
+        </div>
+        <div id="time-labels">
+          <span id="time-current">0:00</span>
+          <span id="time-total">0:00</span>
+        </div>
+      </div>
+
+      <!-- Control buttons -->
+      <div id="control-buttons">
+        <button id="btn-prev" class="ctrl-btn" title="上一行 (↑)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+          </svg>
+        </button>
+        <button id="btn-play" class="ctrl-btn play-btn" title="播放/暂停 (Space)">
+          <svg id="icon-play" width="28" height="28" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+          <svg id="icon-pause" width="28" height="28" viewBox="0 0 24 24" fill="currentColor" style="display:none">
+            <path d="M6 4h4v16H6zM14 4h4v16h-4z" />
+          </svg>
+        </button>
+        <button id="btn-next" class="ctrl-btn" title="下一行 (↓)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+          </svg>
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <script src="player.js"></script>
+</body>
+
+</html>

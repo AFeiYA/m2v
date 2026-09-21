@@ -1,4 +1,5 @@
 """全局配置 — 模型参数 / 默认样式 / 输出规格"""
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -51,14 +52,15 @@ class SubtitleConfig:
     style_name: str = "Karaoke"
     # 颜色 (Apple Style: 纯白变焦与透明度)
     primary_colour: str = "&H00FFFFFF"    # 纯白 (已唱)
-    secondary_colour: str = "&H80FFFFFF"  # 半透明白 (未唱)
-    outline_colour: str = "&H00000000"    # 无描边
-    font_name: str = "思源黑体 Light"
+    secondary_colour: str = "&H66FFFFFF"  # 半透明白 (未唱)
+    outline_colour: str = "&H99000000"    # 暗色半透明描边
+    font_name: str = "思源黑体"
     font_path: str = "C:/Windows/Fonts/msyh.ttc"  # 默认路径，Pillow 需要真实文件
-    font_size: int = 80
+    font_size: int = 72
     # 渲染模式: "classic" (传统) / "apple" (滚动聚焦)
     render_mode: str = "apple"
     apple_pulse: bool = True              # 是否启用字级缩放呼吸感
+    use_karaoke_gradient: bool = True     # 开启时使用平滑过光渐变(\kf)，关闭时使用逐字跳跃(\k)
     # 节奏动画
     enable_beat_effects: bool = False
     beat_scale: float = 1.15              # 鼓点处放大倍数
@@ -76,6 +78,7 @@ class CompositorConfig:
     audio_bitrate: str = "192k"
     pixel_format: str = "yuv420p"
     default_bg: Path = ASSETS_DIR / "default_bg.jpg"
+    enable_subtitles: bool = True
 
 # ---------------------------------------------------------------------------
 # 歌词预处理
@@ -105,3 +108,72 @@ class PipelineConfig:
     alignment_json: Path | None = None    # 复用已有对齐结果，跳过对齐
     video_only: bool = False              # 直接从已有 ASS 合成视频，跳过 1-4 步
     ass_file: Path | None = None          # video_only 时指定 ASS 路径 (支持 {stem})
+
+    @classmethod
+    def from_file(cls, path: Path | str) -> "PipelineConfig":
+        """从 .toml 或 .json 文件统一加载主管线与子模块配置"""
+        import json
+        try:
+            import tomllib
+        except ModuleNotFoundError:
+            tomllib = None
+
+        p = Path(path).expanduser().resolve()
+        if not p.exists():
+            raise FileNotFoundError(f"配置文件不存在: {p}")
+
+        suffix = p.suffix.lower()
+        if suffix == ".toml":
+            if tomllib is None:
+                raise ValueError("当前 Python 环境缺少 tomllib，请升级到 Python 3.11+ 或使用 .json 配置文件")
+            data = tomllib.loads(p.read_text(encoding="utf-8"))
+        elif suffix == ".json":
+            data = json.loads(p.read_text(encoding="utf-8"))
+        else:
+            raise ValueError(f"不支持的配置文件格式: {suffix}，仅支持 .toml 或 .json")
+
+        cfg = cls()
+        pipeline_data = data.get("pipeline", data)
+        if isinstance(pipeline_data, dict):
+            cfg.skip_separation = bool(pipeline_data.get("skip_separation", cfg.skip_separation))
+            cfg.ass_only = bool(pipeline_data.get("ass_only", cfg.ass_only))
+            cfg.video_only = bool(pipeline_data.get("video_only", cfg.video_only))
+            cfg.keep_temp = bool(pipeline_data.get("keep_temp", cfg.keep_temp))
+            if pipeline_data.get("alignment_json"):
+                cfg.alignment_json = Path(pipeline_data["alignment_json"])
+            if pipeline_data.get("ass_file"):
+                cfg.ass_file = Path(pipeline_data["ass_file"])
+
+        aligner_data = data.get("aligner", {})
+        if isinstance(aligner_data, dict):
+            for k in ["whisper_model", "device", "compute_type", "language", "align_model"]:
+                if k in aligner_data and aligner_data[k] is not None:
+                    setattr(cfg.aligner, k, str(aligner_data[k]))
+            if "batch_size" in aligner_data and aligner_data["batch_size"] is not None:
+                cfg.aligner.batch_size = int(aligner_data["batch_size"])
+            if "use_pinyin" in aligner_data:
+                cfg.aligner.use_pinyin = bool(aligner_data["use_pinyin"])
+            if "lyrics_start_time" in aligner_data and aligner_data["lyrics_start_time"] is not None:
+                cfg.aligner.lyrics_start_time = float(aligner_data["lyrics_start_time"])
+            if "min_char_duration" in aligner_data and aligner_data["min_char_duration"] is not None:
+                cfg.aligner.min_char_duration = float(aligner_data["min_char_duration"])
+            if "max_char_duration" in aligner_data and aligner_data["max_char_duration"] is not None:
+                cfg.aligner.max_char_duration = float(aligner_data["max_char_duration"])
+
+        subtitle_data = data.get("subtitle", {})
+        if isinstance(subtitle_data, dict):
+            if subtitle_data.get("template_path"):
+                tpl = Path(subtitle_data["template_path"]).expanduser()
+                cfg.subtitle.template_path = (p.parent / tpl).resolve() if not tpl.is_absolute() else tpl
+            for k in ["style_name", "primary_colour", "secondary_colour", "outline_colour", "font_name"]:
+                if k in subtitle_data and subtitle_data[k] is not None:
+                    setattr(cfg.subtitle, k, str(subtitle_data[k]))
+            if subtitle_data.get("font_size") is not None:
+                cfg.subtitle.font_size = int(subtitle_data["font_size"])
+            if "enable_beat_effects" in subtitle_data:
+                cfg.subtitle.enable_beat_effects = bool(subtitle_data["enable_beat_effects"])
+            if subtitle_data.get("beat_scale") is not None:
+                cfg.subtitle.beat_scale = float(subtitle_data["beat_scale"])
+
+        return cfg
+

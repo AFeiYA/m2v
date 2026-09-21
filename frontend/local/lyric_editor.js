@@ -1,32 +1,18 @@
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-const state = {
-  allFiles: [],
-  currentFile: null,   // { name, json_path, audio_path, audio_tracks }
-  alignment: null,
-  selectedLine: -1,
-  selectedWord: -1,
-  undoStack: [],
-  redoStack: [],
-  dirty: false,
-};
-
-let ws = null;  // primary WaveSurfer (vocals or original fallback)
-let wsInst = null; // secondary WaveSurfer (instrumental)
-let vocalsReady = false, instReady = false;
-let trackMuted = { vocals: false, instrumental: false };
-
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => document.querySelectorAll(sel);
-const dom = {};
+// ===========================================================================
+// M2V Local Editor — Lyric & Subtitle Editor Module (for index.html)
+// ===========================================================================
 
 document.addEventListener("DOMContentLoaded", () => {
+  // DOM element cache
   dom.songSelect          = $("#song-select");
   dom.btnSave             = $("#btn-save");
   dom.btnUndo             = $("#btn-undo");
   dom.btnRedo             = $("#btn-redo");
   dom.btnRegenAss         = $("#btn-regen-ass");
+  dom.sunoUrlInput        = $("#suno-url-input");
+  dom.btnStartSunoImport  = $("#btn-start-suno-import");
+  dom.sunoProgress        = $("#suno-import-progress");
+  dom.sunoProgressText    = $("#suno-progress-text");
   dom.statusMsg           = $("#status-msg");
   dom.waveformVocals      = $("#waveform-vocals");
   dom.waveformInst        = $("#waveform-instrumental");
@@ -55,215 +41,197 @@ document.addEventListener("DOMContentLoaded", () => {
   dom.trackVocals         = $("#track-vocals");
   dom.trackInst           = $("#track-instrumental");
 
-  initWaveSurfer();
-  bindEvents();
+  try {
+    initWaveSurfer();
+  } catch (err) {
+    console.warn("WaveSurfer 初始化异常:", err);
+  }
+
+  bindLyricEvents();
   loadFileList();
 });
 
 // ---------------------------------------------------------------------------
-// WaveSurfer (dual-track)
+// Lifecycle Hooks
 // ---------------------------------------------------------------------------
-function initWaveSurfer() {
-  ws = WaveSurfer.create({
-    container: dom.waveformVocals,
-    waveColor: "#4a90d9", progressColor: "#e94560",
-    cursorColor: "#fff", height: 72,
-    barWidth: 2, barGap: 1, barRadius: 2,
-    normalize: true, backend: "WebAudio",
-  });
-  wsInst = WaveSurfer.create({
-    container: dom.waveformInst,
-    waveColor: "#50c878", progressColor: "#ff9800",
-    cursorColor: "#fff", height: 72,
-    barWidth: 2, barGap: 1, barRadius: 2,
-    normalize: true, backend: "WebAudio",
-  });
+window.onSongLoaded = () => {
+  renderLyrics();
+  clearWordPanel();
+};
 
-  ws.on("ready", () => { vocalsReady = true; updateTimeDisplay(); status("人声轨已加载"); });
-  ws.on("audioprocess", () => { syncInstToVocals(); updateTimeDisplay(); highlightPlayingLine(); });
-  ws.on("timeupdate", () => { updateTimeDisplay(); highlightPlayingLine(); });
-  ws.on("seeking", () => { syncInstToVocals(); updateTimeDisplay(); });
-  ws.on("finish", () => {
-    if (wsInst && instReady) wsInst.pause();
-    dom.btnPlayPause.textContent = "▶ 播放";
-  });
+window.onAlignmentChanged = () => {
+  renderLyrics();
+  if (state.selectedLine >= 0) {
+    renderWords(state.selectedLine);
+    selectLine(state.selectedLine, { seek: false });
+  }
+};
 
-  wsInst.on("ready", () => { instReady = true; status("伴奏轨已加载"); });
-  // instrumental follows vocals — no independent events needed
-}
-
-function syncInstToVocals() {
-  if (!wsInst || !instReady || !vocalsReady) return;
-  const t = ws.getCurrentTime();
-  const instT = wsInst.getCurrentTime();
-  if (Math.abs(t - instT) > 0.15) wsInst.setTime(t);
-}
-
-function toggleMuteTrack(track) {
-  trackMuted[track] = !trackMuted[track];
-  const instance = track === "vocals" ? ws : wsInst;
-  const btn = track === "vocals" ? dom.btnMuteVocals : dom.btnMuteInst;
-  const row = track === "vocals" ? dom.trackVocals : dom.trackInst;
-  if (instance) instance.setVolume(trackMuted[track] ? 0 : 1);
-  btn.classList.toggle("active", !trackMuted[track]);
-  btn.classList.toggle("muted", trackMuted[track]);
-  row.classList.toggle("muted", trackMuted[track]);
-  status(trackMuted[track] ? `${track} 已静音` : `${track} 已取消静音`);
-}
-
-function updateTimeDisplay() {
-  if (!ws) return;
-  const cur = ws.getCurrentTime(), dur = ws.getDuration() || 0;
-  dom.timeDisplay.textContent = `${fmtTime(cur)} / ${fmtTime(dur)}`;
-}
-
-function fmtTime(s) {
-  const m = Math.floor(s / 60), sec = s - m * 60;
-  return `${m}:${sec.toFixed(3).padStart(6, "0")}`;
-}
+window.onPlaybackTick = () => {
+  highlightPlayingLine();
+};
 
 // ---------------------------------------------------------------------------
-// Events
+// Event Listeners
 // ---------------------------------------------------------------------------
-function bindEvents() {
-  dom.songSelect.addEventListener("change", () => {
-    const idx = dom.songSelect.value;
-    if (idx !== "") loadSong(parseInt(idx));
-  });
-  dom.btnSave.addEventListener("click", saveAlignment);
-  dom.btnUndo.addEventListener("click", undo);
-  dom.btnRedo.addEventListener("click", redo);
-  dom.btnRegenAss.addEventListener("click", regenAss);
-  dom.btnPlayPause.addEventListener("click", togglePlay);
-  dom.btnPlayLine.addEventListener("click", playSelectedLine);
-  dom.zoomSlider.addEventListener("input", () => {
-    const z = Number(dom.zoomSlider.value);
-    if (ws) ws.zoom(z);
-    if (wsInst && instReady) wsInst.zoom(z);
-  });
-  dom.btnShiftLeft.addEventListener("click",  () => nudgeWord(-0.05));
-  dom.btnNudgeLeft.addEventListener("click",  () => nudgeWord(-0.01));
-  dom.btnNudgeRight.addEventListener("click", () => nudgeWord(0.01));
-  dom.btnShiftRight.addEventListener("click", () => nudgeWord(0.05));
-  dom.btnEvenSplit.addEventListener("click",  evenSplitLine);
-  dom.btnPlayWord.addEventListener("click",   playSelectedWord);
-  dom.btnLineNudgeLeftBig.addEventListener("click",  () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, -0.2); });
-  dom.btnLineNudgeLeft.addEventListener("click",     () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, -0.05); });
-  dom.btnLineNudgeRight.addEventListener("click",    () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, 0.05); });
-  dom.btnLineNudgeRightBig.addEventListener("click", () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, 0.2); });
-  dom.btnLineExpand.addEventListener("click",  () => { if (state.selectedLine >= 0) resizeLine(state.selectedLine, -0.05, 0.05); });
-  dom.btnLineShrink.addEventListener("click",  () => { if (state.selectedLine >= 0) resizeLine(state.selectedLine, 0.05, -0.05); });
-  dom.btnMuteVocals.addEventListener("click", () => toggleMuteTrack("vocals"));
-  dom.btnMuteInst.addEventListener("click", () => toggleMuteTrack("instrumental"));
-  document.addEventListener("keydown", handleKey);
+function bindLyricEvents() {
+  if (dom.songSelect) {
+    dom.songSelect.addEventListener("change", () => {
+      const idx = dom.songSelect.value;
+      if (idx !== "") loadSong(parseInt(idx));
+    });
+  }
+  if (dom.btnSave) dom.btnSave.addEventListener("click", saveAlignment);
+  if (dom.btnUndo) dom.btnUndo.addEventListener("click", undo);
+  if (dom.btnRedo) dom.btnRedo.addEventListener("click", redo);
+
+  if (dom.btnRegenAss) {
+    dom.btnRegenAss.addEventListener("click", async () => {
+      if (!state.currentFile) {
+        alert("请先选择或加载一首歌曲");
+        return;
+      }
+      status("正在重新生成 ASS 字幕...");
+      try {
+        const res = await fetch("/api/regen", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            json_path: state.currentFile.json_path,
+            mode: "ass",
+            render_mode: "apple",
+            tag_type: "kf",
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "生成失败");
+        status(`🎉 ASS 字幕已生成: ${data.ass_path}`);
+        alert(`ASS 字幕生成成功！\n保存路径: ${data.ass_path}`);
+      } catch (err) {
+        status("生成 ASS 失败: " + err.message, true);
+        alert("生成 ASS 失败: " + err.message);
+      }
+    });
+  }
+
+  if (dom.btnPlayPause) dom.btnPlayPause.addEventListener("click", togglePlay);
+  if (dom.btnPlayLine) dom.btnPlayLine.addEventListener("click", playSelectedLine);
+  if (dom.zoomSlider) {
+    dom.zoomSlider.addEventListener("input", () => {
+      const z = Number(dom.zoomSlider.value);
+      if (ws) ws.zoom(z);
+      if (wsInst && instReady) wsInst.zoom(z);
+    });
+  }
+
+  if (dom.btnShiftLeft) dom.btnShiftLeft.addEventListener("click", () => nudgeWord(-0.05));
+  if (dom.btnNudgeLeft) dom.btnNudgeLeft.addEventListener("click", () => nudgeWord(-0.01));
+  if (dom.btnNudgeRight) dom.btnNudgeRight.addEventListener("click", () => nudgeWord(0.01));
+  if (dom.btnShiftRight) dom.btnShiftRight.addEventListener("click", () => nudgeWord(0.05));
+  if (dom.btnEvenSplit) dom.btnEvenSplit.addEventListener("click", evenSplitLine);
+  if (dom.btnPlayWord) dom.btnPlayWord.addEventListener("click", playSelectedWord);
+
+  if (dom.btnLineNudgeLeftBig) dom.btnLineNudgeLeftBig.addEventListener("click", () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, -0.2); });
+  if (dom.btnLineNudgeLeft) dom.btnLineNudgeLeft.addEventListener("click", () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, -0.05); });
+  if (dom.btnLineNudgeRight) dom.btnLineNudgeRight.addEventListener("click", () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, 0.05); });
+  if (dom.btnLineNudgeRightBig) dom.btnLineNudgeRightBig.addEventListener("click", () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, 0.2); });
+  if (dom.btnLineExpand) dom.btnLineExpand.addEventListener("click", () => { if (state.selectedLine >= 0) resizeLine(state.selectedLine, -0.05, 0.05); });
+  if (dom.btnLineShrink) dom.btnLineShrink.addEventListener("click", () => { if (state.selectedLine >= 0) resizeLine(state.selectedLine, 0.05, -0.05); });
+
+  if (dom.btnMuteVocals) dom.btnMuteVocals.addEventListener("click", () => toggleMuteTrack("vocals"));
+  if (dom.btnMuteInst) dom.btnMuteInst.addEventListener("click", () => toggleMuteTrack("instrumental"));
+
+  document.addEventListener("keydown", handleLyricKey);
 }
 
-function handleKey(e) {
+function handleLyricKey(e) {
   if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
   const ctrl = e.ctrlKey || e.metaKey;
   switch (true) {
-    case e.code === "Space":        e.preventDefault(); togglePlay(); break;
+    case e.code === "Space": e.preventDefault(); togglePlay(); break;
     case ctrl && e.code === "KeyS": e.preventDefault(); saveAlignment(); break;
     case ctrl && e.code === "KeyZ" && !e.shiftKey: e.preventDefault(); undo(); break;
     case ctrl && (e.code === "KeyY" || (e.code === "KeyZ" && e.shiftKey)): e.preventDefault(); redo(); break;
-    case e.code === "ArrowLeft" && !ctrl:  e.preventDefault(); nudgeWord(-0.01); break;
+    case e.code === "ArrowLeft" && !ctrl: e.preventDefault(); nudgeWord(-0.01); break;
     case e.code === "ArrowRight" && !ctrl: e.preventDefault(); nudgeWord(0.01); break;
     case e.code === "KeyA" && !ctrl: e.preventDefault(); nudgeWord(-0.05); break;
     case e.code === "KeyD" && !ctrl: e.preventDefault(); nudgeWord(0.05); break;
-    case e.code === "ArrowUp":   e.preventDefault(); selectAdjacentLine(-1); break;
+    case e.code === "ArrowUp": e.preventDefault(); selectAdjacentLine(-1); break;
     case e.code === "ArrowDown": e.preventDefault(); selectAdjacentLine(1); break;
-    case e.code === "Enter":     e.preventDefault(); playSelectedLine(); break;
+    case e.code === "Enter": e.preventDefault(); playSelectedLine(); break;
     case e.code === "Tab" && !ctrl: e.preventDefault(); selectAdjacentWord(e.shiftKey ? -1 : 1); break;
-    case e.code === "BracketLeft" && !ctrl && !e.shiftKey:  e.preventDefault(); if (state.selectedLine >= 0) nudgeLine(state.selectedLine, -0.05); break;
+    case e.code === "BracketLeft" && !ctrl && !e.shiftKey: e.preventDefault(); if (state.selectedLine >= 0) nudgeLine(state.selectedLine, -0.05); break;
     case e.code === "BracketRight" && !ctrl && !e.shiftKey: e.preventDefault(); if (state.selectedLine >= 0) nudgeLine(state.selectedLine, 0.05); break;
-    case e.code === "BracketLeft" && !ctrl && e.shiftKey:   e.preventDefault(); if (state.selectedLine >= 0) resizeLine(state.selectedLine, -0.05, 0.05); break;
-    case e.code === "BracketRight" && !ctrl && e.shiftKey:  e.preventDefault(); if (state.selectedLine >= 0) resizeLine(state.selectedLine, 0.05, -0.05); break;
+    case e.code === "BracketLeft" && !ctrl && e.shiftKey: e.preventDefault(); if (state.selectedLine >= 0) resizeLine(state.selectedLine, -0.05, 0.05); break;
+    case e.code === "BracketRight" && !ctrl && e.shiftKey: e.preventDefault(); if (state.selectedLine >= 0) resizeLine(state.selectedLine, 0.05, -0.05); break;
   }
-}
-
-// ---------------------------------------------------------------------------
-// File List & Loading
-// ---------------------------------------------------------------------------
-async function loadFileList() {
-  try {
-    const r = await fetch("/api/files");
-    state.allFiles = await r.json();
-    dom.songSelect.innerHTML = state.allFiles.length === 0
-      ? `<option value="">未找到 alignment.json</option>`
-      : `<option value="">— 请选择 —</option>` +
-        state.allFiles.map((f, i) =>
-          `<option value="${i}">${f.name}${f.audio_path ? " 🎵" : ""}</option>`
-        ).join("");
-    if (state.allFiles.length === 1) loadSong(0);
-  } catch(e) {
-    dom.songSelect.innerHTML = `<option value="">加载失败</option>`;
-    status("文件列表加载失败: " + e, true);
-  }
-}
-
-async function loadSong(idx) {
-  const file = state.allFiles[idx];
-  state.currentFile = file;
-  state.selectedLine = -1;
-  state.selectedWord = -1;
-  state.undoStack = [];
-  state.redoStack = [];
-  state.dirty = false;
-  vocalsReady = false; instReady = false;
-  trackMuted = { vocals: false, instrumental: false };
-  dom.songSelect.value = idx;
-  status(`加载 ${file.name}…`);
-
-  try {
-    const r = await fetch("/api/alignment?path=" + encodeURIComponent(file.json_path));
-    if (!r.ok) throw new Error(await r.text());
-    state.alignment = await r.json();
-  } catch(e) {
-    status("对齐数据加载失败: " + e, true);
-    state.alignment = null;
-    return;
-  }
-
-  // Load audio tracks
-  const tracks = file.audio_tracks || {};
-  const vocalsUrl = tracks.vocals ? "/api/audio?path=" + encodeURIComponent(tracks.vocals) : null;
-  const instUrl = tracks.instrumental ? "/api/audio?path=" + encodeURIComponent(tracks.instrumental) : null;
-  const origUrl = file.audio_path ? "/api/audio?path=" + encodeURIComponent(file.audio_path) : null;
-
-  // Primary track: vocals > original
-  const primaryUrl = vocalsUrl || origUrl;
-  if (primaryUrl) {
-    try { await ws.load(primaryUrl); } catch(e) { status("人声轨加载失败: " + e, true); }
-  }
-  // Secondary track: instrumental (only if we have separate tracks)
-  if (instUrl) {
-    try { await wsInst.load(instUrl); } catch(e) { status("伴奏轨加载失败: " + e, true); }
-    dom.trackInst.classList.remove("hidden");
-  } else {
-    dom.trackInst.classList.add("hidden");
-  }
-
-  // Update track labels
-  dom.btnMuteVocals.textContent = vocalsUrl ? "🎤 人声" : "🎵 原始";
-  dom.btnMuteVocals.classList.add("active"); dom.btnMuteVocals.classList.remove("muted");
-  dom.btnMuteInst.classList.add("active"); dom.btnMuteInst.classList.remove("muted");
-  dom.trackVocals.classList.remove("muted"); dom.trackInst.classList.remove("muted");
-
-  renderLyrics();
-  clearWordPanel();
-  const trackInfo = [vocalsUrl ? "人声" : null, instUrl ? "伴奏" : null, (!vocalsUrl && origUrl) ? "原始" : null].filter(Boolean).join("+");
-  status(`已加载: ${file.name} (${state.alignment.lines.length} 行, 音轨: ${trackInfo || "无"})`);
-  document.title = `${file.name} — M2V 编辑器`;
 }
 
 // ---------------------------------------------------------------------------
 // Lyrics Panel
 // ---------------------------------------------------------------------------
 function renderLyrics() {
+  if (!dom.lyricsList) return;
   const lines = state.alignment?.lines || [];
+  const sections = state.alignment?.sections || [];
   dom.lyricsList.innerHTML = "";
 
+  // 1. 如果有前奏 (Intro) 且不包含歌词行，先在顶部渲染前奏卡片
+  const introSec = sections.find(s => s.name && s.name.toLowerCase().includes("intro") && (!s.line_indices || s.line_indices.length === 0));
+  if (introSec) {
+    const introDiv = document.createElement("div");
+    introDiv.className = "section-header section-intro";
+    introDiv.title = "双击从前奏开始播放";
+    introDiv.innerHTML = `
+      <div class="sec-left">
+        <span class="sec-badge">🎵 ${escHtml(introSec.label || introSec.name)}</span>
+        ${introSec.style ? `<span class="sec-style" title="${escHtml(introSec.style)}">${escHtml(introSec.style)}</span>` : ""}
+      </div>
+      <span class="sec-time">${fmtTimeShort(introSec.start)} → ${fmtTimeShort(introSec.end)}</span>
+    `;
+    introDiv.addEventListener("dblclick", () => {
+      if (ws) {
+        ws.setTime(introSec.start); ws.play(); if (dom.btnPlayPause) dom.btnPlayPause.textContent = "⏸ 暂停";
+        if (wsInst && instReady) { wsInst.setTime(introSec.start); wsInst.play(); }
+      }
+    });
+    dom.lyricsList.appendChild(introDiv);
+  }
+
+  let lastSectionName = "";
+
   lines.forEach((line, i) => {
+    // 检查是否有新乐段开始
+    const matchedSec = sections.find(s => s.line_indices && s.line_indices[0] === i);
+    const lineSecName = line.section || (matchedSec ? matchedSec.name : "");
+
+    if (matchedSec || (lineSecName && lineSecName !== lastSectionName)) {
+      lastSectionName = lineSecName;
+      const secLabel = matchedSec?.label || lineSecName;
+      const secStyle = matchedSec?.style || "";
+      const secStart = matchedSec ? matchedSec.start : line.start;
+      const secEnd = matchedSec ? matchedSec.end : line.end;
+      const isOutro = lineSecName.toLowerCase().includes("outro");
+
+      const secDiv = document.createElement("div");
+      secDiv.className = `section-header ${isOutro ? "section-outro" : ""}`;
+      secDiv.title = "双击从本乐段开始播放";
+      secDiv.innerHTML = `
+        <div class="sec-left">
+          <span class="sec-badge">🔖 ${escHtml(secLabel)}</span>
+          ${secStyle ? `<span class="sec-style" title="${escHtml(secStyle)}">${escHtml(secStyle)}</span>` : ""}
+        </div>
+        <span class="sec-time">${fmtTimeShort(secStart)} → ${fmtTimeShort(secEnd)}</span>
+      `;
+      secDiv.addEventListener("dblclick", () => {
+        if (ws) {
+          ws.setTime(secStart); ws.play(); if (dom.btnPlayPause) dom.btnPlayPause.textContent = "⏸ 暂停";
+          if (wsInst && instReady) { wsInst.setTime(secStart); wsInst.play(); }
+        }
+      });
+      dom.lyricsList.appendChild(secDiv);
+    }
+
     const row = document.createElement("div");
     row.className = "lyric-row";
     row.dataset.idx = i;
@@ -289,7 +257,7 @@ function renderLyrics() {
     row.addEventListener("dblclick", (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
       if (ws) {
-        ws.setTime(line.start); ws.play(); dom.btnPlayPause.textContent = "⏸ 暂停";
+        ws.setTime(line.start); ws.play(); if (dom.btnPlayPause) dom.btnPlayPause.textContent = "⏸ 暂停";
         if (wsInst && instReady) { wsInst.setTime(line.start); wsInst.play(); }
       }
     });
@@ -315,7 +283,7 @@ function selectLine(idx, options = {}) {
   state.selectedLine = idx;
   state.selectedWord = -1;
   $$(".lyric-row").forEach((row, i) => row.classList.toggle("selected", i === idx));
-  const line = state.alignment.lines[idx];
+  const line = state.alignment?.lines?.[idx];
   if (seek && ws && line) ws.setTime(line.start);
   if (scroll) {
     const row = dom.lyricsList.querySelector(`.lyric-row[data-idx="${idx}"]`);
@@ -354,8 +322,9 @@ function highlightPlayingLine() {
     else { span.classList.remove("sung","singing"); }
   });
 
-  if (activeLineIdx >= 0 && activeLineIdx !== state.selectedLine)
+  if (activeLineIdx >= 0 && activeLineIdx !== state.selectedLine) {
     selectLine(activeLineIdx, { seek: false, scroll: true });
+  }
 
   if (activeLineIdx >= 0 && activeLineIdx === state.selectedLine) {
     const line = lines[activeLineIdx];
@@ -376,7 +345,7 @@ function highlightPlayingLine() {
 // Word Panel
 // ---------------------------------------------------------------------------
 function renderWords(lineIdx) {
-  const line = state.alignment?.lines[lineIdx];
+  const line = state.alignment?.lines?.[lineIdx];
   if (!line) { clearWordPanel(); return; }
 
   const lineDurMs = ((line.end - line.start) * 1000).toFixed(0);
@@ -407,13 +376,13 @@ function renderWords(lineIdx) {
     });
     bar.addEventListener("dblclick", () => {
       if (ws) {
-        ws.setTime(w.start); ws.play(); dom.btnPlayPause.textContent = "⏸ 暂停";
+        ws.setTime(w.start); ws.play(); if (dom.btnPlayPause) dom.btnPlayPause.textContent = "⏸ 暂停";
         if (wsInst && instReady) { wsInst.setTime(w.start); wsInst.play(); }
         const stopAt = w.end;
         const check = () => {
           if (ws.getCurrentTime() >= stopAt) {
             ws.pause(); if (wsInst && instReady) wsInst.pause();
-            dom.btnPlayPause.textContent = "▶ 播放";
+            if (dom.btnPlayPause) dom.btnPlayPause.textContent = "▶ 播放";
           } else if (ws.isPlaying()) requestAnimationFrame(check);
         };
         requestAnimationFrame(check);
@@ -422,7 +391,12 @@ function renderWords(lineIdx) {
 
     setupDragHandle(bar, i, lineIdx);
     const handle = bar.querySelector(".drag-handle");
-    if (handle) handle.addEventListener("dblclick", (e) => { e.preventDefault(); e.stopPropagation(); snapSplitToPlayhead(lineIdx, i); });
+    if (handle) {
+      handle.addEventListener("dblclick", (e) => {
+        e.preventDefault(); e.stopPropagation();
+        snapSplitToPlayhead(lineIdx, i);
+      });
+    }
 
     container.appendChild(bar);
   });
@@ -432,8 +406,8 @@ function renderWords(lineIdx) {
 }
 
 function clearWordPanel() {
-  dom.wordTitle.textContent = "点击左侧歌词行查看字级时间";
-  dom.wordTimeline.innerHTML = "";
+  if (dom.wordTitle) dom.wordTitle.textContent = "点击左侧歌词行查看字级时间";
+  if (dom.wordTimeline) dom.wordTimeline.innerHTML = "";
 }
 
 function selectWord(idx) {
@@ -443,13 +417,13 @@ function selectWord(idx) {
 
 function selectAdjacentWord(delta) {
   if (state.selectedLine < 0) return;
-  const words = state.alignment?.lines[state.selectedLine]?.words || [];
+  const words = state.alignment?.lines?.[state.selectedLine]?.words || [];
   if (!words.length) return;
   selectWord(Math.max(0, Math.min(state.selectedWord + delta, words.length - 1)));
 }
 
 // ---------------------------------------------------------------------------
-// Drag to resize
+// Word Dragging & Nudging
 // ---------------------------------------------------------------------------
 function snapSplitToPlayhead(lineIdx, wordIdx) {
   if (!ws) return;
@@ -510,9 +484,6 @@ function setupDragHandle(bar, wordIdx, lineIdx) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Word Editing
-// ---------------------------------------------------------------------------
 function nudgeWord(delta) {
   if (state.selectedLine < 0 || state.selectedWord < 0) return;
   const line = state.alignment.lines[state.selectedLine];
@@ -547,6 +518,22 @@ function evenSplitLine() {
   });
   words[words.length - 1].end = line.end;
   renderWords(state.selectedLine); markDirty();
+}
+
+function playSelectedWord() {
+  if (state.selectedLine < 0 || state.selectedWord < 0 || !ws) return;
+  const w = state.alignment.lines[state.selectedLine]?.words?.[state.selectedWord];
+  if (!w) return;
+  ws.setTime(w.start); ws.play(); if (dom.btnPlayPause) dom.btnPlayPause.textContent = "⏸ 暂停";
+  if (wsInst && instReady) { wsInst.setTime(w.start); wsInst.play(); }
+  const stopAt = w.end;
+  const check = () => {
+    if (ws.getCurrentTime() >= stopAt) {
+      ws.pause(); if (wsInst && instReady) wsInst.pause();
+      if (dom.btnPlayPause) dom.btnPlayPause.textContent = "▶ 播放";
+    } else if (ws.isPlaying()) requestAnimationFrame(check);
+  };
+  requestAnimationFrame(check);
 }
 
 function syncLineFromWords(lineIdx) {
@@ -609,7 +596,7 @@ function resizeLine(lineIdx, startDelta, endDelta) {
 function handleLineTimeInput(e) {
   const input = e.target;
   const idx = Number(input.dataset.idx), field = input.dataset.field;
-  const line = state.alignment?.lines[idx];
+  const line = state.alignment?.lines?.[idx];
   if (!line) return;
   const parsed = parseTimeInput(input.value);
   if (parsed === null) {
@@ -619,154 +606,3 @@ function handleLineTimeInput(e) {
   if (field === "start") resizeLine(idx, parsed - line.start, 0);
   else resizeLine(idx, 0, parsed - line.end);
 }
-
-function parseTimeInput(str) {
-  str = str.trim();
-  const match = str.match(/^(?:(\d+):)?(\d+(?:\.\d+)?)$/);
-  if (!match) return null;
-  const mins = match[1] ? Number(match[1]) : 0;
-  const total = mins * 60 + Number(match[2]);
-  return total >= 0 ? Math.round(total * 1000) / 1000 : null;
-}
-
-function fmtTimeShort(s) {
-  const m = Math.floor(s / 60), sec = s - m * 60;
-  return `${m}:${sec.toFixed(3).padStart(6, "0")}`;
-}
-
-// ---------------------------------------------------------------------------
-// Playback
-// ---------------------------------------------------------------------------
-function togglePlay() {
-  if (!ws) return;
-  if (ws.isPlaying()) {
-    ws.pause();
-    if (wsInst && instReady) wsInst.pause();
-    dom.btnPlayPause.textContent = "▶ 播放";
-  } else {
-    if (wsInst && instReady) { wsInst.setTime(ws.getCurrentTime()); wsInst.play(); }
-    ws.play();
-    dom.btnPlayPause.textContent = "⏸ 暂停";
-  }
-}
-
-function playSelectedLine() {
-  if (state.selectedLine < 0 || !ws) return;
-  const line = state.alignment.lines[state.selectedLine];
-  if (!line) return;
-  ws.setTime(line.start); ws.play(); dom.btnPlayPause.textContent = "⏸ 暂停";
-  if (wsInst && instReady) { wsInst.setTime(line.start); wsInst.play(); }
-  const stopAt = line.end;
-  const check = () => {
-    if (ws.getCurrentTime() >= stopAt) {
-      ws.pause(); if (wsInst && instReady) wsInst.pause();
-      dom.btnPlayPause.textContent = "▶ 播放";
-    } else if (ws.isPlaying()) requestAnimationFrame(check);
-  };
-  requestAnimationFrame(check);
-}
-
-function playSelectedWord() {
-  if (state.selectedLine < 0 || state.selectedWord < 0 || !ws) return;
-  const w = state.alignment.lines[state.selectedLine]?.words?.[state.selectedWord];
-  if (!w) return;
-  ws.setTime(w.start); ws.play(); dom.btnPlayPause.textContent = "⏸ 暂停";
-  if (wsInst && instReady) { wsInst.setTime(w.start); wsInst.play(); }
-  const stopAt = w.end;
-  const check = () => {
-    if (ws.getCurrentTime() >= stopAt) {
-      ws.pause(); if (wsInst && instReady) wsInst.pause();
-      dom.btnPlayPause.textContent = "▶ 播放";
-    } else if (ws.isPlaying()) requestAnimationFrame(check);
-  };
-  requestAnimationFrame(check);
-}
-
-// ---------------------------------------------------------------------------
-// Undo / Redo
-// ---------------------------------------------------------------------------
-function pushUndo() {
-  state.undoStack.push(JSON.stringify(state.alignment));
-  if (state.undoStack.length > 100) state.undoStack.shift();
-  state.redoStack = [];
-}
-
-function undo() {
-  if (!state.undoStack.length) { status("无可撤销操作"); return; }
-  state.redoStack.push(JSON.stringify(state.alignment));
-  state.alignment = JSON.parse(state.undoStack.pop());
-  renderLyrics();
-  if (state.selectedLine >= 0) { renderWords(state.selectedLine); selectLine(state.selectedLine); }
-  markDirty(); status("已撤销");
-}
-
-function redo() {
-  if (!state.redoStack.length) { status("无可重做操作"); return; }
-  state.undoStack.push(JSON.stringify(state.alignment));
-  state.alignment = JSON.parse(state.redoStack.pop());
-  renderLyrics();
-  if (state.selectedLine >= 0) { renderWords(state.selectedLine); selectLine(state.selectedLine); }
-  markDirty(); status("已重做");
-}
-
-function markDirty() {
-  state.dirty = true;
-  document.title = "● " + (state.currentFile?.name || "M2V") + " — 时间轴编辑器";
-}
-
-// ---------------------------------------------------------------------------
-// Save / Regen
-// ---------------------------------------------------------------------------
-async function saveAlignment() {
-  if (!state.currentFile || !state.alignment) return;
-  status("保存中…");
-  try {
-    const r = await fetch("/api/alignment?path=" + encodeURIComponent(state.currentFile.json_path), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state.alignment),
-    });
-    const j = await r.json();
-    if (!r.ok) {
-      const errs = j.detail?.errors || [JSON.stringify(j.detail)];
-      status("校验错误: " + errs.join("; "), true);
-    } else {
-      state.dirty = false;
-      document.title = (state.currentFile?.name || "M2V") + " — 时间轴编辑器";
-      status("✅ 已保存");
-    }
-  } catch(e) { status("保存失败: " + e, true); }
-}
-
-async function regenAss() {
-  if (!state.currentFile) return;
-  status("生成 ASS 中…");
-  try {
-    const r = await fetch("/api/regen", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ json_path: state.currentFile.json_path, audio_path: state.currentFile.audio_path || "" }),
-    });
-    const j = await r.json();
-    if (!r.ok) status("生成失败: " + (j.detail || JSON.stringify(j)), true);
-    else status("✅ ASS 已生成: " + j.ass_path);
-  } catch(e) { status("生成失败: " + e, true); }
-}
-
-// ---------------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------------
-function status(msg, isError = false) {
-  dom.statusMsg.textContent = msg;
-  dom.statusMsg.style.color = isError ? "var(--accent)" : "var(--text-dim)";
-  if (!isError) setTimeout(() => { dom.statusMsg.textContent = ""; }, 4000);
-}
-function escHtml(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-function isPunct(ch) {
-  return /^[\s，。、！？；：""''（）《》…—·\-,.!?;:'"()\[\]{}]$/.test(ch);
-}
-window.addEventListener("beforeunload", (e) => {
-  if (state.dirty) { e.preventDefault(); e.returnValue = ""; }
-});

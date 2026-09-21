@@ -19,34 +19,56 @@ import shutil
 import threading
 import webbrowser
 from pathlib import Path
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python < 3.11
-    tomllib = None
+from typing import Literal
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse
 
-from src.aligner import AlignmentResult
+from src.storyboard_schema import (
+    AlignmentProject,
+    AlignmentResult,
+    AlignedLine,
+    MusicSection,
+    ShotPlan,
+    WordTimestamp,
+)
 from src.subtitle import generate_ass
-from src.config import SubtitleConfig
+from src.config import PipelineConfig, SubtitleConfig
 from src.utils import log
 
 # ── 默认值 ────────────────────────────────────────────────
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DIR   = str(_PROJECT_ROOT / "output")
 DEFAULT_HOST  = "127.0.0.1"
-DEFAULT_PORT  = 8765
+DEFAULT_PORT  = 8000
 # ─────────────────────────────────────────────────────────
 
 app = FastAPI(title="M2V 本地编辑器", docs_url=None, redoc_url=None)
 
 
 # ======================================================================
-# 路径安全校验
+# API 数据模型 (Pydantic v2)
 # ======================================================================
+
+class SunoImportRequest(BaseModel):
+    url: str = Field(..., description="Suno 歌曲分享链接")
+
+
+class RegenRequest(BaseModel):
+    json_path: str = Field(..., description="alignment.json 路径")
+    audio_path: str | None = Field(default=None, description="音频路径")
+    mode: Literal["ass", "video"] = Field(default="ass", description="生成模式")
+    tag_type: Literal["k", "kf"] = Field(default="kf", description="卡拉OK标签类型")
+    render_mode: Literal["apple", "tv"] = Field(default="apple", description="字幕渲染模式")
+
+
+class RealignRequest(BaseModel):
+    json_path: str = Field(..., description="alignment.json 路径")
+    line_indices: list[int] = Field(..., min_length=1, description="待重跑的行号列表")
+    buffer: float = Field(default=2.0, ge=0.0, description="音频裁剪前后缓冲秒数")
+
 
 def _get_scan_dir() -> Path:
     """获取扫描目录（从 app.state 中读取）"""
@@ -70,21 +92,89 @@ def _validate_path(p: Path, must_exist: bool = True) -> Path:
 # API
 # ======================================================================
 
+@app.post("/api/suno/import")
+def import_suno_song(req: SunoImportRequest):
+    """从 Suno 网址一键导入、自动分轨并完成词级时间轴对齐"""
+    url = req.url.strip()
+    if not url:
+        raise HTTPException(400, "Suno URL 不能为空")
+
+    scan_dir = _get_scan_dir()
+    input_dir = scan_dir.parent / "input"
+    output_dir = scan_dir
+
+    try:
+        from src.suno_fetch import auto_process_suno
+        result = auto_process_suno(
+            url=url,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            launch_editor=False,
+        )
+        return result
+    except Exception as e:
+        log.error("Suno 导入失败: %s", e, exc_info=True)
+        raise HTTPException(500, f"处理失败: {e}")
+
+
 @app.get("/api/files")
 def list_files():
-    """列出目录内所有 *_alignment.json 文件"""
+    """列出 output/{song_name}/ 各专属子目录内的 *_alignment.json 文件"""
     scan_dir = _get_scan_dir()
-    files = sorted(scan_dir.glob("*_alignment.json"))
+    sub_files = list(scan_dir.glob("*/*_alignment.json"))
+    
+    seen_stems = set()
     result = []
-    for f in files:
+    
+    for f in sorted(sub_files, key=lambda x: x.stat().st_mtime, reverse=True):
         stem = f.stem.replace("_alignment", "")
-        audio = _find_audio(stem)
+        if stem in seen_stems:
+            continue
+        seen_stems.add(stem)
+        audio = _find_audio(stem, song_output_dir=f.parent)
+        tracks = _find_audio_tracks(stem, song_output_dir=f.parent)
         result.append({
             "name": stem,
             "json_path": str(f),
             "audio_path": str(audio) if audio else None,
+            "audio_tracks": tracks,
         })
     return result
+
+
+@app.get("/api/assets")
+def list_assets():
+    """列出可用图片/视频素材"""
+    scan_dir = _get_scan_dir()
+    input_dir = scan_dir.parent / "input"
+    assets_dir = scan_dir.parent / "assets"
+    
+    extensions = {".jpg", ".jpeg", ".png", ".webp", ".mp4"}
+    result = []
+    
+    # 查找 input 和 assets 目录下的文件
+    for d in [input_dir, assets_dir]:
+        if d.exists():
+            for f in d.iterdir():
+                if f.suffix.lower() in extensions:
+                    result.append({
+                        "name": f.name,
+                        "path": str(f.absolute()),
+                        "url": f"/api/asset_file?path={encode_path(str(f.absolute()))}"
+                    })
+    return result
+
+
+@app.get("/api/asset_file")
+def get_asset_file(path: str):
+    """提供素材文件流"""
+    p = _validate_path(Path(path))
+    return FileResponse(p)
+
+
+def encode_path(p: str) -> str:
+    import urllib.parse
+    return urllib.parse.quote(p)
 
 
 @app.get("/api/alignment")
@@ -99,93 +189,107 @@ def get_alignment(path: str):
 
 
 @app.put("/api/alignment")
-async def save_alignment(path: str, request: Request):
+def save_alignment(path: str, project: AlignmentProject):
     """保存编辑后的 alignment.json（先备份）"""
     p = _validate_path(Path(path))
-    try:
-        data = await request.json()
-    except Exception:
-        raise HTTPException(400, "无效的 JSON")
-
-    errors = _validate(data)
-    if errors:
-        raise HTTPException(422, {"errors": errors})
 
     bak = p.with_suffix(".json.bak")
     shutil.copy2(p, bak)
-
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    project.save_json(p)
 
     log.info("保存完成: %s", p.name)
     return {"status": "ok", "backup": str(bak)}
 
 
 @app.post("/api/regen")
-async def regen_ass(request: Request):
-    """从 alignment.json 重新生成 .ass"""
-    body = await request.json()
-    json_path = Path(body.get("json_path", ""))
-    audio_path_str = body.get("audio_path") or ""
-
+def regen_ass(req: RegenRequest):
+    """从 alignment.json 生成 .ass 或合成视频"""
+    json_path = Path(req.json_path)
     if not json_path.exists():
         raise HTTPException(404, f"JSON 不存在: {json_path}")
 
     try:
-        alignment = AlignmentResult.load_json(json_path)
+        alignment = AlignmentProject.load_json(json_path)
         stem = json_path.stem.replace("_alignment", "")
         ass_path = json_path.parent / f"{stem}.ass"
-        audio_path = Path(audio_path_str) if audio_path_str else None
+        audio_path = Path(req.audio_path) if req.audio_path else None
         subtitle_config = getattr(app.state, "subtitle_config", SubtitleConfig())
+        
+        # 覆盖设置
+        subtitle_config.use_karaoke_gradient = (req.tag_type == "kf")
+        subtitle_config.render_mode = req.render_mode
+        
+        # 生成 ASS
         generate_ass(alignment, ass_path, subtitle_config, audio_path=audio_path)
         log.info("ASS 重新生成: %s", ass_path.name)
-        return {"status": "ok", "ass_path": str(ass_path)}
+        
+        res = {"status": "ok", "ass_path": str(ass_path)}
+        
+        if req.mode == "video" and audio_path:
+            # 执行视频合成
+            from src.compositor import compose_video, CompositorConfig
+            video_path = json_path.parent / f"{stem}.mp4"
+            compositor_config = getattr(app.state, "compositor_config", CompositorConfig())
+
+            # 背景优先级: alignment.json 中的 background 字段 > 纯黑
+            background: Path | None = None
+            if alignment.background:
+                bg_p = Path(alignment.background)
+                if bg_p.exists():
+                    background = bg_p
+                    log.info("使用 alignment.json 中的背景: %s", bg_p.name)
+                else:
+                    log.warning("alignment.json 指定的背景不存在: %s", bg_p)
+
+            log.info("开始合成视频: %s (背景: %s, 分镜: %d 个)",
+                     video_path.name, background, len(alignment.storyboard))
+            compose_video(
+                audio_path=audio_path,
+                subtitle_path=ass_path,
+                output_path=video_path,
+                background=background,
+                config=compositor_config,
+                storyboard=alignment.storyboard,
+            )
+            log.info("视频合成完成: %s", video_path.name)
+            res["video_path"] = str(video_path)
+            res["mode"] = "video"
+        
+        return res
     except Exception as e:
-        log.error("重新生成失败: %s", e, exc_info=True)
+        log.error("生成失败: %s", e, exc_info=True)
         raise HTTPException(500, str(e))
 
 
 @app.post("/api/realign")
-async def realign(request: Request):
+def realign(req: RealignRequest):
     """
     局部重对齐: 对 alignment JSON 中指定的行重新跑 WhisperX。
-
-    请求体:
-        json_path   : alignment JSON 文件路径
-        line_indices: 要重对齐的行索引列表 (0-based)
-        buffer      : 音频裁剪前后缓冲秒数，默认 2.0
     """
     from src.aligner import realign_lines
 
-    body = await request.json()
-    json_path = Path(body.get("json_path", ""))
-    line_indices: list[int] = body.get("line_indices", [])
-    buffer: float = float(body.get("buffer", 2.0))
-
+    json_path = Path(req.json_path)
     if not json_path.exists():
         raise HTTPException(404, f"JSON 不存在: {json_path}")
-    if not line_indices:
-        raise HTTPException(400, "line_indices 不能为空")
 
-    with open(json_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    lines = data.get("lines", [])
+    project = AlignmentProject.load_json(json_path)
+    line_indices = req.line_indices
 
-    invalid = [i for i in line_indices if i < 0 or i >= len(lines)]
+    invalid = [i for i in line_indices if i < 0 or i >= len(project.lines)]
     if invalid:
-        raise HTTPException(400, f"索引越界: {invalid}，共 {len(lines)} 行")
+        raise HTTPException(400, f"索引越界: {invalid}，共 {len(project.lines)} 行")
 
-    selected = [lines[i] for i in line_indices]
-    rough_start = min(l["start"] for l in selected)
-    rough_end   = max(l["end"]   for l in selected)
-    texts       = [l["text"] for l in selected]
+    selected = [project.lines[i] for i in line_indices]
+    rough_start = min(l.start for l in selected)
+    rough_end   = max(l.end   for l in selected)
+    texts       = [l.text for l in selected]
 
-    # 优先用 {stem}_vocals.wav，找不到再用原始音频
+    # 优先用专属目录中的 {stem}_vocals.wav，找不到再用原始音频
     stem = json_path.stem.replace("_alignment", "")
-    scan_dir = _get_scan_dir()
-    vocals_path = scan_dir / f"{stem}_vocals.wav"
+    song_dir = json_path.parent
+    vocals_path = song_dir / f"{stem}_vocals.wav"
     if not vocals_path.exists():
-        audio = _find_audio(stem)
+        audio = _find_audio(stem, song_output_dir=song_dir)
         if audio is None:
             raise HTTPException(404, f"找不到人声文件: {stem}_vocals.wav")
         vocals_path = audio
@@ -200,7 +304,7 @@ async def realign(request: Request):
             texts=texts,
             rough_start=rough_start,
             rough_end=rough_end,
-            buffer=buffer,
+            buffer=req.buffer,
         )
     except Exception as e:
         log.error("局部重对齐失败: %s", e, exc_info=True)
@@ -209,32 +313,66 @@ async def realign(request: Request):
     for list_pos, orig_idx in enumerate(line_indices):
         if list_pos < len(new_lines):
             nl = new_lines[list_pos]
-            lines[orig_idx] = {
-                "text":  nl.text,
-                "start": nl.start,
-                "end":   nl.end,
-                "words": [{"word": w.word, "start": w.start, "end": w.end}
-                          for w in nl.words],
-            }
+            project.lines[orig_idx] = AlignedLine(
+                text=nl.text,
+                start=nl.start,
+                end=nl.end,
+                words=[WordTimestamp(word=w.word, start=w.start, end=w.end) for w in nl.words],
+                section=project.lines[orig_idx].section,
+                style_overrides=project.lines[orig_idx].style_overrides,
+            )
 
     bak = json_path.with_suffix(".json.bak")
     shutil.copy2(json_path, bak)
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    project.save_json(json_path)
 
     log.info("局部重对齐完成，已写回: %s", json_path.name)
     return {
         "status": "ok",
         "patched_indices": line_indices,
         "lines": [
-            {"index": orig_idx, "start": lines[orig_idx]["start"],
-             "end": lines[orig_idx]["end"], "text": lines[orig_idx]["text"]}
+            {"index": orig_idx, "start": project.lines[orig_idx].start,
+             "end": project.lines[orig_idx].end, "text": project.lines[orig_idx].text}
             for orig_idx in line_indices
         ],
     }
 
 
-@app.get("/api/audio")
+@app.post("/api/upload_asset")
+async def upload_asset(file: UploadFile = File(...)):
+    """上传图片素材到 assets/ 目录"""
+    scan_dir = _get_scan_dir()
+    assets_dir = scan_dir.parent / "assets"
+    assets_dir.mkdir(exist_ok=True)
+
+    # 安全校验文件类型
+    allowed_suffixes = {".jpg", ".jpeg", ".png", ".webp"}
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in allowed_suffixes:
+        raise HTTPException(400, f"不支持的文件类型: {suffix}，仅允许 jpg/jpeg/png/webp")
+
+    # 安全文件名（去除路径分隔符）
+    safe_name = Path(file.filename).name
+    dest = assets_dir / safe_name
+
+    content = await file.read()
+    # 限制文件大小 50MB
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(400, "文件过大，最大支持 50MB")
+
+    with open(dest, "wb") as f:
+        f.write(content)
+
+    log.info("素材上传: %s -> %s", file.filename, dest)
+    return {
+        "status": "ok",
+        "name": safe_name,
+        "path": str(dest),
+        "url": f"/api/asset_file?path={encode_path(str(dest.absolute()))}"
+    }
+
+
+@app.api_route("/api/audio", methods=["GET", "HEAD"])
 def stream_audio(path: str):
     """提供音频文件流（支持 Range 请求）"""
     p = _validate_path(Path(path))
@@ -243,7 +381,6 @@ def stream_audio(path: str):
                    ".flac": "audio/flac", ".m4a": "audio/mp4", ".ogg": "audio/ogg"}
     media_type = media_types.get(suffix, "audio/mpeg")
     return FileResponse(p, media_type=media_type, headers={"Accept-Ranges": "bytes"})
-
 
 
 # ── 静态文件: 从 frontend/local/ 目录提供 HTML/CSS/JS ──
@@ -261,84 +398,65 @@ def index():
     return HTMLResponse("<h1>frontend/local/index.html 不存在</h1>", status_code=500)
 
 
-def _find_audio(stem: str) -> Path | None:
+@app.get("/storyboard", response_class=HTMLResponse)
+def storyboard():
+    sb_file = _FRONTEND_DIR / "storyboard.html"
+    if sb_file.exists():
+        return HTMLResponse(sb_file.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>frontend/local/storyboard.html 不存在</h1>", status_code=500)
+
+
+def _find_audio(stem: str, song_output_dir: Path | None = None) -> Path | None:
+    """在 input/{song_name}/ 和 output/{song_name}/ 专属子目录中查找原音频"""
     scan_dir = _get_scan_dir()
     exts = [".wav", ".mp3", ".flac", ".m4a", ".ogg"]
-    search_dirs = [scan_dir, scan_dir.parent / "input", scan_dir.parent]
+    
+    song_name = song_output_dir.name if song_output_dir else stem
+    search_dirs = [
+        scan_dir.parent / "input" / song_name,
+    ]
+    if song_output_dir and song_output_dir.exists():
+        search_dirs.append(song_output_dir)
+    else:
+        search_dirs.append(scan_dir / song_name)
+
     for d in search_dirs:
-        for ext in exts:
-            p = d / f"{stem}{ext}"
-            if p.exists():
-                return p
+        if not d.exists():
+            continue
+        for target in [stem, song_name]:
+            for ext in exts:
+                p = d / f"{target}{ext}"
+                if p.exists():
+                    return p
     return None
 
 
-def _validate(data: dict) -> list[str]:
-    errors = []
-    lines = data.get("lines")
-    if not isinstance(lines, list):
-        return ["'lines' 必须是数组"]
-    for i, line in enumerate(lines):
-        words = line.get("words", [])
-        if words:
-            line["start"] = words[0].get("start", line.get("start", 0))
-            line["end"] = words[-1].get("end", line.get("end", 0))
-        for j, w in enumerate(words):
-            if w.get("end", 0) < w.get("start", 0) - 0.01:
-                errors.append(
-                    f"第{i+1}行第{j+1}字'{w.get('word','')}': "
-                    f"end({w.get('end',0):.2f}) < start({w.get('start',0):.2f})"
-                )
-    return errors[:20]
+def _find_audio_tracks(stem: str, song_output_dir: Path | None = None) -> dict[str, str]:
+    """在 output/{song_name}/ 或 input/{song_name}/ 专属子目录中查找分离后的 vocals 与 instrumental 音轨"""
+    scan_dir = _get_scan_dir()
+    song_name = song_output_dir.name if song_output_dir else stem
+    base_stem = stem.replace("_vocals", "").replace("_instrumental", "")
 
-
-def _load_subtitle_config(config_path: Path | None) -> SubtitleConfig:
-    """从 JSON / TOML 读取本地编辑器使用的 subtitle 配置。"""
-    config = SubtitleConfig()
-    if not config_path:
-        return config
-
-    if not config_path.exists():
-        raise FileNotFoundError(f"配置文件不存在: {config_path}")
-
-    suffix = config_path.suffix.lower()
-    if suffix == ".toml":
-        if tomllib is None:
-            raise ValueError("当前 Python 环境不支持 TOML 解析，请使用 Python 3.11+ 或改用 .json 配置")
-        data = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    elif suffix == ".json":
-        data = json.loads(config_path.read_text(encoding="utf-8"))
+    search_dirs = []
+    if song_output_dir and song_output_dir.exists():
+        search_dirs.append(song_output_dir)
     else:
-        raise ValueError("配置文件仅支持 .toml 或 .json")
+        search_dirs.append(scan_dir / song_name)
+    search_dirs.append(scan_dir.parent / "input" / song_name)
 
-    subtitle_cfg = data.get("subtitle", {})
-    if not isinstance(subtitle_cfg, dict):
-        return config
-
-    if subtitle_cfg.get("template_path"):
-        template_path = Path(subtitle_cfg["template_path"]).expanduser()
-        if not template_path.is_absolute():
-            template_path = (config_path.parent / template_path).resolve()
-        config.template_path = template_path
-    if subtitle_cfg.get("style_name"):
-        config.style_name = str(subtitle_cfg["style_name"])
-    if subtitle_cfg.get("primary_colour"):
-        config.primary_colour = str(subtitle_cfg["primary_colour"])
-    if subtitle_cfg.get("secondary_colour"):
-        config.secondary_colour = str(subtitle_cfg["secondary_colour"])
-    if subtitle_cfg.get("outline_colour"):
-        config.outline_colour = str(subtitle_cfg["outline_colour"])
-    if subtitle_cfg.get("font_name"):
-        config.font_name = str(subtitle_cfg["font_name"])
-    if subtitle_cfg.get("font_size") is not None:
-        config.font_size = int(subtitle_cfg["font_size"])
-    if "enable_beat_effects" in subtitle_cfg:
-        config.enable_beat_effects = bool(subtitle_cfg["enable_beat_effects"])
-    if subtitle_cfg.get("beat_scale") is not None:
-        config.beat_scale = float(subtitle_cfg["beat_scale"])
-
-    return config
-
+    tracks = {}
+    for d in search_dirs:
+        if not d.exists():
+            continue
+        for ext in [".wav", ".mp3", ".flac", ".m4a"]:
+            for name_prefix in [stem, base_stem, song_name]:
+                v = d / f"{name_prefix}_vocals{ext}"
+                if v.exists() and "vocals" not in tracks:
+                    tracks["vocals"] = str(v)
+                inst = d / f"{name_prefix}_instrumental{ext}"
+                if inst.exists() and "instrumental" not in tracks:
+                    tracks["instrumental"] = str(inst)
+    return tracks
 
 
 # ======================================================================
@@ -374,7 +492,11 @@ def main() -> None:
 
     config_path = Path(args.config_file).expanduser().resolve() if args.config_file else None
     try:
-        subtitle_config = _load_subtitle_config(config_path)
+        subtitle_config = (
+            PipelineConfig.from_file(config_path).subtitle
+            if config_path
+            else SubtitleConfig()
+        )
     except Exception as e:
         print(f"[错误] 配置文件加载失败: {e}")
         raise SystemExit(1)

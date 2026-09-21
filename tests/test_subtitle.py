@@ -65,7 +65,7 @@ class TestDialogueLine:
 
     def test_k_duration(self):
         """验证 \\k 时值是否正确 (厘秒)"""
-        config = SubtitleConfig()
+        config = SubtitleConfig(use_karaoke_gradient=False)
         line = self._make_line()
         result = _create_dialogue_line(line, config, beat_times=[])
         # "我" duration = 0.5s = 50cs
@@ -104,4 +104,4 @@ class TestGenerateAss:
             assert "[V4+ Styles]" in content
             assert "[Events]" in content
             assert "Dialogue:" in content
-            assert "\\k50" in content  # 每个字 0.5s = 50cs
+            assert "\\k50" in content or "\\kf50" in content  # 每个字 0.5s = 50cs

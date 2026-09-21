@@ -10,6 +10,13 @@ from pathlib import Path
 
 def setup_logger(name: str = "m2v", level: int = logging.INFO) -> logging.Logger:
     """创建统一格式的 logger"""
+    if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     logger = logging.getLogger(name)
     if logger.handlers:
         return logger
@@ -30,25 +37,39 @@ log = setup_logger()
 
 def discover_pairs(input_dir: Path) -> list[tuple[Path, Path]]:
     """
-    扫描 input_dir，找到所有 (mp3, lyrics) 配对。
+    扫描歌曲目录，查找歌曲专属子目录下的音频与歌词文件对。
+    规范结构: input/{song_name}/{song_name}.(mp3|wav|m4a|flac) 与 {song_name}.(lrc|txt)
+    如果传入的 input_dir 本身就是单首歌曲的专属目录，直接匹配该目录中的文件。
     歌词文件优先级: 同名 .lrc > 同名 .txt
-    返回: [(mp3_path, lyrics_path), ...]
+    返回: [(audio_path, lyrics_path), ...]
     """
     pairs: list[tuple[Path, Path]] = []
-    mp3_files = sorted(input_dir.glob("*.mp3"))
+    audio_exts = [".mp3", ".wav", ".m4a", ".flac"]
 
-    for mp3 in mp3_files:
-        stem = mp3.stem
-        lrc = mp3.with_suffix(".lrc")
-        txt = mp3.with_suffix(".txt")
+    subdirs = [d for d in input_dir.iterdir() if d.is_dir()]
+    candidate_dirs = sorted(subdirs) if subdirs else [input_dir]
+
+    for sdir in candidate_dirs:
+        stem = sdir.name
+        audio_file = None
+        for ext in audio_exts:
+            cand = sdir / f"{stem}{ext}"
+            if cand.exists():
+                audio_file = cand
+                break
+        if not audio_file:
+            continue
+
+        lrc = sdir / f"{stem}.lrc"
+        txt = sdir / f"{stem}.txt"
         if lrc.exists():
-            pairs.append((mp3, lrc))
+            pairs.append((audio_file, lrc))
         elif txt.exists():
-            pairs.append((mp3, txt))
+            pairs.append((audio_file, txt))
         else:
-            log.warning("跳过 %s — 未找到同名 .lrc 或 .txt 歌词文件", mp3.name)
+            log.warning("跳过歌曲目录 %s — 未找到同名 .lrc 或 .txt 歌词文件", sdir.name)
 
-    log.info("发现 %d 对 (MP3 + 歌词) 文件", len(pairs))
+    log.info("发现 %d 对 (音频 + 歌词) 歌曲目录", len(pairs))
     return pairs
 
 # ---------------------------------------------------------------------------

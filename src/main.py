@@ -62,17 +62,25 @@ def _run_local_edit_subcommand() -> None:
     local_editor_main()
 
 
-def _run_suno_subcommand() -> None:
-    """处理 `m2v suno <url>` 子命令 — 从 Suno URL 下载歌曲并可选运行管线。"""
-    sys.argv = [sys.argv[0]] + sys.argv[2:]
+def _run_suno_subcommand(auto_edit: bool = False) -> None:
+    """处理 `m2v suno <url>` 或 `m2v suno-edit <url>` 子命令 — 从 Suno URL 一键完成处理并打开编辑器。"""
+    sub_args = sys.argv[2:]
+    if auto_edit and "--edit" not in sub_args and "-e" not in sub_args:
+        sub_args.append("--edit")
+    sys.argv = [sys.argv[0]] + sub_args
     from src.suno_fetch import main as suno_fetch_main
     suno_fetch_main()
 
 
 def main() -> None:
+    # 如果第一个参数是 suno-edit，直接一键从 Suno 到本地双轨编辑器
+    if len(sys.argv) > 1 and sys.argv[1] == "suno-edit":
+        _run_suno_subcommand(auto_edit=True)
+        return
+
     # 如果第一个参数是 suno，自动获取 Suno 歌曲
     if len(sys.argv) > 1 and sys.argv[1] == "suno":
-        _run_suno_subcommand()
+        _run_suno_subcommand(auto_edit=False)
         return
 
     # 如果第一个参数是 local-edit，启动本地编辑器
@@ -92,11 +100,12 @@ def main() -> None:
 
     args = parse_args()
 
-    config = PipelineConfig()
-
-    # 可选: 从配置文件加载步骤控制参数
-    if args.config_file:
-        _apply_config_file(config, Path(args.config_file))
+    # 可选: 从配置文件加载步骤控制参数（默认优先读取当前目录 pipeline.toml）
+    cfg_file = Path(args.config_file) if args.config_file else Path("pipeline.toml")
+    if cfg_file.exists():
+        config = PipelineConfig.from_file(cfg_file)
+    else:
+        config = PipelineConfig()
 
     # 覆盖语言设置
     if args.language:
@@ -130,6 +139,8 @@ def main() -> None:
         config.ass_file = Path(args.ass_file)
     if args.lyrics_start is not None:
         config.aligner.lyrics_start_time = args.lyrics_start
+    if args.disable_subtitles:
+        config.compositor.enable_subtitles = False
 
     # 背景素材
     background = Path(args.background) if args.background else None
@@ -167,8 +178,11 @@ def main() -> None:
     success = 0
     failed = 0
     for mp3_path, lyrics_path in pairs:
+        stem = mp3_path.stem
+        song_output_dir = output_dir if output_dir.name == stem else (output_dir / stem)
+        song_output_dir.mkdir(parents=True, exist_ok=True)
         try:
-            process_one(mp3_path, lyrics_path, output_dir, background, config)
+            process_one(mp3_path, lyrics_path, song_output_dir, background, config)
             success += 1
         except Exception as e:
             log.error("处理失败 [%s]: %s", mp3_path.name, e, exc_info=True)
@@ -257,9 +271,17 @@ def process_one(
             lyrics = preprocess_lyrics(lyrics_path, config.preprocessor)
             _progress("preprocessing", 10, "歌词预处理完成")
 
-            # Step 2: 人声分离 (可跳过)
+            # Step 2: 人声分离 (优先复用已有分离文件，或可跳过)
             instrumental_path = None
-            if config.skip_separation:
+            existing_vocals = output_dir / f"{stem}_vocals.wav"
+            existing_inst = output_dir / f"{stem}_instrumental.wav"
+
+            if not config.skip_separation and existing_vocals.exists() and existing_vocals.stat().st_size > 100_000:
+                log.info("[2/5] 检测到已有分离人声文件: %s，直接复用…", existing_vocals.name)
+                vocals_path = existing_vocals
+                instrumental_path = existing_inst if existing_inst.exists() else None
+                _progress("separating", 30, "复用已有分离人声")
+            elif config.skip_separation:
                 log.info("[2/5] 跳过人声分离，直接使用原音频进行对齐…")
                 vocals_path = mp3_path
                 _progress("separating", 30, "跳过人声分离")
@@ -319,11 +341,7 @@ def process_one(
         log.info("[4/5] 生成 ASS 字幕…")
         from src.subtitle import generate_ass
         ass_path = temp_dir / f"{stem}.ass"
-        generate_ass(
-            alignment, ass_path, config.subtitle, 
-            audio_path=mp3_path,
-            resolution=config.compositor.resolution
-        )
+        generate_ass(alignment, ass_path, config.subtitle, audio_path=mp3_path)
         _progress("subtitle", 75, "ASS 字幕生成完成")
 
         # 复制 ASS 到输出目录
@@ -342,12 +360,22 @@ def process_one(
         log.info("[5/5] 视频合成 (FFmpeg)…")
         from src.compositor import compose_video
         output_mp4 = output_dir / f"{stem}.mp4"
+        # 背景优先级: CLI --background > alignment.json 中的 background > config.default_bg
+        effective_bg = background
+        if effective_bg is None and hasattr(alignment, 'background') and alignment.background:
+            effective_bg = Path(alignment.background)
+            if effective_bg.exists():
+                log.info("使用 alignment.json 中的背景: %s", effective_bg.name)
+            else:
+                log.warning("alignment.json 指定的背景不存在: %s", effective_bg)
+                effective_bg = None
         compose_video(
             audio_path=mp3_path,
             subtitle_path=ass_path,
             output_path=output_mp4,
-            background=background,
+            background=effective_bg,
             config=config.compositor,
+            storyboard=alignment.storyboard if hasattr(alignment, 'storyboard') else None,
         )
 
         _progress("compositing", 100, "✅ 处理完成！")
@@ -358,56 +386,6 @@ def process_one(
         if cleanup_temp and temp_dir.exists():
             shutil.rmtree(temp_dir, ignore_errors=True)
             log.debug("已清理临时目录: %s", temp_dir)
-
-
-def _apply_config_file(config: PipelineConfig, config_path: Path) -> None:
-    """从 JSON / TOML 配置文件加载运行参数。"""
-    if not config_path.exists():
-        raise FileNotFoundError(f"配置文件不存在: {config_path}")
-
-    suffix = config_path.suffix.lower()
-    if suffix == ".toml":
-        data = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    elif suffix == ".json":
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-    else:
-        raise ValueError("配置文件仅支持 .toml 或 .json")
-
-    pipeline = data.get("pipeline", data)
-
-    config.skip_separation = bool(pipeline.get("skip_separation", config.skip_separation))
-    config.ass_only = bool(pipeline.get("ass_only", config.ass_only))
-    config.video_only = bool(pipeline.get("video_only", config.video_only))
-
-    alignment_json = pipeline.get("alignment_json")
-    if alignment_json:
-        config.alignment_json = Path(alignment_json)
-
-    ass_file = pipeline.get("ass_file")
-    if ass_file:
-        config.ass_file = Path(ass_file)
-
-    # [aligner] 节
-    aligner_cfg = data.get("aligner", {})
-    if aligner_cfg.get("whisper_model"):
-        config.aligner.whisper_model = aligner_cfg["whisper_model"]
-    if aligner_cfg.get("device"):
-        config.aligner.device = aligner_cfg["device"]
-    if aligner_cfg.get("compute_type"):
-        config.aligner.compute_type = aligner_cfg["compute_type"]
-    if aligner_cfg.get("batch_size") is not None:
-        config.aligner.batch_size = int(aligner_cfg["batch_size"])
-    if aligner_cfg.get("language"):
-        config.aligner.language = aligner_cfg["language"]
-    if "use_pinyin" in aligner_cfg:
-        config.aligner.use_pinyin = bool(aligner_cfg["use_pinyin"])
-    if aligner_cfg.get("min_char_duration") is not None:
-        config.aligner.min_char_duration = float(aligner_cfg["min_char_duration"])
-    if aligner_cfg.get("max_char_duration") is not None:
-        config.aligner.max_char_duration = float(aligner_cfg["max_char_duration"])
-    if aligner_cfg.get("lyrics_start_time") is not None:
-        config.aligner.lyrics_start_time = float(aligner_cfg["lyrics_start_time"])
-
 
 def _resolve_alignment_json_path(template_path: Path, mp3_path: Path) -> Path:
     """支持在 alignment_json 中使用 {stem} 占位符。"""
@@ -515,6 +493,11 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=None,
         help="歌词实际开唱时间(秒)，前奏/拟声词的 segment 会被过滤",
+    )
+    parser.add_argument(
+        "--disable-subtitles",
+        action="store_true",
+        help="禁用在合成最终视频时绘制 ASS 字幕（适用于字幕直接内置在 AI 生成视频的场景）",
     )
 
     return parser.parse_args()

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>M2V 3D 节奏飞车 — Dreaming Craftsmanship Ride</title>
+  <meta name="description" content="3D 音乐驱动节奏飞车小游戏，基于 Three.js 和 Librosa 音频分析">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="game.css">
+</head>
+
+<body>
+  <!-- Background blur layer for overlays -->
+  <div id="game-bg-layer"></div>
+
+  <!-- WebGL container -->
+  <div id="game-canvas-container"></div>
+
+  <!-- Judgment floating feedback (Perfect, Great, Good, Miss) -->
+  <div id="judgment-display">PERFECT</div>
+
+  <!-- Red hit damage flash -->
+  <div id="screen-flash"></div>
+
+  <!-- Audio Element -->
+  <audio id="bg-audio" preload="auto"></audio>
+
+  <!-- HUD Interface -->
+  <div id="hud-container">
+    <!-- Top bar -->
+    <header id="game-header" class="interactive">
+      <div class="song-meta-box">
+        <h1 id="game-song-title">Dreaming Craftsmanship</h1>
+        <p id="game-song-bpm">BPM: --</p>
+      </div>
+      
+      <div class="top-control-box">
+        <!-- Autopilot Toggle Button -->
+        <button id="btn-autopilot" class="back-btn" title="开启/关闭自动驾驶">
+          🤖 自动驾驶: 关
+        </button>
+        <a href="index.html" class="back-btn" title="返回卡拉OK播放器">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle; margin-right: 6px;">
+            <path d="M19 11H7.83l4.88-4.88c.39-.39.39-1.03 0-1.42s-1.02-.39-1.41 0l-6.59 6.59c-.39.39-.39 1.02 0 1.41l6.59 6.59c.38.39 1.02.39 1.41 0 .39-.39.39-1.03 0-1.42L7.83 13H19c.55 0 1-.45 1-1s-.45-1-1-1z"/>
+          </svg>
+          返回播放器
+        </a>
+      </div>
+    </header>
+
+    <!-- Side Panels (Score, Combo, HP) -->
+    <main id="game-stats">
+      <!-- Left: Score / Combo / Shield -->
+      <div class="stats-left">
+        <div class="hud-panel">
+          <span class="hud-label">得分 SCORE</span>
+          <span id="hud-score" class="hud-value score-glow">000,000</span>
+        </div>
+        
+        <div class="hud-panel">
+          <span class="hud-label">连击 COMBO</span>
+          <span id="hud-combo" class="hud-value combo-glow">0</span>
+        </div>
+
+        <div class="hud-panel">
+          <span class="hud-label">能量防护罩 SHIELD</span>
+          <div class="shield-bar-wrapper">
+            <div id="shield-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Speedometer -->
+      <div class="stats-right">
+        <div class="hud-panel">
+          <span class="hud-label">速度 SPEED</span>
+          <span id="hud-speed" class="hud-value speed-value">0 KM/H</span>
+        </div>
+      </div>
+    </main>
+
+    <!-- Bottom Lyrics -->
+    <footer id="game-footer">
+      <div id="lyric-panel">
+        <div id="game-current-lyric" class="game-lyric-line">
+          <!-- Character spans injected here -->
+          等待开始飞行...
+        </div>
+        <div id="game-next-lyric">NEXT: --</div>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Overlay 1: Start Screen -->
+  <div id="start-overlay" class="game-overlay">
+    <div class="overlay-card interactive">
+      <h1>3D 节奏飞车</h1>
+      <p class="overlay-subtitle">DREAMING CRAFTSMANSHIP RIDE</p>
+      
+      <div class="form-group">
+        <label for="game-song-select">选择星际航线 (歌曲)</label>
+        <select id="game-song-select">
+          <option value="">加载星图及音乐中…</option>
+        </select>
+      </div>
+
+      <div style="text-align: left; margin-bottom: 32px; font-size: 0.82rem; color: rgba(255,255,255,0.6); line-height: 1.6;">
+        <h3 style="color:#fff; margin-bottom: 8px;">🚀 飞行手册:</h3>
+        <p>1. <strong>飞船控制</strong>：左右移动<strong>鼠标</strong>或按键盘 <strong>A / D</strong>（或 <strong>← / →</strong>）可在三条车道间滑行。</p>
+        <p>2. <strong>歌词晶体</strong>：撞击浮空的发光<strong>金色歌词晶体</strong>，在极速中撞碎并点亮下方的歌词以获得超高积分！</p>
+        <p>3. <strong>闪避尖刺</strong>：避开轨道上生成的<strong>红色发光尖刺障碍</strong>，撞击将导致护盾降低 20% 并清空连击数。</p>
+        <p>4. <strong>星云风暴</strong>：轨道曲率和冲刺速度将完美契合音乐节奏与低音强度，准备起飞！</p>
+      </div>
+
+      <button id="btn-start-game" class="menu-btn">开始跃迁 START RIDE</button>
+    </div>
+  </div>
+
+  <!-- Overlay 2: Results Screen -->
+  <div id="results-overlay" class="game-overlay hidden">
+    <div class="overlay-card interactive">
+      <h1 id="results-title">航线完成</h1>
+      <p class="overlay-subtitle">FLIGHT COMPLETE SUMMARY</p>
+      
+      <div class="results-grid">
+        <div class="result-item">
+          <span class="result-label">最终得分</span>
+          <span id="res-score" class="result-val score-glow">0</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">最大连击</span>
+          <span id="res-max-combo" class="result-val combo-glow">0</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">PERFECT 极佳</span>
+          <span id="res-perfect" class="result-val result-perfect">0</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">GREAT 优秀</span>
+          <span id="res-great" class="result-val result-great">0</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">GOOD 良好</span>
+          <span id="res-good" class="result-val result-good">0</span>
+        </div>
+        <div class="result-item">
+          <span class="result-label">MISS 失误</span>
+          <span id="res-miss" class="result-val result-miss">0</span>
+        </div>
+      </div>
+
+      <div class="button-row">
+        <button id="btn-restart" class="secondary-btn">重新跃迁 REPLAY</button>
+        <button id="btn-back-menu" class="menu-btn">航线大厅 MENU</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Three.js Library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Game logic script -->
+  <script src="game.js"></script>
+</body>
+
+</html>
