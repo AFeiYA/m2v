@@ -4,64 +4,353 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>M2V 视频分镜与素材编辑器</title>
+  <title>Suno2MV — AI 导演与动态故事板 (Animatic Studio)</title>
   <script src="/static/wavesurfer.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css?v=20260921b">
+  <link rel="stylesheet" href="/static/style.css?v=20260923a">
   <style>
-    .storyboard-layout {
+    /* ── Animatic Studio 专属布局 ── */
+    .animatic-layout {
       flex: 1;
       display: flex;
       gap: 16px;
-      padding: 16px;
+      padding: 14px 16px;
       overflow: hidden;
+      background: #090c10;
     }
-    .sb-col-left {
-      width: 40%;
-      display: flex;
-      flex-direction: column;
-      background: var(--bg-panel);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      overflow: hidden;
-    }
-    .sb-col-right {
+
+    .animatic-main-stage {
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 12px;
       overflow: hidden;
+      min-width: 0;
     }
-    .card-panel {
-      background: var(--bg-panel);
-      border: 1px solid var(--border);
+
+    /* 16:9 电影大屏视窗 */
+    .cinema-screen-container {
+      position: relative;
+      flex: 1;
+      min-height: 280px;
+      max-height: 520px;
+      background: #000;
+      border: 1px solid #1f2937;
       border-radius: 8px;
-      padding: 16px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    }
+
+    .cinema-viewport {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .cinema-viewport img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      transform-origin: center center;
+      transition: filter 0.3s ease;
+    }
+
+    /* Ken Burns 电影运镜动画 */
+    .motion-slow_dolly_in, .motion-zoomin {
+      animation: kbZoomIn 6s ease-out forwards;
+    }
+    .motion-dolly_out, .motion-zoomout {
+      animation: kbZoomOut 6s ease-out forwards;
+    }
+    .motion-pan_left {
+      animation: kbPanLeft 6s ease-out forwards;
+    }
+    .motion-pan_right {
+      animation: kbPanRight 6s ease-out forwards;
+    }
+    .motion-crane_up, .motion-tilt_up {
+      animation: kbCraneUp 6s ease-out forwards;
+    }
+    .motion-tilt_down {
+      animation: kbTiltDown 6s ease-out forwards;
+    }
+
+    @keyframes kbZoomIn {
+      from { transform: scale(1.0); }
+      to { transform: scale(1.10); }
+    }
+    @keyframes kbZoomOut {
+      from { transform: scale(1.10); }
+      to { transform: scale(1.0); }
+    }
+    @keyframes kbPanLeft {
+      from { transform: scale(1.06) translateX(2%); }
+      to { transform: scale(1.06) translateX(-2%); }
+    }
+    @keyframes kbPanRight {
+      from { transform: scale(1.06) translateX(-2%); }
+      to { transform: scale(1.06) translateX(2%); }
+    }
+    @keyframes kbCraneUp {
+      from { transform: scale(1.06) translateY(2.5%); }
+      to { transform: scale(1.06) translateY(-2.5%); }
+    }
+    @keyframes kbTiltDown {
+      from { transform: scale(1.06) translateY(-2.5%); }
+      to { transform: scale(1.06) translateY(2.5%); }
+    }
+
+    /* 电影视窗 HUD 浮层 */
+    .screen-hud-top {
+      position: absolute;
+      top: 12px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .hud-badge {
+      background: rgba(13, 17, 23, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #f3f4f6;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+    }
+
+    .hud-badge-accent {
+      border-color: rgba(99, 102, 241, 0.4);
+      color: #818cf8;
+      font-weight: 600;
+    }
+
+    .screen-lyric-bar {
+      position: absolute;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      padding: 6px 22px;
+      color: #ffffff;
+      font-size: 15px;
+      letter-spacing: 1px;
+      text-align: center;
+      max-width: 85%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    /* 视听时间轴轨道 (Timeline Tracks) */
+    .animatic-timeline-box {
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 6px;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      user-select: none;
+    }
+
+    .track-title-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #9ca3af;
+      margin-bottom: 2px;
+    }
+
+    .visual-timeline-track {
+      position: relative;
+      height: 38px;
+      background: #030712;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      display: flex;
+      white-space: nowrap;
+    }
+
+    .visual-timeline-track::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    .visual-timeline-track::-webkit-scrollbar-thumb {
+      background: #4b5563;
+      border-radius: 2px;
+    }
+
+    .timeline-shot-block {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      border-right: 1px solid #1f2937;
+      padding: 0 6px;
+      font-size: 11px;
+      color: #d1d5db;
+      background: #1f2937;
+      cursor: pointer;
+      position: relative;
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .timeline-shot-block:hover {
+      background: #374151;
+    }
+
+    .timeline-shot-block.active {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.4), rgba(139, 92, 246, 0.4));
+      border: 1px solid #818cf8;
+      color: #ffffff;
+      font-weight: bold;
+    }
+
+    .timeline-shot-block.is-chorus {
+      border-bottom: 2px solid #f59e0b;
+    }
+
+    /* 右侧检视面板 */
+    .animatic-inspector {
+      width: 360px;
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .inspector-header {
+      padding: 12px 16px;
+      background: #0f172a;
+      border-bottom: 1px solid #1f2937;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .inspector-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .form-group label {
+      font-size: 11px;
+      color: #9ca3af;
+      font-weight: 500;
+    }
+
+    .form-group input, .form-group select, .form-group textarea {
+      background: #030712;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      padding: 6px 8px;
+      color: #f3f4f6;
+      font-size: 12px;
+      font-family: inherit;
+    }
+
+    .form-group textarea {
+      resize: vertical;
+      min-height: 52px;
+      line-height: 1.4;
+    }
+
+    /* 视图切换按钮组 */
+    .mode-switch-group {
+      display: inline-flex;
+      background: #030712;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      padding: 2px;
+    }
+
+    .mode-switch-btn {
+      background: transparent;
+      border: none;
+      color: #9ca3af;
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    .mode-switch-btn.active {
+      background: #374151;
+      color: #ffffff;
+      font-weight: bold;
     }
   </style>
 </head>
 
 <body>
   <header>
-    <h1 style="font-size: 14px; font-weight: 600; white-space: nowrap; margin: 0; flex-shrink: 0;">🎬 M2V 视频分镜</h1>
+    <h1 style="font-size: 14px; font-weight: 600; white-space: nowrap; margin: 0; flex-shrink: 0; display: flex; align-items: center; gap: 6px;">
+      🎬 <span style="background: linear-gradient(135deg, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Suno2MV</span>
+      <span style="font-size: 11px; color: #9ca3af; font-weight: normal;">AI 导演与动态分镜工作台</span>
+    </h1>
+
     <div id="song-selector" style="flex-shrink: 0;">
       <select id="song-select" style="min-width: 140px; max-width: 180px;">
         <option value="">加载中…</option>
       </select>
     </div>
+
+    <!-- 模式切换: Animatic 动态预演 vs 表格编辑 -->
+    <div class="mode-switch-group">
+      <button id="btn-mode-animatic" class="mode-switch-btn active" title="全曲动态分镜样片播放与导演监看">🎬 Animatic 样片</button>
+      <button id="btn-mode-table" class="mode-switch-btn" title="传统分镜表格与素材映射">📋 分镜列表</button>
+    </div>
+
     <div id="toolbar">
-      <button id="btn-save" title="Ctrl+S">💾 保存分镜</button>
+      <button id="btn-auto-direct" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; font-weight: 600; border: none;" title="执行音乐特征分析与 AI 导演剧作，秒级生成 30+ 连贯分镜">⚡ AI 导演一键分镜</button>
       <span class="sep">|</span>
-      <button id="btn-set-bg" title="选择默认背景图">🖼 背景图</button>
-      <span id="bg-name" class="bg-name-label">未设置</span>
+      <button id="btn-save" title="Ctrl+S">💾 保存工程</button>
       <span class="sep">|</span>
-      <button id="btn-generate" style="background: linear-gradient(135deg, #10b981, #059669); font-weight: 600;">🎬 合成视频输出...</button>
+      <button id="btn-generate" style="background: linear-gradient(135deg, #10b981, #059669); font-weight: 600; border: none;">🎬 合成视频输出...</button>
       <span class="sep">|</span>
-      <a href="/" style="color: #61afef; text-decoration: none; font-size: 12px; height: 28px; line-height: 26px; padding: 0 8px; border: 1px solid #61afef44; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0;">📝 返回歌词精调</a>
+      <a href="/" style="color: #61afef; text-decoration: none; font-size: 12px; height: 28px; line-height: 26px; padding: 0 8px; border: 1px solid #61afef44; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0;">📝 歌词字级精调</a>
       <span id="status-msg"></span>
     </div>
   </header>
 
   <main>
+    <!-- 双轨波形音频播放器 (共用核心底层) -->
     <section id="waveform-section">
       <div class="track-row" id="track-vocals">
         <div class="track-label">
@@ -76,16 +365,130 @@
         <div class="track-waveform" id="waveform-instrumental"></div>
       </div>
       <div id="waveform-controls">
-        <button id="btn-play-pause" title="Space">▶ 播放</button>
-        <button id="btn-play-line" title="Enter">▶ 播放选中行</button>
+        <button id="btn-play-pause" title="Space" style="background: #6366f1; color: #fff; font-weight: bold;">▶ 播放 Animatic</button>
+        <button id="btn-play-line" title="Enter">▶ 播放当前镜头</button>
         <span id="time-display">0:00.000 / 0:00.000</span>
         <label>缩放: <input id="zoom-slider" type="range" min="10" max="500" value="50"></label>
+        <span style="margin-left: auto; font-size: 11px; color: #9ca3af;" id="animatic-status-summary">未加载工程</span>
       </div>
     </section>
 
-    <div class="storyboard-layout">
+    <!-- 1. 核心视图：Animatic 动态故事板监看台 -->
+    <div id="view-animatic" class="animatic-layout">
+      <!-- 主舞台 -->
+      <section class="animatic-main-stage">
+        <!-- 电影大屏视窗 -->
+        <div class="cinema-screen-container" id="cinema-container">
+          <div class="cinema-viewport" id="animatic-viewport">
+            <img id="animatic-img" src="" alt="分镜预览" style="display: none;">
+            <div id="animatic-empty-placeholder" style="color: #6b7280; font-size: 14px; text-align: center;">
+              <p style="font-size: 28px; margin-bottom: 8px;">🎬</p>
+              <p>暂无分镜预览图</p>
+              <p style="font-size: 12px; margin-top: 4px; color: #4b5563;">点击右上角「⚡ AI 导演一键分镜」立刻生成 30+ 影视级卡点分镜</p>
+            </div>
+          </div>
+
+          <!-- HUD 顶部悬浮信息 -->
+          <div class="screen-hud-top" id="screen-hud">
+            <span class="hud-badge" id="hud-shot-badge">SHOT -- • 等待播放</span>
+            <span class="hud-badge hud-badge-accent" id="hud-specs-badge">[MS] • [STATIC]</span>
+          </div>
+
+          <!-- 底部歌词悬浮字幕条 -->
+          <div class="screen-lyric-bar" id="hud-lyric-bar">（等待播放）</div>
+        </div>
+
+        <!-- 视听时间轴轨道 (Shots Timeline Track) -->
+        <div class="animatic-timeline-box">
+          <div class="track-title-row">
+            <span>🎞️ 镜头卡点时间轴 (点击任意分镜跳转)</span>
+            <span id="timeline-shot-stats">共 0 个分镜</span>
+          </div>
+          <div class="visual-timeline-track" id="shots-timeline-track">
+            <!-- 动态生成 Shot 块 -->
+          </div>
+        </div>
+      </section>
+
+      <!-- 右侧检视面板 (Shot Inspector) -->
+      <aside class="animatic-inspector">
+        <div class="inspector-header">
+          <h3 style="font-size: 13px; font-weight: 600; margin: 0; color: #e5e7eb;" id="inspector-title">🎯 分镜镜头检视</h3>
+          <span id="inspector-duration-badge" style="font-size: 11px; background: #1e293b; color: #818cf8; padding: 2px 6px; border-radius: 4px;">0.00s</span>
+        </div>
+
+        <div class="inspector-body">
+          <div class="form-group">
+            <label>镜头时间区间 (秒)</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="inspector-start" placeholder="0.000" style="flex: 1;">
+              <input type="text" id="inspector-end" placeholder="0.000" style="flex: 1;">
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px;">
+            <div class="form-group" style="flex: 1;">
+              <label>影视景别 (Scale)</label>
+              <select id="inspector-scale">
+                <option value="ECU">ECU 大特写</option>
+                <option value="CU">CU 特写</option>
+                <option value="MCU">MCU 中近景</option>
+                <option value="MS" selected>MS 中景</option>
+                <option value="MLS">MLS 中远景</option>
+                <option value="WS">WS 全景</option>
+                <option value="EWS">EWS 大全景</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label>摄影运镜 (Camera Motion)</label>
+              <select id="inspector-motion">
+                <option value="static">固定镜头 (Static)</option>
+                <option value="slow_dolly_in">慢速推进 (Dolly In)</option>
+                <option value="dolly_out">镜头拉开 (Dolly Out)</option>
+                <option value="pan_left">向左平摇 (Pan Left)</option>
+                <option value="pan_right">向右平摇 (Pan Right)</option>
+                <option value="crane_up">摇臂升起 (Crane Up)</option>
+                <option value="tilt_up">镜头仰起 (Tilt Up)</option>
+                <option value="tilt_down">镜头俯视 (Tilt Down)</option>
+                <option value="tracking">跟拍滑轨 (Tracking)</option>
+                <option value="handheld">呼吸手持 (Handheld)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>叙事目标与动作描述</label>
+            <textarea id="inspector-action" placeholder="描述此镜头中主体动作与光影流动..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>对应歌词 / 乐段</label>
+            <input type="text" id="inspector-lyric" readonly style="color: #9ca3af; background: #0b0f17;">
+          </div>
+
+          <div class="form-group">
+            <label>AI 生成提示词 (Prompt EN)</label>
+            <textarea id="inspector-prompt" style="font-size: 11px; font-family: monospace; color: #a5b4fc;" placeholder="Midjourney / Flux / Veo 提示词..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>候选生成素材 (Takes)</label>
+            <div id="inspector-takes-list" style="display: flex; flex-direction: column; gap: 6px; font-size: 11px;">
+              <!-- 动态 Takes -->
+            </div>
+          </div>
+
+          <button id="btn-render-current-frame" style="padding: 6px 12px; background: #1f2937; border: 1px solid #374151; color: #e5e7eb; border-radius: 4px; cursor: pointer; font-size: 12px; margin-top: auto;">
+            🎨 重新渲染此分镜卡片
+          </button>
+        </div>
+      </aside>
+    </div>
+
+    <!-- 2. 次要视图：传统分镜表格视图 (保持 100% 兼容历史功能) -->
+    <div id="view-table" class="storyboard-layout" style="display: none;">
       <!-- 歌词参考栏 -->
-      <section class="sb-col-left">
+      <section class="sb-col-left" style="width: 35%;">
         <div style="padding: 10px 14px; background: #0d1117; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: bold;">
           📑 歌词行时间轴（点击行同步分镜时间）
         </div>
@@ -181,8 +584,8 @@
     </div>
   </div>
 
-  <script src="/static/common.js?v=20260922a"></script>
-  <script src="/static/storyboard_editor.js?v=20260922a"></script>
+  <script src="/static/common.js?v=20260923a"></script>
+  <script src="/static/storyboard_editor.js?v=20260923a"></script>
 </body>
 
 </html>

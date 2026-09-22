@@ -201,6 +201,96 @@ def save_alignment(path: str, project: AlignmentProject):
     return {"status": "ok", "backup": str(bak)}
 
 
+class AutoDirectRequest(BaseModel):
+    json_path: str = Field(..., description="alignment.json 路径")
+    audio_path: str | None = Field(default=None, description="音频路径")
+
+
+@app.post("/api/director/auto_direct")
+def api_auto_direct(req: AutoDirectRequest):
+    """
+    一键运行 AI 导演与动态故事板 (Animatic) 生成流程
+    """
+    json_path = _validate_path(Path(req.json_path))
+    project = AlignmentProject.load_json(json_path)
+
+    # 查找可用音频
+    song_dir = json_path.parent
+    audio_path = None
+    if req.audio_path:
+        p = Path(req.audio_path)
+        if p.exists():
+            audio_path = p
+    if not audio_path:
+        stem = json_path.stem.replace("_alignment", "")
+        audio_path = _find_audio(stem, song_output_dir=song_dir)
+
+    analysis = None
+    if audio_path and audio_path.exists():
+        try:
+            from src.audio_analyzer import analyze_audio_for_director
+            drums_path = song_dir / f"{song_dir.name}_instrumental.wav"
+            analysis = analyze_audio_for_director(
+                audio_path=audio_path,
+                drums_path=drums_path if drums_path.exists() else None,
+                sections=project.sections,
+            )
+            project.analysis = analysis
+        except Exception as e:
+            log.warning("音频特征分析跳过或失败: %s", e)
+
+    # 运行导演引擎
+    from src.director_engine import direct_project
+    project = direct_project(project, analysis=analysis)
+
+    # 批量渲染动态分镜卡片
+    sb_dir = song_dir / "storyboard"
+    try:
+        from src.storyboard_renderer import render_all_storyboard_frames
+        render_all_storyboard_frames(project, output_dir=sb_dir)
+    except Exception as e:
+        log.warning("分镜卡片渲染跳过: %s", e)
+
+    # 保存更新后的工程
+    project.save_json(json_path)
+    log.info("AI 导演处理完成: %d 个镜头已写入 %s", len(project.storyboard), json_path.name)
+
+    return {
+        "status": "ok",
+        "shots_count": len(project.storyboard),
+        "treatment": project.treatment.model_dump() if project.treatment else None,
+        "visual_bible": project.visual_bible.model_dump() if project.visual_bible else None,
+        "project": project.model_dump(),
+    }
+
+
+@app.get("/api/storyboard_frame")
+def api_get_storyboard_frame(json_path: str, frame_name: str):
+    """
+    提供动态故事板分镜预览图片流
+    """
+    jp = _validate_path(Path(json_path))
+    clean_frame = Path(frame_name).name
+    frame_path = jp.parent / "storyboard" / clean_frame
+    if not frame_path.exists():
+        try:
+            from src.storyboard_renderer import render_shot_frame
+            proj = AlignmentProject.load_json(jp)
+            shot_id_match = clean_frame.replace(".png", "")
+            target_shot = next(
+                (s for s in proj.storyboard if s.id == shot_id_match or f"shot_{s.shot_id:03d}" == shot_id_match),
+                None
+            )
+            if target_shot:
+                render_shot_frame(target_shot, frame_path)
+        except Exception as e:
+            log.error("即时渲染分镜失败: %s", e)
+
+    if not frame_path.exists():
+        raise HTTPException(404, f"分镜卡片不存在: {clean_frame}")
+    return FileResponse(frame_path)
+
+
 @app.post("/api/regen")
 def regen_ass(req: RegenRequest):
     """从 alignment.json 生成 .ass 或合成视频"""
