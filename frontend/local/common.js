@@ -303,23 +303,45 @@ window.handleSunoImport = handleSunoImport;
 // ---------------------------------------------------------------------------
 // Download Original Audio
 // ---------------------------------------------------------------------------
-function downloadOriginalAudio() {
-  if (!state.currentFile) {
-    alert("请先选择或加载一首歌曲");
+// Download Original Audio (Dual Mode: URL Input -> Step 1 | Loaded Song -> Existing)
+// ---------------------------------------------------------------------------
+async function downloadOriginalAudio() {
+  const sunoInput = document.getElementById("suno-url-input");
+  const rawUrl = sunoInput ? sunoInput.value.trim() : "";
+
+  // 模式 1: 用户在输入框贴入了 Suno 链接 -> 走第一步从 Suno 提取并下载原曲 MP3
+  if (rawUrl && (rawUrl.startsWith("http://") || rawUrl.startsWith("https://") || rawUrl.includes("suno.com"))) {
+    status("⏳ 正在从 Suno 获取歌曲信息并提取 MP3 (步骤 1，约需 3~5 秒)...");
+    const dlUrl = `/api/suno/download_mp3?url=${encodeURIComponent(rawUrl)}`;
+    const a = document.createElement("a");
+    a.href = dlUrl;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => {
+      status("🎵 已发起 Suno 原曲 MP3 下载，下载完毕后将自动保存在您的电脑中");
+    }, 1200);
     return;
   }
-  const songName = state.currentFile.name;
-  const jsonPath = state.currentFile.json_path || "";
-  status(`正在准备下载《${songName}》原曲 MP3...`);
 
-  const url = `/api/download/original_mp3?song=${encodeURIComponent(songName)}&json_path=${encodeURIComponent(jsonPath)}`;
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${songName}.mp3`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => status(`已开始下载: ${songName}.mp3`), 800);
+  // 模式 2: 当前工程已导入/加载 -> 直接秒级下载第一步已生成好的原曲 MP3
+  if (state.currentFile) {
+    const songName = state.currentFile.name;
+    const jsonPath = state.currentFile.json_path || "";
+    status(`正在下载《${songName}》原曲 MP3...`);
+
+    const url = `/api/download/original_mp3?song=${encodeURIComponent(songName)}&json_path=${encodeURIComponent(jsonPath)}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${songName}.mp3`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => status(`已触发下载: ${songName}.mp3`), 800);
+    return;
+  }
+
+  alert("请在左上方输入框粘贴 Suno 歌曲链接，或者在下拉列表中选择已导入的项目！");
 }
 window.downloadOriginalAudio = downloadOriginalAudio;
 

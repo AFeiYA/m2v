@@ -752,6 +752,75 @@ def download_original_mp3(song: str | None = None, json_path: str | None = None)
     return FileResponse(target_mp3, media_type=media_type, headers=headers)
 
 
+@app.api_route("/api/suno/download_mp3", methods=["GET", "POST"])
+def api_suno_download_mp3(url: str):
+    """
+    Suno 仅下载原曲 MP3（第一步）：
+    仅执行歌曲信息抓取 + 原曲音频下载 (支持直链与视频流自动回退提取)，
+    不进行耗时的 Demucs 人声分离和 WhisperX 字符级对齐。
+    """
+    url = url.strip()
+    if not url:
+        raise HTTPException(400, "请输入 Suno 歌曲链接")
+
+    scan_dir = _get_scan_dir()
+    input_dir = scan_dir.parent / "input"
+    input_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from src.suno_fetch import fetch_song, download_song, _sanitize_filename
+        log.info(">>> [仅下 MP3] 开始从 Suno 提取歌曲: %s", url)
+        song = fetch_song(url)
+        song_name = _sanitize_filename(song.title) or song.id
+        song_input_dir = input_dir / song_name
+        song_input_dir.mkdir(parents=True, exist_ok=True)
+
+        audio_path, lyrics_path, json_path, song = download_song(
+            url, song_input_dir, song_name=song_name, save_json=True
+        )
+
+        if not audio_path or not audio_path.exists():
+            raise HTTPException(404, "未能从 Suno 提取音频，可能该歌曲未设置为 Public")
+
+        # 确保输出为标准 MP3
+        target_mp3 = audio_path
+        if audio_path.suffix.lower() != ".mp3":
+            cached_mp3 = audio_path.parent / f"{song_name}.mp3"
+            if cached_mp3.exists() and cached_mp3.stat().st_size > 1024:
+                target_mp3 = cached_mp3
+            else:
+                from src.utils import get_ffmpeg_binary
+                ffmpeg_bin = get_ffmpeg_binary()
+                temp_mp3 = audio_path.parent / f"{song_name}.mp3"
+                cmd = [
+                    ffmpeg_bin, "-y",
+                    "-i", str(audio_path),
+                    "-vn",
+                    "-c:a", "libmp3lame",
+                    "-b:a", "192k",
+                    str(temp_mp3)
+                ]
+                import subprocess
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                if res.returncode == 0 and temp_mp3.exists() and temp_mp3.stat().st_size > 1024:
+                    target_mp3 = temp_mp3
+
+        from urllib.parse import quote
+        filename = f"{song_name}.mp3"
+        quoted = quote(filename)
+        headers = {
+            "Accept-Ranges": "bytes",
+            "Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}",
+        }
+        return FileResponse(target_mp3, media_type="audio/mpeg", headers=headers)
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error("Suno MP3 下载失败: %s", e, exc_info=True)
+        raise HTTPException(500, f"Suno MP3 下载失败: {str(e)}")
+
+
+
 
 # ── 商业化歌词动效短视频端点 ──────────────────────────────
 class LyricVideoExportRequest(BaseModel):

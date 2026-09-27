@@ -574,9 +574,17 @@ def download_song(
         lyrics_path.write_text(song.raw_prompt, encoding="utf-8")
         log.warning("未检测到标准歌词段，已保存原始 prompt")
 
-    # 3. 尝试下载音频 (优先 mp3)
+    # 2.5 检查是否已有完整有效音频文件（直接秒级复用）
     audio_path = None
-    if song.audio_url and "forbidden" not in song.audio_url:
+    for ext_cand in [".mp3", ".wav", ".m4a"]:
+        cand = output_dir / f"{name}{ext_cand}"
+        if cand.exists() and is_valid_audio_file(cand):
+            log.info("检测到已存在有效音频文件: %s (%.2fMB)，直接复用", cand.name, cand.stat().st_size / 1024 / 1024)
+            audio_path = cand
+            break
+
+    # 3. 尝试下载音频 (优先 mp3)
+    if not audio_path and song.audio_url and "forbidden" not in song.audio_url:
         ext = ".mp3" if ".mp3" in song.audio_url.lower() else (".m4a" if ".m4a" in song.audio_url.lower() else ".mp3")
         dest_audio = output_dir / f"{name}{ext}"
         log.info("下载音频: %s → %s", song.audio_url, dest_audio.name)

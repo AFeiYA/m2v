@@ -16,8 +16,10 @@
       <!-- 快捷 Suno 导入栏 -->
       <div id="suno-quick-bar" style="display: flex; align-items: center; gap: 4px; background: rgba(0,0,0,0.25); padding: 2px 4px; border-radius: 4px; border: 1px solid var(--border); flex-shrink: 0;">
         <input id="suno-url-input" type="text" placeholder="粘贴 Suno 歌曲链接..."
-               style="width: 210px; height: 24px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; outline: none;"
+               style="width: 200px; height: 24px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; outline: none;"
                onkeydown="if(event.key==='Enter') handleSunoImport()" />
+        <button id="btn-quick-download-mp3" onclick="downloadOriginalAudio()" title="从粘贴的链接仅提取下载原曲 MP3 (执行步骤 1，跳过分离对齐)"
+                style="background: #2a313d; color: #e2e8f0; font-weight: 500; border: none; height: 24px; padding: 0 6px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⬇ 仅下 MP3</button>
         <button id="btn-start-suno-import" onclick="handleSunoImport()" title="一键抓取并字级对齐"
                 style="background: linear-gradient(135deg, #ff416c, #ff4b2b); color: #fff; font-weight: 600; border: none; height: 24px; padding: 0 8px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⚡ 导入对齐</button>
       </div>
@@ -260,8 +262,8 @@
     </div>
   </div>
 
-  <script src="/static/common.js?v=20260927f"></script>
-  <script src="/static/lyric_editor.js?v=20260927f"></script>
+  <script src="/static/common.js?v=20260927g"></script>
+  <script src="/static/lyric_editor.js?v=20260927g"></script>
 </body>
 
 </html>
