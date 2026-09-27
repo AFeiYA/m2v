@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:match*",
+      "destination": "https://lucazhou-suno2mv-api.hf.space/api/:match*"
+    },
+    {
+      "source": "/static/:match*",
+      "destination": "/:match*"
+    }
+  ]
+}
