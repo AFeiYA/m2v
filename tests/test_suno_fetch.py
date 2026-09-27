@@ -94,3 +94,50 @@ def test_resolve_or_find_audio_fuzzy_match_mp3(tmp_path):
             assert res is not None
             assert res.name == "好听的歌.mp3"
             assert res.exists()
+
+
+def test_auto_process_suno_pipeline_config_and_flow(tmp_path):
+    """验证 auto_process_suno 中 PipelineConfig 的导入与 pipeline 执行参数传递"""
+    from src.suno_fetch import auto_process_suno
+
+    fake_song = SunoSong(
+        id="test-uuid",
+        title="测试歌曲",
+        artist="Suno AI",
+        audio_url="https://cdn.example.com/test.mp3",
+        lyrics="歌词第一行",
+        raw_prompt="测试歌词 [Verse]\n歌词第一行",
+        tags="pop",
+        duration=120.0,
+    )
+
+    with patch("src.suno_fetch.fetch_song", return_value=fake_song), \
+         patch("src.suno_fetch.resolve_or_find_audio", return_value=tmp_path / "test.mp3"), \
+         patch("src.suno_fetch.is_valid_audio_file", return_value=True), \
+         patch("src.main.process_one") as mock_process_one:
+
+        audio_file = tmp_path / "test.mp3"
+        audio_file.write_bytes(b"dummy audio")
+
+        cb_calls = []
+        def _cb(prog, msg):
+            cb_calls.append((prog, msg))
+
+        result = auto_process_suno(
+            url="https://suno.com/song/test-uuid",
+            input_dir=tmp_path / "input",
+            output_dir=tmp_path / "output",
+            launch_editor=False,
+            progress_callback=_cb,
+        )
+
+        assert result["status"] == "ok"
+        assert result["title"] == "测试歌曲"
+        assert mock_process_one.called
+        # 验证传递的 config 对象
+        passed_config = mock_process_one.call_args[0][4]
+        assert passed_config.skip_separation is True
+        assert passed_config.ass_only is True
+        # 验证进度回调包含极速模式字样
+        assert any("极速模式" in msg for _, msg in cb_calls)
+
