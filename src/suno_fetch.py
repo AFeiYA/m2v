@@ -28,6 +28,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
 import requests
