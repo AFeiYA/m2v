@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>M2V 歌词与字幕对齐编辑器</title>
   <script src="/static/wavesurfer.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css?v=20260921e">
+  <link rel="stylesheet" href="/static/style.css?v=20260928b">
 </head>
 
 <body>
@@ -16,7 +16,8 @@
       <!-- 快捷 Suno 导入栏 -->
       <div id="suno-quick-bar" style="display: flex; align-items: center; gap: 4px; background: rgba(0,0,0,0.25); padding: 2px 4px; border-radius: 4px; border: 1px solid var(--border); flex-shrink: 0;">
         <input id="suno-url-input" type="text" placeholder="粘贴 Suno 歌曲链接..."
-               style="width: 200px; height: 24px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; outline: none;"
+               style="width: 170px; min-width: 110px; height: 24px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; outline: none; transition: width 0.2s;"
+               onfocus="this.style.width='210px'" onblur="this.style.width='170px'"
                onkeydown="if(event.key==='Enter') handleSunoImport()" />
         <button id="btn-quick-download-mp3" onclick="downloadOriginalAudio()" title="从粘贴的链接仅提取下载原曲 MP3 (执行步骤 1，跳过分离对齐)"
                 style="background: #2a313d; color: #e2e8f0; font-weight: 500; border: none; height: 24px; padding: 0 6px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⬇ 仅下 MP3</button>
@@ -53,16 +54,46 @@
       <!-- 人声轨 -->
       <div class="track-row" id="track-vocals">
         <div class="track-label">
-          <button class="track-mute-btn active" id="btn-mute-vocals" title="静音/取消静音人声轨">🎤 人声</button>
+          <button class="track-mute-btn active" id="btn-mute-vocals" title="静音/取消静音人声轨">
+            <span class="track-btn-title">🎤 人声</span>
+          </button>
         </div>
-        <div class="track-waveform" id="waveform-vocals"></div>
+        <div class="track-waveform-container">
+          <div class="track-waveform" id="waveform-vocals"></div>
+          <div class="waveform-skeleton loaded" id="skeleton-vocals">
+            <div class="skeleton-bars">
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <div class="skeleton-center">
+              <span class="skeleton-spinner"></span>
+              <span class="skeleton-text" id="skeleton-text-vocals">人声音轨缓冲加载中...</span>
+            </div>
+          </div>
+        </div>
       </div>
       <!-- 乐器轨 -->
       <div class="track-row" id="track-instrumental">
         <div class="track-label">
-          <button class="track-mute-btn active" id="btn-mute-instrumental" title="静音/取消静音乐器轨">🎸 伴奏</button>
+          <button class="track-mute-btn active" id="btn-mute-instrumental" title="静音/取消静音乐器轨">
+            <span class="track-btn-title">🎸 伴奏</span>
+          </button>
         </div>
-        <div class="track-waveform" id="waveform-instrumental"></div>
+        <div class="track-waveform-container inst">
+          <div class="track-waveform" id="waveform-instrumental"></div>
+          <div class="waveform-skeleton loaded" id="skeleton-instrumental">
+            <div class="skeleton-bars">
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <div class="skeleton-center">
+              <span class="skeleton-spinner"></span>
+              <span class="skeleton-text" id="skeleton-text-inst">伴奏音轨缓冲加载中...</span>
+            </div>
+          </div>
+        </div>
       </div>
       <div id="waveform-controls">
         <button id="btn-play-pause" title="Space">▶ 播放</button>
@@ -262,8 +293,8 @@
     </div>
   </div>
 
-  <script src="/static/common.js?v=20260927i"></script>
-  <script src="/static/lyric_editor.js?v=20260927i"></script>
+  <script src="/static/common.js?v=20260928b"></script>
+  <script src="/static/lyric_editor.js?v=20260928b"></script>
 </body>
 
 </html>

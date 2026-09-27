@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Suno2MV — AI 导演与动态故事板 (Animatic Studio)</title>
   <script src="/static/wavesurfer.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css?v=20260923a">
+  <link rel="stylesheet" href="/static/style.css?v=20260928b">
   <style>
     /* ── Animatic Studio 专属布局 ── */
     .animatic-layout {
@@ -365,15 +365,45 @@
     <section id="waveform-section">
       <div class="track-row" id="track-vocals">
         <div class="track-label">
-          <button class="track-mute-btn active" id="btn-mute-vocals">🎤 人声</button>
+          <button class="track-mute-btn active" id="btn-mute-vocals" title="静音/取消静音人声轨">
+            <span class="track-btn-title">🎤 人声</span>
+          </button>
         </div>
-        <div class="track-waveform" id="waveform-vocals"></div>
+        <div class="track-waveform-container">
+          <div class="track-waveform" id="waveform-vocals"></div>
+          <div class="waveform-skeleton loaded" id="skeleton-vocals">
+            <div class="skeleton-bars">
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <div class="skeleton-center">
+              <span class="skeleton-spinner"></span>
+              <span class="skeleton-text" id="skeleton-text-vocals">人声音轨缓冲加载中...</span>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="track-row" id="track-instrumental">
         <div class="track-label">
-          <button class="track-mute-btn active" id="btn-mute-instrumental">🎸 伴奏</button>
+          <button class="track-mute-btn active" id="btn-mute-instrumental" title="静音/取消静音乐器轨">
+            <span class="track-btn-title">🎸 伴奏</span>
+          </button>
         </div>
-        <div class="track-waveform" id="waveform-instrumental"></div>
+        <div class="track-waveform-container inst">
+          <div class="track-waveform" id="waveform-instrumental"></div>
+          <div class="waveform-skeleton loaded" id="skeleton-instrumental">
+            <div class="skeleton-bars">
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <div class="skeleton-center">
+              <span class="skeleton-spinner"></span>
+              <span class="skeleton-text" id="skeleton-text-inst">伴奏音轨缓冲加载中...</span>
+            </div>
+          </div>
+        </div>
       </div>
       <div id="waveform-controls">
         <button id="btn-play-pause" title="Space" style="background: #6366f1; color: #fff; font-weight: bold;">▶ 播放 Animatic</button>
@@ -866,8 +896,8 @@
     </div>
   </div>
 
-  <script src="/static/common.js?v=20260927i"></script>
-  <script src="/static/storyboard_editor.js?v=20260927i"></script>
+  <script src="/static/common.js?v=20260928b"></script>
+  <script src="/static/storyboard_editor.js?v=20260928b"></script>
 </body>
 
 </html>

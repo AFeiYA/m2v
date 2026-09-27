@@ -104,6 +104,44 @@ function toggleMuteTrack(track) {
   status(trackMuted[track] ? `${track} 已静音` : `${track} 已取消静音`);
 }
 
+function setTrackLoadingState(trackType, isLoading, trackName, errorMsg) {
+  const isVocals = trackType === "vocals";
+  const btn = isVocals ? (dom.btnMuteVocals || document.getElementById("btn-mute-vocals")) : (dom.btnMuteInst || document.getElementById("btn-mute-instrumental"));
+  const skeleton = document.getElementById(isVocals ? "skeleton-vocals" : "skeleton-instrumental");
+  const skeletonText = document.getElementById(isVocals ? "skeleton-text-vocals" : "skeleton-text-inst");
+
+  if (btn) {
+    if (isLoading) {
+      btn.classList.add("buffering");
+      btn.classList.add("active");
+      btn.classList.remove("muted");
+      btn.innerHTML = `<span class="track-btn-title">${trackName}</span><span class="track-btn-badge"><i class="wave-dot"></i>缓冲中</span>`;
+    } else {
+      btn.classList.remove("buffering");
+      if (errorMsg) {
+        btn.innerHTML = `<span class="track-btn-title">${trackName}</span><span class="track-btn-badge error">${errorMsg}</span>`;
+      } else {
+        btn.innerHTML = `<span class="track-btn-title">${trackName}</span>`;
+      }
+    }
+  }
+
+  if (skeleton) {
+    if (isLoading) {
+      skeleton.classList.remove("loaded");
+      skeleton.style.display = "flex";
+      if (skeletonText) skeletonText.textContent = `${trackName}缓冲加载中...`;
+    } else {
+      skeleton.classList.add("loaded");
+      setTimeout(() => {
+        if (skeleton.classList.contains("loaded")) {
+          skeleton.style.display = "none";
+        }
+      }, 350);
+    }
+  }
+}
+
 function updateTimeDisplay() {
   if (!ws || !dom.timeDisplay) return;
   const cur = ws.getCurrentTime(), dur = ws.getDuration() || 0;
@@ -212,48 +250,44 @@ async function loadSong(idx) {
   const origUrl = file.audio_path ? "/api/audio?path=" + encodeURIComponent(file.audio_path) : null;
 
   const primaryUrl = vocalsUrl || origUrl;
+  const primaryTitle = vocalsUrl ? "🎤 人声" : "🎵 原始";
+  const instTitle = "🎸 伴奏";
 
-  // Track buttons loading state
-  if (dom.btnMuteVocals) {
-    dom.btnMuteVocals.textContent = vocalsUrl ? "🎤 人声 (缓冲中)" : "🎵 原始 (缓冲中)";
-    dom.btnMuteVocals.classList.add("active");
-    dom.btnMuteVocals.classList.remove("muted");
-  }
-  if (dom.btnMuteInst) {
-    dom.btnMuteInst.textContent = "🎸 伴奏 (缓冲中)";
-    dom.btnMuteInst.classList.add("active");
-    dom.btnMuteInst.classList.remove("muted");
-  }
   if (dom.trackVocals) dom.trackVocals.classList.remove("muted");
   if (dom.trackInst) dom.trackInst.classList.remove("muted");
 
   const loadTasks = [];
   if (primaryUrl && ws) {
+    setTrackLoadingState("vocals", true, primaryTitle);
     loadTasks.push(
       ws.load(primaryUrl)
         .then(() => {
           vocalsReady = true;
-          if (dom.btnMuteVocals) dom.btnMuteVocals.textContent = vocalsUrl ? "🎤 人声" : "🎵 原始";
+          setTrackLoadingState("vocals", false, primaryTitle);
         })
         .catch((e) => {
           status("人声轨加载失败: " + e, true);
+          setTrackLoadingState("vocals", false, primaryTitle, "加载失败");
         })
     );
   }
   if (instUrl && wsInst) {
     if (dom.trackInst) dom.trackInst.classList.remove("hidden");
+    setTrackLoadingState("instrumental", true, instTitle);
     loadTasks.push(
       wsInst.load(instUrl)
         .then(() => {
           instReady = true;
-          if (dom.btnMuteInst) dom.btnMuteInst.textContent = "🎸 伴奏";
+          setTrackLoadingState("instrumental", false, instTitle);
         })
         .catch((e) => {
           status("伴奏轨加载失败: " + e, true);
+          setTrackLoadingState("instrumental", false, instTitle, "加载失败");
         })
     );
   } else {
     if (dom.trackInst) dom.trackInst.classList.add("hidden");
+    setTrackLoadingState("instrumental", false, instTitle);
   }
 
   Promise.allSettled(loadTasks).then(() => {
