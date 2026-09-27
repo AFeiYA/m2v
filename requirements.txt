@@ -15,4 +15,4 @@ demucs>=4.0.0
 librosa>=0.10.0
 moviepy>=2.0.0
 tomli>=2.0.0
-whisperx>=3.8.4
+whisperx==3.8.7rc1
