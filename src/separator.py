@@ -42,7 +42,18 @@ def separate_vocals(
 
     # 智能设备检测: CUDA -> Apple Silicon MPS -> CPU
     device = config.device
-    if device in ("cuda", "auto") and not torch.cuda.is_available():
+
+    def _is_cuda_ready() -> bool:
+        if not torch.cuda.is_available():
+            return False
+        try:
+            t = torch.zeros(1, device="cuda")
+            del t
+            return True
+        except Exception:
+            return False
+
+    if device in ("cuda", "auto") and not _is_cuda_ready():
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             device = "mps"
             log.info("检测到 macOS Apple Silicon GPU，启用 Metal (MPS) 硬件加速分离")

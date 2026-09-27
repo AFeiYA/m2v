@@ -64,11 +64,22 @@ def _init_whisper(config: AlignerConfig, vocals_path: Path):
 
     device = config.device
     fell_back_to_cpu = False
-    if device in ("cuda", "auto") and not torch.cuda.is_available():
+
+    def _is_cuda_ready() -> bool:
+        if not torch.cuda.is_available():
+            return False
+        try:
+            t = torch.zeros(1, device="cuda")
+            del t
+            return True
+        except Exception:
+            return False
+
+    if device in ("cuda", "auto") and not _is_cuda_ready():
         if sys.platform == "darwin":
             log.info("macOS 平台下 WhisperX (CTranslate2) 采用原生 ARM NEON 硬件优化 CPU 模式")
         else:
-            log.warning("CUDA 不可用，回退到 CPU 模式")
+            log.warning("当前环境无物理 CUDA 显卡 (或处于无卡容器)，自动回退到 CPU 模式")
         device = "cpu"
         fell_back_to_cpu = True
 
@@ -158,11 +169,23 @@ def align_lyrics(
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-    align_model, align_metadata = whisperx.load_align_model(
-        language_code=detected_language,
-        device=device,
-        model_name=config.align_model,
-    )
+    try:
+        align_model, align_metadata = whisperx.load_align_model(
+            language_code=detected_language,
+            device=device,
+            model_name=config.align_model,
+        )
+    except Exception as e:
+        if device != "cpu":
+            log.warning("对齐模型使用 %s 加载失败，回退到 CPU: %s", device, e)
+            device = "cpu"
+            align_model, align_metadata = whisperx.load_align_model(
+                language_code=detected_language,
+                device="cpu",
+                model_name=config.align_model,
+            )
+        else:
+            raise
     _debug_path = vocals_path.parent / (vocals_path.stem + "_whisper_segments.json")
     try:
         import json as _json
@@ -281,7 +304,14 @@ def _load_whisper_model_with_recovery(
     try:
         return whisperx.load_model(whisper_model, **load_kwargs)
     except RuntimeError as e:
-        broken_model_dir = _extract_broken_model_dir(str(e))
+        err_str = str(e)
+        if device != "cpu" and ("CUDA failed" in err_str or "no CUDA-capable device" in err_str or "CUDA error" in err_str):
+            log.warning("CUDA 设备初始化失败 (%s)，自动优雅回退为 CPU (INT8) 模式…", err_str.strip())
+            load_kwargs["device"] = "cpu"
+            load_kwargs["compute_type"] = "int8"
+            return whisperx.load_model(whisper_model, **load_kwargs)
+
+        broken_model_dir = _extract_broken_model_dir(err_str)
         if not broken_model_dir:
             raise
 
@@ -292,6 +322,7 @@ def _load_whisper_model_with_recovery(
             log.warning("已清理损坏缓存，准备重新下载并重试…")
 
         return whisperx.load_model(whisper_model, **load_kwargs)
+
 
 
 def _extract_broken_model_dir(error_text: str) -> str | None:
