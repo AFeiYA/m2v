@@ -9,18 +9,19 @@ import os
 import gradio as gr
 from src.local_editor import app as fastapi_app
 
-# 0. 自动兼容 Hugging Face ZeroGPU 硬件探测机制
+# 0. Hugging Face ZeroGPU 官方静态探测标准声明
 try:
     import spaces
 
-    @spaces.GPU
-    def _gpu_probe():
-        return "ZeroGPU Ready"
+    @spaces.GPU(duration=60)
+    def _zero_gpu_worker(payload: str = "") -> str:
+        """ZeroGPU 探测与硬件动态分配函数"""
+        return f"ZeroGPU Ready: {payload}"
 except Exception:
-    def _gpu_probe():
-        return "CPU Ready"
+    def _zero_gpu_worker(payload: str = "") -> str:
+        return f"CPU Ready: {payload}"
 
-# 1. 创建漂亮的 Gradio 状态面板
+# 1. 创建 Gradio 控制台面板
 with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
     gr.Markdown("# 🎵 Suno2MV API & Cloud Engine")
     gr.Markdown(
@@ -33,8 +34,11 @@ with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
     with gr.Accordion("API 健康状态探活", open=False):
         gr.JSON(value={"status": "online", "engine": "Suno2MV Cloud", "version": "0.6.0"})
 
-    # 注册事件以便 ZeroGPU 启动扫描器能够正确识别 GPU 函数
-    demo.load(_gpu_probe, inputs=[], outputs=[])
+    # 显式绑定 ZeroGPU 探测事件，严格满足 ZeroGPU AST 扫描器对交互组件绑定的检查
+    _gpu_in = gr.Textbox(value="ping", visible=False)
+    _gpu_out = gr.Textbox(visible=False)
+    _gpu_btn = gr.Button("Probe GPU", visible=False)
+    _gpu_btn.click(fn=_zero_gpu_worker, inputs=[_gpu_in], outputs=[_gpu_out])
 
 # 2. 启用队列并将 Gradio 挂载到 FastAPI 应用中
 demo.queue()
