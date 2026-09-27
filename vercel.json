@@ -1,0 +1,21 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/api/:match*",
+      "destination": "https://lucazhou-suno2mv-api.hf.space/api/:match*"
+    },
+    {
+      "source": "/storyboard",
+      "destination": "/frontend/local/storyboard.html"
+    },
+    {
+      "source": "/static/:match*",
+      "destination": "/frontend/local/:match*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/frontend/local/index.html"
+    }
+  ]
+}

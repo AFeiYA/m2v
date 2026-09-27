@@ -1,0 +1,72 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "ltx-video-2b-v0.9.1.safetensors"
+    }
+  },
+  "8": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "t5xxl_fp8_e4m3fn.safetensors",
+      "type": "ltxv"
+    }
+  },
+  "2": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["8", 0],
+      "text": "{POSITIVE_PROMPT}"
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["8", 0],
+      "text": "{NEGATIVE_PROMPT}"
+    }
+  },
+  "4": {
+    "class_type": "EmptyLTXVLatentVideo",
+    "inputs": {
+      "batch_size": 1,
+      "height": 512,
+      "length": 25,
+      "width": 768
+    }
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "cfg": 3.0,
+      "denoise": 1.0,
+      "latent_image": ["4", 0],
+      "model": ["1", 0],
+      "negative": ["3", 0],
+      "positive": ["2", 0],
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "seed": 42,
+      "steps": 20
+    }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["5", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "7": {
+    "class_type": "VHS_VideoCombine",
+    "inputs": {
+      "filename_prefix": "suno2mv_ltx",
+      "format": "video/h264-mp4",
+      "frame_rate": 16,
+      "images": ["6", 0],
+      "loop_count": 0,
+      "pingpong": false,
+      "save_output": true
+    }
+  }
+}

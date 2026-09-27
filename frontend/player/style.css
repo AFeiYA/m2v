@@ -1,0 +1,593 @@
+/* ============================================================
+   M2V Player — Immersive Karaoke with Character Light-Sweep
+   ============================================================ */
+
+/* === Design Tokens === */
+:root {
+  /* Base palette */
+  --bg-deep: #05060f;
+  --bg-surface: rgba(12, 14, 28, 0.85);
+  --bg-glass: rgba(20, 22, 44, 0.55);
+  --bg-glass-hover: rgba(30, 34, 64, 0.65);
+
+  /* Accent gradient — vibrant aurora */
+  --accent-start: #6366f1;
+  --accent-mid: #a855f7;
+  --accent-end: #ec4899;
+
+  /* Text */
+  --text-primary: #f1f5f9;
+  --text-secondary: rgba(241, 245, 249, 0.55);
+  --text-dim: rgba(241, 245, 249, 0.22);
+  --text-glow: #c4b5fd;
+
+  /* Lyric colors */
+  --lyric-inactive: rgba(255, 255, 255, 0.18);
+  --lyric-upcoming: rgba(255, 255, 255, 0.45);
+  --lyric-active-base: rgba(255, 255, 255, 0.35);
+  --lyric-lit: #ffffff;
+
+  /* Geometry */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+
+  /* Typography */
+  --font-main: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+  --lyric-size: clamp(1.6rem, 4vw, 2.6rem);
+  --lyric-size-active: clamp(2rem, 5vw, 3.2rem);
+
+  /* Transitions */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* === Reset === */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-main);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* === Background Layer === */
+#bg-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+/* Background images — two layers for crossfade */
+.bg-img {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  opacity: 0;
+  transition: opacity 1.2s ease-in-out;
+  /* Subtle slow zoom for cinematic feel */
+  animation: bgZoom 20s ease-in-out infinite alternate;
+}
+
+.bg-img.visible {
+  opacity: 1;
+}
+
+@keyframes bgZoom {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.06); }
+}
+
+/* Dark overlay to ensure lyrics readability */
+#bg-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 6, 15, 0.55);
+  z-index: 1;
+  pointer-events: none;
+  transition: background 0.8s ease;
+}
+
+/* When no image is loaded, overlay is invisible */
+#bg-overlay.inactive {
+  background: transparent;
+}
+
+#bg-gradient {
+  position: absolute;
+  inset: -50%;
+  width: 200%;
+  height: 200%;
+  background: 
+    radial-gradient(ellipse 600px 400px at 30% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 60%),
+    radial-gradient(ellipse 500px 500px at 70% 60%, rgba(168, 85, 247, 0.12) 0%, transparent 55%),
+    radial-gradient(ellipse 400px 300px at 50% 80%, rgba(236, 72, 153, 0.08) 0%, transparent 50%);
+  animation: bgDrift 25s ease-in-out infinite alternate;
+}
+
+@keyframes bgDrift {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  100% { transform: translate(-5%, 3%) rotate(3deg); }
+}
+
+#bg-particles {
+  position: absolute;
+  inset: 0;
+  background-image: 
+    radial-gradient(1.5px 1.5px at 10% 15%, rgba(255,255,255,0.06), transparent),
+    radial-gradient(1px 1px at 25% 40%, rgba(255,255,255,0.04), transparent),
+    radial-gradient(2px 2px at 60% 20%, rgba(255,255,255,0.05), transparent),
+    radial-gradient(1px 1px at 80% 55%, rgba(255,255,255,0.03), transparent),
+    radial-gradient(1.5px 1.5px at 45% 75%, rgba(255,255,255,0.04), transparent),
+    radial-gradient(1px 1px at 90% 80%, rgba(255,255,255,0.05), transparent);
+  animation: particleFloat 40s linear infinite;
+}
+
+@keyframes particleFloat {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-20px); }
+}
+
+/* === Player Container === */
+#player-container {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* === Top Bar === */
+#top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0 12px;
+  flex-shrink: 0;
+}
+
+#song-info h1 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: linear-gradient(135deg, var(--accent-start), var(--accent-mid), var(--accent-end));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+#song-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* Song selector dropdown */
+#song-select {
+  appearance: none;
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-main);
+  font-size: 0.82rem;
+  padding: 8px 32px 8px 14px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.3s var(--ease-out-expo);
+  max-width: 220px;
+  /* Custom dropdown arrow */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='rgba(255,255,255,0.5)'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+#song-select:hover {
+  border-color: rgba(168, 85, 247, 0.4);
+  background-color: var(--bg-glass-hover);
+}
+
+#song-select:focus {
+  border-color: var(--accent-mid);
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.15);
+}
+
+#song-select option {
+  background: #1a1c2e;
+  color: var(--text-primary);
+}
+
+/* === Lyrics Viewport === */
+#lyrics-viewport {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 12%,
+    black 70%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 12%,
+    black 70%,
+    transparent 100%
+  );
+}
+
+#lyrics-scroll-container {
+  position: absolute;
+  width: 100%;
+  padding: 35vh 0 45vh;
+  transition: transform 0.6s var(--ease-out-expo);
+  will-change: transform;
+}
+
+/* === Lyric Lines === */
+.lyric-line {
+  padding: 10px 16px;
+  margin: 4px 0;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: 
+    transform 0.55s var(--ease-out-expo),
+    opacity 0.4s ease,
+    padding 0.5s var(--ease-out-expo);
+  transform-origin: left center;
+  opacity: 0.35;
+}
+
+.lyric-line:hover {
+  opacity: 0.6;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.lyric-line.interlude {
+  font-size: 1rem;
+  color: var(--text-dim);
+  font-style: italic;
+  letter-spacing: 0.15em;
+}
+
+/* Active line */
+.lyric-line.active {
+  opacity: 1;
+  transform: scale(1.04);
+  padding: 14px 16px;
+}
+
+/* Passed lines */
+.lyric-line.passed {
+  opacity: 0.22;
+}
+
+/* Upcoming (next line) */
+.lyric-line.upcoming {
+  opacity: 0.55;
+}
+
+/* === Character Spans === */
+.lyric-line .char {
+  display: inline-block;
+  position: relative;
+  font-size: var(--lyric-size);
+  font-weight: 500;
+  color: var(--lyric-inactive);
+  letter-spacing: 0.04em;
+  transition: font-size 0.4s var(--ease-out-expo), font-weight 0.3s ease;
+}
+
+.lyric-line .char.space {
+  width: 0.6em;
+}
+
+/* Active line chars: use background-clip for gradient fill.
+   ALL chars stay in gradient mode — only --fill changes.
+   This avoids flicker from switching rendering modes. */
+.lyric-line.active .char {
+  --fill: 0; /* 0 = pending, 0~100 = singing, 100 = sung */
+  font-size: var(--lyric-size-active);
+  font-weight: 700;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  background: linear-gradient(
+    90deg,
+    #ffffff calc(var(--fill) * 1%),
+    rgba(255, 255, 255, 0.28) calc(var(--fill) * 1% + 0.5%)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  /* Smooth bounce return */
+  transition: transform 0.35s var(--ease-out-expo);
+}
+
+/* Currently singing char: float up */
+.lyric-line.active .char.singing {
+  transform: translateY(-4px);
+  transition: transform 0.18s var(--ease-spring);
+}
+
+/* === Player Controls Footer === */
+#player-controls {
+  flex-shrink: 0;
+  padding: 16px 0 28px;
+}
+
+/* Progress bar */
+#progress-wrapper {
+  margin-bottom: 14px;
+}
+
+#progress-bar {
+  position: relative;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: height 0.2s ease;
+}
+
+#progress-bar:hover {
+  height: 6px;
+}
+
+#progress-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent-start), var(--accent-mid), var(--accent-end));
+  border-radius: var(--radius-pill);
+  transition: width 0.1s linear;
+}
+
+#progress-glow {
+  position: absolute;
+  left: 0;
+  top: -2px;
+  height: calc(100% + 4px);
+  width: 0%;
+  background: linear-gradient(90deg, transparent 80%, rgba(168, 85, 247, 0.4));
+  border-radius: var(--radius-pill);
+  filter: blur(4px);
+  pointer-events: none;
+}
+
+#progress-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
+  transition: transform 0.2s var(--ease-spring);
+  pointer-events: none;
+}
+
+#progress-bar:hover #progress-thumb {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+#time-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Control buttons */
+#control-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+
+.ctrl-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.25s var(--ease-out-expo);
+}
+
+.ctrl-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+  transform: scale(1.1);
+}
+
+.ctrl-btn:active {
+  transform: scale(0.95);
+}
+
+.play-btn {
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, var(--accent-start), var(--accent-mid));
+  color: #fff !important;
+  box-shadow: 
+    0 4px 20px rgba(99, 102, 241, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s var(--ease-spring);
+}
+
+.play-btn:hover {
+  transform: scale(1.1) !important;
+  box-shadow: 
+    0 6px 30px rgba(99, 102, 241, 0.45),
+    0 3px 12px rgba(0, 0, 0, 0.4);
+  background: linear-gradient(135deg, var(--accent-mid), var(--accent-end));
+}
+
+.play-btn:active {
+  transform: scale(0.96) !important;
+}
+
+
+
+
+/* === Visualizer Bar (bottom accent) === */
+#player-controls::before {
+  content: '';
+  display: block;
+  height: 1px;
+  margin-bottom: 16px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(99, 102, 241, 0.3) 20%,
+    rgba(168, 85, 247, 0.5) 50%,
+    rgba(236, 72, 153, 0.3) 80%,
+    transparent
+  );
+}
+
+/* === Scrollbar === */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+/* === Responsive === */
+@media (max-width: 600px) {
+  #player-container {
+    padding: 0 16px;
+  }
+  
+  .lyric-line {
+    padding: 8px 12px;
+  }
+  
+  .play-btn {
+    width: 56px;
+    height: 56px;
+  }
+}
+
+/* === Loading state animation === */
+.lyric-line.loading-shimmer .char {
+  animation: shimmer 2s ease-in-out infinite;
+  animation-delay: calc(var(--char-index) * 0.05s);
+}
+
+@keyframes shimmer {
+  0%, 100% { color: var(--lyric-inactive); }
+  50% { color: rgba(255, 255, 255, 0.35); }
+}
+
+/* === Interlude dots animation === */
+.interlude-dots {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.interlude-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  animation: dotPulse 1.4s ease-in-out infinite;
+}
+
+.interlude-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.interlude-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes dotPulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.3); }
+}
+
+/* Active interlude dots */
+.lyric-line.active .interlude-dots span {
+  background: var(--accent-mid);
+  animation: dotPulseActive 1s ease-in-out infinite;
+}
+
+.lyric-line.active .interlude-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.lyric-line.active .interlude-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes dotPulseActive {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.5); }
+}
+
+/* === Mode Switch Button === */
+.mode-btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 8px 16px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.3s var(--ease-out-expo);
+  margin-right: 12px;
+}
+
+.mode-btn:hover {
+  color: var(--text-primary);
+  border-color: rgba(99, 102, 241, 0.4);
+  background-color: var(--bg-glass-hover);
+  transform: translateY(-1px);
+}
+
+.mode-btn:active {
+  transform: translateY(0);
+}
+

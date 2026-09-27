@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>M2V 歌词与字幕对齐编辑器</title>
+  <script src="/static/wavesurfer.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css?v=20260921e">
+</head>
+
+<body>
+  <header>
+    <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+      <h1 style="font-size: 14px; font-weight: bold; white-space: nowrap; margin: 0;">🎤 M2V 歌词</h1>
+      <!-- 快捷 Suno 导入栏 -->
+      <div id="suno-quick-bar" style="display: flex; align-items: center; gap: 4px; background: rgba(0,0,0,0.25); padding: 2px 4px; border-radius: 4px; border: 1px solid var(--border); flex-shrink: 0;">
+        <input id="suno-url-input" type="text" placeholder="粘贴 Suno 歌曲链接..."
+               style="width: 210px; height: 24px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; outline: none;"
+               onkeydown="if(event.key==='Enter') handleSunoImport()" />
+        <button id="btn-start-suno-import" onclick="handleSunoImport()" title="一键抓取并字级对齐"
+                style="background: linear-gradient(135deg, #ff416c, #ff4b2b); color: #fff; font-weight: 600; border: none; height: 24px; padding: 0 8px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⚡ 导入对齐</button>
+      </div>
+    </div>
+
+    <div id="song-selector" style="flex-shrink: 0;">
+      <select id="song-select" style="min-width: 140px; max-width: 180px;">
+        <option value="">加载中…</option>
+      </select>
+    </div>
+
+    <div id="toolbar">
+      <button id="btn-save" title="保存修改 (Ctrl+S)">💾 保存</button>
+      <button id="btn-undo" title="Ctrl+Z">↩ 撤销</button>
+      <button id="btn-redo" title="Ctrl+Y">↪ 重做</button>
+      <span class="sep">|</span>
+      <button id="btn-regen-ass" style="background: linear-gradient(135deg, #3b82f6, #2563eb); font-weight: 600;" title="从当前字级时间戳重新生成 ASS 字幕">📝 生成 ASS</button>
+      <span class="sep">|</span>
+      <button id="btn-export-lyric-video" style="background: linear-gradient(135deg, #10b981, #059669); color: #fff; font-weight: 600; border: none; height: 28px; padding: 0 10px; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0;" title="一键导出商业级 9:16 / 16:9 动效短视频">📱 导出动效短视频</button>
+      <span class="sep">|</span>
+      <a href="/storyboard" target="_blank" style="color: #61afef; text-decoration: none; font-size: 12px; height: 28px; line-height: 26px; padding: 0 8px; border: 1px solid #61afef44; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0;" title="前往下游制作图片素材与视频合成">🎬 分镜制作 ↗</a>
+      <span class="sep">|</span>
+      <span id="status-msg"></span>
+    </div>
+  </header>
+
+  <main>
+    <section id="waveform-section">
+      <!-- 人声轨 -->
+      <div class="track-row" id="track-vocals">
+        <div class="track-label">
+          <button class="track-mute-btn active" id="btn-mute-vocals" title="静音/取消静音人声轨">🎤 人声</button>
+        </div>
+        <div class="track-waveform" id="waveform-vocals"></div>
+      </div>
+      <!-- 乐器轨 -->
+      <div class="track-row" id="track-instrumental">
+        <div class="track-label">
+          <button class="track-mute-btn active" id="btn-mute-instrumental" title="静音/取消静音乐器轨">🎸 伴奏</button>
+        </div>
+        <div class="track-waveform" id="waveform-instrumental"></div>
+      </div>
+      <div id="waveform-controls">
+        <button id="btn-play-pause" title="Space">▶ 播放</button>
+        <button id="btn-play-line" title="Enter">▶ 播放选中行</button>
+        <span id="time-display">0:00.000 / 0:00.000</span>
+        <label style="font-size: 12px; color: var(--text-dim); margin-left: 10px;">缩放: <input id="zoom-slider" type="range" min="10" max="500" value="50"></label>
+      </div>
+    </section>
+
+    <div id="editor-container">
+      <!-- 左栏：歌词行列表与整行微调 -->
+      <section id="lyrics-panel" style="width: 42%;">
+        <div id="lyrics-list"></div>
+      </section>
+
+      <!-- 右栏：纯粹开阔的字级时间轴面板 -->
+      <section id="word-panel" style="flex: 1; display: flex; flex-direction: column;">
+        <div id="word-panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+          <span id="word-panel-title">点击左侧歌词行展开字级时间轴</span>
+          <div id="line-edit-controls" style="display:none">
+            <span style="font-size: 11px; color: var(--text-dim); margin-right: 4px;">整行:</span>
+            <button id="btn-line-nudge-left-big" title="整行前移 200ms">⬅ -200ms</button>
+            <button id="btn-line-nudge-left" title="整行前移 50ms">◁ -50ms</button>
+            <button id="btn-line-nudge-right" title="整行后移 50ms">▷ +50ms</button>
+            <button id="btn-line-nudge-right-big" title="整行后移 200ms">➡ +200ms</button>
+            <span class="sep">|</span>
+            <button id="btn-line-expand" title="行时长+100ms">↔ 展开</button>
+            <button id="btn-line-shrink" title="行时长-100ms">⇿ 收缩</button>
+          </div>
+        </div>
+
+        <!-- 宽敞的字级时间轴拖拽区域 -->
+        <div id="word-timeline" style="flex: 1; min-height: 280px; overflow-x: auto; overflow-y: hidden; padding: 20px; position: relative; background: #0f141c;"></div>
+
+        <!-- 单字精调工具栏 -->
+        <div id="word-controls">
+          <span style="font-size: 11px; color: var(--text-dim); margin-right: 4px;">选中字微调:</span>
+          <button id="btn-shift-left" title="快捷键 A">⬅ -50ms</button>
+          <button id="btn-nudge-left" title="快捷键 ←">◁ -10ms</button>
+          <button id="btn-nudge-right" title="快捷键 →">▷ +10ms</button>
+          <button id="btn-shift-right" title="快捷键 D">➡ +50ms</button>
+          <span class="sep">|</span>
+          <button id="btn-even-split">⚖ 均分整行时值</button>
+          <button id="btn-play-word">▶ 试听选中字</button>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- 导入进度提示浮层 -->
+  <div id="suno-import-progress" style="display: none; position: fixed; bottom: 20px; right: 20px; z-index: 99999; padding: 14px 20px; background: #1f232b; border-left: 4px solid #ff4b2b; box-shadow: 0 10px 30px rgba(0,0,0,0.8); border-radius: 8px; font-size: 13px; color: #eceff4;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <span style="font-size: 18px;">⏳</span>
+      <span id="suno-progress-text">正在从 Suno 提取歌曲信息与歌词...</span>
+  <!-- 动效歌词短视频导出弹窗 -->
+  <div id="lyric-export-modal" style="display: none; position: fixed; inset: 0; z-index: 10000; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); justify-content: center; align-items: center;">
+    <div style="background: #181b22; border: 1px solid #2d3342; border-radius: 12px; width: 680px; max-width: 95vw; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); display: flex; flex-direction: column;">
+      
+      <!-- Modal Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #2d3342;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 20px;">🎬</span>
+          <h2 style="font-size: 16px; font-weight: 700; margin: 0; color: #fff;">一键生成动效短视频 (短视频/商业化出片)</h2>
+        </div>
+        <button id="btn-close-lyric-modal" style="background: none; border: none; color: #8b949e; font-size: 20px; cursor: pointer; padding: 4px 8px; line-height: 1;">✕</button>
+      </div>
+
+      <!-- Modal Body -->
+      <div style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+        
+        <!-- 视频画幅比例 -->
+        <div>
+          <label style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">1. 视频画幅规格</label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <label class="ratio-option active" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0f1218; border: 1px solid #10b981; border-radius: 8px; cursor: pointer;">
+              <input type="radio" name="export-ratio" value="9:16" checked style="accent-color: #10b981;">
+              <div>
+                <div style="font-weight: 600; font-size: 13px; color: #fff;">📱 9:16 竖屏短视频 (1080x1920)</div>
+                <div style="font-size: 11px; color: #8b949e;">抖音、TikTok、小红书、Reels 爆款推荐</div>
+              </div>
+            </label>
+            <label class="ratio-option" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; cursor: pointer;">
+              <input type="radio" name="export-ratio" value="16:9" style="accent-color: #10b981;">
+              <div>
+                <div style="font-weight: 600; font-size: 13px; color: #fff;">💻 16:9 横屏高清 (1920x1080)</div>
+                <div style="font-size: 11px; color: #8b949e;">Bilibili、YouTube、PC 宽屏</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- 视觉背景动效 -->
+        <div>
+          <label style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">2. 动态背景风格</label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <label class="bg-option active" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0f1218; border: 1px solid #10b981; border-radius: 8px; cursor: pointer;">
+              <input type="radio" name="export-bg" value="blurred_ambient" checked style="accent-color: #10b981;">
+              <div>
+                <div style="font-weight: 600; font-size: 13px; color: #fff;">✨ 磨砂毛玻璃 + 封面立体悬浮</div>
+                <div style="font-size: 11px; color: #8b949e;">Apple Music 移动端视觉，质感极佳</div>
+              </div>
+            </label>
+            <label class="bg-option" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; cursor: pointer;">
+              <input type="radio" name="export-bg" value="vinyl" style="accent-color: #10b981;">
+              <div>
+                <div style="font-weight: 600; font-size: 13px; color: #fff;">💿 经典黑胶唱盘旋转</div>
+                <div style="font-size: 11px; color: #8b949e;">复古唱机氛围，旋转黑胶贴纸</div>
+              </div>
+            </label>
+            <label class="bg-option" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; cursor: pointer;">
+              <input type="radio" name="export-bg" value="ken_burns" style="accent-color: #10b981;">
+              <div>
+                <div style="font-weight: 600; font-size: 13px; color: #fff;">📷 慢速呼吸变焦 (Ken Burns)</div>
+                <div style="font-size: 11px; color: #8b949e;">封面原画全屏缓推呼吸微动效</div>
+              </div>
+            </label>
+            <label class="bg-option" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; cursor: pointer;">
+              <input type="radio" name="export-bg" value="solid_black" style="accent-color: #10b981;">
+              <div>
+                <div style="font-weight: 600; font-size: 13px; color: #fff;">🖤 纯黑极简工作室</div>
+                <div style="font-size: 11px; color: #8b949e;">深邃纯黑底色，凸显歌词过光</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- 歌词排版动效与配色 -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div>
+            <label style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">3. 歌词排版动效</label>
+            <select id="export-template-select" style="width: 100%; height: 36px; padding: 0 10px; background: #0f1218; border: 1px solid #2d3342; border-radius: 6px; color: #fff; font-size: 13px; outline: none;">
+              <option value="apple">🍎 Apple Music 滚动聚焦 (焦点放大/景深虚化)</option>
+              <option value="center_bounce">⚡ 极简居中弹性跳动 (爆款单行/弱显下一句)</option>
+              <option value="tv">🎤 经典 KTV 双行交替 (传统卡拉OK)</option>
+            </select>
+          </div>
+
+          <div>
+            <label style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">4. 荧光调色板</label>
+            <select id="export-theme-select" style="width: 100%; height: 36px; padding: 0 10px; background: #0f1218; border: 1px solid #2d3342; border-radius: 6px; color: #fff; font-size: 13px; outline: none;">
+              <option value="apple_white">⚪ 极简珍珠白 (高冷白光/半透灰白)</option>
+              <option value="cyber_neon">🔷 赛博电光霓虹 (电光青/霓虹粉)</option>
+              <option value="amber_gold">🟡 复古黑胶金 (琥珀金/焦糖棕)</option>
+              <option value="midnight_purple">🟣 极光冷艳紫 (薰衣草亮紫/幽邃紫)</option>
+              <option value="emerald_mint">🟢 清爽翡翠绿 (薄荷绿/森林青)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 渲染范围限制 (快速预览 vs 全曲出片) -->
+        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px;">
+          <div>
+            <span style="font-size: 13px; font-weight: 600; color: #fff;">渲染模式:</span>
+            <span style="font-size: 12px; color: #8b949e; margin-left: 6px;">可先生成前 20 秒快速预览样片，满意后一键全曲出片</span>
+          </div>
+          <div id="dur-limit-group" style="display: flex; gap: 8px;">
+            <button type="button" class="btn-dur-limit" data-limit="20" style="padding: 4px 10px; border-radius: 4px; font-size: 12px; border: 1px solid #2d3342; background: transparent; color: #8b949e; cursor: pointer;">20s 快速预览</button>
+            <button type="button" class="btn-dur-limit active" data-limit="0" style="padding: 4px 10px; border-radius: 4px; font-size: 12px; border: 1px solid #10b981; background: rgba(16, 185, 129, 0.2); color: #10b981; cursor: pointer;">整首完整视频</button>
+          </div>
+        </div>
+
+        <!-- 渲染进度条与状态提示 -->
+        <div id="lyric-render-progress-box" style="display: none; padding: 12px 14px; background: #0f1218; border: 1px solid #3b82f6; border-radius: 8px;">
+          <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
+            <span id="lyric-progress-text" style="color: #60a5fa; font-weight: 500;">正在准备渲染...</span>
+            <span id="lyric-progress-pct" style="color: #60a5fa; font-weight: 700;">0%</span>
+          </div>
+          <div style="height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden;">
+            <div id="lyric-progress-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #10b981); transition: width 0.3s ease;"></div>
+          </div>
+        </div>
+
+        <!-- 成片预览与下载区 -->
+        <div id="lyric-result-box" style="display: none; padding: 14px; background: #0f1218; border: 1px solid #10b981; border-radius: 8px; flex-direction: column; align-items: center; gap: 12px;">
+          <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+            <span style="color: #10b981; font-weight: 600; font-size: 13px;">🎉 动效短视频合成完成！</span>
+            <span id="lyric-result-meta" style="color: #94a3b8; font-size: 11px;"></span>
+          </div>
+          <video id="lyric-modal-video" controls playsinline style="max-height: 280px; max-width: 100%; border-radius: 6px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></video>
+          <div style="display: flex; gap: 10px; width: 100%;">
+            <a id="btn-download-lyric-mp4" download href="#" style="flex: 1; text-align: center; text-decoration: none; background: #10b981; color: #fff; font-weight: 600; padding: 8px 12px; border-radius: 6px; font-size: 13px;">⬇️ 立即下载 MP4 视频</a>
+            <button id="btn-re-render" type="button" style="background: #1e293b; color: #cbd5e1; border: 1px solid #334155; padding: 8px 14px; border-radius: 6px; font-size: 13px; cursor: pointer;">🔄 换个参数重新合成</button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div style="display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid #2d3342; background: #14171d; border-radius: 0 0 12px 12px;">
+        <button id="btn-cancel-lyric-modal" type="button" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #334155; background: transparent; color: #94a3b8; font-size: 13px; cursor: pointer;">关闭</button>
+        <button id="btn-start-lyric-export" type="button" style="padding: 8px 20px; border-radius: 6px; border: none; background: linear-gradient(135deg, #10b981, #059669); color: #fff; font-weight: 600; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">🚀 立即开始合成短视频</button>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="/static/common.js?v=20260923c"></script>
+  <script src="/static/lyric_editor.js?v=20260923c"></script>
+</body>
+
+</html>

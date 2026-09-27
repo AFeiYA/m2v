@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suno2MV — AI 导演与动态故事板 (Animatic Studio)</title>
+  <script src="/static/wavesurfer.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css?v=20260923a">
+  <style>
+    /* ── Animatic Studio 专属布局 ── */
+    .animatic-layout {
+      flex: 1;
+      display: flex;
+      gap: 16px;
+      padding: 14px 16px;
+      overflow: hidden;
+      background: #090c10;
+    }
+
+    .animatic-main-stage {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    /* 16:9 电影大屏视窗 */
+    .cinema-screen-container {
+      position: relative;
+      flex: 1;
+      min-height: 280px;
+      max-height: 520px;
+      background: #000;
+      border: 1px solid #1f2937;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    }
+
+    .cinema-viewport {
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .cinema-viewport img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      transform-origin: center center;
+      transition: filter 0.3s ease;
+    }
+
+    /* Ken Burns 电影运镜动画 */
+    .motion-slow_dolly_in, .motion-zoomin {
+      animation: kbZoomIn 6s ease-out forwards;
+    }
+    .motion-dolly_out, .motion-zoomout {
+      animation: kbZoomOut 6s ease-out forwards;
+    }
+    .motion-pan_left {
+      animation: kbPanLeft 6s ease-out forwards;
+    }
+    .motion-pan_right {
+      animation: kbPanRight 6s ease-out forwards;
+    }
+    .motion-crane_up, .motion-tilt_up {
+      animation: kbCraneUp 6s ease-out forwards;
+    }
+    .motion-tilt_down {
+      animation: kbTiltDown 6s ease-out forwards;
+    }
+
+    @keyframes kbZoomIn {
+      from { transform: scale(1.0); }
+      to { transform: scale(1.10); }
+    }
+    @keyframes kbZoomOut {
+      from { transform: scale(1.10); }
+      to { transform: scale(1.0); }
+    }
+    @keyframes kbPanLeft {
+      from { transform: scale(1.06) translateX(2%); }
+      to { transform: scale(1.06) translateX(-2%); }
+    }
+    @keyframes kbPanRight {
+      from { transform: scale(1.06) translateX(-2%); }
+      to { transform: scale(1.06) translateX(2%); }
+    }
+    @keyframes kbCraneUp {
+      from { transform: scale(1.06) translateY(2.5%); }
+      to { transform: scale(1.06) translateY(-2.5%); }
+    }
+    @keyframes kbTiltDown {
+      from { transform: scale(1.06) translateY(-2.5%); }
+      to { transform: scale(1.06) translateY(2.5%); }
+    }
+
+    /* 电影视窗 HUD 浮层 */
+    .screen-hud-top {
+      position: absolute;
+      top: 12px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    .hud-badge {
+      background: rgba(13, 17, 23, 0.85);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: #f3f4f6;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+    }
+
+    .hud-badge-accent {
+      border-color: rgba(99, 102, 241, 0.4);
+      color: #818cf8;
+      font-weight: 600;
+    }
+
+    .screen-lyric-bar {
+      position: absolute;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      padding: 6px 22px;
+      color: #ffffff;
+      font-size: 15px;
+      letter-spacing: 1px;
+      text-align: center;
+      max-width: 85%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    /* 视听时间轴轨道 (Timeline Tracks) */
+    .animatic-timeline-box {
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 6px;
+      padding: 8px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      user-select: none;
+    }
+
+    .track-title-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #9ca3af;
+      margin-bottom: 2px;
+    }
+
+    .visual-timeline-track {
+      position: relative;
+      height: 38px;
+      background: #030712;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      display: flex;
+      white-space: nowrap;
+    }
+
+    .visual-timeline-track::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    .visual-timeline-track::-webkit-scrollbar-thumb {
+      background: #4b5563;
+      border-radius: 2px;
+    }
+
+    .timeline-shot-block {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      border-right: 1px solid #1f2937;
+      padding: 0 6px;
+      font-size: 11px;
+      color: #d1d5db;
+      background: #1f2937;
+      cursor: pointer;
+      position: relative;
+      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .timeline-shot-block:hover {
+      background: #374151;
+    }
+
+    .timeline-shot-block.active {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.4), rgba(139, 92, 246, 0.4));
+      border: 1px solid #818cf8;
+      color: #ffffff;
+      font-weight: bold;
+    }
+
+    .timeline-shot-block.is-chorus {
+      border-bottom: 2px solid #f59e0b;
+    }
+
+    /* 右侧检视面板 */
+    .animatic-inspector {
+      width: 360px;
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .inspector-header {
+      padding: 12px 16px;
+      background: #0f172a;
+      border-bottom: 1px solid #1f2937;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .inspector-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .form-group label {
+      font-size: 11px;
+      color: #9ca3af;
+      font-weight: 500;
+    }
+
+    .form-group input, .form-group select, .form-group textarea {
+      background: #030712;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      padding: 6px 8px;
+      color: #f3f4f6;
+      font-size: 12px;
+      font-family: inherit;
+    }
+
+    .form-group textarea {
+      resize: vertical;
+      min-height: 52px;
+      line-height: 1.4;
+    }
+
+    /* 视图切换按钮组 */
+    .mode-switch-group {
+      display: inline-flex;
+      background: #030712;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      padding: 2px;
+    }
+
+    .mode-switch-btn {
+      background: transparent;
+      border: none;
+      color: #9ca3af;
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
+    .mode-switch-btn.active {
+      background: #374151;
+      color: #ffffff;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1 style="font-size: 14px; font-weight: 600; white-space: nowrap; margin: 0; flex-shrink: 0; display: flex; align-items: center; gap: 6px;">
+      🎬 <span style="background: linear-gradient(135deg, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Suno2MV</span>
+      <span style="font-size: 11px; color: #9ca3af; font-weight: normal;">AI 导演与动态分镜工作台</span>
+    </h1>
+
+    <div id="song-selector" style="flex-shrink: 0;">
+      <select id="song-select" style="min-width: 140px; max-width: 180px;">
+        <option value="">加载中…</option>
+      </select>
+    </div>
+
+    <!-- 模式切换: Animatic 样片播放 vs 首帧画廊 vs 表格编辑 -->
+    <div class="mode-switch-group">
+      <button id="btn-mode-animatic" class="mode-switch-btn active" title="全曲动态分镜样片播放与导演监看">🎬 Animatic 样片</button>
+      <button id="btn-mode-gallery" class="mode-switch-btn" title="全片 60 镜首帧概念画廊与批量出图">🎨 首帧画廊</button>
+      <button id="btn-mode-table" class="mode-switch-btn" title="传统分镜表格与素材映射">📋 分镜列表</button>
+    </div>
+
+    <div id="toolbar">
+      <button id="btn-auto-direct" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; font-weight: 600; border: none;" title="执行音乐特征分析与 AI 导演剧作，秒级生成 30+ 连贯分镜">⚡ 离线快速分镜</button>
+      <button id="btn-llm-director" style="background: linear-gradient(135deg, #0ea5e9, #2563eb); color: #fff; font-weight: 600; border: none;" title="生成大模型 Prompt 并一键回填 JSON 数据">🤖 大模型提词与回填</button>
+      <span class="sep">|</span>
+      <button id="btn-save" title="Ctrl+S">💾 保存工程</button>
+      <span class="sep">|</span>
+      <button id="btn-generate" style="background: linear-gradient(135deg, #10b981, #059669); font-weight: 600; border: none;">🎬 合成视频输出...</button>
+      <span class="sep">|</span>
+      <!-- ComfyUI 本机状态指示灯 -->
+      <div id="comfyui-status-bar" style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; background: #0b0f17; border: 1px solid #1f2937; border-radius: 4px; font-size: 11px;">
+        <span id="comfyui-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+        <span id="comfyui-status-text" style="color: #9ca3af;">ComfyUI 未连接</span>
+        <button id="btn-comfyui-start" style="display: none; padding: 1px 6px; background: #1e1b4b; border: 1px solid #4f46e5; color: #a5b4fc; border-radius: 3px; font-size: 10px; cursor: pointer;">🚀 启动</button>
+      </div>
+      <span class="sep">|</span>
+      <a href="/" style="color: #61afef; text-decoration: none; font-size: 12px; height: 28px; line-height: 26px; padding: 0 8px; border: 1px solid #61afef44; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0;">📝 歌词字级精调</a>
+      <span id="status-msg"></span>
+    </div>
+  </header>
+
+  <main>
+    <!-- 双轨波形音频播放器 (共用核心底层) -->
+    <section id="waveform-section">
+      <div class="track-row" id="track-vocals">
+        <div class="track-label">
+          <button class="track-mute-btn active" id="btn-mute-vocals">🎤 人声</button>
+        </div>
+        <div class="track-waveform" id="waveform-vocals"></div>
+      </div>
+      <div class="track-row" id="track-instrumental">
+        <div class="track-label">
+          <button class="track-mute-btn active" id="btn-mute-instrumental">🎸 伴奏</button>
+        </div>
+        <div class="track-waveform" id="waveform-instrumental"></div>
+      </div>
+      <div id="waveform-controls">
+        <button id="btn-play-pause" title="Space" style="background: #6366f1; color: #fff; font-weight: bold;">▶ 播放 Animatic</button>
+        <button id="btn-play-line" title="Enter">▶ 播放当前镜头</button>
+        <span id="time-display">0:00.000 / 0:00.000</span>
+        <label>缩放: <input id="zoom-slider" type="range" min="10" max="500" value="50"></label>
+        <span style="margin-left: auto; font-size: 11px; color: #9ca3af;" id="animatic-status-summary">未加载工程</span>
+      </div>
+    </section>
+
+    <!-- 1. 核心视图：Animatic 动态故事板监看台 -->
+    <div id="view-animatic" class="animatic-layout">
+      <!-- 主舞台 -->
+      <section class="animatic-main-stage">
+        <!-- 电影大屏视窗 -->
+        <div class="cinema-screen-container" id="cinema-container">
+          <div class="cinema-viewport" id="animatic-viewport">
+            <img id="animatic-img" src="" alt="分镜预览" style="display: none;">
+            <video id="animatic-video" autoplay loop muted playsinline style="display: none; width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; z-index: 1;"></video>
+            
+            <!-- 构图安全区 HUD 遮罩 -->
+            <div id="safe-zone-overlay" style="display: none; position: absolute; inset: 0; pointer-events: none; border: 2px dashed rgba(99, 102, 241, 0.4); z-index: 5;">
+              <div style="position: absolute; left: 33.33%; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.12);"></div>
+              <div style="position: absolute; left: 66.66%; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.12);"></div>
+              <div style="position: absolute; top: 33.33%; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.12);"></div>
+              <div style="position: absolute; top: 66.66%; left: 0; right: 0; height: 1px; background: rgba(255,255,255,0.12);"></div>
+              <!-- 主体对焦靶心 -->
+              <div id="safe-zone-subject-target" style="position: absolute; width: 72px; height: 72px; transform: translate(-50%, -50%); border: 2px solid #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; left: 50%; top: 50%; transition: all 0.3s ease;">
+                <span style="font-size: 10px; color: #fca5a5; background: rgba(0,0,0,0.7); padding: 1px 4px; border-radius: 2px;">主体焦点</span>
+              </div>
+              <!-- 建议文字排版区 -->
+              <div id="safe-zone-text-anchor" style="position: absolute; bottom: 12px; left: 24px; background: rgba(16, 185, 129, 0.25); border: 1px dashed #10b981; color: #6ee7b7; font-size: 11px; padding: 3px 10px; border-radius: 4px; transition: all 0.3s ease;">
+                ✍️ 建议排版区 (Safe Text Zone)
+              </div>
+            </div>
+
+            <div id="animatic-empty-placeholder" style="color: #6b7280; font-size: 14px; text-align: center;">
+              <p style="font-size: 28px; margin-bottom: 8px;">🎬</p>
+              <p>暂无分镜预览图</p>
+              <p style="font-size: 12px; margin-top: 4px; color: #4b5563;">点击右上角「⚡ AI 导演一键分镜」立刻生成 30+ 影视级卡点分镜</p>
+            </div>
+          </div>
+
+          <!-- HUD 顶部悬浮信息 -->
+          <div class="screen-hud-top" id="screen-hud">
+            <span class="hud-badge" id="hud-shot-badge">SHOT -- • 等待播放</span>
+            <div style="display: flex; gap: 8px; pointer-events: auto;">
+              <span class="hud-badge hud-badge-accent" id="hud-specs-badge">[MS] • [STATIC]</span>
+              <button id="btn-toggle-safe-zone" class="hud-badge" style="cursor: pointer; background: #1e1b4b; border-color: #6366f1; color: #a5b4fc;" title="切换构图安全区显示">📐 安全区</button>
+            </div>
+          </div>
+
+          <!-- 底部歌词悬浮字幕条 -->
+          <div class="screen-lyric-bar" id="hud-lyric-bar">（等待播放）</div>
+        </div>
+
+        <!-- 视听时间轴轨道 (Shots Timeline Track) -->
+        <div class="animatic-timeline-box">
+          <div class="track-title-row">
+            <span>🎞️ 镜头卡点时间轴 (点击任意分镜跳转)</span>
+            <span style="font-size: 11px; color: #6b7280;">拖拽卡片调整顺序 • 连续性蒙太奇校验</span>
+          </div>
+          <div class="shots-timeline-track" id="shots-timeline-track">
+            <!-- 动态渲染镜头胶卷卡片 -->
+          </div>
+        </div>
+      </section>
+
+      <!-- 右侧检视面板 (Shot Inspector) -->
+      <aside class="animatic-inspector">
+        <div class="inspector-header">
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <h3 style="font-size: 13px; font-weight: 600; margin: 0; color: #e5e7eb;" id="inspector-title">🎯 分镜镜头检视</h3>
+            <div style="display: flex; gap: 6px; align-items: center; margin-top: 2px;">
+              <span id="inspector-sequence-badge" style="font-size: 10px; background: #312e81; color: #c7d2fe; padding: 1px 6px; border-radius: 3px;">SEQ --</span>
+              <span id="inspector-intensity-badge" style="font-size: 10px; background: #064e3b; color: #6ee7b7; padding: 1px 6px; border-radius: 3px;">张力: --</span>
+            </div>
+          </div>
+          <span id="inspector-duration-badge" style="font-size: 11px; background: #1e293b; color: #818cf8; padding: 2px 6px; border-radius: 4px;">0.00s</span>
+        </div>
+
+        <div class="inspector-body">
+          <div class="form-group">
+            <label>镜头时间区间 (秒)</label>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="inspector-start" placeholder="0.000" style="flex: 1;">
+              <input type="text" id="inspector-end" placeholder="0.000" style="flex: 1;">
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px;">
+            <div class="form-group" style="flex: 1;">
+              <label>影视景别 (Scale)</label>
+              <select id="inspector-scale">
+                <option value="ECU">ECU 大特写</option>
+                <option value="CU">CU 特写</option>
+                <option value="MCU">MCU 中近景</option>
+                <option value="MS" selected>MS 中景</option>
+                <option value="MLS">MLS 中远景</option>
+                <option value="WS">WS 全景</option>
+                <option value="EWS">EWS 大全景</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label>摄影运镜 (Camera Motion)</label>
+              <select id="inspector-motion">
+                <option value="static">固定镜头 (Static)</option>
+                <option value="slow_dolly_in">慢速推进 (Dolly In)</option>
+                <option value="dolly_out">镜头拉开 (Dolly Out)</option>
+                <option value="pan_left">向左平摇 (Pan Left)</option>
+                <option value="pan_right">向右平摇 (Pan Right)</option>
+                <option value="crane_up">摇臂升起 (Crane Up)</option>
+                <option value="tilt_up">镜头仰起 (Tilt Up)</option>
+                <option value="tilt_down">镜头俯视 (Tilt Down)</option>
+                <option value="tracking">跟拍滑轨 (Tracking)</option>
+                <option value="handheld">呼吸手持 (Handheld)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 8px;">
+            <div class="form-group" style="flex: 1;">
+              <label style="color: #cbd5e1;">🎯 主体安全区 (Subject Zone)</label>
+              <select id="inspector-subject-zone">
+                <option value="center" selected>center 居中</option>
+                <option value="center_left">center_left 中偏左</option>
+                <option value="center_right">center_right 中偏右</option>
+                <option value="top_center">top_center 上居中</option>
+                <option value="top_left">top_left 左上</option>
+                <option value="top_right">top_right 右上</option>
+                <option value="bottom_center">bottom_center 下居中</option>
+                <option value="bottom_left">bottom_left 左下</option>
+                <option value="bottom_right">bottom_right 右下</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 1;">
+              <label style="color: #6ee7b7;">✍️ 建议排版区 (Text Zone)</label>
+              <select id="inspector-text-zone">
+                <option value="bottom_center" selected>bottom_center 底部居中</option>
+                <option value="bottom_left">bottom_left 底部靠左</option>
+                <option value="bottom_right">bottom_right 底部靠右</option>
+                <option value="top_center">top_center 顶部居中</option>
+                <option value="vertical_left">vertical_left 左侧竖排</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>叙事目标与动作描述</label>
+            <textarea id="inspector-action" placeholder="描述此镜头中主体动作与光影流动..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label style="color: #67e8f9; font-weight: 500;">🎬 导演设计构思 (Design Rationale)</label>
+            <textarea id="inspector-rationale" placeholder="说明该景别、光影与画面氛围设计原因，如何映射歌词情感与戏剧张力..." style="min-height: 58px;"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label style="color: #f472b6; font-weight: 500;">🔗 镜头衔接语言 (Transition / Montage)</label>
+            <textarea id="inspector-transition" placeholder="说明与前后镜头的视听连接语言（如：动势匹配 Match Cut、视线引导、景别对比等蒙太奇语法）..." style="min-height: 58px;"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label>对应歌词 / 乐段</label>
+            <input type="text" id="inspector-lyric" readonly style="color: #9ca3af; background: #0b0f17;">
+          </div>
+
+          <div class="form-group">
+            <label style="color: #38bdf8; font-weight: 600; display: flex; justify-content: space-between;">
+              <span>📸 首帧画面与微观材质 (FLUX 12B)</span>
+              <span style="font-size: 9px; color: #7dd3fc; font-weight: normal;">纯静态·禁运镜</span>
+            </label>
+            <textarea id="inspector-keyframe-prompt" style="font-size: 11px; font-family: monospace; color: #bae6fd; min-height: 52px;" placeholder="聚焦材质微观、冰裂釉纹、光学景深与自然布光，严禁运镜动词..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label style="color: #c084fc; font-weight: 600; display: flex; justify-content: space-between;">
+              <span>🎬 时空运镜与物理演进 (LTX-I2V)</span>
+              <span style="font-size: 9px; color: #d8b4fe; font-weight: normal;">物理动势·刚体保真</span>
+            </label>
+            <textarea id="inspector-motion-prompt" style="font-size: 11px; font-family: monospace; color: #e9d5ff; min-height: 48px;" placeholder="聚焦运镜轨迹 (slow dolly in)、匀速推进、主体刚体保真与环境微光流动..."></textarea>
+          </div>
+
+          <!-- 一镜到底与尾帧无缝切换 (可选) -->
+          <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid #334155; border-radius: 4px; padding: 6px 8px; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <span style="font-size: 11px; font-weight: 600; color: #fbbf24;">🔄 一镜到底与尾帧衔接</span>
+              <select id="inspector-continuity-mode" style="font-size: 10px; background: #0b0f17; border: 1px solid #475569; color: #fbbf24; border-radius: 3px; padding: 1px 4px;">
+                <option value="cut">普通硬切 (Cut)</option>
+                <option value="match_cut">匹配剪辑 (Match Cut)</option>
+                <option value="one_take_continuous">一镜到底 (One-Take)</option>
+              </select>
+            </div>
+            <textarea id="inspector-endframe-prompt" style="font-size: 10px; font-family: monospace; color: #fde68a; min-height: 38px; width: 100%; box-sizing: border-box; margin-bottom: 4px;" placeholder="尾帧画面描述（可选，用于生成尾帧或传递给下一镜首帧）..."></textarea>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <div id="inspector-endframe-box" style="width: 58px; height: 34px; background: #000; border: 1px solid #475569; border-radius: 3px; overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                <span style="font-size: 8px; color: #64748b;">无尾帧</span>
+              </div>
+              <div style="flex: 1; display: flex; flex-direction: column; gap: 3px;">
+                <button id="btn-generate-endframe" style="width: 100%; padding: 3px 5px; background: #78350f; border: 1px solid #b45309; color: #fef3c7; border-radius: 3px; font-size: 9px; font-weight: 600; cursor: pointer;">
+                  📸 生成尾帧 (FLUX)
+                </button>
+                <button id="btn-link-one-take" style="width: 100%; padding: 3px 5px; background: #1e3a8a; border: 1px solid #3b82f6; color: #dbeafe; border-radius: 3px; font-size: 9px; font-weight: 600; cursor: pointer;">
+                  🔗 传递至下一镜首帧
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 兼容性全景提示词 (折叠隐藏或辅助查看) -->
+          <div class="form-group" style="margin-bottom: 6px;">
+            <label style="font-size: 10px; color: #64748b;">全景通用提示词 (Legacy Prompt EN)</label>
+            <textarea id="inspector-prompt" style="font-size: 10px; font-family: monospace; color: #64748b; min-height: 32px;" placeholder="全景通用提示词..."></textarea>
+          </div>
+
+          <!-- 本地 ComfyUI 两阶段生产阶梯 -->
+          <div style="background: #090d16; border: 1px solid #1e293b; border-radius: 6px; padding: 10px; margin-top: 6px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="font-size: 11px; font-weight: 600; color: #818cf8; display: flex; align-items: center; gap: 4px;">
+                ⚡ 本地 ComfyUI 影视级生产
+              </span>
+              <span id="comfyui-engine-tag" style="font-size: 10px; background: #1e1b4b; color: #c7d2fe; padding: 1px 5px; border-radius: 3px;">两阶段工坊</span>
+            </div>
+
+            <!-- 阶段 1: 电影首帧工坊 -->
+            <div style="background: rgba(17, 24, 39, 0.6); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 4px; padding: 6px 8px; margin-bottom: 6px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span style="font-size: 11px; font-weight: 600; color: #e0e7ff;">1️⃣ 电影首帧 (FLUX 12B)</span>
+                <span id="keyframe-status-tag" style="font-size: 9px; padding: 1px 4px; border-radius: 2px; background: #1f2937; color: #9ca3af;">未生成</span>
+              </div>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <div id="inspector-keyframe-box" style="width: 72px; height: 42px; background: #000; border: 1px solid #374151; border-radius: 3px; overflow: hidden; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                  <span style="font-size: 8px; color: #6b7280;">无首帧</span>
+                </div>
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 3px;">
+                  <button id="btn-generate-keyframe" style="width: 100%; padding: 4px 6px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: white; border-radius: 3px; font-size: 10px; font-weight: 600; cursor: pointer;">
+                    📸 生成/重刷首帧 (~5s)
+                  </button>
+                  <span style="font-size: 8px; color: #9ca3af; line-height: 1.1;">锁死陶瓷/光影真实细节</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 阶段 2: 动态视频摄影 (I2V) -->
+            <div style="background: rgba(17, 24, 39, 0.6); border: 1px solid rgba(139, 92, 246, 0.2); border-radius: 4px; padding: 6px 8px; margin-bottom: 8px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span style="font-size: 11px; font-weight: 600; color: #ede9fe;">2️⃣ 驱动动态 (LTX-I2V)</span>
+                <span style="font-size: 9px; color: #c4b5fd;">以首帧为物理输入</span>
+              </div>
+              <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+                <select id="comfyui-res-select" style="flex: 1; font-size: 10px; padding: 3px 4px; background: #0b0f17; border: 1px solid #374151; color: #e5e7eb; border-radius: 3px;">
+                  <option value="768x448" selected>768x448 (16:9)</option>
+                  <option value="832x480">832x480</option>
+                  <option value="768x512">768x512</option>
+                </select>
+                <select id="comfyui-steps-select" style="flex: 1; font-size: 10px; padding: 3px 4px; background: #0b0f17; border: 1px solid #374151; color: #e5e7eb; border-radius: 3px;">
+                  <option value="15" selected>15 步采样</option>
+                  <option value="20">20 步精细</option>
+                  <option value="10">10 步极速</option>
+                </select>
+              </div>
+              <button id="btn-generate-i2v" style="width: 100%; padding: 4px 6px; background: linear-gradient(135deg, #7c3aed, #9333ea); border: none; color: white; border-radius: 3px; font-size: 10px; font-weight: 600; cursor: pointer;">
+                🎬 驱动镜头动态 (I2V 生成 Take)
+              </button>
+            </div>
+
+            <!-- 快捷一键直达 -->
+            <button id="btn-comfyui-two-stage" style="width: 100%; padding: 6px 8px; background: linear-gradient(135deg, #4f46e5, #7c3aed); border: none; color: white; border-radius: 4px; font-size: 10px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;">
+              <span>⚡ 一键两阶段直达 (首帧 + 视频)</span>
+            </button>
+
+            <!-- 任务进度展示条 -->
+            <div id="comfyui-progress-box" style="display: none; margin-top: 8px; flex-direction: column; gap: 4px;">
+              <div style="display: flex; justify-content: space-between; font-size: 10px; color: #a5b4fc;">
+                <span id="comfyui-progress-msg">正在推理...</span>
+                <span id="comfyui-progress-num">0%</span>
+              </div>
+              <div style="width: 100%; height: 4px; background: #1f2937; border-radius: 2px; overflow: hidden;">
+                <div id="comfyui-progress-bar" style="width: 0%; height: 100%; background: #6366f1; transition: width 0.3s ease;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 候选 Takes 列表 -->
+          <div class="form-group" style="margin-top: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <label style="margin: 0; font-size: 11px; color: #9ca3af;">候选生成素材 (Takes)</label>
+              <span id="takes-count-badge" style="font-size: 10px; color: #818cf8;">0 个候选</span>
+            </div>
+            <div id="inspector-takes-list" style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; max-height: 180px; overflow-y: auto; padding-right: 2px;">
+              <!-- 动态 Takes -->
+            </div>
+          </div>
+
+          <button id="btn-render-current-frame" style="padding: 6px 12px; background: #1f2937; border: 1px solid #374151; color: #e5e7eb; border-radius: 4px; cursor: pointer; font-size: 11px; margin-top: auto;">
+            🖼️ 重新渲染故事板卡片
+          </button>
+        </div>
+      </aside>
+    </div>
+
+    <!-- 2. 全片首帧美术画廊视图 (Keyframe Artboard) -->
+    <div id="view-gallery" class="storyboard-layout" style="display: none; flex-direction: column; overflow-y: auto; padding: 16px; background: #0b0f17; gap: 16px; width: 100%;">
+      <div style="display: flex; justify-content: space-between; align-items: center; background: #111827; border: 1px solid #1f2937; padding: 10px 16px; border-radius: 6px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <h2 style="font-size: 13px; font-weight: 600; margin: 0; color: #f3f4f6;">🎨 全片首帧概念画廊 (Keyframe Artboard)</h2>
+          <span style="font-size: 11px; color: #9ca3af;">宏观统揽全片影调、色系演化与材质一致性</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-batch-generate-keyframes" style="padding: 5px 12px; background: linear-gradient(135deg, #0284c7, #0369a1); border: none; color: white; border-radius: 4px; font-size: 11px; font-weight: 600; cursor: pointer;">
+            ⚡ 批量生成前10镜首帧 (FLUX 12B)
+          </button>
+        </div>
+      </div>
+      <div id="gallery-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; padding-bottom: 30px;">
+        <!-- 动态渲染 60 个镜头的卡片 -->
+      </div>
+    </div>
+
+    <!-- 3. 次要视图：传统分镜表格视图 (保持 100% 兼容历史功能) -->
+    <div id="view-table" class="storyboard-layout" style="display: none;">
+      <!-- 歌词参考栏 -->
+      <section class="sb-col-left" style="width: 35%;">
+        <div style="padding: 10px 14px; background: #0d1117; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: bold;">
+          📑 歌词行时间轴（点击行同步分镜时间）
+        </div>
+        <div id="lyrics-list" style="flex: 1; overflow-y: auto; padding: 4px 0;"></div>
+      </section>
+
+      <!-- 分镜设置与列表 -->
+      <section class="sb-col-right">
+        <div class="card-panel" style="display: flex; gap: 20px; align-items: flex-start;">
+          <div id="asset-preview" style="width: 200px; height: 112px; background: #000; border: 1px solid var(--border); border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden;">
+            <span style="color: var(--text-dim); font-size: 12px;">无素材预览</span>
+          </div>
+          <div id="asset-form" style="flex: 1; display: flex; flex-direction: column; gap: 10px;">
+            <div class="asset-row" style="display: flex; align-items: center; gap: 10px;">
+              <button id="btn-browse-assets" style="padding: 6px 14px; border-radius: 4px; background: var(--bg-hover); color: var(--text); border: 1px solid var(--border); cursor: pointer;">📁 选择/上传素材</button>
+              <span id="current-asset-name" style="font-size: 13px; color: var(--accent);">未选择</span>
+            </div>
+            <div class="asset-row" style="display: flex; gap: 16px; align-items: center;">
+              <label style="font-size: 13px;">开始: <input type="text" id="asset-start" class="time-input" placeholder="0:00.000" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--text);"></label>
+              <label style="font-size: 13px;">结束: <input type="text" id="asset-end" class="time-input" placeholder="0:00.000" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--text);"></label>
+              <button id="btn-asset-sync" style="padding: 4px 10px; border-radius: 4px; background: var(--bg-hover); color: var(--text); border: 1px solid var(--border); cursor: pointer;">⚡ 同步选中歌词行时间</button>
+              <button id="btn-asset-add" style="padding: 4px 14px; border-radius: 4px; background: var(--accent); color: #fff; border: none; font-weight: 600; cursor: pointer;">➕ 插入分镜事件</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-panel" style="flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 0;">
+          <div style="padding: 10px 14px; background: #0d1117; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: bold;">
+            🎬 分镜时间轴列表
+          </div>
+          <div id="storyboard-list-container" style="flex: 1; overflow-y: auto;">
+            <table id="storyboard-table" style="width: 100%; border-collapse: collapse;">
+              <thead>
+                <tr>
+                  <th style="padding: 8px 12px;">素材名称 / 预览</th>
+                  <th style="padding: 8px 12px; width: 120px;">开始时间</th>
+                  <th style="padding: 8px 12px; width: 120px;">结束时间</th>
+                  <th style="padding: 8px 12px; width: 80px;">操作</th>
+                </tr>
+              </thead>
+              <tbody id="storyboard-list"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- 素材库弹窗 -->
+  <div id="asset-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>📁 素材库管理</h3>
+        <button id="btn-close-asset" class="close-btn">&times;</button>
+      </div>
+      <div id="asset-upload-row" style="margin-bottom:12px; display:flex; align-items:center; gap:10px;">
+        <label id="btn-upload-asset"
+          style="cursor:pointer; background:var(--bg-hover); color:var(--text); border:1px solid var(--border); padding:6px 14px; border-radius:4px; font-size:13px;">
+          📤 上传本地图片
+          <input type="file" id="asset-file-input" accept="image/*" multiple style="display:none;">
+        </label>
+        <span id="upload-status" style="font-size:12px; color:var(--text-dim);"></span>
+      </div>
+      <div id="asset-grid"></div>
+    </div>
+  </div>
+
+  <!-- 生成视频弹窗 -->
+  <div id="generate-modal" class="modal">
+    <div class="modal-content" style="max-width: 440px; padding: 24px;">
+      <div class="modal-header">
+        <h3>🎬 合成视频输出</h3>
+        <button class="close-btn" id="btn-close-generate">&times;</button>
+      </div>
+      <div style="margin-top: 15px;">
+        <div style="margin-bottom: 15px;">
+          <label><strong>排版风格:</strong></label><br>
+          <label style="margin-right: 15px;"><input type="radio" name="gen-render-mode" value="apple" checked> 滚动聚焦 (Apple Music)</label>
+          <label><input type="radio" name="gen-render-mode" value="tv"> 双行 (KTV)</label>
+        </div>
+        <div style="margin-bottom: 15px;">
+          <label><strong>变色动画:</strong></label><br>
+          <label style="margin-right: 15px;"><input type="radio" name="gen-tag-type" value="kf" checked> 平滑变色 (\kf)</label>
+          <label><input type="radio" name="gen-tag-type" value="k"> 逐字跳变 (\k)</label>
+        </div>
+        <div style="margin-bottom: 15px;">
+          <label><strong>输出方式:</strong></label><br>
+          <label style="margin-right: 15px;"><input type="radio" name="gen-mode" value="video" checked> 合成 MP4 视频</label>
+          <label><input type="radio" name="gen-mode" value="ass"> 仅导出 ASS 字幕</label>
+        </div>
+        <button id="btn-confirm-generate" style="width: 100%; padding: 10px; font-size: 15px; font-weight: bold; background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: none; border-radius: 6px; cursor: pointer;">开始合成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 大模型提词与回填弹窗 -->
+  <div id="llm-director-modal" class="modal">
+    <div class="modal-content" style="max-width: 860px; max-height: 85vh; display: flex; flex-direction: column; padding: 20px;">
+      <div class="modal-header" style="margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+          <span>🤖</span> AI 导演大模型深度模式 (Prompt 导出 / JSON 回填)
+        </h3>
+        <button id="btn-close-llm-modal" class="close-btn">&times;</button>
+      </div>
+
+      <!-- 模式切换标签页 -->
+      <div style="display: flex; gap: 10px; margin-bottom: 14px;">
+        <button id="tab-llm-prompt" class="mode-switch-btn active" style="flex: 1; padding: 8px;">📤 步骤 1: 复制大模型提示词 (Prompt)</button>
+        <button id="tab-llm-backfill" class="mode-switch-btn" style="flex: 1; padding: 8px;">📥 步骤 2: 回填大模型返回数据 (JSON)</button>
+      </div>
+
+      <!-- 面板 1: Prompt 导出区 -->
+      <div id="panel-llm-prompt" style="display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 10px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #0b1120; padding: 8px 12px; border-radius: 6px; border: 1px solid #1e293b;">
+          <label style="font-size: 12px; color: #94a3b8; font-weight: 500; display: flex; align-items: center; gap: 8px;">
+            <span>🎛️ 导演提示词模式:</span>
+            <select id="select-llm-mode" style="background: #020617; color: #38bdf8; border: 1px solid #334155; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500;">
+              <option value="dual_track" selected>🎯 双轨工业级导演 (画面与字幕彻底解耦 - 推荐)</option>
+              <option value="shot_director">🎬 纯分镜画面导演 (纯画面Prompt / 摄影参数 / 构图安全区)</option>
+              <option value="typography_director">✍️ 歌词动效导演 (歌词排版 / 避让安全区 / 字级动效)</option>
+            </select>
+          </label>
+          <span style="font-size: 11px; color: #64748b;">双轨解耦: 视频画面不包含字幕，由后期排版轨渲染</span>
+        </div>
+        <div style="font-size: 12px; color: var(--text-dim); line-height: 1.5;">
+          💡 系统已自动将当前歌曲工程转换为包含<strong>字级相对时间轴 (0.500s 起始)、构图安全区、纯画面摄影Prompt与动态文字排版</strong>的工业级提示词。<br>
+          点击下方按钮一键复制，发送给 <strong>Claude 3.7 / GPT-4o / Gemini 2.0 / DeepSeek-R1</strong> 即可获取全曲专业分镜剧作。
+        </div>
+        <textarea id="llm-prompt-textarea" readonly style="flex: 1; min-height: 280px; background: #080c14; color: #a5b4fc; font-family: monospace; font-size: 11px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; resize: none;"></textarea>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span id="prompt-file-path" style="font-size: 11px; color: var(--text-dim);"></span>
+          <div style="display: flex; gap: 10px;">
+            <button id="btn-refresh-llm-prompt" style="padding: 6px 14px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px; cursor: pointer;">🔄 刷新 Prompt</button>
+            <button id="btn-copy-llm-prompt" style="padding: 6px 18px; background: linear-gradient(135deg, #0ea5e9, #2563eb); color: #fff; font-weight: bold; border: none; border-radius: 4px; cursor: pointer;">📋 一键复制 Prompt</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 面板 2: JSON 回填区 -->
+      <div id="panel-llm-backfill" style="display: none; flex-direction: column; flex: 1; min-height: 0; gap: 10px;">
+        <div style="font-size: 12px; color: var(--text-dim); line-height: 1.5;">
+          📥 请将大模型返回的 JSON 数据（支持包含 ```json 代码块）粘贴到下方文本框中。<br>
+          系统会自动回填：<strong>中英文提示词、摄影运镜构图、角色动作、ASS 字幕动态特效</strong>，并<strong>实时重新渲染高清分镜样片卡片</strong>！
+        </div>
+        <textarea id="llm-backfill-textarea" placeholder="在此粘贴大模型返回的 JSON 数组，例如：
+[
+  {
+    &quot;line_index&quot;: 0,
+    &quot;video_prompt&quot;: &quot;Cinematic wide shot...&quot;,
+    &quot;design_rationale&quot;: &quot;【导演构思】中景与侧逆光聚焦于茶盏...&quot;,
+    &quot;transition_rationale&quot;: &quot;【镜头衔接】承接上一镜头远景空镜，Match Cut 动势匹配...&quot;,
+    &quot;storyboard_design&quot;: {
+      &quot;composition&quot;: &quot;【中景】...&quot;,
+      &quot;motion_effect&quot;: &quot;推镜头...&quot;
+    },
+    &quot;layout_design&quot;: {
+      &quot;primary_colour&quot;: &quot;#FFFFFF&quot;,
+      &quot;secondary_colour&quot;: &quot;#888888&quot;
+    }
+  }
+]" style="flex: 1; min-height: 280px; background: #080c14; color: #34d399; font-family: monospace; font-size: 11px; padding: 10px; border: 1px solid var(--border); border-radius: 6px; resize: none;"></textarea>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span id="backfill-status" style="font-size: 12px; color: #f59e0b;"></span>
+          <button id="btn-submit-llm-backfill" style="padding: 8px 24px; background: linear-gradient(135deg, #10b981, #059669); color: #fff; font-weight: bold; border: none; border-radius: 4px; cursor: pointer;">⚡ 一键回填到工作台并刷新分镜</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/common.js?v=20260923e"></script>
+  <script src="/static/storyboard_editor.js?v=20260923e"></script>
+</body>
+
+</html>

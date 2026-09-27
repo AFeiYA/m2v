@@ -1,0 +1,17 @@
+# M2V 轻量歌词动效服务依赖 (Hugging Face Spaces 友好)
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.9
+pydantic>=2.0.0
+pillow>=10.0.0
+requests>=2.31.0
+pyyaml>=6.0
+pypinyin>=0.50.0
+cn2an>=0.5.22
+opencc-python-reimplemented>=0.1.7
+chardet>=5.0.0
+httpx>=0.27.0
+gradio>=4.44.0
+demucs>=4.0.0
+librosa>=0.10.0
+moviepy>=2.0.0
