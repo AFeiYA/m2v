@@ -675,14 +675,82 @@ async def upload_asset(file: UploadFile = File(...)):
 
 
 @app.api_route("/api/audio", methods=["GET", "HEAD"])
-def stream_audio(path: str):
-    """提供音频文件流（支持 Range 请求）"""
+def stream_audio(path: str, download: bool = False, filename: str | None = None):
+    """提供音频文件流（支持 Range 请求与附件下载）"""
     p = _validate_path(Path(path))
     suffix = p.suffix.lower()
     media_types = {".mp3": "audio/mpeg", ".wav": "audio/wav",
                    ".flac": "audio/flac", ".m4a": "audio/mp4", ".ogg": "audio/ogg"}
     media_type = media_types.get(suffix, "audio/mpeg")
-    return FileResponse(p, media_type=media_type, headers={"Accept-Ranges": "bytes"})
+    headers = {"Accept-Ranges": "bytes"}
+    dl_name = filename or p.name if download else None
+    if dl_name:
+        from urllib.parse import quote
+        quoted = quote(dl_name)
+        headers["Content-Disposition"] = f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"
+    return FileResponse(p, media_type=media_type, headers=headers)
+
+
+@app.get("/api/download/original_mp3")
+def download_original_mp3(song: str | None = None, json_path: str | None = None):
+    """
+    一键下载原曲 MP3：
+    接收 song 名称或 json_path，自动找到原曲。
+    若原曲为 wav/m4a/flac，则自动转码为 mp3 后返回，确保用户下载到的始终是 MP3。
+    """
+    song_dir = None
+    stem = song
+    if json_path:
+        jp = _validate_path(Path(json_path))
+        stem = jp.stem.replace("_alignment", "")
+        song_dir = jp.parent
+    elif song:
+        stem = song.strip()
+        scan_dir = _get_scan_dir()
+        if (scan_dir / stem).exists():
+            song_dir = scan_dir / stem
+    else:
+        raise HTTPException(400, "必须提供 song 或 json_path 参数")
+
+    audio = _find_audio(stem, song_output_dir=song_dir)
+    if not audio or not audio.exists():
+        raise HTTPException(404, f"未找到歌曲 [{stem}] 的原曲音频文件")
+
+    target_mp3 = audio
+    if audio.suffix.lower() != ".mp3":
+        cached_mp3 = audio.parent / f"{stem}.mp3"
+        if cached_mp3.exists() and cached_mp3.stat().st_size > 1024:
+            target_mp3 = cached_mp3
+        else:
+            from src.utils import get_ffmpeg_binary
+            ffmpeg_bin = get_ffmpeg_binary()
+            temp_mp3 = audio.parent / f"{stem}.mp3"
+            cmd = [
+                ffmpeg_bin, "-y",
+                "-i", str(audio),
+                "-vn",
+                "-c:a", "libmp3lame",
+                "-b:a", "192k",
+                str(temp_mp3)
+            ]
+            import subprocess
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode == 0 and temp_mp3.exists() and temp_mp3.stat().st_size > 1024:
+                target_mp3 = temp_mp3
+            else:
+                log.warning("转码 MP3 失败，回退直接下载原音频: %s", res.stderr)
+                target_mp3 = audio
+
+    dl_filename = f"{stem}.mp3" if target_mp3.suffix.lower() == ".mp3" else f"{stem}{target_mp3.suffix}"
+    from urllib.parse import quote
+    quoted = quote(dl_filename)
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}",
+    }
+    media_type = "audio/mpeg" if target_mp3.suffix.lower() == ".mp3" else "application/octet-stream"
+    return FileResponse(target_mp3, media_type=media_type, headers=headers)
+
 
 
 # ── 商业化歌词动效短视频端点 ──────────────────────────────

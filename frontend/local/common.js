@@ -301,6 +301,30 @@ async function handleSunoImport() {
 window.handleSunoImport = handleSunoImport;
 
 // ---------------------------------------------------------------------------
+// Download Original Audio
+// ---------------------------------------------------------------------------
+function downloadOriginalAudio() {
+  if (!state.currentFile) {
+    alert("请先选择或加载一首歌曲");
+    return;
+  }
+  const songName = state.currentFile.name;
+  const jsonPath = state.currentFile.json_path || "";
+  status(`正在准备下载《${songName}》原曲 MP3...`);
+
+  const url = `/api/download/original_mp3?song=${encodeURIComponent(songName)}&json_path=${encodeURIComponent(jsonPath)}`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${songName}.mp3`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => status(`已开始下载: ${songName}.mp3`), 800);
+}
+window.downloadOriginalAudio = downloadOriginalAudio;
+
+
+// ---------------------------------------------------------------------------
 // Save Alignment (Pydantic v2 Backend)
 // ---------------------------------------------------------------------------
 async function saveAlignment() {
