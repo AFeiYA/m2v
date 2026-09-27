@@ -9,6 +9,17 @@ import os
 import gradio as gr
 from src.local_editor import app as fastapi_app
 
+# 0. 自动兼容 Hugging Face ZeroGPU 硬件探测机制
+try:
+    import spaces
+
+    @spaces.GPU
+    def _gpu_probe():
+        return "ZeroGPU Ready"
+except Exception:
+    def _gpu_probe():
+        return "CPU Ready"
+
 # 1. 创建漂亮的 Gradio 状态面板
 with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
     gr.Markdown("# 🎵 Suno2MV API & Cloud Engine")
@@ -21,6 +32,9 @@ with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
     )
     with gr.Accordion("API 健康状态探活", open=False):
         gr.JSON(value={"status": "online", "engine": "Suno2MV Cloud", "version": "0.6.0"})
+
+    # 注册事件以便 ZeroGPU 启动扫描器能够正确识别 GPU 函数
+    demo.load(_gpu_probe, inputs=[], outputs=[])
 
 # 2. 将 fastapi_app 中的所有 /api 路由无缝挂载到 Gradio 的内部 FastAPI app 中
 for route in fastapi_app.routes:
