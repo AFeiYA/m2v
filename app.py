@@ -36,10 +36,8 @@ with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
     # 注册事件以便 ZeroGPU 启动扫描器能够正确识别 GPU 函数
     demo.load(_gpu_probe, inputs=[], outputs=[])
 
-# 2. 将 fastapi_app 中的所有 /api 路由无缝挂载到 Gradio 的内部 FastAPI app 中
-for route in fastapi_app.routes:
-    if hasattr(route, "path") and route.path.startswith("/api"):
-        demo.app.routes.append(route)
+# 2. 将 fastapi_app 中的所有路由与端点无缝注入到 Gradio 的内部 FastAPI 引擎中
+demo.app.include_router(fastapi_app.router)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
