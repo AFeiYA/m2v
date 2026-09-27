@@ -31,6 +31,7 @@ def get_all_router_paths(obj):
 
 def test_hf_app_entrypoint_routes():
     """验证 app.py 启动后，FastAPI 的所有后端路由均完整注册到 Gradio server_app"""
+    pytest.importorskip("gradio", reason="需要安装 Gradio 才能运行 Hugging Face 容器入口测试")
     import app
 
     port = find_free_port()
