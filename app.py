@@ -36,15 +36,11 @@ with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
     # 注册事件以便 ZeroGPU 启动扫描器能够正确识别 GPU 函数
     demo.load(_gpu_probe, inputs=[], outputs=[])
 
-# 2. 将 fastapi_app 中的所有路由与端点无缝注入到 Gradio 的内部 FastAPI 引擎中
-demo.app.include_router(fastapi_app.router)
+# 2. 启用队列并将 Gradio 挂载到 FastAPI 应用中
+demo.queue()
+app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio", ssr_mode=False)
 
 if __name__ == "__main__":
+    import uvicorn
     port = int(os.environ.get("PORT", 7860))
-    # 使用 Gradio 官方标准的 queue().launch() 保持服务常驻，满足 Hugging Face 平台健康探活
-    demo.queue().launch(
-        server_name="0.0.0.0",
-        server_port=port,
-        ssr_mode=False,
-        show_error=True,
-    )
+    uvicorn.run(app, host="0.0.0.0", port=port)

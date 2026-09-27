@@ -5,6 +5,10 @@
       "destination": "https://lucazhou-suno2mv-api.hf.space/api/:match*"
     },
     {
+      "source": "/storyboard",
+      "destination": "/storyboard.html"
+    },
+    {
       "source": "/static/:match*",
       "destination": "/:match*"
     }
