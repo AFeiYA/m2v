@@ -40,11 +40,21 @@ with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
     _gpu_btn = gr.Button("Probe GPU", visible=False)
     _gpu_btn.click(fn=_zero_gpu_worker, inputs=[_gpu_in], outputs=[_gpu_out])
 
-# 2. 启用队列并将 Gradio 挂载到 FastAPI 应用中
+# 2. 启用队列启动服务
 demo.queue()
-app = gr.mount_gradio_app(fastapi_app, demo, path="/gradio", ssr_mode=False)
 
 if __name__ == "__main__":
-    import uvicorn
     port = int(os.environ.get("PORT", 7860))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    # 使用 Gradio 官方标准的 queue().launch() 启动，满足 Hugging Face ZeroGPU 探活生命周期
+    demo.launch(
+        server_name="0.0.0.0",
+        server_port=port,
+        prevent_thread_lock=True,
+        ssr_mode=False,
+        show_error=True,
+    )
+    # 在 launch() 生成官方 server_app 之后，无缝注入 fastapi_app 的全部路由！
+    demo.app.include_router(fastapi_app.router)
+    # 阻塞主线程以保持服务常驻
+    demo.block_thread()
+
