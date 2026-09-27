@@ -250,7 +250,7 @@ async function loadSong(idx) {
   const origUrl = file.audio_path ? "/api/audio?path=" + encodeURIComponent(file.audio_path) : null;
 
   const primaryUrl = vocalsUrl || origUrl;
-  const primaryTitle = vocalsUrl ? "🎤 人声" : "🎵 原始";
+  const primaryTitle = vocalsUrl ? "🎤 人声" : "🎵 原声";
   const instTitle = "🎸 伴奏";
 
   if (dom.trackVocals) dom.trackVocals.classList.remove("muted");
@@ -291,7 +291,7 @@ async function loadSong(idx) {
   }
 
   Promise.allSettled(loadTasks).then(() => {
-    const trackInfo = [vocalsUrl ? "人声" : null, instUrl ? "伴奏" : null, (!vocalsUrl && origUrl) ? "原始" : null].filter(Boolean).join("+");
+    const trackInfo = [vocalsUrl ? "人声" : null, instUrl ? "伴奏" : null, (!vocalsUrl && origUrl) ? "原声" : null].filter(Boolean).join("+");
     status(`✅ 全部就绪: ${file.name} (${state.alignment.lines.length} 行, 音轨: ${trackInfo || "无"})`);
     document.title = `${file.name} — M2V`;
   });
@@ -317,10 +317,8 @@ async function handleSunoImport() {
   let importSec = 0;
   const updateProgressMessage = () => {
     let stage = "正在从 Suno 提取歌曲信息与歌词...";
-    if (importSec > 6 && importSec <= 40) {
-      stage = "正在进行人声与伴奏分离 (Demucs)...";
-    } else if (importSec > 40) {
-      stage = "正在进行字符级时间轴对齐 (WhisperX)...";
+    if (importSec > 5) {
+      stage = "正在进行原曲词级时间轴对齐 (WhisperX)...";
     }
     if (progText) {
       progText.textContent = `${stage} (已耗时 ${importSec}s)`;
@@ -370,11 +368,11 @@ async function handleSunoImport() {
           // 步骤 1 拿到歌词后，提前在左侧列表渲染歌词预览，避免用户干等
           if (task.title && task.lyrics && !previewLyricsShown) {
             previewLyricsShown = true;
-            status(`📝 已提前获取《${task.title}》歌词，后台正在进行分离与对齐...`);
+            status(`📝 已提前获取《${task.title}》歌词，后台正在进行时间轴对齐...`);
             const listEl = document.getElementById("lyrics-list");
             if (listEl) {
               const rawLines = task.lyrics.split("\n").filter(Boolean);
-              listEl.innerHTML = `<div style="padding: 10px 14px; font-size: 11px; color: #10b981; background: rgba(16,185,129,0.08); border-bottom: 1px solid var(--border); border-radius: 4px 4px 0 0;">✨ 已提前解析《${escHtml(task.title)}》(${rawLines.length} 行歌词)，后台正在进行人声分离与字级对齐：</div>` +
+              listEl.innerHTML = `<div style="padding: 10px 14px; font-size: 11px; color: #10b981; background: rgba(16,185,129,0.08); border-bottom: 1px solid var(--border); border-radius: 4px 4px 0 0;">✨ 已提前解析《${escHtml(task.title)}》(${rawLines.length} 行歌词)，后台正在进行字级时间轴对齐：</div>` +
                 rawLines.map((l, i) => `<div class="lyric-line-item" style="opacity: 0.85;"><span class="line-index">${i+1}</span><span class="line-text">${escHtml(l)}</span></div>`).join("");
             }
           }

@@ -896,16 +896,18 @@ def auto_process_suno(
             f"（高级选项：亦可在 .env 配置 SUNO_COOKIE 实现私密歌曲全自动静默下载）"
         )
 
-    if progress_callback:
-        progress_callback(35, "正在进行人声与伴奏分离及时间轴对齐 (Demucs + WhisperX)...")
-
-    log.info(">>> [步骤 2/3] 自动执行音频分轨与字级时间轴对齐 (输出至 %s)...", song_output_dir.name)
-    from src.main import process_one
-    from src.config import PipelineConfig
-
     cfg_file = config_file or Path("pipeline.toml")
     config = PipelineConfig.from_file(cfg_file) if cfg_file.exists() else PipelineConfig()
     config.ass_only = True
+
+    if progress_callback:
+        if config.skip_separation:
+            progress_callback(35, "⚡ 极速模式：正在进行原曲词级时间轴对齐 (WhisperX)...")
+        else:
+            progress_callback(35, "正在进行人声与伴奏分离及时间轴对齐 (Demucs + WhisperX)...")
+
+    log.info(">>> [步骤 2/3] 自动执行音频分轨与字级时间轴对齐 (输出至 %s)...", song_output_dir.name)
+    from src.main import process_one
 
     process_one(audio_path, lyrics_path, song_output_dir, None, config)
 
@@ -929,8 +931,8 @@ def auto_process_suno(
     from urllib.parse import quote
     v_files = list(song_output_dir.glob(f"{song_name}_vocals.*"))
     i_files = list(song_output_dir.glob(f"{song_name}_instrumental.*"))
-    vocals_track = str(v_files[0]) if v_files else str(song_output_dir / f"{song_name}_vocals.mp3")
-    inst_track = str(i_files[0]) if i_files else str(song_output_dir / f"{song_name}_instrumental.mp3")
+    vocals_track = str(v_files[0]) if v_files else ""
+    inst_track = str(i_files[0]) if i_files else ""
 
     return {
         "status": "ok",

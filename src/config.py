@@ -109,7 +109,7 @@ class PipelineConfig:
     temp_dir: Path | None = None          # None = 自动创建临时目录
     keep_temp: bool = False               # 调试用: 保留中间文件
     # 步骤控制
-    skip_separation: bool = False         # 跳过 Demucs，直接用原音频对齐
+    skip_separation: bool = True          # 默认跳过 Demucs 极速对齐，直接用原音频对齐
     ass_only: bool = False                # 只生成 ASS，不合成 MP4
     alignment_json: Path | None = None    # 复用已有对齐结果，跳过对齐
     video_only: bool = False              # 直接从已有 ASS 合成视频，跳过 1-4 步
