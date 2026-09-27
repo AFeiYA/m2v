@@ -14,8 +14,13 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:
+        tomllib = None
 
 from src.config import PipelineConfig
 from src.utils import log, discover_pairs

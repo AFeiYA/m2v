@@ -122,7 +122,10 @@ class PipelineConfig:
         try:
             import tomllib
         except ModuleNotFoundError:
-            tomllib = None
+            try:
+                import tomli as tomllib
+            except ModuleNotFoundError:
+                tomllib = None
 
         p = Path(path).expanduser().resolve()
         if not p.exists():
