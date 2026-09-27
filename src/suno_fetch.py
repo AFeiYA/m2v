@@ -839,6 +839,7 @@ def auto_process_suno(
     port: int = 8000,
     cookie: str | None = None,
     token: str | None = None,
+    progress_callback: Any = None,
 ) -> dict:
     """
     全自动流程:
@@ -850,9 +851,22 @@ def auto_process_suno(
     input_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    if progress_callback:
+        progress_callback(10, "正在从 Suno 获取歌曲信息与音频...")
+
     log.info(">>> [步骤 1/3] 从 Suno 获取歌曲信息与歌词...")
     song = fetch_song(url, cookie=cookie, token=token)
     song_name = _sanitize_filename(song.title) or song.id
+
+    if progress_callback:
+        progress_callback(
+            20,
+            f"已获取《{song.title}》歌词 ({len(song.lyrics.splitlines()) if song.lyrics else 0} 行)，正在下载音频...",
+            extra={
+                "title": song.title,
+                "lyrics": song.lyrics,
+            }
+        )
 
     # 建立歌曲专属目录
     song_input_dir = input_dir / song_name
@@ -882,6 +896,9 @@ def auto_process_suno(
             f"（高级选项：亦可在 .env 配置 SUNO_COOKIE 实现私密歌曲全自动静默下载）"
         )
 
+    if progress_callback:
+        progress_callback(35, "正在进行人声与伴奏分离及时间轴对齐 (Demucs + WhisperX)...")
+
     log.info(">>> [步骤 2/3] 自动执行音频分轨与字级时间轴对齐 (输出至 %s)...", song_output_dir.name)
     from src.main import process_one
     from src.config import PipelineConfig
@@ -892,6 +909,9 @@ def auto_process_suno(
 
     process_one(audio_path, lyrics_path, song_output_dir, None, config)
 
+    if progress_callback:
+        progress_callback(90, "正在解析乐段结构并写入工程...")
+
     # 自动解析并注入乐段结构 (Intro, Verse, Chorus, Bridge, Outro) 与情绪描述
     alignment_json_path = song_output_dir / f"{song_name}_alignment.json"
     if alignment_json_path.exists() and song.raw_prompt:
@@ -901,6 +921,8 @@ def auto_process_suno(
             log.warning("乐段结构注入异常 (不影响对齐): %s", e)
 
     log.info(">>> [步骤 3/3] 对齐已完成，准备载入本地双轨编辑器...")
+    if progress_callback:
+        progress_callback(100, "处理完成，正在加载编辑器...")
     if launch_editor:
         launch_local_editor_browser(song_name, port=port)
 

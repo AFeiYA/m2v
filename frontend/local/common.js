@@ -201,45 +201,66 @@ async function loadSong(idx) {
     return;
   }
 
-  // Load audio tracks
+  // 1. 立即优先渲染歌词与分镜面板 (零等待秒级呈现)
+  if (window.onSongLoaded) window.onSongLoaded();
+  status(`📝 歌词已就绪 (${state.alignment.lines.length} 行)，正在加载音轨波形...`);
+
+  // 2. 并行异步下载人声与伴奏音轨 (耗时缩减 50%)
   const tracks = file.audio_tracks || {};
   const vocalsUrl = tracks.vocals ? "/api/audio?path=" + encodeURIComponent(tracks.vocals) : null;
   const instUrl = tracks.instrumental ? "/api/audio?path=" + encodeURIComponent(tracks.instrumental) : null;
   const origUrl = file.audio_path ? "/api/audio?path=" + encodeURIComponent(file.audio_path) : null;
 
   const primaryUrl = vocalsUrl || origUrl;
-  if (primaryUrl || instUrl) {
-    status("🎵 正在下载音轨并生成波形...");
-  }
-  if (primaryUrl && ws) {
-    try { await ws.load(primaryUrl); } catch (e) { status("人声轨加载失败: " + e, true); }
-  }
-  if (instUrl && wsInst) {
-    try { await wsInst.load(instUrl); } catch (e) { status("伴奏轨加载失败: " + e, true); }
-    if (dom.trackInst) dom.trackInst.classList.remove("hidden");
-  } else {
-    if (dom.trackInst) dom.trackInst.classList.add("hidden");
-  }
 
-  // Track buttons
+  // Track buttons loading state
   if (dom.btnMuteVocals) {
-    dom.btnMuteVocals.textContent = vocalsUrl ? "🎤 人声" : "🎵 原始";
+    dom.btnMuteVocals.textContent = vocalsUrl ? "🎤 人声 (缓冲中)" : "🎵 原始 (缓冲中)";
     dom.btnMuteVocals.classList.add("active");
     dom.btnMuteVocals.classList.remove("muted");
   }
   if (dom.btnMuteInst) {
+    dom.btnMuteInst.textContent = "🎸 伴奏 (缓冲中)";
     dom.btnMuteInst.classList.add("active");
     dom.btnMuteInst.classList.remove("muted");
   }
   if (dom.trackVocals) dom.trackVocals.classList.remove("muted");
   if (dom.trackInst) dom.trackInst.classList.remove("muted");
 
-  // Hook for page-specific rendering
-  if (window.onSongLoaded) window.onSongLoaded();
+  const loadTasks = [];
+  if (primaryUrl && ws) {
+    loadTasks.push(
+      ws.load(primaryUrl)
+        .then(() => {
+          vocalsReady = true;
+          if (dom.btnMuteVocals) dom.btnMuteVocals.textContent = vocalsUrl ? "🎤 人声" : "🎵 原始";
+        })
+        .catch((e) => {
+          status("人声轨加载失败: " + e, true);
+        })
+    );
+  }
+  if (instUrl && wsInst) {
+    if (dom.trackInst) dom.trackInst.classList.remove("hidden");
+    loadTasks.push(
+      wsInst.load(instUrl)
+        .then(() => {
+          instReady = true;
+          if (dom.btnMuteInst) dom.btnMuteInst.textContent = "🎸 伴奏";
+        })
+        .catch((e) => {
+          status("伴奏轨加载失败: " + e, true);
+        })
+    );
+  } else {
+    if (dom.trackInst) dom.trackInst.classList.add("hidden");
+  }
 
-  const trackInfo = [vocalsUrl ? "人声" : null, instUrl ? "伴奏" : null, (!vocalsUrl && origUrl) ? "原始" : null].filter(Boolean).join("+");
-  status(`已加载: ${file.name} (${state.alignment.lines.length} 行, 音轨: ${trackInfo || "无"})`);
-  document.title = `${file.name} — M2V`;
+  Promise.allSettled(loadTasks).then(() => {
+    const trackInfo = [vocalsUrl ? "人声" : null, instUrl ? "伴奏" : null, (!vocalsUrl && origUrl) ? "原始" : null].filter(Boolean).join("+");
+    status(`✅ 全部就绪: ${file.name} (${state.alignment.lines.length} 行, 音轨: ${trackInfo || "无"})`);
+    document.title = `${file.name} — M2V`;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -281,10 +302,61 @@ async function handleSunoImport() {
     const res = await fetch("/api/suno/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, async_mode: true }),
     });
-    const data = await res.json();
+
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      if (text.includes("<!DOCTYPE") || res.status === 504 || res.status === 502) {
+        throw new Error("云端网关超时，但后端正在后台继续处理中，请稍后刷新页面查看！");
+      }
+      throw new Error("服务器返回了非标准响应: " + text.slice(0, 100));
+    }
+
     if (!res.ok) throw new Error(data.detail || "处理失败");
+
+    // 异步轮询任务进度 (每个轮询请求仅需几十毫秒，彻底规避 Vercel 120s 超时截断)
+    if (data.task_id) {
+      const taskId = data.task_id;
+      let finalResult = null;
+      let previewLyricsShown = false;
+      while (true) {
+        await new Promise((r) => setTimeout(r, 1200));
+        try {
+          const pollRes = await fetch(`/api/suno/task_status?task_id=${encodeURIComponent(taskId)}`);
+          if (!pollRes.ok) continue;
+          const task = await pollRes.json();
+          if (progText && task.message) {
+            progText.textContent = `${task.message} (已耗时 ${importSec}s)`;
+          }
+
+          // 步骤 1 拿到歌词后，提前在左侧列表渲染歌词预览，避免用户干等
+          if (task.title && task.lyrics && !previewLyricsShown) {
+            previewLyricsShown = true;
+            status(`📝 已提前获取《${task.title}》歌词，后台正在进行分离与对齐...`);
+            const listEl = document.getElementById("lyrics-list");
+            if (listEl) {
+              const rawLines = task.lyrics.split("\n").filter(Boolean);
+              listEl.innerHTML = `<div style="padding: 10px 14px; font-size: 11px; color: #10b981; background: rgba(16,185,129,0.08); border-bottom: 1px solid var(--border); border-radius: 4px 4px 0 0;">✨ 已提前解析《${escHtml(task.title)}》(${rawLines.length} 行歌词)，后台正在进行人声分离与字级对齐：</div>` +
+                rawLines.map((l, i) => `<div class="lyric-line-item" style="opacity: 0.85;"><span class="line-index">${i+1}</span><span class="line-text">${escHtml(l)}</span></div>`).join("");
+            }
+          }
+
+          if (task.status === "done") {
+            finalResult = task.result;
+            break;
+          } else if (task.status === "error") {
+            throw new Error(task.error || "处理失败");
+          }
+        } catch (pollErr) {
+          console.warn("轮询状态重试中...", pollErr);
+        }
+      }
+      data = finalResult || data;
+    }
 
     if (dom.sunoModal) dom.sunoModal.style.display = "none";
     if (input) input.value = "";
@@ -301,8 +373,6 @@ async function handleSunoImport() {
 window.handleSunoImport = handleSunoImport;
 
 // ---------------------------------------------------------------------------
-// Download Original Audio
-// ---------------------------------------------------------------------------
 // Download Original Audio (Dual Mode: URL Input -> Step 1 | Loaded Song -> Existing)
 // ---------------------------------------------------------------------------
 async function downloadOriginalAudio() {
@@ -311,7 +381,7 @@ async function downloadOriginalAudio() {
 
   // 模式 1: 用户在输入框贴入了 Suno 链接 -> 走第一步从 Suno 提取并下载原曲 MP3
   if (rawUrl && (rawUrl.startsWith("http://") || rawUrl.startsWith("https://") || rawUrl.includes("suno.com"))) {
-    status("⏳ 正在从 Suno 获取歌曲信息并提取 MP3 (步骤 1，约需 3~5 秒)...");
+    status("⏳ [1/2] 正在连接 Suno 解析歌曲信息与歌词...");
     const dlUrl = `/api/suno/download_mp3?url=${encodeURIComponent(rawUrl)}`;
     const a = document.createElement("a");
     a.href = dlUrl;
@@ -319,8 +389,8 @@ async function downloadOriginalAudio() {
     a.click();
     document.body.removeChild(a);
     setTimeout(() => {
-      status("🎵 已发起 Suno 原曲 MP3 下载，下载完毕后将自动保存在您的电脑中");
-    }, 1200);
+      status("🎵 [2/2] 正在从音频/视频流提取高品质 MP3，提取完成后浏览器将自动保存...");
+    }, 1500);
     return;
   }
 

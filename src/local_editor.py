@@ -69,6 +69,8 @@ class SunoImportRequest(BaseModel):
     url: str = Field(..., description="Suno 歌曲分享链接")
     cookie: str | None = Field(default=None, description="可选 Suno 会话 Cookie")
     token: str | None = Field(default=None, description="可选 Suno Bearer Token")
+    async_mode: bool = Field(default=True, description="是否以异步任务模式启动，避免网关超时")
+
 
 
 class RegenRequest(BaseModel):
@@ -107,9 +109,15 @@ def _validate_path(p: Path, must_exist: bool = True) -> Path:
 # API
 # ======================================================================
 
+_suno_import_tasks: dict[str, dict[str, Any]] = {}
+
+
 @app.post("/api/suno/import")
 def import_suno_song(req: SunoImportRequest):
-    """从 Suno 网址一键导入、自动分轨并完成词级时间轴对齐"""
+    """
+    从 Suno 网址一键导入、自动分轨并完成词级时间轴对齐。
+    默认启用异步任务模式 (async_mode=True)，彻底避免 Vercel/云端代理的 120 秒超时中断。
+    """
     url = req.url.strip()
     if not url:
         raise HTTPException(400, "Suno URL 不能为空")
@@ -118,20 +126,77 @@ def import_suno_song(req: SunoImportRequest):
     input_dir = scan_dir.parent / "input"
     output_dir = scan_dir
 
-    try:
-        from src.suno_fetch import auto_process_suno
-        result = auto_process_suno(
-            url=url,
-            input_dir=input_dir,
-            output_dir=output_dir,
-            launch_editor=False,
-            cookie=req.cookie,
-            token=req.token,
-        )
-        return result
-    except Exception as e:
-        log.error("Suno 导入失败: %s", e, exc_info=True)
-        raise HTTPException(500, f"处理失败: {e}")
+    if not req.async_mode:
+        try:
+            from src.suno_fetch import auto_process_suno
+            result = auto_process_suno(
+                url=url,
+                input_dir=input_dir,
+                output_dir=output_dir,
+                launch_editor=False,
+                cookie=req.cookie,
+                token=req.token,
+            )
+            return result
+        except Exception as e:
+            log.error("Suno 导入失败: %s", e, exc_info=True)
+            raise HTTPException(500, f"处理失败: {e}")
+
+    task_id = f"suno_{uuid.uuid4().hex[:8]}"
+    _suno_import_tasks[task_id] = {
+        "status": "pending",
+        "progress": 5,
+        "message": "任务已提交，准备解析 Suno 歌曲...",
+        "task_id": task_id,
+        "result": None,
+        "error": None,
+    }
+
+    def _worker():
+        try:
+            from src.suno_fetch import auto_process_suno
+            def _cb(prog: int, msg: str, extra: dict | None = None):
+                if task_id in _suno_import_tasks:
+                    _suno_import_tasks[task_id]["progress"] = prog
+                    _suno_import_tasks[task_id]["message"] = msg
+                    _suno_import_tasks[task_id]["status"] = "processing"
+                    if extra:
+                        _suno_import_tasks[task_id].update(extra)
+
+            res = auto_process_suno(
+                url=url,
+                input_dir=input_dir,
+                output_dir=output_dir,
+                launch_editor=False,
+                cookie=req.cookie,
+                token=req.token,
+                progress_callback=_cb,
+            )
+            _suno_import_tasks[task_id]["status"] = "done"
+            _suno_import_tasks[task_id]["progress"] = 100
+            _suno_import_tasks[task_id]["message"] = "全部处理完成！"
+            _suno_import_tasks[task_id]["result"] = res
+        except Exception as e:
+            log.error("异步 Suno 导入异常: %s", e, exc_info=True)
+            _suno_import_tasks[task_id]["status"] = "error"
+            _suno_import_tasks[task_id]["error"] = str(e)
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return {
+        "status": "pending",
+        "task_id": task_id,
+        "message": "Suno 任务已提交...",
+    }
+
+
+@app.get("/api/suno/task_status")
+def api_get_suno_task_status(task_id: str):
+    """查询 Suno 异步导入进度与结果"""
+    task = _suno_import_tasks.get(task_id)
+    if not task:
+        raise HTTPException(404, f"未找到任务: {task_id}")
+    return task
+
 
 
 @app.post("/api/plugin/import")
