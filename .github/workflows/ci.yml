@@ -1,4 +1,4 @@
-name: Suno2MV CI Pipeline
+name: Suno2MV CI/CD Pipeline
 
 on:
   push:
@@ -42,3 +42,26 @@ jobs:
       - name: Run Full Test Suite
         run: |
           pytest tests/ -v --maxfail=1
+
+  deploy-to-hf:
+    name: Auto Deploy to Hugging Face Spaces
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/deploy/cloud')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to Hugging Face Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "❌ 错误: 未检测到 HF_TOKEN Secret，请在 GitHub 仓库 Settings -> Secrets 中添加！"
+            exit 1
+          fi
+          echo "🚀 正在向 Hugging Face Spaces 镜像同步最新代码..."
+          git push --force "https://LucaZhou:$HF_TOKEN@huggingface.co/spaces/LucaZhou/suno2mv-api" HEAD:refs/heads/main
+          echo "✅ Hugging Face Spaces 自动同步部署成功！"
