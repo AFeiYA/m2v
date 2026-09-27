@@ -20,7 +20,7 @@ class SeparatorConfig:
     two_stems: str = "vocals"         # 只输出 vocals + no_vocals
     device: str = "cuda"              # 自动回退 CPU
     shifts: int = 1                   # overlap shifts (越高越慢越好)
-    output_format: str = "wav"
+    output_format: str = "mp3"
 
 # ---------------------------------------------------------------------------
 # WhisperX 词级对齐

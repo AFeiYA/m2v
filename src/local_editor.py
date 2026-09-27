@@ -587,11 +587,13 @@ def realign(req: RealignRequest):
     # 优先用专属目录中的 {stem}_vocals.wav，找不到再用原始音频
     stem = json_path.stem.replace("_alignment", "")
     song_dir = json_path.parent
-    vocals_path = song_dir / f"{stem}_vocals.wav"
+    vocals_path = song_dir / f"{stem}_vocals.mp3"
+    if not vocals_path.exists():
+        vocals_path = song_dir / f"{stem}_vocals.wav"
     if not vocals_path.exists():
         audio = _find_audio(stem, song_output_dir=song_dir)
         if audio is None:
-            raise HTTPException(404, f"找不到人声文件: {stem}_vocals.wav")
+            raise HTTPException(404, f"找不到人声文件: {stem}_vocals.mp3 或 .wav")
         vocals_path = audio
         log.warning("未找到 vocals 文件，使用原始音频: %s", vocals_path.name)
 

@@ -208,6 +208,9 @@ async function loadSong(idx) {
   const origUrl = file.audio_path ? "/api/audio?path=" + encodeURIComponent(file.audio_path) : null;
 
   const primaryUrl = vocalsUrl || origUrl;
+  if (primaryUrl || instUrl) {
+    status("🎵 正在下载音轨并生成波形...");
+  }
   if (primaryUrl && ws) {
     try { await ws.load(primaryUrl); } catch (e) { status("人声轨加载失败: " + e, true); }
   }
@@ -255,7 +258,24 @@ async function handleSunoImport() {
   }
   if (btn) btn.disabled = true;
   if (prog) prog.style.display = "block";
-  if (progText) progText.textContent = "正在拉取 Suno 歌词、分离人声伴奏并对齐时间轴，请稍候（约需 20~40 秒）...";
+
+  let importSec = 0;
+  const updateProgressMessage = () => {
+    let stage = "正在从 Suno 提取歌曲信息与歌词...";
+    if (importSec > 6 && importSec <= 40) {
+      stage = "正在进行人声与伴奏分离 (Demucs)...";
+    } else if (importSec > 40) {
+      stage = "正在进行字符级时间轴对齐 (WhisperX)...";
+    }
+    if (progText) {
+      progText.textContent = `${stage} (已耗时 ${importSec}s)`;
+    }
+  };
+  updateProgressMessage();
+  const importTimer = setInterval(() => {
+    importSec++;
+    updateProgressMessage();
+  }, 1000);
 
   try {
     const res = await fetch("/api/suno/import", {
@@ -273,6 +293,7 @@ async function handleSunoImport() {
   } catch (err) {
     alert("Suno 导入失败: " + err.message);
   } finally {
+    clearInterval(importTimer);
     if (btn) btn.disabled = false;
     if (prog) prog.style.display = "none";
   }

@@ -118,17 +118,25 @@ def separate_vocals(
             log.error("Demucs 分离失败: %s", err_detail)
             raise RuntimeError(f"Demucs 人声分离失败: {err_detail}") from exc
 
-    # Demucs 输出路径: {output_dir}/{model}/{stem}/vocals.wav, no_vocals.wav
+    # Demucs 输出路径: {output_dir}/{model}/{stem}/vocals.{ext}, no_vocals.{ext}
     demucs_out = output_dir / config.model / stem
-    vocals_src = demucs_out / "vocals.wav"
-    instrumental_src = demucs_out / "no_vocals.wav"
+    ext = f".{config.output_format.lstrip('.')}"
+    vocals_src = demucs_out / f"vocals{ext}"
+    instrumental_src = demucs_out / f"no_vocals{ext}"
 
     if not vocals_src.exists():
-        raise FileNotFoundError(f"Demucs 输出未找到: {vocals_src}")
+        # 兼容性搜寻：匹配实际生成的 vocals 文件
+        found_vocals = list(demucs_out.glob("vocals.*"))
+        if found_vocals:
+            vocals_src = found_vocals[0]
+            ext = vocals_src.suffix
+            instrumental_src = demucs_out / f"no_vocals{ext}"
+        else:
+            raise FileNotFoundError(f"Demucs 输出未找到: {vocals_src}")
 
     # 移动到 output_dir 根目录，简化后续引用
-    vocals_dst = output_dir / f"{stem}_vocals.wav"
-    instrumental_dst = output_dir / f"{stem}_instrumental.wav"
+    vocals_dst = output_dir / f"{stem}_vocals{ext}"
+    instrumental_dst = output_dir / f"{stem}_instrumental{ext}"
     shutil.move(str(vocals_src), str(vocals_dst))
     shutil.move(str(instrumental_src), str(instrumental_dst))
 

@@ -278,8 +278,16 @@ def process_one(
 
             # Step 2: 人声分离 (优先复用已有分离文件，或可跳过)
             instrumental_path = None
-            existing_vocals = output_dir / f"{stem}_vocals.wav"
-            existing_inst = output_dir / f"{stem}_instrumental.wav"
+            ext = f".{config.separator.output_format.lstrip('.')}"
+            existing_vocals = output_dir / f"{stem}_vocals{ext}"
+            existing_inst = output_dir / f"{stem}_instrumental{ext}"
+            if not existing_vocals.exists():
+                for alt_ext in [".mp3", ".wav"]:
+                    alt_v = output_dir / f"{stem}_vocals{alt_ext}"
+                    if alt_v.exists():
+                        existing_vocals = alt_v
+                        existing_inst = output_dir / f"{stem}_instrumental{alt_ext}"
+                        break
 
             if not config.skip_separation and existing_vocals.exists() and existing_vocals.stat().st_size > 100_000:
                 log.info("[2/5] 检测到已有分离人声文件: %s，直接复用…", existing_vocals.name)
@@ -298,11 +306,13 @@ def process_one(
                     mp3_path, temp_dir, config.separator
                 )
                 # 把 vocals + instrumental 复制到输出目录，供本地编辑器双音轨使用
-                output_vocals = output_dir / f"{stem}_vocals.wav"
+                v_ext = vocals_path.suffix
+                output_vocals = output_dir / f"{stem}_vocals{v_ext}"
                 shutil.copy2(vocals_path, output_vocals)
                 log.info("人声文件已保存: %s", output_vocals.name)
                 if instrumental_path and instrumental_path.exists():
-                    output_inst = output_dir / f"{stem}_instrumental.wav"
+                    i_ext = instrumental_path.suffix
+                    output_inst = output_dir / f"{stem}_instrumental{i_ext}"
                     shutil.copy2(instrumental_path, output_inst)
                     log.info("伴奏文件已保存: %s", output_inst.name)
                 _progress("separating", 30, "人声分离完成")

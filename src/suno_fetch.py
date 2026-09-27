@@ -897,13 +897,20 @@ def auto_process_suno(
         launch_local_editor_browser(song_name, port=port)
 
     from urllib.parse import quote
+    v_files = list(song_output_dir.glob(f"{song_name}_vocals.*"))
+    i_files = list(song_output_dir.glob(f"{song_name}_instrumental.*"))
+    vocals_track = str(v_files[0]) if v_files else str(song_output_dir / f"{song_name}_vocals.mp3")
+    inst_track = str(i_files[0]) if i_files else str(song_output_dir / f"{song_name}_instrumental.mp3")
+
     return {
         "status": "ok",
         "title": song_name,
         "artist": song.artist,
         "alignment_json": str(song_output_dir / f"{song_name}_alignment.json"),
-        "vocals_wav": str(song_output_dir / f"{song_name}_vocals.wav"),
-        "instrumental_wav": str(song_output_dir / f"{song_name}_instrumental.wav"),
+        "vocals_path": vocals_track,
+        "instrumental_path": inst_track,
+        "vocals_wav": vocals_track,
+        "instrumental_wav": inst_track,
         "ass_path": str(song_output_dir / f"{song_name}.ass"),
         "editor_url": f"http://127.0.0.1:{port}/?song={quote(song_name)}",
     }
