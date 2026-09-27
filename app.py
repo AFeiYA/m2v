@@ -43,6 +43,12 @@ with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
 # 2. 启用队列
 demo.queue()
 
+def mount_fastapi_routes(demo_instance):
+    """Gradio 在 launch() 期间会生成全新的运行期 server_app，必须在 launch() 之后注入 FastAPI 全部路由！"""
+    demo_instance.app.include_router(fastapi_app.router)
+    if hasattr(demo_instance, "server_app") and demo_instance.server_app is not None:
+        demo_instance.server_app.include_router(fastapi_app.router)
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
     # 使用 Gradio 官方标准的 queue().launch() 启动，满足 Hugging Face ZeroGPU 探活生命周期
@@ -53,10 +59,7 @@ if __name__ == "__main__":
         ssr_mode=False,
         show_error=True,
     )
-    # Gradio 在 launch() 期间会生成全新的运行期 server_app，必须在 launch() 之后注入 FastAPI 全部路由！
-    demo.app.include_router(fastapi_app.router)
-    if hasattr(demo, "server_app") and demo.server_app is not None:
-        demo.server_app.include_router(fastapi_app.router)
+    mount_fastapi_routes(demo)
     # 阻塞主线程以保持服务常驻
     demo.block_thread()
 
