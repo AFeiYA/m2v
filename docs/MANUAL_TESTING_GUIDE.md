@@ -1,10 +1,10 @@
 # Suno2MV (M2V) 人工测试与验收操作手册 (Manual Verification & Testing Guide)
 
-> **文档版本:** v1.0 (AI-Native MV Production System)  
-> **适用版本:** Suno2MV v0.6+ (Animatic Studio, Multi-Pass Director & Multi-Track Timeline)  
-> **更新日期:** 2026-09-23  
+> **文档版本:** v1.1 (Production Cloud & Audio Ingestion Suite)  
+> **适用版本:** Suno2MV v0.7.0+ (Cloud Gateway, Lyric Video Engine & DAW Skeleton)  
+> **更新日期:** 2026-09-28  
 > **测试人员:** 导演、QA 工程师、全栈开发者、产品经理  
-> **测试基准项目:** `output/匠心入梦/` 与本地示例工程
+> **测试基准项目:** `output/如其所是01/` 与本地/云端示例工程
 
 ---
 
@@ -39,7 +39,7 @@ Final Master MV (4K/1080p 工业级成片)
 ```
 
 ### 1.2 本手册测试范围
-本手册覆盖 **从音频源导入 -> 三阶段导演生成 -> Web 监看台 Animatic 交互 -> 双轨解耦提示词 -> 多模型编译 -> 多轨时间轴组装** 的完整人工功能测试与验收流程。
+本手册覆盖 **从音频源导入 -> 三阶段导演生成 -> Web 监看台 Animatic 交互 -> 双轨解耦提示词 -> 多模型编译 -> 多轨时间轴组装 -> 动效短视频出片 -> 云端部署探活** 的完整人工功能测试与验收流程。
 
 ---
 
@@ -48,18 +48,17 @@ Final Master MV (4K/1080p 工业级成片)
 ### 2.1 环境依赖项检查
 在终端执行以下命令，确认环境依赖已就绪：
 ```bash
-# 1. 确认 Python 与 uv 环境
-uv --version
+# 1. 确认 Python 与虚拟环境
 python3 --version
 
 # 2. 确认音视频多媒体基础工具 (FFmpeg / ffprobe)
 ffmpeg -version
 ffprobe -version
 
-# 3. 运行自动化单元测试套件，确认 59+ 项测试全绿
-uv run --extra dev --extra editor pytest
+# 3. 运行自动化全量测试套件，确认 77 项测试全绿
+pytest tests/ -v
 ```
-> **通过标准**: `59 passed` 无任何 Error 或 Failure。
+> **通过标准**: `77 passed` 无任何 Error 或 Failure。
 
 ### 2.2 启动 Web 本地监看服务
 在项目根目录启动 Local Editor 服务：
@@ -423,6 +422,11 @@ uv run python -m src.local_editor --no-browser --port 8000
 | **模型编译器** | TC-017 | Veo / Kling / Seedance / Wan 专属参数与负向词隔离 | [ ] Pass | |
 | **时间轴引擎** | TC-018 | MultiTrack 时间轴构建、Take 视频替换与零缝隙校验 | [ ] Pass | |
 | **最终成片** | TC-019 | 最终成片无错乱内嵌字幕，音画卡点精准，播放流畅 | [ ] Pass | |
+| **音频下载中心** | TC-020 | 输入 Suno 链接点击 `⬇ 仅下 MP3`，一步秒级直出 MP3，跳过分离对齐 | [ ] Pass | |
+| **Suno 异步解密** | TC-021 | 异步任务长轮询防止 120s 网关超时，第一阶段 0.5s 优先呈现歌词面板 | [ ] Pass | |
+| **短视频导出** | TC-022 | 动效短视频弹窗导出 9:16 (1080x1920) 与 16:9，逐字 KTV 变色字幕成片 | [ ] Pass | |
+| **DAW 骨架屏** | TC-023 | 音频加载时双轨展示 24 柱跳动骨架屏，控制栏自适应呼吸发光无溢出 | [ ] Pass | |
+| **容器入口门禁** | TC-024 | 执行 `pytest tests/test_hf_entrypoint.py` 验证 35+ 个 API 路由无 404 | [ ] Pass | |
 
 ---
 

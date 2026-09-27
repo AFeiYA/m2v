@@ -13,12 +13,26 @@ pinned: false
 > **Turn a song into a directed, editable music video.**
 > 从一首歌出发，深度解析音乐结构、节奏与情感曲线，生成导演方案与视觉圣经，建立卡点分镜与动态故事板（Animatic），进而调度前沿视频模型生成镜头、对比 Takes 并完成专业剪辑合成。
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![Package Manager](https://img.shields.io/badge/managed_by-uv-orange.svg)](https://github.com/astral-sh/uv)
-[![Architecture](https://img.shields.io/badge/schema-Pydantic_v2-brightgreen.svg)](https://docs.pydantic.dev/)
+[![Python 3.10 | 3.11](https://img.shields.io/badge/python-3.10%20%7C%203.11-blue.svg)](https://www.python.org/)
+[![CI Pipeline](https://github.com/AFeiYA/m2v/actions/workflows/ci.yml/badge.svg)](https://github.com/AFeiYA/m2v/actions)
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-yellow)](https://huggingface.co/spaces/LucaZhou/suno2mv-api)
+[![Live Demo](https://img.shields.io/badge/Web%20App-mv.fovea.si-success)](https://mv.fovea.si)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+> 🌐 **在线体验与云端服务**:
+> - **Web 创作工作台**: [https://mv.fovea.si](https://mv.fovea.si) (由 Vercel 边缘静态托管)
+> - **AI 算力引擎与 API**: [https://lucazhou-suno2mv-api.hf.space](https://lucazhou-suno2mv-api.hf.space) (Hugging Face 永久免费 16GB 算力容器)
+
 ---
+
+## ✨ 核心特性一览 (v0.7.0)
+
+1. **⚡ Suno 智能解析与防盗链容灾**：输入 Suno 链接一键抓取；遇到音频 403 防盗链时，自动从 Suno MP4 视频直链解码提取高品质 MP3。
+2. **⬇ 原曲 MP3 提取中心**：支持一键下载已导入原曲；支持直接粘贴链接点击 `⬇ 仅下 MP3`，一步秒级直出音频（跳过耗时的分离对齐）。
+3. **📱 商业级动效短视频一键导出**：一键生成 9:16 (1080x1920) 竖屏短视频（抖音/TikTok/小红书/Reels）与 16:9 横屏，预设 4 款电影视觉光效与逐字卡拉OK变色字幕。
+4. **🌊 专业音视频工作站 (DAW) 交互**：双轨声波 24 柱跳动骨架屏，自适应呼吸发光控制栏，首屏 0.5s 优先渲染歌词零等待。
+5. **🎬 AI 导演与动态故事板 (Animatic Studio)**：全曲音乐智能结构感知（BPM/鼓点/能量曲线），双模态导演方案（离线规则引擎 + LLM 深度创作），16:9 电影质感分镜卡片。
+6. **🛡️ 现代化 CI/CD 质量工程**：77 项自动化测试全绿，Git Pre-Push 本地路由完整性拦截，GitHub Actions 双环境矩阵持续集成。
 
 ## 💡 产品哲学与核心定位
 
