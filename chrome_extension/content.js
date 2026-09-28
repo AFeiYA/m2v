@@ -44,6 +44,22 @@
     }, delayMs);
   }
 
+  let currentTrackTitle = "";
+
+  function updateButtonLabel(title) {
+    const btn = document.getElementById("fovea-suno-floating-btn");
+    if (!btn) return;
+    const label = btn.querySelector("span:last-child");
+    if (!label) return;
+    if (title && title !== "Suno_Track" && title !== "未知曲目") {
+      currentTrackTitle = title;
+      const displayTitle = title.length > 14 ? title.slice(0, 13) + "…" : title;
+      label.textContent = `🎬 生成《${displayTitle}》动效 MP4`;
+    } else if (!currentTrackTitle) {
+      label.textContent = "🎬 一键生成 9:16 动效 MP4";
+    }
+  }
+
   // 2. 注入悬浮胶囊按钮 (仅提供生成动效 MP4)
   function injectFloatingButton() {
     if (document.getElementById("fovea-suno-floating-btn")) return;
@@ -63,15 +79,11 @@
 
     document.body.appendChild(btn);
 
-    // 动态提取页面歌曲名
+    // 定期向 MAIN world 的 inject.js 请求精准的当前歌曲信息 (避开页面 h1 干扰)
     setInterval(() => {
-      const h1 = document.querySelector("h1");
-      const label = btn.querySelector("span:last-child");
-      if (label && h1 && h1.innerText.trim()) {
-        const title = h1.innerText.trim();
-        label.textContent = `🎬 生成《${title.slice(0, 8)}》动效 MP4`;
-      }
-    }, 2000);
+      window.postMessage({ type: "FOVEA_QUERY_TRACK_INFO" }, "*");
+    }, 1500);
+    window.postMessage({ type: "FOVEA_QUERY_TRACK_INFO" }, "*");
   }
 
   // 3. 触发捕获流程: 向 MAIN World 的 inject.js 发送请求
@@ -86,6 +98,14 @@
   // 4. 监听来自 inject.js (MAIN World) 的响应
   window.addEventListener("message", (event) => {
     if (event.source !== window || !event.data) return;
+
+    // 实时同步当前检测到的曲目名称
+    if (event.data.type === "FOVEA_REPORT_TRACK_INFO" && event.data.track) {
+      if (event.data.track.title) {
+        updateButtonLabel(event.data.track.title);
+      }
+      return;
+    }
 
     const btn = document.getElementById("fovea-suno-floating-btn");
 

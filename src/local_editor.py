@@ -280,7 +280,7 @@ async def plugin_direct_export_video(
     aspect_ratio: str = Form("9:16"),
     template: str = Form("apple"),
     theme: str = Form("apple_white"),
-    background_mode: str = Form("blurred_ambient"),
+    background_mode: str = Form("full_bleed"),
     cover_url: str = Form(""),
 ):
     """

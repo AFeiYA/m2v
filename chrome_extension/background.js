@@ -73,7 +73,7 @@ async function exportVideoAndDownload(blob, track, serverUrl) {
   formData.append("aspect_ratio", "9:16");
   formData.append("template", "apple");
   formData.append("theme", "apple_white");
-  formData.append("background_mode", "blurred_ambient");
+  formData.append("background_mode", "full_bleed");
 
   let resp;
   try {
