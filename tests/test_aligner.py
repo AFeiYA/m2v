@@ -68,3 +68,32 @@ class TestAlignmentResult:
             assert loaded.lines[0].words[0].word == "测"
             assert abs(loaded.lines[0].words[0].start - 0.0) < 0.01
 
+
+class TestSelfHealAlignment:
+    def test_healthy_lines_untouched(self):
+        from src.aligner import _self_heal_alignment
+        healthy_lines = [
+            AlignedLine(
+                text="第一句歌词测试",
+                start=10.0,
+                end=13.0,
+                words=[WordTimestamp(word="第", start=10.0, end=13.0)]
+            ),
+            AlignedLine(
+                text="第二句歌词测试",
+                start=14.0,
+                end=17.0,
+                words=[WordTimestamp(word="第", start=14.0, end=17.0)]
+            ),
+        ]
+        out = _self_heal_alignment(
+            vocals_path=Path("fake.wav"),
+            aligned_lines=healthy_lines,
+            singing_sections=[(10.0, 17.0)],
+            total_audio_sec=20.0,
+        )
+        assert len(out) == 2
+        assert out[0].start == 10.0
+        assert out[1].end == 17.0
+
+

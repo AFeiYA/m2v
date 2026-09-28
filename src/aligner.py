@@ -249,17 +249,19 @@ def align_lyrics(
     vocals_path: Path,
     lyrics: list[LyricLine],
     config: AlignerConfig | None = None,
+    allow_self_heal: bool = True,
 ) -> AlignmentResult:
     """
     词级强约束声学对齐统一主入口 (默认且唯一标准: Wav2Vec2 CTC Forced Alignment)
     """
-    return align_lyrics_ctc(vocals_path, lyrics, config)
+    return align_lyrics_ctc(vocals_path, lyrics, config, allow_self_heal=allow_self_heal)
 
 
 def align_lyrics_ctc(
     vocals_path: Path,
     lyrics: list[LyricLine],
     config: AlignerConfig | None = None,
+    allow_self_heal: bool = True,
 ) -> AlignmentResult:
     """
     方案二: 纯 Wav2Vec2 CTC Forced Alignment 词级对齐引擎:
@@ -274,11 +276,10 @@ def align_lyrics_ctc(
     log.info("【方案二: 纯 CTC Forced Alignment】启动词级声学对齐: %s (%d 行歌词)", vocals_path.name, len(lyrics))
 
     # 1. 开唱点检测
-    min_start = config.lyrics_start_time
+    min_start = config.lyrics_start_time if config else 0.0
     if min_start <= 0:
         min_start = detect_vocal_onset(vocals_path)
         if min_start > 0:
-            config.lyrics_start_time = min_start
             log.info("自动检测到开唱点: %.2fs (已锁死前奏区间)", min_start)
 
     # 2. 读取音频并重采样为 16kHz
@@ -591,6 +592,17 @@ def align_lyrics_ctc(
     # 审计时间戳单调性
     aligned_lines = _audit_alignment(aligned_lines)
 
+    # 自动异常检测与局部自愈 (Self-Healing Anomaly Detector)
+    if allow_self_heal and len(aligned_lines) >= 2:
+        aligned_lines = _self_heal_alignment(
+            vocals_path=vocals_path,
+            aligned_lines=aligned_lines,
+            singing_sections=singing_sections,
+            total_audio_sec=total_audio_sec,
+            config=config,
+        )
+        aligned_lines = _audit_alignment(aligned_lines)
+
     result = AlignmentResult(lines=aligned_lines)
     log.info("【方案二: CTC Forced Alignment】对齐完成: %d 行, %d 个词",
              len(result.lines), sum(len(line.words) for line in result.lines))
@@ -673,9 +685,16 @@ def realign_lines(
         tmp_path = Path(tmp.name)
     sf.write(str(tmp_path), clip, sample_rate)
 
+    local_cfg = AlignerConfig()
+    if config is not None:
+        for k, v in getattr(config, "__dict__", {}).items():
+            if k != "lyrics_start_time":
+                setattr(local_cfg, k, v)
+    local_cfg.lyrics_start_time = 0.0
+
     try:
         lyrics = [LyricLine(text=t) for t in texts]
-        local_result = align_lyrics(tmp_path, lyrics, config)
+        local_result = align_lyrics(tmp_path, lyrics, local_cfg, allow_self_heal=False)
     finally:
         try:
             tmp_path.unlink()
@@ -701,3 +720,131 @@ def realign_lines(
 
     log.info("局部重对齐完成: %d 行", len(shifted))
     return shifted
+
+
+# ---------------------------------------------------------------------------
+# 异常检测与局部自愈 (Self-Healing Anomaly Detector)
+# ---------------------------------------------------------------------------
+
+def _self_heal_alignment(
+    vocals_path: Path,
+    aligned_lines: list[AlignedLine],
+    singing_sections: list[tuple[float, float]],
+    total_audio_sec: float,
+    config: AlignerConfig | None = None,
+) -> list[AlignedLine]:
+    """
+    自动检测 CTC 对齐结果中的异常压缩/提前坍缩 (Premature Collapse / Over-compression)，
+    并针对受影响乐段区间自动触发局部声学重对齐自愈。
+    """
+    indexed_lines = [(i, l) for i, l in enumerate(aligned_lines) if not getattr(l, "is_annotation", False)]
+    if len(indexed_lines) < 2:
+        return aligned_lines
+
+    # 1. 扫描异常压缩行
+    anomalous_k_indices: list[int] = []
+    last_vocal_end = singing_sections[-1][1] if singing_sections else total_audio_sec
+    last_line_end = indexed_lines[-1][1].end
+    tail_lag = last_vocal_end - last_line_end
+
+    for k, (orig_i, line) in enumerate(indexed_lines):
+        clean_chars = [c for c in line.text if not c.isspace() and c not in '.,!?:;...~—"\'()[]（）【】']
+        char_count = len(clean_chars)
+        dur = max(0.0, line.end - line.start)
+        rate = dur / max(1, char_count)
+
+        is_anom = False
+        # 条件 1: 4字以上，整句时长 < 0.6s 或平均字均时长 < 0.085s (物理不可能的人声歌唱极限)
+        if char_count >= 4 and (dur < 0.6 or rate < 0.085):
+            is_anom = True
+        # 条件 2: 6字以上，整句时长 < 0.85s 或平均字均时长 < 0.10s
+        elif char_count >= 6 and (dur < 0.85 or rate < 0.10):
+            is_anom = True
+        # 条件 3: 尾部坍缩特异性检测 (末尾3句内，且全曲人声能量显著延伸超过歌词结束3.5s以上)
+        elif k >= len(indexed_lines) - 3 and tail_lag > 3.5 and (dur < 1.2 or rate < 0.12):
+            is_anom = True
+
+        if is_anom:
+            anomalous_k_indices.append(k)
+
+    if not anomalous_k_indices:
+        return aligned_lines
+
+    # 2. 将相邻的异常索引聚类为修复段 (Group contiguous anomalies)
+    clusters: list[list[int]] = []
+    for ak in anomalous_k_indices:
+        if not clusters or ak > clusters[-1][-1] + 1:
+            clusters.append([ak])
+        else:
+            clusters[-1].append(ak)
+
+    # 3. 对每个异常乐段执行局部自愈
+    for cluster in clusters:
+        k_first = cluster[0]
+        k_last = cluster[-1]
+
+        # 向前纳入 1 行正常句作为锚点 (恢复可能被挤压的尾字，如"幻梦")
+        k_anchor_start = max(0, k_first - 1)
+        target_items = indexed_lines[k_anchor_start : k_last + 1]
+        texts = [item[1].text for item in target_items]
+
+        rough_start = max(0.0, target_items[0][1].start - 1.0)
+        is_tail = (k_last >= len(indexed_lines) - 2)
+        if is_tail:
+            rough_end = min(total_audio_sec, max(last_vocal_end + 1.5, target_items[-1][1].end + 5.0))
+        else:
+            k_next = min(len(indexed_lines) - 1, k_last + 1)
+            rough_end = min(total_audio_sec, indexed_lines[k_next][1].start + 1.0)
+
+        if rough_end <= rough_start + 1.0:
+            continue
+
+        try:
+            old_dur = sum(item[1].end - item[1].start for item in target_items)
+            log.info(
+                "🛡️ [声学自愈监测] 发现第 %d~%d 行歌词异常压缩 (时长=%.2fs)，启动局部自愈重对齐 (区间: %.2fs ~ %.2fs)...",
+                target_items[0][0] + 1,
+                target_items[-1][0] + 1,
+                old_dur,
+                rough_start,
+                rough_end,
+            )
+            repaired = realign_lines(
+                vocals_path,
+                texts,
+                rough_start=rough_start,
+                rough_end=rough_end,
+                config=config,
+                buffer=0.5,
+            )
+            if len(repaired) == len(target_items):
+                new_dur = sum(r.end - r.start for r in repaired)
+                old_end = target_items[-1][1].end
+                new_end = repaired[-1].end
+
+                # 自愈有效性仲裁: 新时长显著伸展，或者结尾延展到真实人声结束点
+                if new_dur > old_dur * 1.2 or (new_end > old_end + 2.0):
+                    for item_idx, r_line in enumerate(repaired):
+                        orig_idx = target_items[item_idx][0]
+                        orig_line = target_items[item_idx][1]
+                        aligned_lines[orig_idx] = AlignedLine(
+                            text=r_line.text,
+                            start=r_line.start,
+                            end=r_line.end,
+                            words=r_line.words,
+                            style_overrides=getattr(orig_line, "style_overrides", {}),
+                            section=getattr(orig_line, "section", ""),
+                        )
+                    log.info(
+                        "✨ [局部自愈成功] 第 %d~%d 行时间轴已精准自愈: 总时长 %.2fs -> %.2fs, 结尾 %.2fs -> %.2fs",
+                        target_items[0][0] + 1,
+                        target_items[-1][0] + 1,
+                        old_dur,
+                        new_dur,
+                        old_end,
+                        new_end,
+                    )
+        except Exception as e:
+            log.warning("局部自愈执行异常 (已自动保留原对齐): %s", e)
+
+    return aligned_lines
