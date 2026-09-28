@@ -167,6 +167,28 @@ def tokenize_lyric_line(text: str) -> list[str]:
     return tokens
 
 
+def _fallback_even_split(
+    text: str,
+    start: float,
+    end: float,
+) -> list[WordTimestamp]:
+    """将一行文本按字符均分时长 (兜底 fallback 策略)"""
+    chars = [c for c in text if not c.isspace()]
+    if not chars:
+        return []
+
+    duration = max(0.05, end - start)
+    char_duration = duration / len(chars)
+    words = []
+    for i, char in enumerate(chars):
+        words.append(WordTimestamp(
+            word=char,
+            start=round(start + i * char_duration, 3),
+            end=round(start + (i + 1) * char_duration, 3),
+        ))
+    return words
+
+
 def _fill_annotation_times(aligned_lines: list[AlignedLine]) -> None:
     """回填编曲说明行 ([Intro], [Solo] 等) 的时间区间"""
     n = len(aligned_lines)
