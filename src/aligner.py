@@ -481,9 +481,21 @@ def align_lyrics_ctc(
             )
 
     # 6. 乐段与语言块智能映射
-    if len(lang_runs) == len(singing_sections):
+    if len(lang_runs) == 1:
+        # 单语言歌曲 (占 95%+): 纵跨全曲所有歌唱乐段，允许中间穿插任意时长的纯音乐间奏/笛子二胡 Solo
+        lang, r_lines = lang_runs[0]
+        sec_s = min_start
+        sec_e = max(singing_sections[-1][1] if singing_sections else total_audio_sec, total_audio_sec - 1.0)
+        log.info("单语言全曲对齐: 纵跨所有乐段 (%.2fs - %.2fs), 共 %d 行", sec_s, sec_e, len(r_lines))
+        if lang == "en":
+            _align_en(r_lines, sec_s, sec_e)
+        else:
+            _align_zh(r_lines, sec_s, sec_e)
+    elif len(lang_runs) == len(singing_sections):
         for ri, (lang, r_lines) in enumerate(lang_runs):
             sec_s, sec_e = singing_sections[ri]
+            if ri == len(lang_runs) - 1:
+                sec_e = max(sec_e, total_audio_sec - 1.0)
             if lang == "en":
                 _align_en(r_lines, sec_s, sec_e)
             else:
@@ -493,6 +505,9 @@ def align_lyrics_ctc(
         ri = 0
         while ri < len(lang_runs) and cur_sec_idx < len(singing_sections):
             sec_s, sec_e = singing_sections[cur_sec_idx]
+            # 若是最后一个语言块，必须延展至全曲最后一个乐段结束，避免遗漏间奏后的尾段歌词
+            if ri == len(lang_runs) - 1:
+                sec_e = max(sec_e, singing_sections[-1][1], total_audio_sec - 1.0)
             sec_dur = sec_e - sec_s
             lang, r_lines = lang_runs[ri]
 
