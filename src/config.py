@@ -52,8 +52,8 @@ class SubtitleConfig:
     style_name: str = "Karaoke"
     # 颜色 (Apple Style: 纯白变焦与透明度)
     primary_colour: str = "&H00FFFFFF"    # 纯白 (已唱)
-    secondary_colour: str = "&H66FFFFFF"  # 半透明白 (未唱)
-    outline_colour: str = "&H99000000"    # 暗色半透明描边
+    secondary_colour: str = "&H80FFFFFF"  # 通透半透明白 (未唱)
+    outline_colour: str = "&H20000000"    # 极清爽微透明描边 (绝不脏灰)
     font_name: str = "思源黑体"
     font_path: str = "C:/Windows/Fonts/msyh.ttc"  # 默认路径，Pillow 需要真实文件
     font_size: int = 72

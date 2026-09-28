@@ -23,32 +23,32 @@ COLOR_PALETTES: dict[str, dict[str, str]] = {
     "apple_white": {
         "name": "极简珍珠白",
         "primary": "&H00FFFFFF",    # 纯白 (已唱)
-        "secondary": "&H66FFFFFF",  # 半透明白 (未唱)
-        "outline": "&H99000000",    # 暗色半透明描边
+        "secondary": "&H80FFFFFF",  # 通透半透明白 (未唱)
+        "outline": "&H20000000",    # 极清爽极细微暗边 (绝不脏灰)
     },
     "cyber_neon": {
         "name": "赛博霓虹",
         "primary": "&H00FFFF00",    # 电光青 (已唱)
-        "secondary": "&H66FF007F",  # 霓虹粉 (未唱)
-        "outline": "&HAA050510",
+        "secondary": "&H80FF007F",  # 霓虹粉 (未唱)
+        "outline": "&H20050510",
     },
     "amber_gold": {
         "name": "复古黑胶金",
         "primary": "&H0000D7FF",    # 琥珀金 (已唱)
-        "secondary": "&H661E69D2",  # 复古铜褐 (未唱)
-        "outline": "&H990F0B05",
+        "secondary": "&H801E69D2",  # 复古铜褐 (未唱)
+        "outline": "&H200F0B05",
     },
     "midnight_purple": {
         "name": "极光冷艳紫",
         "primary": "&H00FFB0E0",    # 薰衣草亮白紫 (已唱)
-        "secondary": "&H66E22B8A",  # 幽邃紫 (未唱)
-        "outline": "&HAA100520",
+        "secondary": "&H80E22B8A",  # 幽邃紫 (未唱)
+        "outline": "&H20100520",
     },
     "emerald_mint": {
         "name": "清爽翡翠绿",
         "primary": "&H007FFF00",    # 薄荷荧光绿 (已唱)
-        "secondary": "&H66408000",  # 橄榄青 (未唱)
-        "outline": "&H99052010",
+        "secondary": "&H80408000",  # 橄榄青 (未唱)
+        "outline": "&H20052010",
     },
 }
 
@@ -187,15 +187,22 @@ def _load_template_header(config: SubtitleConfig) -> str:
         content = re.sub(r"PlayResX:\s*\d+", f"PlayResX: {play_res_x}", content, flags=re.IGNORECASE)
         content = re.sub(r"PlayResY:\s*\d+", f"PlayResY: {play_res_y}", content, flags=re.IGNORECASE)
         
-        # 强制应用配置中的颜色 (正则匹配 Style 行中的颜色部分)
-        # ASS Format: ..., PrimaryColour, SecondaryColour, OutlineColour, BackColour, ...
-        # 我们寻找指定的 Style 名称行并修改它
-        pattern = rf"(Style:\s*{config.style_name},[^,]+,[^,]+,)(&H[0-9A-F]+),(&H[0-9A-F]+),(&H[0-9A-F]+)"
-        replacement = rf"\1{config.primary_colour},{config.secondary_colour},{config.outline_colour}"
+        # 强制应用配置中的颜色与现代无脏边 Outline=1, Shadow=0
+        # Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, ...
+        pattern = rf"(Style:\s*{config.style_name},[^,]+,[^,]+,)(&H[0-9A-F]+),(&H[0-9A-F]+),(&H[0-9A-F]+),(&H[0-9A-F]+)"
+        replacement = rf"\1{config.primary_colour},{config.secondary_colour},{config.outline_colour},&H00000000"
         content = re.sub(pattern, replacement, content, flags=re.IGNORECASE)
 
         # 强制更新字体大小
         content = re.sub(rf"(Style:\s*{config.style_name},[^,]+,)\d+", rf"\g<1>{config.font_size}", content, flags=re.IGNORECASE)
+
+        # 强制校正 Outline=1, Shadow=0，告别 4px 粗黑描边与硬灰阴影
+        content = re.sub(
+            rf"(Style:\s*{config.style_name},(?:[^,]+,){{15}})\d+,\d+",
+            rf"\g<1>1,0",
+            content,
+            flags=re.IGNORECASE
+        )
         # 确保以换行结尾
         if not content.endswith("\n"):
             content += "\n"
@@ -207,7 +214,7 @@ def _load_template_header(config: SubtitleConfig) -> str:
 
 
 def _generate_default_header(config: SubtitleConfig) -> str:
-    """生成默认 ASS 文件头部"""
+    """生成默认 ASS 文件头部 (无粗边、纯净高级质感)"""
     play_res_x = getattr(config, "play_res_x", 1920)
     play_res_y = getattr(config, "play_res_y", 1080)
     margin_v = 60 if play_res_y <= 1080 else 120
@@ -221,7 +228,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: {config.style_name},{config.font_name},{config.font_size},{config.primary_colour},{config.secondary_colour},{config.outline_colour},&HA0000000,-1,0,0,0,100,100,3,0,1,4,2,2,30,30,{margin_v},1
+Style: {config.style_name},{config.font_name},{config.font_size},{config.primary_colour},{config.secondary_colour},{config.outline_colour},&H00000000,-1,0,0,0,100,100,1,0,1,1,0,2,30,30,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -263,7 +270,8 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
     if getattr(config, "center_y", None) is not None:
         center_y = config.center_y
     elif play_res_y > play_res_x:
-        center_y = play_res_y * 0.44
+        # 9:16 竖屏短视频：焦点偏黄金分割点 52%，留出上半部视觉焦点 (如主画/星球/人物)，下半部畅快展示歌词
+        center_y = play_res_y * 0.52
     else:
         center_y = config.font_size * 4.5
         

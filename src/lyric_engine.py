@@ -74,15 +74,20 @@ TEMPLATES = {
 }
 
 BACKGROUND_MODES = {
-    "blurred_ambient": {
-        "id": "blurred_ambient",
-        "name": "✨ 磨砂毛玻璃光晕 + 封面卡片",
-        "desc": "高斯模糊动态氛围底层 + 上半部精致封面立体悬浮 + 下半部歌词",
+    "full_bleed": {
+        "id": "full_bleed",
+        "name": "🖼️ 全图沉浸式铺满 (9:16 首选推荐)",
+        "desc": "封面原画全屏无黑边铺满 + 电影级光影对比，无割裂感，短视频视效极佳",
     },
     "ken_burns": {
         "id": "ken_burns",
         "name": "📷 封面慢呼吸变焦 (Ken Burns)",
-        "desc": "唱片原画全屏缓推呼吸镜头，极具电影叙事感",
+        "desc": "封面原画全屏缓推呼吸镜头，极具电影叙事感",
+    },
+    "blurred_ambient": {
+        "id": "blurred_ambient",
+        "name": "✨ 磨砂毛玻璃 + 封面卡片",
+        "desc": "高斯模糊动态氛围底层 + 上半部精致封面立体悬浮 (适合 16:9 横屏)",
     },
     "vinyl": {
         "id": "vinyl",
@@ -376,22 +381,20 @@ def build_lyric_video_ffmpeg_cmd(
         filters.append(f"[bg_blur][spinning_disc]overlay=x={overlay_x}:y={overlay_y}[v_layered]")
         filters.append(f"[v_layered]subtitles='{escaped_sub}'[v_out]")
 
-    else:
-        # 默认模式: blurred_ambient (高斯模糊毛玻璃流动光晕 + 精美封面卡片)
+    elif bg_mode == "blurred_ambient":
+        # 磨砂毛玻璃流动光晕 + 精美封面卡片 (适合 16:9 横屏，或桌面播放器模式)
         inputs.extend(["-loop", "1", "-i", str(cover_path)])
         inputs.extend(["-i", str(audio_path)])
 
         if height > width:
             # 📱 9:16 竖屏短视频布局
-            # 封面卡片尺寸: 640x640，位于顶部居中 Y=210
-            card_size = int(width * 0.62)  # ~670px
-            card_y = 220
+            card_size = int(width * 0.62)
+            card_y = 160
             filters.append(
                 f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
                 f"crop={width}:{height},"
                 f"boxblur=45:5,eq=brightness=-0.25[bg_blur]"
             )
-            # 正方封面卡片 (微倒角由 pad 或保持正方，加上微弱高光边框)
             filters.append(
                 f"[0:v]scale={card_size}:{card_size}:force_original_aspect_ratio=increase,"
                 f"crop={card_size}:{card_size},"
@@ -401,7 +404,6 @@ def build_lyric_video_ffmpeg_cmd(
             filters.append(f"[v_card]subtitles='{escaped_sub}'[v_out]")
         else:
             # 💻 16:9 横屏布局
-            # 封面卡片位于左侧 180px，尺寸 580x580，歌词居中偏右
             card_size = int(height * 0.58)  # ~620px
             filters.append(
                 f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
@@ -415,6 +417,19 @@ def build_lyric_video_ffmpeg_cmd(
             )
             filters.append(f"[bg_blur][card]overlay=x=160:y=(H-h)/2[v_card]")
             filters.append(f"[v_card]subtitles='{escaped_sub}'[v_out]")
+
+    else:
+        # 默认模式: full_bleed (🖼️ 全图沉浸式铺满，9:16 短视频首选，告别小卡片割裂感)
+        inputs.extend(["-loop", "1", "-i", str(cover_path)])
+        inputs.extend(["-i", str(audio_path)])
+
+        # 原画全屏铺满裁切 + 电影级微调明暗对比度 (微暗化 -0.14，对比度 1.06，保证白色歌词通透浮现且原画张力十足)
+        filters.append(
+            f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
+            f"crop={width}:{height},"
+            f"eq=brightness=-0.14:contrast=1.06,"
+            f"subtitles='{escaped_sub}'[v_out]"
+        )
 
     filter_complex = ";".join(filters)
 
@@ -456,7 +471,7 @@ def export_lyric_video(
     aspect_ratio: str = "9:16",
     template: str = "apple",
     theme: str = "apple_white",
-    background_mode: str = "blurred_ambient",
+    background_mode: str = "full_bleed",
     cover_path: Path | str | None = None,
     font_size: int | None = None,
     duration_limit: float | None = None,

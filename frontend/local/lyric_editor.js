@@ -249,7 +249,7 @@ function initLyricExportModal() {
       if (!state.currentFile) return;
 
       const ratio = document.querySelector('input[name="export-ratio"]:checked')?.value || "9:16";
-      const bg = document.querySelector('input[name="export-bg"]:checked')?.value || "blurred_ambient";
+      const bg = document.querySelector('input[name="export-bg"]:checked')?.value || "full_bleed";
       const template = $("#export-template-select")?.value || "apple";
       const theme = $("#export-theme-select")?.value || "apple_white";
 

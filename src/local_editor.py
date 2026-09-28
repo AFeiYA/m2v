@@ -960,7 +960,7 @@ class LyricVideoExportRequest(BaseModel):
     aspect_ratio: str = Field(default="9:16", description="视频比例: 9:16 或 16:9")
     template: str = Field(default="apple", description="歌词排版模板: apple, center_bounce, tv")
     theme: str = Field(default="apple_white", description="主题调色板")
-    background_mode: str = Field(default="blurred_ambient", description="动态背景模式: blurred_ambient, ken_burns, vinyl, solid_black")
+    background_mode: str = Field(default="full_bleed", description="动态背景模式: full_bleed, ken_burns, blurred_ambient, vinyl, solid_black")
     cover_path: str | None = Field(default=None, description="自定义封面路径 (可选)")
     font_size: int | None = Field(default=None, description="自定义字体大小 (可选)")
     duration_limit: float | None = Field(default=None, description="时长限制 (可选)")
