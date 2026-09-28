@@ -433,9 +433,18 @@ async def plugin_direct_export_video(
                 if sec_lower == "chorus":
                     out_suffix = "_副歌"
                     for s in al_obj.sections:
-                        if s.name.lower() == "chorus" or "副歌" in s.label:
+                        s_name = (getattr(s, "name", "") or "").lower()
+                        s_lbl = getattr(s, "label", "") or ""
+                        if "chorus" in s_name or "副歌" in s_lbl:
                             target_sec = s
                             break
+                    if not target_sec:
+                        for line in getattr(al_obj, "lines", []):
+                            l_sec = getattr(line, "section", "") or ""
+                            if "chorus" in l_sec.lower() or "副歌" in l_sec:
+                                seg_start = line.start
+                                target_sec = True
+                                break
                     if not target_sec and al_obj.sections:
                         target_sec = max(al_obj.sections, key=lambda x: getattr(x, "energy", 0.0))
                     if not target_sec and al_obj.duration > 35:
@@ -443,14 +452,24 @@ async def plugin_direct_export_video(
                 elif sec_lower == "verse1":
                     out_suffix = "_主歌1"
                     for s in al_obj.sections:
-                        if s.name.lower().startswith("verse") or "主歌" in s.label:
+                        s_name = (getattr(s, "name", "") or "").lower()
+                        s_lbl = getattr(s, "label", "") or ""
+                        if "verse" in s_name or "主歌" in s_lbl:
                             target_sec = s
                             break
+                    if not target_sec:
+                        for line in getattr(al_obj, "lines", []):
+                            l_sec = getattr(line, "section", "") or ""
+                            if "verse" in l_sec.lower() or "主歌" in l_sec:
+                                seg_start = line.start
+                                target_sec = True
+                                break
                 elif sec_lower == "intro":
                     out_suffix = "_前奏"
                     seg_start = 0.0
+                    target_sec = True
 
-                if target_sec:
+                if target_sec and hasattr(target_sec, "start"):
                     seg_start = target_sec.start
                     if not seg_dur or seg_dur <= 0:
                         seg_dur = 30.0  # 自动向后截取 30 秒黄金短视频长度

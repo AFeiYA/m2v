@@ -286,29 +286,53 @@ function initLyricExportModal() {
       const startInp = $("#export-start-time");
       const endInp = $("#export-end-time");
 
+      // 优先从已加载的对齐数据 state.alignment 中读取 sections 与 lines
+      const sections = (state.alignment?.sections && state.alignment.sections.length > 0)
+        ? state.alignment.sections
+        : (state.currentFile?.sections || []);
+      const lines = state.alignment?.lines || [];
+
       if (preset === "full") {
         if (startInp) startInp.value = "00:00";
         if (endInp) endInp.value = "";
       } else if (preset === "chorus") {
-        const sections = state.currentFile?.sections || [];
-        const ch = sections.find((s) => s.name?.toLowerCase() === "chorus" || s.label?.includes("副歌"));
-        if (ch) {
-          const st = ch.start;
-          const et = ch.start + 30.0;
+        let chStart = null;
+        const ch = sections.find((s) => (s.name && s.name.toLowerCase().includes("chorus")) || (s.label && s.label.includes("副歌")));
+        if (ch && typeof ch.start === "number") {
+          chStart = ch.start;
+        } else {
+          const lCh = lines.find((l) => (l.section || "").toLowerCase().includes("chorus") || (l.section || "").includes("副歌"));
+          if (lCh && typeof lCh.start === "number") {
+            chStart = lCh.start;
+          }
+        }
+
+        if (chStart !== null) {
+          const st = chStart;
+          const et = chStart + 30.0;
           if (startInp) startInp.value = formatTimeSec(st);
           if (endInp) endInp.value = formatTimeSec(et);
         } else {
-          const totalD = state.duration || 60;
+          const totalD = state.alignment?.duration || state.duration || 60;
           const st = totalD * 0.35;
           if (startInp) startInp.value = formatTimeSec(st);
           if (endInp) endInp.value = formatTimeSec(st + 30.0);
         }
       } else if (preset === "verse1") {
-        const sections = state.currentFile?.sections || [];
-        const v1 = sections.find((s) => s.name?.toLowerCase().startsWith("verse") || s.label?.includes("主歌"));
-        if (v1) {
-          const st = v1.start;
-          const et = v1.start + 30.0;
+        let v1Start = null;
+        const v1 = sections.find((s) => (s.name && (s.name.toLowerCase().includes("verse") || s.name.toLowerCase().includes("v1"))) || (s.label && s.label.includes("主歌")));
+        if (v1 && typeof v1.start === "number") {
+          v1Start = v1.start;
+        } else {
+          const lV1 = lines.find((l) => (l.section || "").toLowerCase().includes("verse") || (l.section || "").includes("主歌"));
+          if (lV1 && typeof lV1.start === "number") {
+            v1Start = lV1.start;
+          }
+        }
+
+        if (v1Start !== null) {
+          const st = v1Start;
+          const et = v1Start + 30.0;
           if (startInp) startInp.value = formatTimeSec(st);
           if (endInp) endInp.value = formatTimeSec(et);
         } else {
