@@ -1,17 +1,17 @@
 /**
  * Fovea MV - Suno 页面主世界脚本 (MAIN World)
- * 在页面加载最早期 (document_start) 注入，全局监听媒体解码与 Blob 创建。
+ * 在页面加载最早期 (document_start) 注入，全局监听媒体解码与 API 数据包。
  */
 
 (function () {
   window.__FOVEA_MEDIA_BLOBS__ = [];
+  window.__FOVEA_CLIPS__ = window.__FOVEA_CLIPS__ || {};
 
-  // 1. 深度拦截 URL.createObjectURL，精准捕获 Suno Wasm 解密生成的音频 Blob
+  // 1. 深度拦截 URL.createObjectURL，捕获播放流 Blob
   try {
     const origCreate = URL.createObjectURL;
     URL.createObjectURL = function (obj) {
       if (obj && (obj instanceof Blob || obj instanceof File)) {
-        // 捕获音频流或大于 100KB 的媒体 Blob
         if (
           (obj.type && (obj.type.includes("audio") || obj.type.includes("video") || obj.type.includes("octet-stream"))) ||
           obj.size > 200000
@@ -27,12 +27,45 @@
     console.warn("[Fovea MV] 拦截 createObjectURL 异常:", e);
   }
 
-  // 2. 提取歌曲元数据
+  // 2. 深度拦截 window.fetch，自动捕获 Suno 的 Clip 数据对象并精准判断 is_public
+  try {
+    const origFetch = window.fetch;
+    window.fetch = async function (...args) {
+      const res = await origFetch.apply(this, args);
+      try {
+        const url = typeof args[0] === "string" ? args[0] : (args[0] && args[0].url ? args[0].url : "");
+        if (url.includes("suno.com") || url.includes("studio-api")) {
+          const clone = res.clone();
+          clone.json().then((data) => {
+            function recordClip(c) {
+              if (c && c.id) {
+                window.__FOVEA_CLIPS__[c.id] = c;
+              }
+            }
+            if (Array.isArray(data)) {
+              data.forEach(recordClip);
+            } else if (data && data.clips && Array.isArray(data.clips)) {
+              data.clips.forEach(recordClip);
+            } else if (data && data.id) {
+              recordClip(data);
+            }
+          }).catch(() => {});
+        }
+      } catch (e) {}
+      return res;
+    };
+  } catch (e) {
+    console.warn("[Fovea MV] 拦截 fetch 异常:", e);
+  }
+
+  // 3. 提取歌曲元数据与 Publish (公开) 状态
   function getTrackInfo() {
     let title = "";
     let artist = "Suno Creator";
     let prompt = "";
     let songId = "";
+    let is_public = true;
+    let coverUrl = "";
 
     // 从 URL 提取 songId
     const m = window.location.pathname.match(/(?:song|s)\/([0-9a-zA-Z_-]+)/);
@@ -65,10 +98,38 @@
       }
     }
 
-    return { title: title || "Suno_Track", artist, prompt, songId };
+    // 提取封面图片
+    const coverImg = document.querySelector("img[src*='cdn2.suno.ai/image_'], img[src*='suno.ai/image_'], img[alt*='Cover']");
+    if (coverImg && coverImg.src) {
+      coverUrl = coverImg.src;
+    }
+
+    // 从全局拦截的 API 数据缓存中检查公开状态
+    if (songId && window.__FOVEA_CLIPS__[songId]) {
+      const clip = window.__FOVEA_CLIPS__[songId];
+      if (clip.is_public === false) {
+        is_public = false;
+      }
+      if (clip.title) title = clip.title;
+      if (clip.display_name || clip.handle) artist = clip.display_name || clip.handle;
+      if (clip.metadata && clip.metadata.prompt) prompt = clip.metadata.prompt;
+      if (!coverUrl) coverUrl = clip.image_large_url || clip.image_url || "";
+    }
+
+    // 检查页面 DOM 中是否存在未发布 (Publish) 按钮
+    const allButtons = document.querySelectorAll("button");
+    for (const b of allButtons) {
+      const t = (b.innerText || "").trim().toLowerCase();
+      if (t === "publish" || t === "publish to profile" || t === "发布") {
+        is_public = false;
+        break;
+      }
+    }
+
+    return { title: title || "Suno_Track", artist, prompt, songId, coverUrl, is_public };
   }
 
-  // 3. 将 Blob 转换为 DataURL 并回传给 content.js
+  // 4. 将 Blob 转换为 DataURL 并回传给 content.js
   function returnBlobResult(blob, track, source = "blob") {
     const reader = new FileReader();
     reader.onloadend = () => {
@@ -85,9 +146,23 @@
     reader.readAsDataURL(blob);
   }
 
-  // 4. 执行捕获主流程
+  // 5. 执行捕获与导出主流程
   async function handleCapture() {
     const track = getTrackInfo();
+
+    // 强制校验: 未公开曲目直接拒绝，引导用户先 Publish
+    if (track.is_public === false) {
+      console.warn("[Fovea MV] 检测到该曲目未公开 (is_public: false)");
+      window.postMessage(
+        {
+          type: "FOVEA_CAPTURE_NOT_PUBLISHED",
+          track,
+          message: `曲目《${track.title}》尚未公开 (Publish)，无法生成视频！\n💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。`,
+        },
+        "*"
+      );
+      return;
+    }
 
     // 优先策略 A: 使用内存拦截捕获到的完整解密 Blob
     if (window.__FOVEA_LAST_BLOB__) {
@@ -119,7 +194,6 @@
       }
 
       if (src && src.startsWith("http")) {
-        // 网络直链转由拥有跨域 host_permissions 的 background service worker 下载
         window.postMessage(
           {
             type: "FOVEA_CAPTURE_NEED_BG_FETCH",
@@ -163,6 +237,15 @@
           "*"
         );
       });
+    } else if (event.data.type === "FOVEA_QUERY_TRACK_INFO") {
+      const track = getTrackInfo();
+      window.postMessage(
+        {
+          type: "FOVEA_REPORT_TRACK_INFO",
+          track,
+        },
+        "*"
+      );
     }
   });
 })();

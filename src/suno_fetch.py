@@ -58,7 +58,13 @@ class SunoSong:
     model_version: str = ""  # 模型版本 (如 v6)
     media_urls: list = field(default_factory=list)  # 新版 CDN 多媒体流地址
     video_url: str = ""      # 官方视频直链 (含未加密的高清音轨)
+    is_public: bool = True   # 是否已在 Suno 上公开发布 (未公开则无法公开提取)
     raw_clip: dict = field(default_factory=dict)    # 原始完整 clip JSON 数据包
+
+
+class SongNotPublishedError(ValueError):
+    """当 Suno 歌曲尚未公开发布 (is_public is False 或页面不可公开发问) 时抛出。"""
+    pass
 
 
 def resolve_suno_page(url_or_id: str) -> tuple[str, str, str]:
@@ -90,10 +96,26 @@ def resolve_suno_page(url_or_id: str) -> tuple[str, str, str]:
     }
 
     log.info("请求 Suno 页面: %s", page_url)
-    resp = requests.get(page_url, headers=headers, timeout=30, allow_redirects=True)
-    resp.raise_for_status()
+    try:
+        resp = requests.get(page_url, headers=headers, timeout=30, allow_redirects=True)
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code if e.response is not None else 0
+        if status_code in (404, 403, 401):
+            raise SongNotPublishedError(
+                f"无法访问 Suno 页面 (HTTP {status_code})。该曲目可能尚未公开 (Publish)！\n"
+                "💡 请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+            )
+        raise
     resp.encoding = "utf-8"
     html = resp.text
+
+    # 检查是否因私密重定向回主页/创作页
+    if "suno.com/create" in resp.url or "suno.com/me" in resp.url or not re.search(r'[0-9a-f]{8}-', html):
+        raise SongNotPublishedError(
+            "未能从 Suno 页面提取歌曲信息，该曲目可能尚未公开 (Publish)！\n"
+            "💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+        )
 
     # 1. 尝试从 canonical 标签获取标准 song_id
     canonical_match = re.search(r'<link\s+rel="canonical"\s+href="([^"]+)"', html, re.I)
@@ -113,7 +135,9 @@ def resolve_suno_page(url_or_id: str) -> tuple[str, str, str]:
     if m:
         return m.group(0), resp.url, html
 
-    raise ValueError(f"无法从 Suno 页面中提取歌曲 UUID: {url_or_id}")
+    raise SongNotPublishedError(
+        f"无法从 Suno 页面提取有效歌曲信息: {url_or_id}。请确保该歌曲已设置为【Publish】公开发布！"
+    )
 
 
 def fetch_clip_with_auth(song_id: str, cookie: str | None = None, token: str | None = None) -> dict | None:
@@ -163,7 +187,12 @@ def fetch_clip_with_auth(song_id: str, cookie: str | None = None, token: str | N
     return None
 
 
-def fetch_song(url_or_id: str, cookie: str | None = None, token: str | None = None) -> SunoSong:
+def fetch_song(
+    url_or_id: str,
+    cookie: str | None = None,
+    token: str | None = None,
+    require_public: bool = True,
+) -> SunoSong:
     """
     从 Suno 公开分享页面获取歌曲对象及完整 JSON 元数据。
 
@@ -171,6 +200,7 @@ def fetch_song(url_or_id: str, cookie: str | None = None, token: str | None = No
         url_or_id: Suno URL (支持 /song/{uuid} 与 /s/{short_id}) 或 UUID
         cookie: 可选 Suno Session Cookie
         token: 可选 Suno Bearer Token
+        require_public: 是否强制要求歌曲已公开发布 (Publish)，默认 True
 
     Returns:
         SunoSong 实体，包含 title, lyrics, duration, raw_clip 等所有信息
@@ -193,7 +223,16 @@ def fetch_song(url_or_id: str, cookie: str | None = None, token: str | None = No
             raw_prompt="",
             tags="",
             duration=0.0,
+            is_public=True,
             raw_clip={"id": song_id, "title": title, "audio_url": audio_url},
+        )
+
+    title = clip_data.get("title") or song_id
+    is_public = clip_data.get("is_public", True)
+    if require_public and clip_data.get("is_public") is False:
+        raise SongNotPublishedError(
+            f"Suno 曲目《{title}》尚未公开 (Publish)，无法生成视频！\n"
+            "💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
         )
 
     metadata = clip_data.get("metadata", {}) or {}
@@ -239,7 +278,6 @@ def fetch_song(url_or_id: str, cookie: str | None = None, token: str | None = No
                 audio_url = f"https://cdn1.suno.ai/{song_id}.mp3"
 
 
-    title = clip_data.get("title") or song_id
     artist = clip_data.get("display_name") or clip_data.get("handle") or "unknown"
     duration = float(metadata.get("duration", 0.0) or 0.0)
     tags = clip_data.get("display_tags") or metadata.get("tags") or ""
@@ -260,6 +298,7 @@ def fetch_song(url_or_id: str, cookie: str | None = None, token: str | None = No
         model_version=model_version,
         media_urls=media_urls,
         video_url=video_url,
+        is_public=is_public if is_public is not None else True,
         raw_clip=clip_data,
     )
 

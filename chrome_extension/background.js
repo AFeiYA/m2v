@@ -1,6 +1,6 @@
 /**
  * Fovea MV - 后台服务工作线程 (Background Service Worker)
- * 拥有全局权限，负责跨域音轨下载与与本地/云端编辑器的稳定通信。
+ * 拥有全局跨域权限与下载管理器权限，负责调用后端渲染并自动将 MP4 视频保存至本地。
  */
 
 function dataUrlToBlob(dataUrl) {
@@ -15,18 +15,65 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([u8arr], { type: mime });
 }
 
-async function uploadToFoveaServer(blob, track, serverUrl) {
-  const targetServer = (serverUrl || "http://127.0.0.1:8000").replace(/\/+$/, "");
-  const endpoint = `${targetServer}/api/plugin/import`;
+// 轮询短视频生成任务进度
+async function pollLyricVideoTask(targetServer, taskId) {
+  const maxAttempts = 120; // 最长等待 180 秒
+  let attempts = 0;
 
-  console.log("[Fovea MV Background] 正在上传至:", endpoint, `大小: ${(blob.size / 1024 / 1024).toFixed(2)}MB`);
+  return new Promise((resolve, reject) => {
+    const timer = setInterval(async () => {
+      attempts++;
+      if (attempts > maxAttempts) {
+        clearInterval(timer);
+        reject(new Error("视频合成超时，请检查后端运行状态"));
+        return;
+      }
+
+      try {
+        const resp = await fetch(`${targetServer}/api/lyric_video/task_status?task_id=${taskId}`);
+        if (!resp.ok) return;
+        const task = await resp.json();
+
+        if (task.status === "completed") {
+          clearInterval(timer);
+          resolve(task.result || {});
+        } else if (task.status === "failed") {
+          clearInterval(timer);
+          reject(new Error(task.error || task.message || "短视频合成失败"));
+        }
+      } catch (e) {
+        console.warn("[Fovea MV] 轮询任务进度异常:", e);
+      }
+    }, 1500);
+  });
+}
+
+// 调用视频生成并下载 MP4
+async function exportVideoAndDownload(blob, track, serverUrl) {
+  const targetServer = (serverUrl || "https://mv.fovea.si").replace(/\/+$/, "");
+  const endpoint = `${targetServer}/api/plugin/export_video`;
+
+  // 严格检查公开状态 (Publish)
+  if (track && track.is_public === false) {
+    throw new Error(
+      `曲目《${track.title || "当前歌曲"}》尚未公开 (Publish)，无法生成视频！\n💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。`
+    );
+  }
 
   const formData = new FormData();
-  formData.append("audio_file", blob, `${track.title || "suno_track"}.mp3`);
+  if (blob) {
+    formData.append("audio_file", blob, `${track.title || "suno_track"}.mp3`);
+  }
   formData.append("title", track.title || "Suno_Track");
   formData.append("prompt", track.prompt || "");
   formData.append("artist", track.artist || "unknown");
   formData.append("song_id", track.songId || "");
+  formData.append("cover_url", track.coverUrl || "");
+  formData.append("is_public", track.is_public !== false ? "true" : "false");
+  formData.append("aspect_ratio", "9:16");
+  formData.append("template", "apple");
+  formData.append("theme", "apple_white");
+  formData.append("background_mode", "blurred_ambient");
 
   let resp;
   try {
@@ -36,29 +83,65 @@ async function uploadToFoveaServer(blob, track, serverUrl) {
     });
   } catch (netErr) {
     throw new Error(
-      `无法连接本地后台服务 (${targetServer})。\n详细原因: ${netErr.message}。\n请确保终端已运行: .venv/bin/python -m src.local_editor --port 8000`
+      `无法连接本地后台服务 (${targetServer})。\n原因: ${netErr.message}。\n请确保终端已运行: .venv/bin/python -m src.local_editor --port 8000`
     );
   }
 
   if (!resp.ok) {
-    const txt = await resp.text();
-    throw new Error(`后台处理失败 (HTTP ${resp.status}): ${txt}`);
+    let errDetail = "";
+    try {
+      const errJson = await resp.json();
+      errDetail = errJson.detail || errJson.message || "";
+    } catch (_) {
+      errDetail = await resp.text();
+    }
+    throw new Error(errDetail || `后台处理失败 (HTTP ${resp.status})`);
   }
 
   const data = await resp.json();
-  const targetUrl = data.full_editor_url || `${targetServer}${data.editor_url}`;
+  const taskId = data.task_id;
+  if (!taskId) {
+    throw new Error("后台未返回任务 ID");
+  }
 
-  // 自动在新标签页打开编辑器
-  chrome.tabs.create({ url: targetUrl });
-  return data;
+  console.log(`[Fovea MV Background] 任务已提交 (ID: ${taskId})，开始轮询渲染进度...`);
+
+  // 轮询直至完成
+  const result = await pollLyricVideoTask(targetServer, taskId);
+  const rawVideoUrl = result.download_url || result.video_url;
+  if (!rawVideoUrl) {
+    throw new Error("后台未返回视频下载地址");
+  }
+
+  const fullDownloadUrl = rawVideoUrl.startsWith("http")
+    ? rawVideoUrl
+    : `${targetServer}${rawVideoUrl}`;
+
+  const safeFilename = `${(track.title || "suno_mv").replace(/[\\/:*?"<>|]/g, "_")}_9x16.mp4`;
+
+  console.log("[Fovea MV Background] 视频渲染成功，正在下载:", fullDownloadUrl);
+
+  // 通过 Chrome Downloads API 自动静默下载到本地
+  if (chrome.downloads && chrome.downloads.download) {
+    chrome.downloads.download({
+      url: fullDownloadUrl,
+      filename: safeFilename,
+      saveAs: false,
+    });
+  } else {
+    // 回退方案: 打开新标签页触发下载
+    chrome.tabs.create({ url: fullDownloadUrl });
+  }
+
+  return { status: "ok", result, downloadUrl: fullDownloadUrl, filename: safeFilename };
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // 1. 直传主世界截获的解密 Blob
-  if (request.action === "UPLOAD_DIRECT_BLOB") {
+  // 1. 直传主世界解密 Blob 并导出 MP4
+  if (request.action === "EXPORT_VIDEO_DIRECT_BLOB") {
     try {
       const blob = dataUrlToBlob(request.dataUrl);
-      uploadToFoveaServer(blob, request.track, request.serverUrl)
+      exportVideoAndDownload(blob, request.track, request.serverUrl)
         .then((res) => sendResponse({ status: "ok", data: res }))
         .catch((err) => sendResponse({ status: "error", message: err.message }));
     } catch (e) {
@@ -67,41 +150,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  // 2. 代理下载网络媒体流 (CDN / CloudFront)
-  if (request.action === "FETCH_AND_UPLOAD") {
-    console.log("[Fovea MV Background] 代理下载音轨:", request.url);
+  // 2. 代理拉取网络流并导出 MP4
+  if (request.action === "EXPORT_VIDEO_FETCH") {
     fetch(request.url)
       .then((r) => {
         if (!r.ok) throw new Error(`CDN 音频流下载失败 (HTTP ${r.status})`);
         return r.blob();
       })
-      .then((blob) => uploadToFoveaServer(blob, request.track, request.serverUrl))
+      .then((blob) => exportVideoAndDownload(blob, request.track, request.serverUrl))
       .then((res) => sendResponse({ status: "ok", data: res }))
       .catch((err) => sendResponse({ status: "error", message: err.message }));
     return true;
   }
 
-  // 3. 回退方案: 通过 Song ID 导入
-  if (request.action === "IMPORT_BY_SONG_ID") {
-    const targetServer = (request.serverUrl || "http://127.0.0.1:8000").replace(/\/+$/, "");
-    const songUrl = `https://suno.com/song/${request.songId}`;
-    fetch(`${targetServer}/api/suno/import`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: songUrl }),
-    })
-      .then(async (r) => {
-        if (!r.ok) {
-          const t = await r.text();
-          throw new Error(t);
-        }
-        return r.json();
-      })
-      .then((data) => {
-        const url = `${targetServer}/?song=${encodeURIComponent(data.title || request.track.title)}`;
-        chrome.tabs.create({ url });
-        sendResponse({ status: "ok", data });
-      })
+  // 3. 通过 Song ID 触发一键导出 MP4
+  if (request.action === "EXPORT_VIDEO_BY_SONG_ID") {
+    exportVideoAndDownload(null, request.track, request.serverUrl)
+      .then((res) => sendResponse({ status: "ok", data: res }))
       .catch((err) => sendResponse({ status: "error", message: err.message }));
     return true;
   }

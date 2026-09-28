@@ -265,6 +265,214 @@ def api_get_gpu_status():
 
 
 
+
+@app.post("/api/plugin/export_video")
+async def plugin_direct_export_video(
+    audio_file: UploadFile = File(None),
+    title: str = Form("Suno_Track"),
+    lyrics: str = Form(""),
+    prompt: str = Form(""),
+    artist: str = Form("unknown"),
+    song_id: str = Form(""),
+    tags: str = Form(""),
+    url: str = Form(""),
+    is_public: bool = Form(True),
+    aspect_ratio: str = Form("9:16"),
+    template: str = Form("apple"),
+    theme: str = Form("apple_white"),
+    background_mode: str = Form("blurred_ambient"),
+    cover_url: str = Form(""),
+):
+    """
+    接收来自 Chrome 插件的一键动效短视频生成请求。
+    强制校验歌曲是否已在 Suno 上 Publish (公开)，
+    自动执行音频准备、纯 CTC 毫秒级字级时间轴对齐、并直接渲染 9:16 商业级 MP4 短视频。
+    """
+    import subprocess
+    from urllib.parse import quote
+    from src.suno_fetch import (
+        _sanitize_filename,
+        _clean_lyrics,
+        enrich_alignment_sections,
+        fetch_song,
+        download_song,
+        SongNotPublishedError,
+    )
+    from src.main import process_one
+    from src.config import PipelineConfig
+    from src.utils import get_ffmpeg_binary
+    from src.lyric_engine import export_lyric_video
+
+    # 1. 严格检查公开状态 (Publish)
+    if not is_public:
+        raise HTTPException(
+            status_code=400,
+            detail="该曲目尚未公开 (Publish)，无法生成视频！\n💡 请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+        )
+
+    clean_title = _sanitize_filename(title) or f"suno_{uuid.uuid4().hex[:8]}"
+    scan_dir = _get_scan_dir()
+    input_dir = scan_dir.parent / "input" / clean_title
+    output_dir = scan_dir / clean_title
+    input_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    fetched_song = None
+    target_url = url or (f"https://suno.com/song/{song_id}" if song_id else "")
+
+    if target_url:
+        try:
+            fetched_song = fetch_song(target_url, require_public=True)
+            if fetched_song:
+                clean_title = _sanitize_filename(fetched_song.title) or clean_title
+                artist = fetched_song.artist or artist
+                prompt = fetched_song.raw_prompt or prompt
+                lyrics = fetched_song.lyrics or lyrics
+        except SongNotPublishedError as sne:
+            log.warning("检测到未公开曲目请求: %s", sne)
+            raise HTTPException(status_code=400, detail=str(sne))
+        except Exception as e:
+            log.warning("尝试在线拉取歌曲信息异常: %s", e)
+
+    # 2. 准备音频
+    target_mp3 = input_dir / f"{clean_title}.mp3"
+    if audio_file is not None and audio_file.filename:
+        temp_upload = input_dir / f"temp_{clean_title}_{audio_file.filename}"
+        with open(temp_upload, "wb") as f:
+            shutil.copyfileobj(audio_file.file, f)
+
+        ffmpeg_bin = get_ffmpeg_binary()
+        cmd = [
+            ffmpeg_bin, "-y",
+            "-i", str(temp_upload),
+            "-vn",
+            "-c:a", "libmp3lame",
+            "-b:a", "192k",
+            str(target_mp3),
+        ]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode != 0 or not target_mp3.exists() or target_mp3.stat().st_size == 0:
+            if temp_upload.suffix.lower() in [".mp3", ".wav", ".m4a"]:
+                shutil.copy2(temp_upload, target_mp3)
+            else:
+                temp_upload.unlink(missing_ok=True)
+                raise HTTPException(500, f"音频转码失败: {res.stderr[-200:] if res.stderr else '未知错误'}")
+        temp_upload.unlink(missing_ok=True)
+    elif fetched_song:
+        download_song(fetched_song, input_dir, song_name=clean_title, save_json=True)
+        cand_mp3 = input_dir / f"{clean_title}.mp3"
+        if cand_mp3.exists():
+            target_mp3 = cand_mp3
+
+    if not target_mp3.exists() or target_mp3.stat().st_size == 0:
+        raise HTTPException(400, "未能获取到有效的音频流。请先在 Suno 页面点击【播放】试听这首歌曲。")
+
+    # 3. 准备封面
+    cover_file = input_dir / f"{clean_title}_cover.png"
+    cand_cover_url = cover_url or (fetched_song.raw_clip.get("image_large_url") or fetched_song.raw_clip.get("image_url") if fetched_song else "")
+    if cand_cover_url and not cover_file.exists():
+        try:
+            import requests
+            img_resp = requests.get(cand_cover_url, timeout=10)
+            if img_resp.status_code == 200:
+                cover_file.write_bytes(img_resp.content)
+        except Exception as e:
+            log.warning("下载封面失败: %s", e)
+
+    # 4. 准备歌词
+    clean_lyr = lyrics.strip()
+    if not clean_lyr and prompt:
+        clean_lyr = _clean_lyrics(prompt)
+    lyrics_path = input_dir / f"{clean_title}.txt"
+    lyrics_path.write_text(clean_lyr, encoding="utf-8")
+
+    meta_json = input_dir / f"{clean_title}_suno.json"
+    meta_data = {
+        "id": song_id or clean_title,
+        "title": clean_title,
+        "artist": artist,
+        "is_public": True,
+        "metadata": {
+            "prompt": prompt,
+            "tags": tags,
+        },
+        "from_extension": True,
+    }
+    meta_json.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # 5. 执行极速纯 CTC 对齐
+    cfg_file = scan_dir.parent / "pipeline.toml"
+    config = PipelineConfig.from_file(cfg_file) if cfg_file.exists() else PipelineConfig()
+    config.ass_only = True
+
+    process_one(target_mp3, lyrics_path, output_dir, None, config)
+
+    alignment_json_path = output_dir / f"{clean_title}_alignment.json"
+    if alignment_json_path.exists() and prompt:
+        try:
+            enrich_alignment_sections(alignment_json_path, prompt)
+        except Exception as e:
+            log.warning("乐段结构注入异常: %s", e)
+
+    # 6. 创建异步视频合成任务
+    clean_ratio = aspect_ratio.replace(":", "x")
+    out_mp4 = output_dir / f"{clean_title}_lyric_{clean_ratio}_{template}.mp4"
+    task_id = f"lyric_{uuid.uuid4().hex[:8]}"
+
+    _lyric_video_tasks[task_id] = {
+        "status": "pending",
+        "progress": 20.0,
+        "message": "纯 CTC 词级时间轴已对齐，正在准备合成 9:16 动效短视频...",
+        "task_id": task_id,
+        "title": clean_title,
+        "result": None,
+        "error": None,
+    }
+
+    def _worker():
+        try:
+            _lyric_video_tasks[task_id]["status"] = "running"
+            _lyric_video_tasks[task_id]["progress"] = 35.0
+
+            def _on_prog(p_val: float, msg: str):
+                _lyric_video_tasks[task_id]["progress"] = max(35.0, p_val)
+                _lyric_video_tasks[task_id]["message"] = msg
+
+            res = export_lyric_video(
+                alignment_source=alignment_json_path,
+                audio_path=target_mp3,
+                output_path=out_mp4,
+                aspect_ratio=aspect_ratio,
+                template=template,
+                theme=theme,
+                background_mode=background_mode,
+                cover_path=cover_file if cover_file.exists() else None,
+                progress_callback=_on_prog,
+            )
+
+            res["video_url"] = f"/api/asset_file?path={encode_path(str(out_mp4.absolute()))}"
+            res["download_url"] = f"/api/asset_file?download=true&filename={quote(clean_title + '_lyric.mp4')}&path={encode_path(str(out_mp4.absolute()))}"
+
+            _lyric_video_tasks[task_id]["status"] = "completed"
+            _lyric_video_tasks[task_id]["progress"] = 100.0
+            _lyric_video_tasks[task_id]["message"] = f"视频生成成功！耗时: {res.get('elapsed_seconds')}s"
+            _lyric_video_tasks[task_id]["result"] = res
+            log.info("Chrome 插件触发动效短视频生成完成: %s -> %s", task_id, out_mp4.name)
+        except Exception as e:
+            log.exception("Chrome 插件触发动效短视频生成失败: %s", e)
+            _lyric_video_tasks[task_id]["status"] = "failed"
+            _lyric_video_tasks[task_id]["error"] = str(e)
+            _lyric_video_tasks[task_id]["message"] = f"生成失败: {e}"
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return {
+        "status": "pending",
+        "task_id": task_id,
+        "title": clean_title,
+        "message": "9:16 动效短视频渲染任务已提交，正在合成...",
+    }
+
+
 @app.post("/api/plugin/import")
 async def plugin_direct_import(
     audio_file: UploadFile = File(...),
@@ -413,8 +621,8 @@ def list_assets():
 
 
 @app.api_route("/api/asset_file", methods=["GET", "HEAD"])
-def get_asset_file(path: str, json_path: str = ""):
-    """提供素材文件流（支持视频 Range 拖拽播放与 HEAD 嗅探）"""
+def get_asset_file(path: str, json_path: str = "", download: bool = False, filename: str | None = None):
+    """提供素材文件流（支持视频 Range 拖拽播放与 HEAD 嗅探，以及附件直接下载）"""
     p = Path(path)
     if not p.is_absolute() and not p.exists():
         if json_path:
@@ -439,7 +647,13 @@ def get_asset_file(path: str, json_path: str = ""):
         ".webp": "image/webp",
     }
     media_type = media_types.get(suffix, None)
-    return FileResponse(p, media_type=media_type, headers={"Accept-Ranges": "bytes"})
+    headers = {"Accept-Ranges": "bytes"}
+    if download or filename:
+        from urllib.parse import quote
+        dl_name = filename or p.name
+        quoted = quote(dl_name)
+        headers["Content-Disposition"] = f"attachment; filename=\"{quoted}\"; filename*=UTF-8''{quoted}"
+    return FileResponse(p, media_type=media_type, headers=headers)
 
 
 def encode_path(p: str) -> str:

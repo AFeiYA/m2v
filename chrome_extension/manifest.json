@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Fovea MV - Suno 歌词视频助手",
-  "version": "1.0.2",
-  "description": "在 Suno 网页听歌时一键抓取音频与歌词，免除 25 首下载配额限制，秒级生成 9:16 动效短视频与时间轴。",
+  "version": "1.1.0",
+  "description": "在 Suno 网页一键识别已发布曲目，纯 CTC 字级时间轴对齐并一键生成下载 9:16 商业级动效 MP4 短视频。",
   "permissions": [
     "storage",
     "activeTab",
-    "tabs"
+    "tabs",
+    "downloads"
   ],
   "host_permissions": [
     "http://127.0.0.1:8000/*",

@@ -38,9 +38,9 @@
       font-size: 10px;
       padding: 2px 6px;
       border-radius: 9999px;
-      background: rgba(34, 197, 94, 0.2);
-      color: #4ade80;
-      border: 1px solid rgba(34, 197, 94, 0.3);
+      background: rgba(99, 102, 241, 0.2);
+      color: #818cf8;
+      border: 1px solid rgba(99, 102, 241, 0.3);
       font-weight: 600;
     }
     .card {
@@ -65,6 +65,11 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .status-row {
+      margin-top: 6px;
+      font-size: 11px;
+      font-weight: 500;
+    }
     .btn-primary {
       width: 100%;
       background: linear-gradient(135deg, #6366f1, #a855f7);
@@ -82,18 +87,49 @@
       transition: all 0.2s;
       box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
     }
-    .btn-primary:hover {
+    .btn-primary:hover:not(:disabled) {
       opacity: 0.95;
       transform: translateY(-1px);
     }
     .btn-primary:disabled {
-      opacity: 0.6;
+      opacity: 0.45;
       cursor: not-allowed;
+      filter: grayscale(0.5);
     }
     .settings-row {
       margin-top: 10px;
       font-size: 11px;
       color: #94a3b8;
+    }
+    .node-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    .node-btns {
+      display: flex;
+      gap: 4px;
+    }
+    .node-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #94a3b8;
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .node-btn:hover {
+      background: rgba(255, 255, 255, 0.15);
+      color: #fff;
+    }
+    .node-btn.active {
+      background: rgba(99, 102, 241, 0.35);
+      border-color: #6366f1;
+      color: #a5b4fc;
+      font-weight: 600;
     }
     .input-server {
       width: 100%;
@@ -110,7 +146,7 @@
       color: #64748b;
       margin-top: 12px;
       line-height: 1.4;
-      text-align: center;
+      text-align: left;
     }
   </style>
 </head>
@@ -119,25 +155,32 @@
     <div class="brand">
       <span>✨ Fovea MV</span>
     </div>
-    <span class="badge">免扣 25 首额度</span>
+    <span class="badge">9:16 动效 MP4</span>
   </div>
 
   <div class="card">
     <div class="card-title">当前检测到的歌曲</div>
     <div class="song-name" id="songName">正在检测播放中歌曲...</div>
+    <div class="status-row" id="publishStatus"></div>
   </div>
 
   <button class="btn-primary" id="btnExport">
-    <span>🚀 一键制作动效短视频</span>
+    <span>🎬 一键生成 9:16 动效 MP4</span>
   </button>
 
   <div class="settings-row">
-    <label>后端服务地址:</label>
-    <input type="text" class="input-server" id="serverInput" value="http://127.0.0.1:8000" />
+    <div class="node-header">
+      <label>后台服务节点:</label>
+      <div class="node-btns">
+        <button type="button" id="btnCloudNode" class="node-btn active">☁️ 云端生产</button>
+        <button type="button" id="btnLocalNode" class="node-btn">💻 本地开发</button>
+      </div>
+    </div>
+    <input type="text" class="input-server" id="serverInput" value="https://mv.fovea.si" />
   </div>
 
-  <div class="footer-tip">
-    💡 提示：在 Suno 页面点击【播放】试听后，点击本按钮即可直接截获内存音轨生成 9:16 短视频。
+  <div class="footer-tip" id="footerTip">
+    💡 提示：本助手仅支持已公开发布 (Publish) 的曲目。未公开曲目请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开后再试。视频合成后将自动保存到本地下载目录。
   </div>
 
   <script src="popup.js"></script>

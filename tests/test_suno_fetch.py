@@ -152,3 +152,28 @@ def test_suno_import_request_schema():
     assert req.use_gpu is False
 
 
+def test_fetch_song_raises_for_unpublished():
+    """验证当 Suno 曲目未公开 (is_public: false) 时，强制抛出 SongNotPublishedError"""
+    from src.suno_fetch import SongNotPublishedError
+
+    fake_html = """
+    <html>
+      <link rel="canonical" href="https://suno.com/song/33333333-4444-5555-6666-777777777777" />
+      <script>
+        self.__next_f.push([1,"{\\"clip\\":{\\"id\\":\\"33333333-4444-5555-6666-777777777777\\",\\"title\\":\\"私密未发布歌曲\\",\\"is_public\\":false,\\"metadata\\":{\\"prompt\\":\\"测试歌词\\",\\"duration\\":100.0}}}"]);
+      </script>
+    </html>
+    """
+    with patch("requests.get") as mock_get:
+        mock_resp = MagicMock()
+        mock_resp.text = fake_html
+        mock_resp.url = "https://suno.com/song/33333333-4444-5555-6666-777777777777"
+        mock_get.return_value = mock_resp
+
+        with pytest.raises(SongNotPublishedError) as exc_info:
+            fetch_song("33333333-4444-5555-6666-777777777777", require_public=True)
+
+        assert "尚未公开" in str(exc_info.value) or "Publish" in str(exc_info.value)
+
+
+

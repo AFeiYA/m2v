@@ -216,4 +216,38 @@ def test_get_gpu_status():
     assert data["zerogpu_config"]["duration"] == 35
 
 
+def test_plugin_direct_export_video_rejects_unpublished():
+    """测试当 Chrome 插件请求未公开 (is_public=False) 曲目时，后端坚决拒绝并提示 Publish"""
+    client = TestClient(app)
+    data = {
+        "title": "Private_Song",
+        "is_public": "false",
+        "song_id": "priv-1234",
+    }
+    res = client.post("/api/plugin/export_video", data=data)
+    assert res.status_code == 400
+    assert "Publish" in res.json().get("detail", "") or "公开" in res.json().get("detail", "")
+
+
+def test_get_asset_file_download_header(tmp_path):
+    """测试 /api/asset_file 支持 download=true 产生 Content-Disposition 附件头"""
+    app.state.scan_dir = tmp_path
+    client = TestClient(app)
+
+    test_file = tmp_path / "sample_video.mp4"
+    test_file.write_bytes(b"dummy mp4 data")
+
+    # 1. 默认流式 (无附件头)
+    res_stream = client.get(f"/api/asset_file?path={test_file}")
+    assert res_stream.status_code == 200
+    assert "content-disposition" not in res_stream.headers
+
+    # 2. 携带 download=true
+    res_dl = client.get(f"/api/asset_file?path={test_file}&download=true&filename=my_mv.mp4")
+    assert res_dl.status_code == 200
+    assert "attachment" in res_dl.headers.get("content-disposition", "")
+    assert "my_mv.mp4" in res_dl.headers.get("content-disposition", "")
+
+
+
 
