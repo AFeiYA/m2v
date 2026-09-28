@@ -27,6 +27,7 @@ import requests
 from PIL import Image, ImageDraw
 
 from src.aligner import AlignmentResult
+from src.storyboard_schema import AlignedLine, WordTimestamp
 from src.config import SubtitleConfig, CompositorConfig
 from src.subtitle import generate_ass, COLOR_PALETTES
 from src.utils import log, check_ffmpeg, get_ffmpeg_binary, get_ffprobe_binary
@@ -297,6 +298,68 @@ def _escape_sub_path(path: Path) -> str:
     return s
 
 
+def slice_alignment_for_segment(
+    alignment: AlignmentResult,
+    start_time: float = 0.0,
+    end_time: float | None = None,
+) -> AlignmentResult:
+    """
+    针对起止时间段裁剪 AlignmentResult，并将时间戳平移至从 0.0 开始：
+    - 仅保留与 [start_time, end_time] 有交集的歌词行
+    - 将所有 line.start, line.end 以及 word.start, word.end 减去 start_time
+    - 更新 duration 为 end_time - start_time
+    """
+    st = max(0.0, float(start_time or 0.0))
+    et = float(end_time) if (end_time is not None and float(end_time) > st) else None
+
+    if st == 0.0 and et is None:
+        return alignment
+
+    new_lines = []
+    for line in alignment.lines:
+        if line.end <= st:
+            continue
+        if et is not None and line.start >= et:
+            continue
+
+        shifted_words = []
+        for w in (line.words or []):
+            if w.end <= st:
+                continue
+            if et is not None and w.start >= et:
+                continue
+            w_st = max(0.0, w.start - st)
+            w_et = max(w_st + 0.04, (w.end - st) if et is None else min(et - st, w.end - st))
+            shifted_words.append(WordTimestamp(word=w.word, start=w_st, end=w_et))
+
+        if shifted_words:
+            shifted_start = shifted_words[0].start
+            shifted_end = shifted_words[-1].end
+        else:
+            shifted_start = max(0.0, line.start - st)
+            shifted_end = max(shifted_start + 0.1, (line.end - st) if et is None else min(et - st, line.end - st))
+
+        new_lines.append(
+            AlignedLine(
+                text=line.text,
+                start=shifted_start,
+                end=shifted_end,
+                words=shifted_words,
+                style_overrides=getattr(line, "style_overrides", {}),
+                section=getattr(line, "section", ""),
+            )
+        )
+
+    new_duration = (et - st) if et is not None else max(0.1, alignment.duration - st)
+
+    return AlignmentResult(
+        title=alignment.title,
+        duration=new_duration,
+        lines=new_lines,
+        sections=[],
+    )
+
+
 def build_lyric_video_ffmpeg_cmd(
     audio_path: Path,
     ass_path: Path,
@@ -312,6 +375,7 @@ def build_lyric_video_ffmpeg_cmd(
     audio_bitrate: str = "192k",
     temp_dir: Path | None = None,
     duration_limit: float | None = None,
+    start_time: float = 0.0,
 ) -> list[str]:
     """构建优化的纯 CPU FFmpeg 动效视频合成命令"""
     ffmpeg_bin = get_ffmpeg_binary()
@@ -319,16 +383,22 @@ def build_lyric_video_ffmpeg_cmd(
     inputs = []
     filters = []
 
+    # 准备音频输入参数 (若指定了 start_time > 0，在 -i 前添加 -ss 极速精准 seek)
+    audio_args = []
+    if start_time and start_time > 0.0:
+        audio_args.extend(["-ss", f"{start_time:.3f}"])
+    audio_args.extend(["-i", str(audio_path)])
+
     if bg_mode == "solid_black":
         # 纯黑极简工作室
         inputs.extend(["-f", "lavfi", "-i", f"color=c=black:s={width}x{height}:r={fps}"])
-        inputs.extend(["-i", str(audio_path)])
+        inputs.extend(audio_args)
         filters.append(f"[0:v]subtitles='{escaped_sub}'[v_out]")
 
     elif bg_mode == "ken_burns":
         # 封面全屏慢呼吸推进 (Ken Burns)
         inputs.extend(["-loop", "1", "-i", str(cover_path)])
-        inputs.extend(["-i", str(audio_path)])
+        inputs.extend(audio_args)
 
         # 预先缩放至 1.25 倍基准，使用 zoompan 缓推，添加微弱暗角/对比度提升歌词可读性
         tw = int(width * 1.2)
@@ -354,7 +424,7 @@ def build_lyric_video_ffmpeg_cmd(
         # 1: 黑胶唱片透明 PNG
         inputs.extend(["-loop", "1", "-i", str(vinyl_png)])
         # 2: 音频
-        inputs.extend(["-i", str(audio_path)])
+        inputs.extend(audio_args)
 
         # 模糊背景
         filters.append(
@@ -384,7 +454,7 @@ def build_lyric_video_ffmpeg_cmd(
     elif bg_mode == "blurred_ambient":
         # 磨砂毛玻璃流动光晕 + 精美封面卡片 (适合 16:9 横屏，或桌面播放器模式)
         inputs.extend(["-loop", "1", "-i", str(cover_path)])
-        inputs.extend(["-i", str(audio_path)])
+        inputs.extend(audio_args)
 
         if height > width:
             # 📱 9:16 竖屏短视频布局
@@ -421,7 +491,7 @@ def build_lyric_video_ffmpeg_cmd(
     else:
         # 默认模式: full_bleed (🖼️ 全图沉浸式铺满，9:16 短视频首选，告别小卡片割裂感)
         inputs.extend(["-loop", "1", "-i", str(cover_path)])
-        inputs.extend(["-i", str(audio_path)])
+        inputs.extend(audio_args)
 
         # 原画全屏铺满裁切 + 电影级微调明暗对比度 (微暗化 -0.14，对比度 1.06，保证白色歌词通透浮现且原画张力十足)
         filters.append(
@@ -431,17 +501,29 @@ def build_lyric_video_ffmpeg_cmd(
             f"subtitles='{escaped_sub}'[v_out]"
         )
 
-    filter_complex = ";".join(filters)
-
+    # 音频淡入淡出保护 (切片片段开头淡入 0.35s，结尾淡出 0.6s)
     input_indices = [i for i, val in enumerate(inputs) if val == "-i"]
     audio_input_idx = len(input_indices) - 1
+
+    fade_filters = []
+    if start_time and start_time > 0.0:
+        fade_filters.append("afade=t=in:ss=0:d=0.35")
+    if duration_limit and duration_limit > 2.0:
+        fade_filters.append(f"afade=t=out:st={duration_limit - 0.6:.2f}:d=0.6")
+
+    audio_map_target = f"{audio_input_idx}:a"
+    if fade_filters:
+        filters.append(f"[{audio_input_idx}:a]{','.join(fade_filters)}[a_out]")
+        audio_map_target = "[a_out]"
+
+    filter_complex = ";".join(filters)
 
     cmd = [
         ffmpeg_bin, "-y",
         *inputs,
         "-filter_complex", filter_complex,
         "-map", "[v_out]",
-        "-map", f"{audio_input_idx}:a",
+        "-map", audio_map_target,
         "-c:v", video_codec,
         "-preset", "veryfast",
         "-crf", str(crf),
@@ -451,7 +533,7 @@ def build_lyric_video_ffmpeg_cmd(
         "-r", str(fps),
     ]
     if duration_limit and duration_limit > 0:
-        cmd.extend(["-t", str(duration_limit)])
+        cmd.extend(["-t", f"{duration_limit:.3f}"])
     cmd.extend([
         "-shortest",
         "-movflags", "+faststart",
@@ -475,6 +557,8 @@ def export_lyric_video(
     cover_path: Path | str | None = None,
     font_size: int | None = None,
     duration_limit: float | None = None,
+    start_time: float = 0.0,
+    end_time: float | None = None,
     progress_callback: Callable[[float, str], None] | None = None,
 ) -> dict[str, Any]:
     """
@@ -515,16 +599,32 @@ def export_lyric_video(
         alignment = alignment_source
         song_dir = out_p.parent
 
+    # 2. 匹配时间裁剪区间 (支持副歌、主歌或自定义起止时间)
+    effective_st = max(0.0, float(start_time or 0.0))
+    effective_et = float(end_time) if (end_time is not None and float(end_time) > effective_st) else None
+    if effective_et is not None:
+        effective_dur = effective_et - effective_st
+    elif duration_limit and duration_limit > 0:
+        effective_dur = float(duration_limit)
+        effective_et = effective_st + effective_dur
+    else:
+        effective_dur = None
+
+    if effective_st > 0.0 or effective_et is not None:
+        log.info("✂️ 执行视频时间裁剪: 起点=%.2fs, 终点=%s, 时长=%s",
+                 effective_st, f"{effective_et:.2f}s" if effective_et else "全曲", f"{effective_dur:.2f}s" if effective_dur else "自适应")
+        alignment = slice_alignment_for_segment(alignment, effective_st, effective_et)
+
     if progress_callback:
         progress_callback(10.0, "解析歌曲封面与比例规格...")
 
-    # 2. 匹配分辨率规格
+    # 3. 匹配分辨率规格
     ratio_spec = ASPECT_RATIOS.get(aspect_ratio, ASPECT_RATIOS["9:16"])
     width = ratio_spec["width"]
     height = ratio_spec["height"]
     actual_font_size = font_size or ratio_spec["default_font_size"]
 
-    # 3. 解析封面
+    # 4. 解析封面
     resolved_cover = resolve_song_cover(song_dir, stem=song_dir.name, custom_cover=cover_path)
     if not resolved_cover or not resolved_cover.exists():
         fallback_cover = song_dir / f"{song_dir.name}_cover.png"
@@ -537,7 +637,7 @@ def export_lyric_video(
     if progress_callback:
         progress_callback(30.0, "生成高精度动效 ASS 字幕...")
 
-    # 4. 生成适配当前分辨率与调色板的 ASS 字幕
+    # 5. 生成适配当前分辨率与调色板的 ASS 字幕
     ass_path = out_p.with_suffix(".ass")
     sub_config = SubtitleConfig(
         font_size=actual_font_size,
@@ -567,7 +667,7 @@ def export_lyric_video(
     if progress_callback:
         progress_callback(50.0, "构建 FFmpeg CPU 高速视频合成命令...")
 
-    # 5. 构建 FFmpeg 命令并执行
+    # 6. 构建 FFmpeg 命令并执行
     cmd = build_lyric_video_ffmpeg_cmd(
         audio_path=audio_p,
         ass_path=ass_path,
@@ -577,7 +677,8 @@ def export_lyric_video(
         height=height,
         bg_mode=background_mode,
         temp_dir=song_dir,
-        duration_limit=duration_limit,
+        duration_limit=effective_dur,
+        start_time=effective_st,
     )
 
     log.info("开始渲染动效短视频: %s", out_p.name)

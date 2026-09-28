@@ -45,39 +45,149 @@
   }
 
   let currentTrackTitle = "";
+  let currentSection = "chorus";
+  let currentDuration = 30;
+
+  const SECTION_LABELS = {
+    chorus: "🔥 副歌 (30s)",
+    verse1: "🎧 主歌1 (30s)",
+    intro: "⚡ 前奏 (30s)",
+    full: "🎬 完整全曲",
+  };
+
+  // 读取已保存的乐段偏好
+  if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+    chrome.storage.local.get(["preferredSection", "preferredDuration"], (res) => {
+      if (res && res.preferredSection) currentSection = res.preferredSection;
+      if (res && res.preferredDuration !== undefined) currentDuration = Number(res.preferredDuration);
+      updateSectionTriggerLabel();
+    });
+  }
+
+  function updateSectionTriggerLabel() {
+    const triggerLabel = document.querySelector(".fovea-section-label");
+    if (triggerLabel) {
+      triggerLabel.textContent = SECTION_LABELS[currentSection] || "🔥 副歌 (30s)";
+    }
+    const items = document.querySelectorAll(".fovea-dropdown-item");
+    items.forEach((it) => {
+      it.classList.toggle("active", it.dataset.section === currentSection);
+    });
+  }
 
   function updateButtonLabel(title) {
     const btn = document.getElementById("fovea-suno-floating-btn");
     if (!btn) return;
-    const label = btn.querySelector("span:last-child");
+    const label = btn.querySelector(".fovea-btn-text");
     if (!label) return;
     if (title && title !== "Suno_Track" && title !== "未知曲目") {
       currentTrackTitle = title;
-      const displayTitle = title.length > 14 ? title.slice(0, 13) + "…" : title;
-      label.textContent = `🎬 生成《${displayTitle}》动效 MP4`;
+      const displayTitle = title.length > 12 ? title.slice(0, 11) + "…" : title;
+      label.textContent = `🎬 生成《${displayTitle}》`;
     } else if (!currentTrackTitle) {
-      label.textContent = "🎬 一键生成 9:16 动效 MP4";
+      label.textContent = "🎬 一键生成 9:16 MP4";
     }
   }
 
-  // 2. 注入悬浮胶囊按钮 (仅提供生成动效 MP4)
+  // 2. 注入悬浮分段胶囊按钮与乐段切换下拉菜单 (方案 A)
   function injectFloatingButton() {
     if (document.getElementById("fovea-suno-floating-btn")) return;
 
     const btn = document.createElement("div");
     btn.id = "fovea-suno-floating-btn";
     btn.innerHTML = `
-      <span class="fovea-pulse-dot"></span>
-      <span>🎬 一键生成 9:16 动效 MP4</span>
+      <div class="fovea-btn-main" title="点击开始一键对齐并渲染 9:16 动效短视频">
+        <span class="fovea-pulse-dot"></span>
+        <span class="fovea-btn-text">🎬 一键生成 9:16 MP4</span>
+      </div>
+      <div class="fovea-btn-divider"></div>
+      <div class="fovea-btn-section-trigger" title="点击切换短视频截取乐段 (默认副歌 30s)">
+        <span class="fovea-section-label">${SECTION_LABELS[currentSection] || "🔥 副歌 (30s)"}</span>
+        <span class="fovea-dropdown-arrow">▾</span>
+      </div>
     `;
 
-    btn.title = "仅支持已公开发布 (Publish) 的曲目，纯 CTC 字级时间轴对齐并一键生成下载 9:16 动效短视频";
-
-    btn.addEventListener("click", () => {
-      triggerCapture();
-    });
-
     document.body.appendChild(btn);
+
+    // 下拉菜单
+    let dropdown = document.getElementById("fovea-section-dropdown");
+    if (!dropdown) {
+      dropdown = document.createElement("div");
+      dropdown.id = "fovea-section-dropdown";
+      dropdown.innerHTML = `
+        <div class="fovea-dropdown-item ${currentSection === "chorus" ? "active" : ""}" data-section="chorus" data-duration="30">
+          <span class="fovea-item-icon">🔥</span>
+          <div class="fovea-item-info">
+            <div class="fovea-item-title">爆款副歌 (Chorus)</div>
+            <div class="fovea-item-desc">从副歌高潮起截取 30 秒 (短视频首选)</div>
+          </div>
+        </div>
+        <div class="fovea-dropdown-item ${currentSection === "verse1" ? "active" : ""}" data-section="verse1" data-duration="30">
+          <span class="fovea-item-icon">🎧</span>
+          <div class="fovea-item-info">
+            <div class="fovea-item-title">主歌第 1 段 (Verse 1)</div>
+            <div class="fovea-item-desc">从主歌开头向后截取 30 秒 (叙事氛围)</div>
+          </div>
+        </div>
+        <div class="fovea-dropdown-item ${currentSection === "intro" ? "active" : ""}" data-section="intro" data-duration="30">
+          <span class="fovea-item-icon">⚡</span>
+          <div class="fovea-item-info">
+            <div class="fovea-item-title">黄金前奏 (Intro Hook)</div>
+            <div class="fovea-item-desc">从音频开头向后截取 30 秒</div>
+          </div>
+        </div>
+        <div class="fovea-dropdown-item ${currentSection === "full" ? "active" : ""}" data-section="full" data-duration="0">
+          <span class="fovea-item-icon">🎬</span>
+          <div class="fovea-item-info">
+            <div class="fovea-item-title">完整全曲 (Full Track)</div>
+            <div class="fovea-item-desc">导出整首歌完整长视频</div>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(dropdown);
+
+      // 下拉项点击切换
+      dropdown.querySelectorAll(".fovea-dropdown-item").forEach((it) => {
+        it.addEventListener("click", (e) => {
+          e.stopPropagation();
+          currentSection = it.dataset.section || "chorus";
+          currentDuration = Number(it.dataset.duration || 30);
+          updateSectionTriggerLabel();
+          dropdown.style.display = "none";
+
+          if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+            chrome.storage.local.set({
+              preferredSection: currentSection,
+              preferredDuration: currentDuration,
+            });
+          }
+        });
+      });
+
+      // 点击外部关闭下拉
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest("#fovea-suno-floating-btn") && !e.target.closest("#fovea-section-dropdown")) {
+          dropdown.style.display = "none";
+        }
+      });
+    }
+
+    // 绑定分段按钮触发
+    const mainBtn = btn.querySelector(".fovea-btn-main");
+    if (mainBtn) {
+      mainBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        triggerCapture();
+      });
+    }
+
+    const secTrigger = btn.querySelector(".fovea-btn-section-trigger");
+    if (secTrigger) {
+      secTrigger.addEventListener("click", (e) => {
+        e.stopPropagation();
+        dropdown.style.display = dropdown.style.display === "block" ? "none" : "block";
+      });
+    }
 
     // 定期向 MAIN world 的 inject.js 请求精准的当前歌曲信息 (避开页面 h1 干扰)
     setInterval(() => {
@@ -91,8 +201,16 @@
     const btn = document.getElementById("fovea-suno-floating-btn");
     if (btn) btn.classList.add("fovea-loading");
 
-    showToast("🎵 正在分析歌曲信息...", "正在从浏览器播放内存中提取纯净音轨并校验公开状态...");
-    window.postMessage({ type: "FOVEA_CAPTURE_REQUEST" }, "*");
+    const secBadge = SECTION_LABELS[currentSection] || "副歌";
+    showToast("🎵 正在分析歌曲信息...", `正在准备《${currentTrackTitle || "当前曲目"}》[${secBadge}]...`);
+    window.postMessage(
+      {
+        type: "FOVEA_CAPTURE_REQUEST",
+        section: currentSection,
+        duration: currentDuration,
+      },
+      "*"
+    );
   }
 
   // 4. 监听来自 inject.js (MAIN World) 的响应
@@ -118,7 +236,7 @@
         if (sec >= 3 && sec < 8) {
           showToast("⚡ [步骤 2/3] 纯 CTC 歌词对齐中", "正在执行毫秒级字级时间轴智能对齐 (纯 CTC 极速方案)...");
         } else if (sec >= 8 && sec < 35) {
-          showToast("🚀 [步骤 3/3] 动效短视频渲染中", `FFmpeg 正在渲染 9:16 灵动渐变短视频 (${sec}s / 预计约 15~20 秒)...`);
+          showToast("🚀 [步骤 3/3] 动效短视频渲染中", `FFmpeg 正在渲染 9:16 灵动渐变短视频 (${sec}s / 预计约 5~15 秒)...`);
         } else if (sec >= 35) {
           showToast("✨ [步骤 3/3] 即将完成", "视频合成已接近尾声，准备调用浏览器下载...");
         }
@@ -155,6 +273,8 @@
           dataUrl: event.data.dataUrl,
           track: event.data.track,
           serverUrl: activeServerUrl,
+          section: event.data.section || currentSection,
+          duration: event.data.duration !== undefined ? event.data.duration : currentDuration,
         },
         (response) => {
           stopProgressStages();
@@ -178,6 +298,8 @@
           url: event.data.url,
           track: event.data.track,
           serverUrl: activeServerUrl,
+          section: event.data.section || currentSection,
+          duration: event.data.duration !== undefined ? event.data.duration : currentDuration,
         },
         (response) => {
           stopProgressStages();
@@ -200,6 +322,8 @@
           action: "EXPORT_VIDEO_BY_SONG_ID",
           track: event.data.track,
           serverUrl: activeServerUrl,
+          section: event.data.section || currentSection,
+          duration: event.data.duration !== undefined ? event.data.duration : currentDuration,
         },
         (response) => {
           stopProgressStages();

@@ -49,7 +49,7 @@ async function pollLyricVideoTask(targetServer, taskId) {
 }
 
 // 调用视频生成并下载 MP4
-async function exportVideoAndDownload(blob, track, serverUrl) {
+async function exportVideoAndDownload(blob, track, serverUrl, section = "", duration = 0) {
   const targetServer = (serverUrl || "https://mv.fovea.si").replace(/\/+$/, "");
   const endpoint = `${targetServer}/api/plugin/export_video`;
 
@@ -74,6 +74,13 @@ async function exportVideoAndDownload(blob, track, serverUrl) {
   formData.append("template", "apple");
   formData.append("theme", "apple_white");
   formData.append("background_mode", "full_bleed");
+
+  if (section) {
+    formData.append("section_name", section);
+  }
+  if (duration !== undefined && duration !== null) {
+    formData.append("duration_limit", String(duration));
+  }
 
   let resp;
   try {
@@ -117,7 +124,12 @@ async function exportVideoAndDownload(blob, track, serverUrl) {
     ? rawVideoUrl
     : `${targetServer}${rawVideoUrl}`;
 
-  const safeFilename = `${(track.title || "suno_mv").replace(/[\\/:*?"<>|]/g, "_")}_9x16.mp4`;
+  let sectionSuffix = "";
+  if (section === "chorus") sectionSuffix = "_副歌";
+  else if (section === "verse1") sectionSuffix = "_主歌1";
+  else if (section === "intro") sectionSuffix = "_前奏";
+
+  const safeFilename = `${(track.title || "suno_mv").replace(/[\\/:*?"<>|]/g, "_")}${sectionSuffix}_9x16.mp4`;
 
   console.log("[Fovea MV Background] 视频渲染成功，正在下载:", fullDownloadUrl);
 
@@ -141,7 +153,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "EXPORT_VIDEO_DIRECT_BLOB") {
     try {
       const blob = dataUrlToBlob(request.dataUrl);
-      exportVideoAndDownload(blob, request.track, request.serverUrl)
+      exportVideoAndDownload(blob, request.track, request.serverUrl, request.section, request.duration)
         .then((res) => sendResponse({ status: "ok", data: res }))
         .catch((err) => sendResponse({ status: "error", message: err.message }));
     } catch (e) {
@@ -157,7 +169,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (!r.ok) throw new Error(`CDN 音频流下载失败 (HTTP ${r.status})`);
         return r.blob();
       })
-      .then((blob) => exportVideoAndDownload(blob, request.track, request.serverUrl))
+      .then((blob) => exportVideoAndDownload(blob, request.track, request.serverUrl, request.section, request.duration))
       .then((res) => sendResponse({ status: "ok", data: res }))
       .catch((err) => sendResponse({ status: "error", message: err.message }));
     return true;
@@ -165,7 +177,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // 3. 通过 Song ID 触发一键导出 MP4
   if (request.action === "EXPORT_VIDEO_BY_SONG_ID") {
-    exportVideoAndDownload(null, request.track, request.serverUrl)
+    exportVideoAndDownload(null, request.track, request.serverUrl, request.section, request.duration)
       .then((res) => sendResponse({ status: "ok", data: res }))
       .catch((err) => sendResponse({ status: "error", message: err.message }));
     return true;

@@ -257,15 +257,43 @@
           </div>
         </div>
 
-        <!-- 渲染范围限制 (快速预览 vs 全曲出片) -->
-        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px;">
-          <div>
-            <span style="font-size: 13px; font-weight: 600; color: #fff;">渲染模式:</span>
-            <span style="font-size: 12px; color: #8b949e; margin-left: 6px;">可先生成前 20 秒快速预览样片，满意后一键全曲出片</span>
+        <!-- 5. 渲染范围与起止时间选取 (替换原 20s 快速预览) -->
+        <div style="padding: 12px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 13px; font-weight: 600; color: #fff;">5. 导出片段范围</span>
+              <span id="export-segment-dur-badge" style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 600;">全曲完整导出</span>
+            </div>
+            <!-- 乐段速选预设药丸按钮 -->
+            <div id="section-preset-pills" style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <button type="button" class="btn-sec-preset active" data-preset="full" style="padding: 3px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #10b981; background: rgba(16, 185, 129, 0.2); color: #10b981; cursor: pointer;">全曲</button>
+              <button type="button" class="btn-sec-preset" data-preset="chorus" style="padding: 3px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #2d3342; background: transparent; color: #8b949e; cursor: pointer;">🔥 副歌高潮</button>
+              <button type="button" class="btn-sec-preset" data-preset="verse1" style="padding: 3px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #2d3342; background: transparent; color: #8b949e; cursor: pointer;">🎧 主歌 1</button>
+              <button type="button" class="btn-sec-preset" data-preset="custom" style="padding: 3px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #2d3342; background: transparent; color: #8b949e; cursor: pointer;">⏱️ 自定义</button>
+            </div>
           </div>
-          <div id="dur-limit-group" style="display: flex; gap: 8px;">
-            <button type="button" class="btn-dur-limit" data-limit="20" style="padding: 4px 10px; border-radius: 4px; font-size: 12px; border: 1px solid #2d3342; background: transparent; color: #8b949e; cursor: pointer;">20s 快速预览</button>
-            <button type="button" class="btn-dur-limit active" data-limit="0" style="padding: 4px 10px; border-radius: 4px; font-size: 12px; border: 1px solid #10b981; background: rgba(16, 185, 129, 0.2); color: #10b981; cursor: pointer;">整首完整视频</button>
+
+          <!-- 起止时间输入控件 -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: center;">
+            <div>
+              <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">起始时间 (分:秒 或 秒数)</label>
+              <div style="display: flex; align-items: center; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0 8px;">
+                <input id="export-start-time" type="text" placeholder="00:00" value="00:00" style="width: 100%; height: 32px; background: transparent; border: none; color: #fff; font-size: 13px; font-family: monospace; outline: none;">
+                <button id="btn-set-start-curr" type="button" title="从当前播放器指针设为起点" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 11px; padding: 2px 4px; white-space: nowrap;">当前</button>
+              </div>
+            </div>
+
+            <div>
+              <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">结束时间 (留空为全曲)</label>
+              <div style="display: flex; align-items: center; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0 8px;">
+                <input id="export-end-time" type="text" placeholder="全曲结束" value="" style="width: 100%; height: 32px; background: transparent; border: none; color: #fff; font-size: 13px; font-family: monospace; outline: none;">
+                <button id="btn-set-end-curr" type="button" title="从当前播放器指针设为终点" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 11px; padding: 2px 4px; white-space: nowrap;">当前</button>
+              </div>
+            </div>
+
+            <div style="padding-top: 18px;">
+              <button id="btn-reset-time-range" type="button" style="height: 32px; padding: 0 10px; background: #1e293b; border: 1px solid #334155; border-radius: 6px; color: #cbd5e1; font-size: 12px; cursor: pointer;">重置全曲</button>
+            </div>
           </div>
         </div>
 

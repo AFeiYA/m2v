@@ -219,10 +219,59 @@ function initLyricExportModal() {
     });
   });
 
-  // 渲染时长限制按钮
-  $$(".btn-dur-limit").forEach((btn) => {
+  function parseTimeString(str) {
+    if (!str || typeof str !== "string") return null;
+    str = str.trim();
+    if (!str) return null;
+    if (str.includes(":")) {
+      const parts = str.split(":");
+      if (parts.length === 2) {
+        const m = parseFloat(parts[0]) || 0;
+        const s = parseFloat(parts[1]) || 0;
+        return m * 60 + s;
+      } else if (parts.length === 3) {
+        const h = parseFloat(parts[0]) || 0;
+        const m = parseFloat(parts[1]) || 0;
+        const s = parseFloat(parts[2]) || 0;
+        return h * 3600 + m * 60 + s;
+      }
+    }
+    const val = parseFloat(str);
+    return isNaN(val) ? null : val;
+  }
+
+  function formatTimeSec(sec) {
+    if (sec == null || isNaN(sec)) return "00:00";
+    const m = Math.floor(sec / 60);
+    const s = (sec % 60).toFixed(1);
+    return `${String(m).padStart(2, "0")}:${parseFloat(s) < 10 ? "0" : ""}${s}`;
+  }
+
+  function updateTimeRangeBadge() {
+    const badge = $("#export-segment-dur-badge");
+    if (!badge) return;
+    const st = parseTimeString($("#export-start-time")?.value) || 0.0;
+    const et = parseTimeString($("#export-end-time")?.value);
+    if (et && et > st) {
+      const dur = (et - st).toFixed(1);
+      badge.textContent = `片段截取: ${dur}秒 (${formatTimeSec(st)} - ${formatTimeSec(et)})`;
+      badge.style.background = "rgba(59, 130, 246, 0.2)";
+      badge.style.color = "#60a5fa";
+    } else if (st > 0) {
+      badge.textContent = `从 ${formatTimeSec(st)} 起直至全曲结束`;
+      badge.style.background = "rgba(59, 130, 246, 0.2)";
+      badge.style.color = "#60a5fa";
+    } else {
+      badge.textContent = "全曲完整导出";
+      badge.style.background = "rgba(16, 185, 129, 0.15)";
+      badge.style.color = "#10b981";
+    }
+  }
+
+  // 乐段预设按钮绑定
+  $$(".btn-sec-preset").forEach((btn) => {
     btn.addEventListener("click", () => {
-      $$(".btn-dur-limit").forEach((b) => {
+      $$(".btn-sec-preset").forEach((b) => {
         b.classList.remove("active");
         b.style.borderColor = "#2d3342";
         b.style.background = "transparent";
@@ -232,8 +281,80 @@ function initLyricExportModal() {
       btn.style.borderColor = "#10b981";
       btn.style.background = "rgba(16, 185, 129, 0.2)";
       btn.style.color = "#10b981";
-      currentDurationLimit = Number(btn.dataset.limit || 0);
+
+      const preset = btn.dataset.preset;
+      const startInp = $("#export-start-time");
+      const endInp = $("#export-end-time");
+
+      if (preset === "full") {
+        if (startInp) startInp.value = "00:00";
+        if (endInp) endInp.value = "";
+      } else if (preset === "chorus") {
+        const sections = state.currentFile?.sections || [];
+        const ch = sections.find((s) => s.name?.toLowerCase() === "chorus" || s.label?.includes("副歌"));
+        if (ch) {
+          const st = ch.start;
+          const et = ch.start + 30.0;
+          if (startInp) startInp.value = formatTimeSec(st);
+          if (endInp) endInp.value = formatTimeSec(et);
+        } else {
+          const totalD = state.duration || 60;
+          const st = totalD * 0.35;
+          if (startInp) startInp.value = formatTimeSec(st);
+          if (endInp) endInp.value = formatTimeSec(st + 30.0);
+        }
+      } else if (preset === "verse1") {
+        const sections = state.currentFile?.sections || [];
+        const v1 = sections.find((s) => s.name?.toLowerCase().startsWith("verse") || s.label?.includes("主歌"));
+        if (v1) {
+          const st = v1.start;
+          const et = v1.start + 30.0;
+          if (startInp) startInp.value = formatTimeSec(st);
+          if (endInp) endInp.value = formatTimeSec(et);
+        } else {
+          if (startInp) startInp.value = "00:00";
+          if (endInp) endInp.value = "00:30";
+        }
+      }
+      updateTimeRangeBadge();
     });
+  });
+
+  $("#export-start-time")?.addEventListener("input", updateTimeRangeBadge);
+  $("#export-end-time")?.addEventListener("input", updateTimeRangeBadge);
+
+  $("#btn-set-start-curr")?.addEventListener("click", () => {
+    const audio = $("#audio-player") || $("#karaoke-audio");
+    if (audio) {
+      const cur = audio.currentTime || 0;
+      const startInp = $("#export-start-time");
+      if (startInp) startInp.value = formatTimeSec(cur);
+      updateTimeRangeBadge();
+    }
+  });
+
+  $("#btn-set-end-curr")?.addEventListener("click", () => {
+    const audio = $("#audio-player") || $("#karaoke-audio");
+    if (audio) {
+      const cur = audio.currentTime || 0;
+      const endInp = $("#export-end-time");
+      if (endInp) endInp.value = formatTimeSec(cur);
+      updateTimeRangeBadge();
+    }
+  });
+
+  $("#btn-reset-time-range")?.addEventListener("click", () => {
+    const startInp = $("#export-start-time");
+    const endInp = $("#export-end-time");
+    if (startInp) startInp.value = "00:00";
+    if (endInp) endInp.value = "";
+    $$(".btn-sec-preset").forEach((b) => {
+      b.classList.toggle("active", b.dataset.preset === "full");
+      b.style.borderColor = b.dataset.preset === "full" ? "#10b981" : "#2d3342";
+      b.style.background = b.dataset.preset === "full" ? "rgba(16, 185, 129, 0.2)" : "transparent";
+      b.style.color = b.dataset.preset === "full" ? "#10b981" : "#8b949e";
+    });
+    updateTimeRangeBadge();
   });
 
   if (btnReRender) {
@@ -252,6 +373,10 @@ function initLyricExportModal() {
       const bg = document.querySelector('input[name="export-bg"]:checked')?.value || "full_bleed";
       const template = $("#export-template-select")?.value || "apple";
       const theme = $("#export-theme-select")?.value || "apple_white";
+
+      const st = parseTimeString($("#export-start-time")?.value) || 0.0;
+      const et = parseTimeString($("#export-end-time")?.value);
+      const durLimit = (et && et > st) ? (et - st) : null;
 
       btnStart.disabled = true;
       btnStart.textContent = "⏳ 合成中，请稍候...";
@@ -273,7 +398,9 @@ function initLyricExportModal() {
             template: template,
             theme: theme,
             background_mode: bg,
-            duration_limit: currentDurationLimit > 0 ? currentDurationLimit : null,
+            duration_limit: durLimit,
+            start_time: st,
+            end_time: et,
           }),
         });
 

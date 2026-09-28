@@ -282,6 +282,9 @@ async def plugin_direct_export_video(
     theme: str = Form("apple_white"),
     background_mode: str = Form("full_bleed"),
     cover_url: str = Form(""),
+    section_name: str = Form(""),
+    start_time: float = Form(0.0),
+    duration_limit: float = Form(0.0),
 ):
     """
     接收来自 Chrome 插件的一键动效短视频生成请求。
@@ -414,15 +417,58 @@ async def plugin_direct_export_video(
         except Exception as e:
             log.warning("乐段结构注入异常: %s", e)
 
-    # 6. 创建异步视频合成任务
+    # 6. 计算乐段与裁剪起止时间
+    seg_start = max(0.0, float(start_time or 0.0))
+    seg_dur = float(duration_limit or 0.0) if duration_limit and duration_limit > 0 else None
+    out_suffix = ""
+
+    if alignment_json_path.exists():
+        try:
+            from src.aligner import AlignmentResult
+            al_obj = AlignmentResult.load_json(alignment_json_path)
+            sec_lower = (section_name or "").strip().lower()
+
+            if sec_lower in ("chorus", "verse1", "verse2", "intro"):
+                target_sec = None
+                if sec_lower == "chorus":
+                    out_suffix = "_副歌"
+                    for s in al_obj.sections:
+                        if s.name.lower() == "chorus" or "副歌" in s.label:
+                            target_sec = s
+                            break
+                    if not target_sec and al_obj.sections:
+                        target_sec = max(al_obj.sections, key=lambda x: getattr(x, "energy", 0.0))
+                    if not target_sec and al_obj.duration > 35:
+                        seg_start = al_obj.duration * 0.35
+                elif sec_lower == "verse1":
+                    out_suffix = "_主歌1"
+                    for s in al_obj.sections:
+                        if s.name.lower().startswith("verse") or "主歌" in s.label:
+                            target_sec = s
+                            break
+                elif sec_lower == "intro":
+                    out_suffix = "_前奏"
+                    seg_start = 0.0
+
+                if target_sec:
+                    seg_start = target_sec.start
+                    if not seg_dur or seg_dur <= 0:
+                        seg_dur = 30.0  # 自动向后截取 30 秒黄金短视频长度
+                elif not seg_dur or seg_dur <= 0:
+                    if sec_lower != "full":
+                        seg_dur = 30.0
+        except Exception as e:
+            log.warning("解析乐段切片异常: %s", e)
+
+    # 7. 创建异步视频合成任务
     clean_ratio = aspect_ratio.replace(":", "x")
-    out_mp4 = output_dir / f"{clean_title}_lyric_{clean_ratio}_{template}.mp4"
+    out_mp4 = output_dir / f"{clean_title}_lyric_{clean_ratio}_{template}{out_suffix}.mp4"
     task_id = f"lyric_{uuid.uuid4().hex[:8]}"
 
     _lyric_video_tasks[task_id] = {
         "status": "pending",
         "progress": 20.0,
-        "message": "纯 CTC 词级时间轴已对齐，正在准备合成 9:16 动效短视频...",
+        "message": f"纯 CTC 词级时间轴已对齐{f' ({out_suffix[1:]})' if out_suffix else ''}，正在准备合成 9:16 动效短视频...",
         "task_id": task_id,
         "title": clean_title,
         "result": None,
@@ -447,11 +493,13 @@ async def plugin_direct_export_video(
                 theme=theme,
                 background_mode=background_mode,
                 cover_path=cover_file if cover_file.exists() else None,
+                start_time=seg_start,
+                duration_limit=seg_dur,
                 progress_callback=_on_prog,
             )
 
             res["video_url"] = f"/api/asset_file?path={encode_path(str(out_mp4.absolute()))}"
-            res["download_url"] = f"/api/asset_file?download=true&filename={quote(clean_title + '_lyric.mp4')}&path={encode_path(str(out_mp4.absolute()))}"
+            res["download_url"] = f"/api/asset_file?download=true&filename={quote(clean_title + out_suffix + '_9x16.mp4')}&path={encode_path(str(out_mp4.absolute()))}"
 
             _lyric_video_tasks[task_id]["status"] = "completed"
             _lyric_video_tasks[task_id]["progress"] = 100.0
@@ -1178,6 +1226,8 @@ class LyricVideoExportRequest(BaseModel):
     cover_path: str | None = Field(default=None, description="自定义封面路径 (可选)")
     font_size: int | None = Field(default=None, description="自定义字体大小 (可选)")
     duration_limit: float | None = Field(default=None, description="时长限制 (可选)")
+    start_time: float = Field(default=0.0, description="裁剪起始时间 (秒)")
+    end_time: float | None = Field(default=None, description="裁剪结束时间 (秒)")
 
 
 _lyric_video_tasks: dict[str, dict[str, Any]] = {}
@@ -1210,7 +1260,8 @@ def api_export_lyric_video(req: LyricVideoExportRequest):
 
     # 规范化输出路径: output/{song_name}/{song_name}_lyric_{ratio}_{template}.mp4
     clean_ratio = req.aspect_ratio.replace(":", "x")
-    out_mp4 = song_dir / f"{stem}_lyric_{clean_ratio}_{req.template}.mp4"
+    seg_tag = f"_{int(req.start_time)}s" if req.start_time > 0 else ""
+    out_mp4 = song_dir / f"{stem}_lyric_{clean_ratio}_{req.template}{seg_tag}.mp4"
 
     task_id = f"lyric_{uuid.uuid4().hex[:8]}"
     _lyric_video_tasks[task_id] = {
@@ -1243,6 +1294,8 @@ def api_export_lyric_video(req: LyricVideoExportRequest):
                 cover_path=req.cover_path,
                 font_size=req.font_size,
                 duration_limit=req.duration_limit,
+                start_time=req.start_time,
+                end_time=req.end_time,
                 progress_callback=_on_prog,
             )
 

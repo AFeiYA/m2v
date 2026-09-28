@@ -263,7 +263,7 @@
   }
 
   // 4. 将 Blob 转换为 DataURL 并回传给 content.js
-  function returnBlobResult(blob, track, source = "blob") {
+  function returnBlobResult(blob, track, source = "blob", section = "chorus", duration = 30) {
     const reader = new FileReader();
     reader.onloadend = () => {
       window.postMessage(
@@ -272,6 +272,8 @@
           dataUrl: reader.result,
           track,
           source,
+          section,
+          duration,
         },
         "*"
       );
@@ -280,7 +282,7 @@
   }
 
   // 5. 执行捕获与导出主流程
-  async function handleCapture() {
+  async function handleCapture(section = "chorus", duration = 30) {
     const track = getTrackInfo();
 
     // 强制校验: 未公开曲目直接拒绝，引导用户先 Publish
@@ -300,7 +302,7 @@
     // 优先策略 A: 使用内存拦截捕获到的完整解密 Blob
     if (window.__FOVEA_LAST_BLOB__) {
       console.log("[Fovea MV] 使用拦截到的媒体 Blob 读取音频...");
-      returnBlobResult(window.__FOVEA_LAST_BLOB__, track, "hooked_blob");
+      returnBlobResult(window.__FOVEA_LAST_BLOB__, track, "hooked_blob", section, duration);
       return;
     }
 
@@ -318,7 +320,7 @@
           const resp = await window.fetch(src);
           if (resp.ok) {
             const blob = await resp.blob();
-            returnBlobResult(blob, track, "audio_blob_src");
+            returnBlobResult(blob, track, "audio_blob_src", section, duration);
             return;
           }
         } catch (err) {
@@ -332,6 +334,8 @@
             type: "FOVEA_CAPTURE_NEED_BG_FETCH",
             url: src,
             track,
+            section,
+            duration,
           },
           "*"
         );
@@ -346,6 +350,8 @@
           type: "FOVEA_CAPTURE_BY_SONG_ID",
           songId: track.songId,
           track,
+          section,
+          duration,
         },
         "*"
       );
@@ -361,7 +367,9 @@
   window.addEventListener("message", (event) => {
     if (event.source !== window || !event.data) return;
     if (event.data.type === "FOVEA_CAPTURE_REQUEST") {
-      handleCapture().catch((err) => {
+      const sec = event.data.section || "chorus";
+      const dur = event.data.duration !== undefined ? event.data.duration : 30;
+      handleCapture(sec, dur).catch((err) => {
         window.postMessage(
           {
             type: "FOVEA_CAPTURE_ERROR",
