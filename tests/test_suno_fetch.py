@@ -129,6 +129,8 @@ def test_auto_process_suno_pipeline_config_and_flow(tmp_path):
             output_dir=tmp_path / "output",
             launch_editor=False,
             progress_callback=_cb,
+            skip_separation=True,
+            use_gpu=True,
         )
 
         assert result["status"] == "ok"
@@ -137,7 +139,16 @@ def test_auto_process_suno_pipeline_config_and_flow(tmp_path):
         # 验证传递的 config 对象
         passed_config = mock_process_one.call_args[0][4]
         assert passed_config.skip_separation is True
+        assert passed_config.separator.device == "cuda"
         assert passed_config.ass_only is True
         # 验证进度回调包含极速模式字样
         assert any("极速模式" in msg for _, msg in cb_calls)
+
+
+def test_suno_import_request_schema():
+    from src.local_editor import SunoImportRequest
+    req = SunoImportRequest(url="https://suno.com/song/123", skip_separation=True, use_gpu=False)
+    assert req.skip_separation is True
+    assert req.use_gpu is False
+
 

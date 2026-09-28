@@ -1,6 +1,12 @@
 [pipeline]
-skip_separation = true    # 极速模式：跳过 Demucs 人声分离，直接使用原音频对齐
+skip_separation = false   # 默认由前端 Checkbox 动态控制，未传时默认分离保证最高精度
 ass_only = true           # 只生成 ASS + alignment.json，不合成 MP4
+
+[separator]
+model = "htdemucs"        # 单模型，速度提升 400%，音质与精细度极佳
+two_stems = "vocals"
+device = "cuda"
+shifts = 1
 
 
 [aligner]

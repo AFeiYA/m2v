@@ -15,7 +15,21 @@ from pathlib import Path
 from src.config import SeparatorConfig
 from src.utils import log
 
+try:
+    import spaces
+except ImportError:
+    spaces = None
 
+
+def _maybe_gpu(duration: int = 120):
+    def decorator(fn):
+        if spaces and hasattr(spaces, "GPU"):
+            return spaces.GPU(duration=duration)(fn)
+        return fn
+    return decorator
+
+
+@_maybe_gpu(duration=120)
 def separate_vocals(
     mp3_path: Path,
     output_dir: Path,
@@ -62,9 +76,8 @@ def separate_vocals(
 
     log.info("开始人声分离: %s (model=%s, device=%s)", mp3_path.name, config.model, device)
 
-    # 构建 demucs 命令
-    cmd = [
-        sys.executable, "-m", "demucs",
+    # 构建 demucs 参数列表
+    opts = [
         "--name", config.model,
         "--two-stems", config.two_stems,
         "--out", str(output_dir),
@@ -74,9 +87,9 @@ def separate_vocals(
 
     # WAV 输出 (demucs 默认就是 wav)
     if config.output_format != "wav":
-        cmd.extend(["--mp3"])
+        opts.extend(["--mp3"])
 
-    cmd.append(str(mp3_path))
+    opts.append(str(mp3_path))
 
     # 1. 前置音频有效性探测 (防止因文件损坏或 moov atom 丢失导致底层崩溃)
     from src.utils import get_ffprobe_binary
@@ -94,29 +107,8 @@ def separate_vocals(
     except FileNotFoundError:
         pass  # 系统无 ffprobe 则跳过前置检查
 
-    # 执行，GPU 失败时回退 CPU
-    try:
-        _run_demucs(cmd)
-    except subprocess.CalledProcessError as exc:
-        if device != "cpu":
-            log.warning("GPU (%s) 分离失败，回退到 CPU 模式…", device)
-            if exc.stdout:
-                for line in exc.stdout.strip().splitlines():
-                    log.warning("[demucs-gpu stdout] %s", line)
-            if exc.stderr:
-                for line in exc.stderr.strip().splitlines():
-                    log.warning("[demucs-gpu stderr] %s", line)
-            cmd_cpu = [c if c != device else "cpu" for c in cmd]
-            try:
-                _run_demucs(cmd_cpu)
-            except subprocess.CalledProcessError as exc_cpu:
-                err_detail = exc_cpu.stderr.strip() if exc_cpu.stderr else str(exc_cpu)
-                log.error("CPU 分离亦失败: %s", err_detail)
-                raise RuntimeError(f"Demucs 人声分离失败: {err_detail}") from exc_cpu
-        else:
-            err_detail = exc.stderr.strip() if exc.stderr else str(exc)
-            log.error("Demucs 分离失败: %s", err_detail)
-            raise RuntimeError(f"Demucs 人声分离失败: {err_detail}") from exc
+    # 执行，优先进程内执行，GPU 失败时回退 CPU
+    _run_demucs_execution(opts, device)
 
     # Demucs 输出路径: {output_dir}/{model}/{stem}/vocals.{ext}, no_vocals.{ext}
     demucs_out = output_dir / config.model / stem
@@ -147,6 +139,36 @@ def separate_vocals(
 
     log.info("人声分离完成: %s, %s", vocals_dst.name, instrumental_dst.name)
     return vocals_dst, instrumental_dst
+
+
+def _run_demucs_execution(opts: list[str], device: str) -> None:
+    """优先尝试进程内执行 (在 ZeroGPU 与 MPS 环境下拥有最高吞吐与直连显卡能力)，异常时优雅回退"""
+    try:
+        import demucs.separate
+        log.info("执行进程内 Demucs 分离: %s", " ".join(opts))
+        demucs.separate.main(opts)
+        return
+    except Exception as exc:
+        log.warning("进程内 Demucs 执行遇到问题 (%s)，自动切换至子进程隔离模式…", exc)
+
+    cmd = [sys.executable, "-m", "demucs"] + opts
+    try:
+        _run_demucs(cmd)
+    except subprocess.CalledProcessError as exc:
+        if device != "cpu":
+            log.warning("GPU (%s) 分离失败，回退到 CPU 模式…", device)
+            opts_cpu = [c if c != device else "cpu" for c in opts]
+            cmd_cpu = [sys.executable, "-m", "demucs"] + opts_cpu
+            try:
+                _run_demucs(cmd_cpu)
+            except subprocess.CalledProcessError as exc_cpu:
+                err_detail = exc_cpu.stderr.strip() if exc_cpu.stderr else str(exc_cpu)
+                log.error("CPU 分离亦失败: %s", err_detail)
+                raise RuntimeError(f"Demucs 人声分离失败: {err_detail}") from exc_cpu
+        else:
+            err_detail = exc.stderr.strip() if exc.stderr else str(exc)
+            log.error("Demucs 分离失败: %s", err_detail)
+            raise RuntimeError(f"Demucs 人声分离失败: {err_detail}") from exc
 
 
 def _run_demucs(cmd: list[str]) -> None:

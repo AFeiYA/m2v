@@ -16,7 +16,7 @@ ASSETS_DIR = PROJECT_ROOT / "assets"
 # ---------------------------------------------------------------------------
 @dataclass
 class SeparatorConfig:
-    model: str = "htdemucs_ft"        # fine-tuned, 质量最高
+    model: str = "htdemucs"           # 单模型，速度提升 400%，音质与精细度极佳
     two_stems: str = "vocals"         # 只输出 vocals + no_vocals
     device: str = "cuda"              # 自动回退 CPU
     shifts: int = 1                   # overlap shifts (越高越慢越好)

@@ -314,11 +314,21 @@ async function handleSunoImport() {
   if (btn) btn.disabled = true;
   if (prog) prog.style.display = "block";
 
+  const chkSep = document.getElementById("chk-separate-vocals");
+  const chkGpu = document.getElementById("chk-use-gpu");
+  const separateVocals = chkSep ? chkSep.checked : true;
+  const useGpu = chkGpu ? chkGpu.checked : true;
+
+  try {
+    localStorage.setItem("suno_chk_sep", separateVocals ? "1" : "0");
+    localStorage.setItem("suno_chk_gpu", useGpu ? "1" : "0");
+  } catch (e) {}
+
   let importSec = 0;
   const updateProgressMessage = () => {
     let stage = "正在从 Suno 提取歌曲信息与歌词...";
     if (importSec > 5) {
-      stage = "正在进行原曲词级时间轴对齐 (WhisperX)...";
+      stage = separateVocals ? "正在进行人声与伴奏分离及时间轴对齐..." : "正在进行原曲词级时间轴对齐 (WhisperX)...";
     }
     if (progText) {
       progText.textContent = `${stage} (已耗时 ${importSec}s)`;
@@ -334,7 +344,12 @@ async function handleSunoImport() {
     const res = await fetch("/api/suno/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, async_mode: true }),
+      body: JSON.stringify({
+        url,
+        async_mode: true,
+        skip_separation: !separateVocals,
+        use_gpu: useGpu,
+      }),
     });
 
     const text = await res.text();
@@ -614,6 +629,19 @@ window.parseTimeInput = parseTimeInput;
 window.parseTime = parseTime;
 window.escHtml = escHtml;
 window.escapeHtml = escapeHtml;
+
+window.addEventListener("DOMContentLoaded", () => {
+  const chkSep = document.getElementById("chk-separate-vocals");
+  const chkGpu = document.getElementById("chk-use-gpu");
+  try {
+    if (chkSep && localStorage.getItem("suno_chk_sep") !== null) {
+      chkSep.checked = localStorage.getItem("suno_chk_sep") === "1";
+    }
+    if (chkGpu && localStorage.getItem("suno_chk_gpu") !== null) {
+      chkGpu.checked = localStorage.getItem("suno_chk_gpu") === "1";
+    }
+  } catch (e) {}
+});
 
 window.addEventListener("beforeunload", (e) => {
   if (state.dirty) { e.preventDefault(); e.returnValue = ""; }

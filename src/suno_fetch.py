@@ -841,6 +841,8 @@ def auto_process_suno(
     cookie: str | None = None,
     token: str | None = None,
     progress_callback: Any = None,
+    skip_separation: bool | None = None,
+    use_gpu: bool | None = None,
 ) -> dict:
     """
     全自动流程:
@@ -912,10 +914,18 @@ def auto_process_suno(
     config = PipelineConfig.from_file(cfg_file) if cfg_file.exists() else PipelineConfig()
     config.ass_only = True
 
+    if skip_separation is not None:
+        config.skip_separation = skip_separation
+    if use_gpu is not None:
+        dev = "cuda" if use_gpu else "cpu"
+        config.separator.device = dev
+        config.aligner.device = dev
+
     if config.skip_separation:
         _safe_cb(35, "⚡ 极速模式：正在进行原曲词级时间轴对齐 (WhisperX)...")
     else:
-        _safe_cb(35, "正在进行人声与伴奏分离及时间轴对齐 (Demucs + WhisperX)...")
+        dev_label = "GPU" if (use_gpu or config.separator.device in ("cuda", "mps")) else "CPU"
+        _safe_cb(35, f"正在进行人声与伴奏分离及时间轴对齐 (Demucs[{dev_label}] + WhisperX)...")
 
     log.info(">>> [步骤 2/3] 自动执行音频分轨与字级时间轴对齐 (输出至 %s)...", song_output_dir.name)
     from src.main import process_one

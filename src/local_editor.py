@@ -70,6 +70,9 @@ class SunoImportRequest(BaseModel):
     cookie: str | None = Field(default=None, description="可选 Suno 会话 Cookie")
     token: str | None = Field(default=None, description="可选 Suno Bearer Token")
     async_mode: bool = Field(default=True, description="是否以异步任务模式启动，避免网关超时")
+    skip_separation: bool | None = Field(default=None, description="是否跳过人声分离 (None 则遵循配置文件)")
+    use_gpu: bool | None = Field(default=None, description="是否启用 GPU 硬件加速 (None 则自动探测)")
+
 
 
 
@@ -136,6 +139,8 @@ def import_suno_song(req: SunoImportRequest):
                 launch_editor=False,
                 cookie=req.cookie,
                 token=req.token,
+                skip_separation=req.skip_separation,
+                use_gpu=req.use_gpu,
             )
             return result
         except Exception as e:
@@ -171,6 +176,8 @@ def import_suno_song(req: SunoImportRequest):
                 cookie=req.cookie,
                 token=req.token,
                 progress_callback=_cb,
+                skip_separation=req.skip_separation,
+                use_gpu=req.use_gpu,
             )
             _suno_import_tasks[task_id]["status"] = "done"
             _suno_import_tasks[task_id]["progress"] = 100
