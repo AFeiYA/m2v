@@ -6,6 +6,21 @@ Hugging Face Spaces Entry Point
 """
 
 import os
+import asyncio.selector_events
+
+# 修复 Python 3.10 在垃圾回收时旧 event loop 偶发的无害清理警告:
+# "Exception ignored in BaseEventLoop.__del__: ValueError: Invalid file descriptor: -1"
+if hasattr(asyncio.selector_events.BaseSelectorEventLoop, "_close_self_pipe"):
+    _orig_close_self_pipe = asyncio.selector_events.BaseSelectorEventLoop._close_self_pipe
+
+    def _safe_close_self_pipe(self):
+        try:
+            _orig_close_self_pipe(self)
+        except (ValueError, KeyError, OSError):
+            pass
+
+    asyncio.selector_events.BaseSelectorEventLoop._close_self_pipe = _safe_close_self_pipe
+
 import gradio as gr
 from src.local_editor import app as fastapi_app
 
