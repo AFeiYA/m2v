@@ -19,14 +19,17 @@
                style="width: 170px; min-width: 110px; height: 24px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; outline: none; transition: width 0.2s;"
                onfocus="this.style.width='210px'" onblur="this.style.width='170px'"
                onkeydown="if(event.key==='Enter') handleSunoImport()" />
-        <label title="勾选：提取纯人声干音，适合流行/摇滚/电音等复杂伴奏，100%防止漏词跳句；取消勾选：极速模式直接对齐原曲" style="display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: #cbd5e1; cursor: pointer; user-select: none;">
-          <input type="checkbox" id="chk-separate-vocals" checked style="cursor: pointer; margin: 0; accent-color: #ff4b2b;">
-          <span>分离伴奏</span>
-        </label>
-        <label title="勾选：优先调用 GPU 硬件加速 (云端 ZeroGPU A100 / 本地 MPS)；取消勾选：使用 CPU 运行" style="display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: #cbd5e1; cursor: pointer; user-select: none;">
-          <input type="checkbox" id="chk-use-gpu" checked style="cursor: pointer; margin: 0; accent-color: #3b82f6;">
-          <span>GPU加速</span>
-        </label>
+        <!-- 开发者调试选项 (默认隐藏，保证界面清爽与最高对齐准确率；可通过三击标题/Ctrl+Shift+D/?dev=1唤出) -->
+        <div id="suno-dev-options" style="display: none; align-items: center; gap: 6px;">
+          <label title="勾选：提取纯人声干音，适合流行/摇滚/电音等复杂伴奏，100%防止漏词跳句；取消勾选：极速模式直接对齐原曲" style="display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: #cbd5e1; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="chk-separate-vocals" checked style="cursor: pointer; margin: 0; accent-color: #ff4b2b;">
+            <span>分离伴奏</span>
+          </label>
+          <label title="勾选：优先调用 GPU 硬件加速 (云端 ZeroGPU A100 / 本地 MPS)；取消勾选：使用 CPU 运行" style="display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: #cbd5e1; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="chk-use-gpu" checked style="cursor: pointer; margin: 0; accent-color: #3b82f6;">
+            <span>GPU加速</span>
+          </label>
+        </div>
         <button id="btn-quick-download-mp3" onclick="downloadOriginalAudio()" title="从粘贴的链接仅提取下载原曲 MP3 (执行步骤 1，跳过分离对齐)"
                 style="background: #2a313d; color: #e2e8f0; font-weight: 500; border: none; height: 24px; padding: 0 6px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⬇ 仅下 MP3</button>
         <button id="btn-start-suno-import" onclick="handleSunoImport()" title="一键抓取并字级对齐"

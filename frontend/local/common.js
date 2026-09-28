@@ -633,6 +633,12 @@ window.escapeHtml = escapeHtml;
 window.addEventListener("DOMContentLoaded", () => {
   const chkSep = document.getElementById("chk-separate-vocals");
   const chkGpu = document.getElementById("chk-use-gpu");
+  const devOpt = document.getElementById("suno-dev-options");
+
+  // 默认启用分离与 GPU 加速 (保证最高准确率与防跳句)
+  if (chkSep) chkSep.checked = true;
+  if (chkGpu) chkGpu.checked = true;
+
   try {
     if (chkSep && localStorage.getItem("suno_chk_sep") !== null) {
       chkSep.checked = localStorage.getItem("suno_chk_sep") === "1";
@@ -641,6 +647,43 @@ window.addEventListener("DOMContentLoaded", () => {
       chkGpu.checked = localStorage.getItem("suno_chk_gpu") === "1";
     }
   } catch (e) {}
+
+  // 开发者调试模式显隐控制:
+  // 1. URL 含有 ?dev=1 或 ?debug=1 时自动显现
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get("dev") === "1" || urlParams.get("debug") === "1") {
+    if (devOpt) devOpt.style.display = "inline-flex";
+  }
+
+  // 2. 连续点击 3 次左上角标题，或者按下快捷键 Ctrl+Shift+D / Cmd+Shift+D 切换显隐
+  let clickCount = 0;
+  let clickTimer = null;
+  const titleEl = document.querySelector("header h1");
+  if (titleEl && devOpt) {
+    titleEl.style.cursor = "pointer";
+    titleEl.title = "三击标题可显示/隐藏开发者调试选项";
+    titleEl.addEventListener("click", () => {
+      clickCount++;
+      clearTimeout(clickTimer);
+      if (clickCount >= 3) {
+        devOpt.style.display = devOpt.style.display === "none" ? "inline-flex" : "none";
+        clickCount = 0;
+        status(devOpt.style.display === "inline-flex" ? "🛠 已开启开发者调试选项" : "🛠 已隐藏开发者调试选项");
+      } else {
+        clickTimer = setTimeout(() => { clickCount = 0; }, 500);
+      }
+    });
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "D" || e.key === "d")) {
+      e.preventDefault();
+      if (devOpt) {
+        devOpt.style.display = devOpt.style.display === "none" ? "inline-flex" : "none";
+        status(devOpt.style.display === "inline-flex" ? "🛠 已开启开发者调试选项" : "🛠 已隐藏开发者调试选项");
+      }
+    }
+  });
 });
 
 window.addEventListener("beforeunload", (e) => {
