@@ -303,7 +303,10 @@ def process_one(
                 log.info("[2/5] 人声分离 (Demucs)…")
                 from src.separator import separate_vocals
                 vocals_path, instrumental_path = separate_vocals(
-                    mp3_path, temp_dir, config.separator
+                    mp3_path,
+                    temp_dir,
+                    config.separator,
+                    status_callback=lambda msg: _progress("separating", 20, msg),
                 )
                 # 把 vocals + instrumental 复制到输出目录，供本地编辑器双音轨使用
                 v_ext = vocals_path.suffix

@@ -28,7 +28,7 @@ from src.local_editor import app as fastapi_app
 try:
     import spaces
 
-    @spaces.GPU(duration=60)
+    @spaces.GPU(duration=20)
     def _zero_gpu_worker(payload: str = "") -> str:
         """ZeroGPU 探测与硬件动态分配函数"""
         return f"ZeroGPU Ready: {payload}"

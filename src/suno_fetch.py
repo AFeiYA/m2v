@@ -930,7 +930,14 @@ def auto_process_suno(
     log.info(">>> [步骤 2/3] 自动执行音频分轨与字级时间轴对齐 (输出至 %s)...", song_output_dir.name)
     from src.main import process_one
 
-    process_one(audio_path, lyrics_path, song_output_dir, None, config)
+    def _on_step_progress(step: str, p: int, msg: str):
+        mapped_pct = min(88, max(35, 35 + int(p * 0.55)))
+        _safe_cb(mapped_pct, msg)
+
+    try:
+        process_one(audio_path, lyrics_path, song_output_dir, None, config, on_progress=_on_step_progress)
+    except TypeError:
+        process_one(audio_path, lyrics_path, song_output_dir, None, config)
 
     _safe_cb(90, "正在解析乐段结构并写入工程...")
 

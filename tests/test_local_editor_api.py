@@ -204,3 +204,16 @@ def test_plugin_direct_import_endpoint(tmp_path, monkeypatch):
     assert (tmp_path / "Plugin_Test_Song" / "Plugin_Test_Song_alignment.json").exists()
 
 
+def test_get_gpu_status():
+    """测试 /api/gpu/status 算力状态与配额诊断接口"""
+    client = TestClient(app)
+    res = client.get("/api/gpu/status")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+    assert "device_type" in data
+    assert "zerogpu_config" in data
+    assert data["zerogpu_config"]["duration"] == 35
+
+
+
