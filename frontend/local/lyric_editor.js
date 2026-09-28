@@ -564,7 +564,7 @@ function renderWords(lineIdx) {
     bar.dataset.idx = i;
     bar.title = `${w.word}  ${fmtTime(w.start)} → ${fmtTime(w.end)}  (${(dur * 1000).toFixed(0)}ms)`;
     bar.innerHTML = `
-      <span>${escHtml(w.word)}</span>
+      <span>${escHtml(w.word.trim() || w.word)}</span>
       <span class="word-dur">${(dur * 1000).toFixed(0)}</span>
       <div class="drag-handle" title="拖拽调整 | 双击=设为当前播放位置"></div>`;
 

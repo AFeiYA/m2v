@@ -10,6 +10,7 @@ shifts = 1
 
 
 [aligner]
+engine = "ctc"               # "ctc" (方案二: 纯 Wav2Vec2 CTC Forced Alignment) 或 "whisperx"
 # GPU 模式：large-v3 + float16（效果最好）
 # 若 CUDA 不可用会自动回退 CPU + int8 + medium
 whisper_model = "base"

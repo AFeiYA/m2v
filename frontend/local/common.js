@@ -586,7 +586,7 @@ function escHtml(s) {
 }
 
 function isPunct(ch) {
-  return /^[\s，。、！？；：""''（）《》…—·\-,.!?;:'"()\[\]{}]$/.test(ch);
+  return /^[\s，。、！？；：""''（）《》…—·\-,.!?;:'"()\[\]{}]+$/.test(ch);
 }
 
 function fmtTime(s) {

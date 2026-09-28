@@ -264,14 +264,59 @@ def fetch_song(url_or_id: str, cookie: str | None = None, token: str | None = No
     )
 
 
+def _resolve_rsc_reference(ref_id: str, stream: str) -> str | None:
+    """
+    解析 Next.js App Router RSC 数据流中的块引用 (如 "$52" -> 块 52 内容).
+    支持:
+    - Text 流块: 52:T<hex_byte_length>,<content>
+    - JSON 字符串块: 52:"<content>"
+    - 行切片块: 52:<content> 直到下一个块行
+    """
+    if not isinstance(ref_id, str) or not ref_id.startswith("$"):
+        return None
+    cid = ref_id[1:]
+    pattern = rf"(?:^|\n){re.escape(cid)}:(.*)"
+    m = re.search(pattern, stream)
+    if not m:
+        return None
+
+    start_pos = m.start(1)
+    chunk_body = stream[start_pos:]
+
+    # 格式 1: Text chunk: T<hex_len>,<content>
+    tm = re.match(r"^T([0-9a-fA-F]+),", chunk_body)
+    if tm:
+        hex_len = tm.group(1)
+        byte_len = int(hex_len, 16)
+        content_start = len(tm.group(0))
+        encoded = chunk_body[content_start:].encode("utf-8")
+        return encoded[:byte_len].decode("utf-8", errors="replace")
+
+    # 格式 2: JSON string: "..."
+    if chunk_body.startswith('"'):
+        try:
+            val, _ = json.JSONDecoder().raw_decode(chunk_body)
+            return val
+        except Exception:
+            pass
+
+    # 格式 3: 直到下一个块行
+    next_chunk_m = re.search(r"\n[0-9a-fA-F]+:", chunk_body)
+    if next_chunk_m:
+        return chunk_body[:next_chunk_m.start()]
+    return chunk_body
+
+
 def _extract_clip_from_rsc(html: str) -> dict | None:
     """
     从 Next.js Turbopack / App Router RSC 数据流中提取完整 clip 字典。
-    通过 JSONDecoder 正确处理反斜杠、多字节 Unicode 与复杂转义。
+    通过 JSONDecoder 正确处理反斜杠、多字节 Unicode 与复杂转义，
+    并自动解析 RSC 引用指针 (例如长 prompt 被独立存为 $52 文本块)。
     """
     needle = 'self.__next_f.push([1,'
     pos = 0
     decoder = json.JSONDecoder()
+    stream_chunks: list[str] = []
 
     while True:
         pos = html.find(needle, pos)
@@ -280,23 +325,48 @@ def _extract_clip_from_rsc(html: str) -> dict | None:
         chunk_start = pos + len(needle)
         try:
             raw_str, _ = decoder.raw_decode(html[chunk_start:])
-            if '"clip":{' in raw_str:
-                clip_idx = raw_str.find('"clip":{')
-                obj_start = clip_idx + len('"clip":')
-                clip_dict = _parse_enclosing_json(raw_str, obj_start)
-                if clip_dict:
-                    return clip_dict
-            elif '"entity_type":"song_schema"' in raw_str:
-                # 寻找包含 song_schema 的最外层对象
-                idx = raw_str.find('"entity_type":"song_schema"')
-                start_cand = raw_str.rfind('{', 0, idx)
-                if start_cand != -1:
-                    clip_dict = _parse_enclosing_json(raw_str, start_cand)
-                    if clip_dict and clip_dict.get("id"):
-                        return clip_dict
+            stream_chunks.append(raw_str)
         except Exception:
             pass
         pos += len(needle)
+
+    if not stream_chunks:
+        return None
+
+    full_stream = "".join(stream_chunks)
+    clip_dict: dict | None = None
+
+    for raw_str in stream_chunks:
+        if '"clip":{' in raw_str:
+            clip_idx = raw_str.find('"clip":{')
+            obj_start = clip_idx + len('"clip":')
+            parsed = _parse_enclosing_json(raw_str, obj_start)
+            if parsed:
+                clip_dict = parsed
+                break
+        elif '"entity_type":"song_schema"' in raw_str:
+            # 寻找包含 song_schema 的最外层对象
+            idx = raw_str.find('"entity_type":"song_schema"')
+            start_cand = raw_str.rfind('{', 0, idx)
+            if start_cand != -1:
+                parsed = _parse_enclosing_json(raw_str, start_cand)
+                if parsed and parsed.get("id"):
+                    clip_dict = parsed
+                    break
+
+    if clip_dict:
+        # 递归解析 clip 内部的 RSC 块引用 (如 metadata.prompt: "$52")
+        def _resolve_dict_refs(d: dict):
+            for k, v in list(d.items()):
+                if isinstance(v, str) and re.match(r"^\$[0-9a-fA-F]+$", v):
+                    resolved = _resolve_rsc_reference(v, full_stream)
+                    if resolved is not None:
+                        d[k] = resolved
+                elif isinstance(v, dict):
+                    _resolve_dict_refs(v)
+
+        _resolve_dict_refs(clip_dict)
+        return clip_dict
 
     return None
 
@@ -922,10 +992,10 @@ def auto_process_suno(
         config.aligner.device = dev
 
     if config.skip_separation:
-        _safe_cb(35, "⚡ 极速模式：正在进行原曲词级时间轴对齐 (WhisperX)...")
+        _safe_cb(35, "⚡ 极速模式：正在进行原曲词级时间轴对齐 (CTC Forced Alignment)...")
     else:
         dev_label = "GPU" if (use_gpu or config.separator.device in ("cuda", "mps")) else "CPU"
-        _safe_cb(35, f"正在进行人声与伴奏分离及时间轴对齐 (Demucs[{dev_label}] + WhisperX)...")
+        _safe_cb(35, f"正在进行人声与伴奏分离及时间轴对齐 (Demucs[{dev_label}] + CTC)...")
 
     log.info(">>> [步骤 2/3] 自动执行音频分轨与字级时间轴对齐 (输出至 %s)...", song_output_dir.name)
     from src.main import process_one

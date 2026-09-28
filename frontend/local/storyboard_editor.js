@@ -1543,8 +1543,14 @@ function pollTwoStageTask(taskId, taskType) {
         clearInterval(taskPollingTimer);
         taskPollingTimer = null;
         resetTwoStageBtns();
-        hideProgressBox();
-        status(`❌ 生成失败: ${task.error || task.message}`);
+        const errMsg = task.error || task.message || "生成异常中断";
+        if (dom.comfyuiProgressBar) dom.comfyuiProgressBar.style.background = "#ef4444";
+        if (dom.comfyuiProgressMsg) dom.comfyuiProgressMsg.textContent = `❌ ${errMsg}`;
+        status(`❌ 生成失败: ${errMsg}`);
+        setTimeout(() => {
+          if (dom.comfyuiProgressBar) dom.comfyuiProgressBar.style.background = "";
+          hideProgressBox();
+        }, 6000);
       }
     } catch (err) {
       console.warn("轮询任务状态异常:", err);

@@ -334,8 +334,8 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   padding: 1px 5px; cursor: pointer; font-size: 11px; line-height: 1;
 }
 .line-nudge-btn:hover { background: var(--accent); }
-.lyric-text { font-size: 15px; flex: 1; }
-.lyric-char { transition: color 0.05s, text-shadow 0.05s; }
+.lyric-text { font-size: 15px; flex: 1; white-space: pre-wrap; }
+.lyric-char { transition: color 0.05s, text-shadow 0.05s; white-space: pre-wrap; }
 .lyric-char.sung { color: var(--accent); }
 .lyric-char.singing { color: #ffdd57; text-shadow: 0 0 8px #ffdd57aa; }
 #line-edit-controls { display: flex; align-items: center; gap: 6px; margin-top: 4px; }

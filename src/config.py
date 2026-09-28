@@ -27,6 +27,7 @@ class SeparatorConfig:
 # ---------------------------------------------------------------------------
 @dataclass
 class AlignerConfig:
+    engine: str = "ctc"               # "ctc" (方案二: 纯 Wav2Vec2 CTC Forced Alignment) 或 "whisperx"
     whisper_model: str = "large-v3"
     device: str = "cuda"
     compute_type: str = "int8"        # int8 省显存，适合 8GB VRAM
@@ -155,7 +156,7 @@ class PipelineConfig:
 
         aligner_data = data.get("aligner", {})
         if isinstance(aligner_data, dict):
-            for k in ["whisper_model", "device", "compute_type", "language", "align_model"]:
+            for k in ["engine", "whisper_model", "device", "compute_type", "language", "align_model"]:
                 if k in aligner_data and aligner_data[k] is not None:
                     setattr(cfg.aligner, k, str(aligner_data[k]))
             if "batch_size" in aligner_data and aligner_data["batch_size"] is not None:

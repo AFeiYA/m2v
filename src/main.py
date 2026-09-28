@@ -267,14 +267,17 @@ def process_one(
             vocals_path = mp3_path  # 占位，Step 3 会直接跳过对齐
             instrumental_path = None
         else:
-            # Step 1: 歌词预处理
-            _progress("preprocessing", 5, "歌词预处理中…")
-            log.info("[1/5] 歌词预处理…")
-            from src.preprocessor import preprocess_lyrics
-            if not lyrics_path:
-                raise ValueError("未提供歌词文件路径")
-            lyrics = preprocess_lyrics(lyrics_path, config.preprocessor)
-            _progress("preprocessing", 10, "歌词预处理完成")
+            # Step 1: 歌词获取与预处理
+            if lyrics_path and Path(lyrics_path).exists():
+                _progress("preprocessing", 5, "歌词预处理中…")
+                log.info("[1/5] 歌词预处理…")
+                from src.preprocessor import preprocess_lyrics
+                lyrics = preprocess_lyrics(lyrics_path, config.preprocessor)
+                _progress("preprocessing", 10, "歌词预处理完成")
+            else:
+                _progress("preprocessing", 5, "未提供歌词文件，将在人声分离后自动进行文本听写…")
+                log.info("[1/5] 未提供歌词文件，将在人声分离后自动调用 Whisper 听写歌词文本…")
+                lyrics = None
 
             # Step 2: 人声分离 (优先复用已有分离文件，或可跳过)
             instrumental_path = None
@@ -320,6 +323,14 @@ def process_one(
                     log.info("伴奏文件已保存: %s", output_inst.name)
                 _progress("separating", 30, "人声分离完成")
 
+            # 若无歌词，使用干净人声音轨调用 Whisper 听写纯歌词文本 (ASR)
+            if lyrics is None:
+                _progress("preprocessing", 32, "使用 Whisper 进行歌词文本识别 (ASR)…")
+                log.info("[2.5/5] 使用 Whisper 进行纯文本听写 (ASR)…")
+                from src.aligner import transcribe_audio
+                lyrics, detected_lang = transcribe_audio(vocals_path, config.aligner)
+                _progress("preprocessing", 35, f"歌词文本听写完成 ({len(lyrics)} 行)")
+
         # ---------------------------------------------------------------
         # Step 3: 词级对齐 (可复用 JSON)
         # ---------------------------------------------------------------
@@ -338,8 +349,9 @@ def process_one(
             if alignment_json.resolve() != output_json:
                 shutil.copy2(alignment_json, output_json)
         else:
-            _progress("aligning", 35, "词级对齐中 (WhisperX)…")
-            log.info("[3/5] 词级对齐 (WhisperX)…")
+            engine_name = "CTC Forced Alignment" if getattr(config.aligner, "engine", "ctc") == "ctc" else "WhisperX"
+            _progress("aligning", 35, f"词级对齐中 ({engine_name})…")
+            log.info(f"[3/5] 词级对齐 ({engine_name})…")
             from src.aligner import align_lyrics
             alignment = align_lyrics(vocals_path, lyrics, config.aligner)
             _progress("aligning", 60, "词级对齐完成")
