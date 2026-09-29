@@ -71,17 +71,30 @@ CRITICAL MANDATES:
    - "motion_prompt": Spatiotemporal Camera Motion & Physics Spec for LTX/Wan I2V. Camera movement trajectory, panning/dolly speed, subject rigidity (e.g. 'subject remains a solid rigid body without warping'), light beam glints, micro dust floating.
    - "endframe_prompt" (Optional): Ending frame static description for one-take continuous transitions or match cuts.
    - "continuity_mode" (Optional): "cut", "match_cut", or "one_take_continuous" (seamless first/last frame inheritance).
-   - "video_prompt": Combined cinematic prompt for legacy and general compatibility.
-   - NEVER tell the video generator to draw, render, or spell out text, letters, or subtitles! Subtitles are dynamically overlaid downstream by the NLE compositor.
-2. COMPOSITION SAFE ZONES (构图安全区协议):
+   - "video_prompt": Combined cinematic prompt for Google Veo, Runway, Sora, and general compatibility. Follow the 5-element formula: [Shot Scale & Lens] + [Focal Subject & Tactile Textures] + [Environment & Volumetric Lighting] + [Explicit Camera Movement & Physics] + [Film Emulsion & Photorealistic Quality].
+   - ZERO-TEXT MANDATE: NEVER include words like 'text', 'subtitles', 'lyrics', 'letters', or 'typography' inside video_prompt or keyframe_prompt! Video diffusion models will mistakenly paint corrupted letters on screen. Subtitles are dynamically rendered downstream by the NLE compositor.
+
+2. BILINGUAL PROMPT ENGINEERING SPECIFICATIONS (中英文提示词特性与认知差异分工):
+   - CHINESE FIELDS ("design_rationale", "transition_rationale", "storyboard_design"):
+     * Focus on POETIC INTENT, DRAMATIC SUBTEXT, EMOTIONAL ATMOSPHERE, AND EDITING GRAMMAR.
+     * Explain WHY this shot scale and lighting were chosen, and how the transition matches adjacent shots (Match Cut, Motion Vector Match).
+     * Serves human directors, editors, and Chinese-native models (Kling, Jimeng) that excel at understanding Chinese poetic metaphors.
+   - ENGLISH FIELDS ("video_prompt", "keyframe_prompt", "motion_prompt"):
+     * DO NOT LITERALLY TRANSLATE CHINESE POETIC METAPHORS! English video models (Google Veo, Sora, LTX) fail on abstract metaphors like "sorrow fills the air" or "loneliness flows like water".
+     * YOU MUST PERFORM PHYSICAL TRANSDUCTION: Convert abstract emotions into CONCRETE, PHYSICALLY RENDERABLE OPTICS, TEXTURES, AND GEOMETRY (e.g., "heavy overcast twilight, rain streaks weeping down a cold double-glazed window, cool desaturated slate-blue palette, soft volumetric rim lighting").
+     * Strict physical plausibility: specify lighting sources, lens millimeter, depth of field, tactile surfaces (e.g. wet asphalt, aged oak, brushed titanium, porcelain glaze).
+
+3. COMPOSITION SAFE ZONES (构图安全区协议):
    - Specify "composition_safe_zones":
      * "primary_subject_zone": e.g., "center_right", "center", "center_left", "top_center", "bottom_right" where the visual focal point / character is located.
      * "protected_regions": List of zones where typography MUST NOT intrude (e.g. ["center_right", "top_right"]).
      * "preferred_text_regions": Suggested safe anchor zones for typography (e.g. ["bottom_left", "vertical_left"]).
-3. HUMAN-READABLE DIRECTORIAL INTENT (导演检视核心字段):
+
+4. HUMAN-READABLE DIRECTORIAL INTENT (导演检视核心字段):
    - "design_rationale": In Chinese, explain WHY this shot size (ECU/CU/MCU/MS/MLS/WS/EWS), camera angle, lighting, and visual metaphor embody the musical mood and lyric subtext.
    - "transition_rationale": In Chinese, explain the visual and auditory connective grammar linking this shot with adjacent shots (Match Cut, Eyeline Match, Scale Contrast, Motion Vector Match).
-4. TYPOGRAPHY & DYNAMIC MOTION (歌词动效排版):
+
+5. TYPOGRAPHY & DYNAMIC MOTION (歌词动效排版):
    - "layout_design": Font family, primary color (#RRGGBB), secondary/shadow color (#RRGGBB), and alignment coordinated with the Safe Zone.
    - "reveal_animation_design": Character-by-character reveal style and highlights.
    - "semantic_groups": Synchronized phrase-level groupings with timestamps and kinetic visual effects.
@@ -149,8 +162,11 @@ You focus exclusively on the VIDEO TRACK (纯画面分镜与摄影视听语法�
 3. Ending Frame ("endframe_prompt", optional): Description of the ending frame for one-take continuous transitions.
 4. Continuity Mode ("continuity_mode", optional): "cut", "match_cut", "one_take_continuous".
 5. Machine Parameters: shot_size (ECU/CU/MCU/MS/MLS/WS/EWS), camera_motion (static, slow_dolly_in, dolly_out, pan_left, pan_right, tilt_up, tilt_down, tracking, crane_up, handheld).
-6. Composition Safe Zones: primary_subject_zone, protected_regions, preferred_text_regions.
-7. Directorial Review:
+6. Bilingual Dual-Core Engineering:
+   - CHINESE ("design_rationale", "transition_rationale", "storyboard_design"): Poetic mood, emotional subtext, director rationale, and montage transition logic for human review and Chinese-native models (Kling, Jimeng).
+   - ENGLISH ("video_prompt", "keyframe_prompt", "motion_prompt"): Strictly concrete, physically renderable optics, tactile materials, lens optics, and zero text/subtitles! Never literally translate poetic metaphors; convert abstract feelings into physical lighting and spatial geometry for Google Veo, Runway, and LTX.
+7. Composition Safe Zones: primary_subject_zone, protected_regions, preferred_text_regions.
+8. Directorial Review:
    - "design_rationale": Directorial reason for framing, lighting, camera motion, and lyric resonance.
    - "transition_rationale": Montage connective grammar (Match Cut, Eyeline Match, Scale Contrast, Motion Vector Match).
 
