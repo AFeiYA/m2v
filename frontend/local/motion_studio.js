@@ -204,6 +204,8 @@
   // ---------------------------------------------------------------------------
   // 3. 项目加载与 DSL 转换
   // ---------------------------------------------------------------------------
+  const filesMap = new Map();
+
   async function loadFileList() {
     try {
       const res = await fetch('/api/files');
@@ -212,6 +214,7 @@
 
       if (!dom.selectFile) return;
       dom.selectFile.innerHTML = '';
+      filesMap.clear();
 
       if (files.length === 0) {
         dom.selectFile.innerHTML = '<option value="">无项目</option>';
@@ -219,8 +222,9 @@
       }
 
       files.forEach((f) => {
+        filesMap.set(f.json_path, f);
         const opt = document.createElement('option');
-        opt.value = f.path;
+        opt.value = f.json_path;
         opt.textContent = f.name;
         dom.selectFile.appendChild(opt);
       });
@@ -268,9 +272,11 @@
       // 构建 Motion Timeline DSL
       buildMotionDSL();
 
-      // 加载音频
-      const audioUrl = `/api/assets?path=${encodeURIComponent(project.audio_path || '')}&json_path=${encodeURIComponent(jsonPath)}`;
-      if (ws) {
+      // 加载音频 (优先使用 /api/files 索引到的物理路径)
+      const fileMeta = filesMap.get(jsonPath) || {};
+      const audioPath = fileMeta.audio_path || (fileMeta.audio_tracks && fileMeta.audio_tracks.vocals) || project.audio_path || '';
+      if (audioPath && ws) {
+        const audioUrl = `/api/audio?path=${encodeURIComponent(audioPath)}`;
         ws.load(audioUrl);
       }
 
@@ -284,8 +290,19 @@
 
   function buildMotionDSL() {
     if (!state.alignment) return;
-    const shots = state.alignment.storyboard || [];
+    let shots = state.alignment.storyboard || [];
     const lines = state.alignment.lines || [];
+
+    // 若无分镜镜头，自动从歌词行派生动效场景
+    if (shots.length === 0 && lines.length > 0) {
+      shots = lines.map((l, i) => ({
+        id: `shot_${String(i + 1).padStart(3, '0')}`,
+        shot_id: i + 1,
+        start: Number(l.start),
+        end: Number(l.end),
+        semantic_groups: (l.style_overrides && l.style_overrides.semantic_groups) || [],
+      }));
+    }
 
     const allCues = [];
     const scenes = shots.map((s, idx) => {

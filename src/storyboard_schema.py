@@ -792,6 +792,19 @@ class AlignmentProject(BaseModel):
 
         scenes: list[MotionScene] = []
         shots = self.storyboard or []
+        if not shots and self.lines:
+            shots = [
+                ShotPlan(
+                    shot_id=idx + 1,
+                    id=f"shot_{str(idx + 1).zfill(3)}",
+                    start=float(line.start),
+                    end=float(line.end),
+                    preview_image="",
+                    action="",
+                    camera_motion="static",
+                )
+                for idx, line in enumerate(self.lines)
+            ]
 
         for idx, shot in enumerate(shots):
             shot_id = getattr(shot, "id", None) or f"shot_{str(getattr(shot, 'shot_id', idx + 1)).zfill(3)}"
