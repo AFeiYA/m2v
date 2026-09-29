@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Suno2MV — AI 导演与动态故事板 (Animatic Studio)</title>
   <script src="/static/wavesurfer.min.js"></script>
+  <script src="/static/kinetic_runtime.js?v=20260929"></script>
   <link rel="stylesheet" href="/static/style.css?v=20260928b">
   <style>
     /* ── Animatic Studio 专属布局 ── */
@@ -355,6 +356,19 @@
         <button id="btn-comfyui-start" style="display: none; padding: 1px 6px; background: #1e1b4b; border: 1px solid #4f46e5; color: #a5b4fc; border-radius: 3px; font-size: 10px; cursor: pointer;">🚀 启动</button>
       </div>
       <span class="sep">|</span>
+      <!-- 动感歌词控制 -->
+      <div id="kinetic-controls" style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; background: #131b2e; border: 1px solid #1e293b; border-radius: 4px; font-size: 11px;">
+        <label style="cursor: pointer; display: inline-flex; align-items: center; gap: 4px; color: #cbd5e1;" title="开启/关闭确定性动感词组排版">
+          <input type="checkbox" id="chk-kinetic-enable" checked style="accent-color: #6366f1;">
+          ✨ 动感词组
+        </label>
+        <select id="select-kinetic-preset" style="background: #0f172a; border: 1px solid #334155; color: #94a3b8; font-size: 11px; padding: 1px 4px; border-radius: 3px; cursor: pointer;" title="切换动感歌词风格预设">
+          <option value="swiss_minimal">🖤 瑞士先锋大字 (Swiss Minimal)</option>
+          <option value="street_pop">🏷️ 潮流街头贴纸 (Street Pop)</option>
+          <option value="neon_glow">✨ 赛博复古流光 (Neon Glow)</option>
+        </select>
+      </div>
+      <span class="sep">|</span>
       <a href="/" style="color: #61afef; text-decoration: none; font-size: 12px; height: 28px; line-height: 26px; padding: 0 8px; border: 1px solid #61afef44; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0;">📝 歌词字级精调</a>
       <span id="status-msg"></span>
     </div>
@@ -423,6 +437,9 @@
           <div class="cinema-viewport" id="animatic-viewport">
             <img id="animatic-img" src="" alt="分镜预览" style="display: none;">
             <video id="animatic-video" autoplay loop muted playsinline style="display: none; width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; z-index: 1;"></video>
+            
+            <!-- 确定性动感运动图层 (Kinetic Motion Stage) -->
+            <div id="kinetic-motion-stage" style="position: absolute; inset: 0; pointer-events: none; z-index: 10; display: flex; align-items: center; justify-content: center; overflow: hidden;"></div>
             
             <!-- 构图安全区 HUD 遮罩 -->
             <div id="safe-zone-overlay" style="display: none; position: absolute; inset: 0; pointer-events: none; border: 2px dashed rgba(99, 102, 241, 0.4); z-index: 5;">

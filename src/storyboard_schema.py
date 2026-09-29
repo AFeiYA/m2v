@@ -448,6 +448,7 @@ class ShotPlan(BaseModel):
     preview_image: str = Field(default="", description="动态故事板 (Animatic) 静态预览卡片图路径")
     takes: list[Take] = Field(default_factory=list, description="候选生成素材列表 (Takes)")
     selected_take_id: str | None = Field(default=None, description="选中的 Take ID")
+    semantic_groups: list[dict[str, Any]] = Field(default_factory=list, description="分词短语组与动效")
 
     @property
     def duration(self) -> float:
@@ -608,7 +609,81 @@ class DirectorTreatment(BaseModel):
 
 
 # ============================================================================
-# 9. 核心工程对象 (Project / AlignmentProject)
+# 9. 确定性运动时间轴领域特定语言 (Motion Timeline DSL)
+# ============================================================================
+
+class MotionCue(BaseModel):
+    """单个动效词组或图元提示单元"""
+    cue_id: str = Field(default="", description="词组唯一标识符")
+    text: str = Field(default="", description="词组或文本内容")
+    start: float = Field(..., ge=0, description="起始时间(秒)")
+    end: float = Field(..., ge=0, description="结束时间(秒)")
+    emphasis: float = Field(default=0.5, ge=0.0, le=1.0, description="重音/强调权重 (0.0~1.0)")
+    layout: dict[str, Any] = Field(default_factory=dict, description="排版与安全区参数")
+    params: dict[str, Any] = Field(default_factory=dict, description="特定预设个性化参数")
+
+
+class MotionLayer(BaseModel):
+    """场景内的独立动画图层 (遵从 Layered Architecture)"""
+    layer_id: str = Field(default="", description="图层唯一标识符")
+    type: Literal["kinetic_typography", "procedural_fx", "character_rig", "svg_overlay", "particle_emitter"] = Field(
+        default="kinetic_typography", description="图层类型"
+    )
+    preset: str = Field(default="swiss_minimal", description="预设样式 (如 swiss_minimal, street_pop, neon_glow)")
+    seed: str = Field(default="", description="确定性伪随机种子 (保证回放/导出不抽搐)")
+    z_index: int = Field(default=10, description="图层堆叠顺序")
+    opacity: float = Field(default=1.0, ge=0.0, le=1.0, description="图层基础透明度")
+    cues: list[MotionCue] = Field(default_factory=list, description="图层内包含的动效单元序列")
+    params: dict[str, Any] = Field(default_factory=dict, description="图层全局参数")
+
+
+class MotionBackground(BaseModel):
+    """场景背景规格 (静态图/KenBurns/原生视频/纯色渐变)"""
+    type: Literal["image", "video", "solid_color", "gradient"] = Field(default="image", description="背景类型")
+    asset: str = Field(default="", description="背景素材相对路径或色值")
+    motion: dict[str, Any] = Field(default_factory=dict, description="运镜物理参数 (如 ken_burns, scale_from, pan)")
+
+
+class MotionScene(BaseModel):
+    """单个镜头/场景定义 (纯时间函数作用域)"""
+    scene_id: str = Field(..., description="场景唯一编号，如 shot_001")
+    start: float = Field(..., ge=0, description="场景绝对起始时间(秒)")
+    end: float = Field(..., ge=0, description="场景绝对结束时间(秒)")
+    background: MotionBackground = Field(default_factory=MotionBackground, description="场景底层背景")
+    layers: list[MotionLayer] = Field(default_factory=list, description="场景上的确定性图层树")
+
+
+class MotionTimelineDSL(BaseModel):
+    """
+    m2v 核心确定性运动时间轴领域特定语言 (Motion Timeline DSL)
+    解耦底层渲染引擎与上游音乐智能：timeline + assets + style + t -> frame(t)
+    """
+    version: str = Field(default="1.0.0", description="DSL 规范版本")
+    meta: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "title": "",
+            "bpm": 120.0,
+            "duration": 0.0,
+            "aspect_ratio": "16:9",
+            "fps": 30
+        },
+        description="工程全局视听元数据"
+    )
+    scenes: list[MotionScene] = Field(default_factory=list, description="时间轴场景序列")
+
+    def to_dict(self) -> dict[str, Any]:
+        return self.model_dump(exclude_none=True)
+
+    def to_json(self, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "MotionTimelineDSL":
+        return cls.model_validate(json.loads(json_str))
+
+
+# ============================================================================
+# 10. 核心工程对象 (Project / AlignmentProject)
 # ============================================================================
 
 class AlignmentProject(BaseModel):
@@ -690,6 +765,169 @@ class AlignmentProject(BaseModel):
             raise FileNotFoundError(f"工程文件不存在: {p}")
         data = json.loads(p.read_text(encoding="utf-8"))
         return cls.model_validate(data)
+
+    def to_motion_dsl(self, default_preset: str = "swiss_minimal") -> MotionTimelineDSL:
+        """
+        将当前 AlignmentProject 自动升维并转换为标准的 MotionTimelineDSL 规范。
+        为每个镜头构建背景层与基于 Whisper 词级时间戳/语义切分的 KineticTypography 图层。
+        """
+        bpm = 120.0
+        if self.analysis and hasattr(self.analysis, "bpm") and self.analysis.bpm:
+            bpm = self.analysis.bpm
+
+        scenes: list[MotionScene] = []
+        shots = self.storyboard or []
+
+        for idx, shot in enumerate(shots):
+            shot_id = getattr(shot, "id", None) or f"shot_{str(getattr(shot, 'shot_id', idx + 1)).zfill(3)}"
+            start = float(shot.start)
+            end = float(shot.end)
+
+            # 1. 确定背景层 (Image / Video Take / KenBurns)
+            bg_type: Literal["image", "video", "solid_color", "gradient"] = "image"
+            bg_asset = ""
+            selected_take = None
+            if hasattr(shot, "takes") and shot.takes:
+                selected_take = next(
+                    (t for t in shot.takes if getattr(t, "id", None) == getattr(shot, "selected_take_id", None)),
+                    None,
+                )
+                if not selected_take and len(shot.takes) > 0:
+                    selected_take = shot.takes[0]
+
+            if selected_take and getattr(selected_take, "media_type", "") == "video":
+                bg_type = "video"
+                bg_asset = getattr(selected_take, "media_path", "") or getattr(selected_take, "video_path", "")
+            elif selected_take and getattr(selected_take, "media_path", ""):
+                bg_type = "image"
+                bg_asset = getattr(selected_take, "media_path", "")
+            else:
+                bg_type = "image"
+                bg_asset = getattr(shot, "preview_image", "") or f"shot_{shot_id}.png"
+
+            bg = MotionBackground(
+                type=bg_type,
+                asset=bg_asset,
+                motion={
+                    "type": "ken_burns",
+                    "camera_motion": getattr(shot, "camera_motion", "static") or "static",
+                    "scale_from": 1.0,
+                    "scale_to": 1.15,
+                },
+            )
+
+            # 2. 收集归属该镜头的歌词与词组
+            cues: list[MotionCue] = []
+
+            # 优先从 shot.semantic_groups 获取切分好的短语
+            sem_groups = getattr(shot, "semantic_groups", []) or []
+            if sem_groups:
+                for g_idx, g in enumerate(sem_groups):
+                    phrase_text = g.get("phrase") or g.get("text") or ""
+                    if not phrase_text:
+                        continue
+                    g_start = float(g.get("start", start))
+                    g_end = float(g.get("end", end))
+                    cues.append(
+                        MotionCue(
+                            cue_id=f"{shot_id}:phrase_{str(g_idx + 1).zfill(2)}",
+                            text=phrase_text,
+                            start=g_start,
+                            end=g_end,
+                            emphasis=float(g.get("emphasis", 0.7)),
+                            layout={"anchor": "center", "size": "hero"},
+                            params={"visual_effect": g.get("visual_effect", "")},
+                        )
+                    )
+            else:
+                # 降级：从 lines 中提取在该时间窗口内的歌词并按 2-4 字切词组
+                matched_lines = [
+                    l
+                    for l in self.lines
+                    if (l.start >= start - 0.2 and l.start < end) or (l.end > start and l.end <= end + 0.2)
+                ]
+                cue_counter = 0
+                for line in matched_lines:
+                    words = getattr(line, "words", []) or []
+                    if words:
+                        chunk_size = 3
+                        for i in range(0, len(words), chunk_size):
+                            chunk = words[i : i + chunk_size]
+                            chunk_text = "".join(w.word for w in chunk)
+                            c_start = chunk[0].start
+                            c_end = chunk[-1].end
+                            cue_counter += 1
+                            cues.append(
+                                MotionCue(
+                                    cue_id=f"{shot_id}:chunk_{str(cue_counter).zfill(2)}",
+                                    text=chunk_text,
+                                    start=c_start,
+                                    end=c_end,
+                                    emphasis=0.85 if cue_counter == 1 else 0.6,
+                                    layout={"anchor": "center", "size": "hero"},
+                                )
+                            )
+                    elif line.text:
+                        cue_counter += 1
+                        cues.append(
+                            MotionCue(
+                                cue_id=f"{shot_id}:line_{str(cue_counter).zfill(2)}",
+                                text=line.text,
+                                start=line.start,
+                                end=line.end,
+                                emphasis=0.8,
+                                layout={"anchor": "center", "size": "hero"},
+                            )
+                        )
+
+            # 3. 构造动效图层
+            layers: list[MotionLayer] = []
+            if cues:
+                layers.append(
+                    MotionLayer(
+                        layer_id=f"{shot_id}:layer_kinetic",
+                        type="kinetic_typography",
+                        preset=default_preset,
+                        seed=f"{shot_id}:kinetic_seed",
+                        z_index=10,
+                        opacity=1.0,
+                        cues=cues,
+                    )
+                )
+
+            # 4. 可选轻量胶片微粒层
+            layers.append(
+                MotionLayer(
+                    layer_id=f"{shot_id}:layer_grain",
+                    type="procedural_fx",
+                    preset="film_grain",
+                    seed=f"{shot_id}:grain_seed",
+                    z_index=20,
+                    opacity=0.08,
+                )
+            )
+
+            scenes.append(
+                MotionScene(
+                    scene_id=shot_id,
+                    start=start,
+                    end=end,
+                    background=bg,
+                    layers=layers,
+                )
+            )
+
+        return MotionTimelineDSL(
+            version="1.0.0",
+            meta={
+                "title": self.title or "Suno2MV Project",
+                "bpm": bpm,
+                "duration": self.duration,
+                "aspect_ratio": "16:9",
+                "fps": 30,
+            },
+            scenes=scenes,
+        )
 
 
 # 保持对旧代码导入名称的兼容别名

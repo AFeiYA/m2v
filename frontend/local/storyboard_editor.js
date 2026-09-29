@@ -160,10 +160,44 @@ document.addEventListener("DOMContentLoaded", () => {
   dom.btnCopyAllZh        = $("#btn-copy-all-zh");
   dom.btnDownloadPrompts  = $("#btn-download-prompts");
 
+  // 确定性动感运动运行时控制 DOM
+  dom.chkKineticEnable    = $("#chk-kinetic-enable");
+  dom.selectKineticPreset = $("#select-kinetic-preset");
+
   try {
     initWaveSurfer();
   } catch (err) {
     console.warn("WaveSurfer 初始化异常:", err);
+  }
+
+  // 初始化确定性动感运动运行时 (Deterministic Motion Runtime)
+  try {
+    if (typeof DeterministicMotionRuntime !== "undefined") {
+      window.kineticRuntime = new DeterministicMotionRuntime({
+        container: "#kinetic-motion-stage",
+        preset: dom.selectKineticPreset ? dom.selectKineticPreset.value : "swiss_minimal",
+        enabled: dom.chkKineticEnable ? dom.chkKineticEnable.checked : true,
+      });
+
+      if (dom.chkKineticEnable) {
+        dom.chkKineticEnable.addEventListener("change", (e) => {
+          if (window.kineticRuntime) {
+            window.kineticRuntime.setEnabled(e.target.checked);
+          }
+        });
+      }
+
+      if (dom.selectKineticPreset) {
+        dom.selectKineticPreset.addEventListener("change", (e) => {
+          if (window.kineticRuntime) {
+            window.kineticRuntime.setPreset(e.target.value);
+            if (ws) window.kineticRuntime.renderAt(ws.getCurrentTime());
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("DeterministicMotionRuntime 初始化异常:", err);
   }
 
   bindStoryboardEvents();
@@ -180,6 +214,7 @@ window.onSongLoaded = () => {
   renderAnimaticTimeline();
   renderGalleryView();
   updateBgDisplay();
+  updateKineticTimeline();
   checkAndInitFirstShot();
   checkAndRestoreBackfillCache();
 };
@@ -190,12 +225,95 @@ window.onAlignmentChanged = () => {
   renderAnimaticTimeline();
   renderGalleryView();
   updateBgDisplay();
+  updateKineticTimeline();
 };
 
 window.onPlaybackTick = () => {
   highlightReferenceLine();
   syncAnimaticPlayback();
+  if (window.kineticRuntime && ws) {
+    window.kineticRuntime.renderAt(ws.getCurrentTime());
+  }
 };
+
+function updateKineticTimeline() {
+  if (!window.kineticRuntime || !state.alignment) return;
+  const shots = state.alignment.storyboard || [];
+  const lines = state.alignment.lines || [];
+
+  const scenes = shots.map((s, idx) => {
+    const shotId = s.id || `shot_${String(s.shot_id || idx + 1).padStart(3, "0")}`;
+    const start = Number(s.start) || 0;
+    const end = Number(s.end) || 0;
+
+    const cues = [];
+    const semGroups = s.semantic_groups || [];
+    if (semGroups.length > 0) {
+      semGroups.forEach((g, gIdx) => {
+        const text = g.phrase || g.text || "";
+        if (!text) return;
+        cues.push({
+          cue_id: `${shotId}:phrase_${String(gIdx + 1).padStart(2, "0")}`,
+          text: text,
+          start: Number(g.start !== undefined ? g.start : start),
+          end: Number(g.end !== undefined ? g.end : end),
+          emphasis: Number(g.emphasis !== undefined ? g.emphasis : 0.8),
+        });
+      });
+    } else {
+      // 降级: 从 lines 提取在该镜头时间窗口内的词
+      const matched = lines.filter((l) => (l.start >= start - 0.2 && l.start < end) || (l.end > start && l.end <= end + 0.2));
+      let count = 0;
+      matched.forEach((l) => {
+        const words = l.words || [];
+        if (words.length > 0) {
+          const chunkSize = 3;
+          for (let i = 0; i < words.length; i += chunkSize) {
+            const chunk = words.slice(i, i + chunkSize);
+            const text = chunk.map((w) => w.word).join("");
+            count++;
+            cues.push({
+              cue_id: `${shotId}:chunk_${String(count).padStart(2, "0")}`,
+              text: text,
+              start: chunk[0].start,
+              end: chunk[chunk.length - 1].end,
+              emphasis: count === 1 ? 0.85 : 0.65,
+            });
+          }
+        } else if (l.text) {
+          count++;
+          cues.push({
+            cue_id: `${shotId}:line_${String(count).padStart(2, "0")}`,
+            text: l.text,
+            start: l.start,
+            end: l.end,
+            emphasis: 0.8,
+          });
+        }
+      });
+    }
+
+    return {
+      scene_id: shotId,
+      start: start,
+      end: end,
+      layers: [
+        {
+          type: "kinetic_typography",
+          preset: window.kineticRuntime.preset || "swiss_minimal",
+          seed: `${shotId}:kinetic_seed`,
+          cues: cues,
+        },
+      ],
+    };
+  });
+
+  window.kineticRuntime.setTimeline({
+    version: "1.0.0",
+    meta: { title: state.currentFile?.name || "MV Project" },
+    scenes: scenes,
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Event Listeners (Animatic Studio)
