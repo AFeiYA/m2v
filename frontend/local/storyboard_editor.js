@@ -118,6 +118,20 @@ document.addEventListener("DOMContentLoaded", () => {
   dom.safeZoneSubjectTarget = $("#safe-zone-subject-target");
   dom.safeZoneTextAnchor  = $("#safe-zone-text-anchor");
 
+  // 提示词复制工具栏 DOM
+  dom.btnCopyShotEn       = $("#btn-copy-shot-en");
+  dom.btnCopyShotZh       = $("#btn-copy-shot-zh");
+  dom.btnCopyShotKf       = $("#btn-copy-shot-kf");
+  dom.btnCopyShotMotion   = $("#btn-copy-shot-motion");
+  dom.btnCopyShotAll      = $("#btn-copy-shot-all");
+  dom.btnCopyFieldAction  = $("#btn-copy-field-action");
+  dom.btnCopyFieldRationale = $("#btn-copy-field-rationale");
+  dom.btnCopyFieldTransition = $("#btn-copy-field-transition");
+  dom.btnCopyFieldKf      = $("#btn-copy-field-kf");
+  dom.btnCopyFieldMotion  = $("#btn-copy-field-motion");
+  dom.btnCopyFieldEndframe = $("#btn-copy-field-endframe");
+  dom.btnCopyFieldLegacy  = $("#btn-copy-field-legacy");
+
   // 大模型深度导演 Modal DOM
   dom.btnLlmDirector      = $("#btn-llm-director");
   dom.llmDirectorModal    = $("#llm-director-modal");
@@ -134,6 +148,12 @@ document.addEventListener("DOMContentLoaded", () => {
   dom.llmBackfillTextarea = $("#llm-backfill-textarea");
   dom.backfillStatus      = $("#backfill-status");
   dom.btnSubmitLlmBackfill= $("#btn-submit-llm-backfill");
+  dom.backfillCacheBanner = $("#backfill-cache-banner");
+  dom.backfillCacheMsg    = $("#backfill-cache-msg");
+  dom.btnReapplyCache     = $("#btn-reapply-cache");
+  dom.btnClearCache       = $("#btn-clear-cache");
+  dom.btnCopyAllEn        = $("#btn-copy-all-en");
+  dom.btnCopyAllZh        = $("#btn-copy-all-zh");
 
   try {
     initWaveSurfer();
@@ -156,6 +176,7 @@ window.onSongLoaded = () => {
   renderGalleryView();
   updateBgDisplay();
   checkAndInitFirstShot();
+  checkAndRestoreBackfillCache();
 };
 
 window.onAlignmentChanged = () => {
@@ -215,6 +236,69 @@ function bindAnimaticEvents() {
   }
   if (dom.btnSubmitLlmBackfill) {
     dom.btnSubmitLlmBackfill.addEventListener("click", submitLlmBackfill);
+  }
+  if (dom.btnReapplyCache) {
+    dom.btnReapplyCache.addEventListener("click", submitLlmBackfill);
+  }
+  if (dom.btnClearCache) {
+    dom.btnClearCache.addEventListener("click", clearBackfillCache);
+  }
+  if (dom.btnCopyAllEn) {
+    dom.btnCopyAllEn.addEventListener("click", () => copyAllPrompts("en", dom.btnCopyAllEn));
+  }
+  if (dom.btnCopyAllZh) {
+    dom.btnCopyAllZh.addEventListener("click", () => copyAllPrompts("zh", dom.btnCopyAllZh));
+  }
+
+  // 自动缓存回填文本输入草稿 (实时输入防丢)
+  if (dom.llmBackfillTextarea) {
+    let saveDraftTimer = null;
+    dom.llmBackfillTextarea.addEventListener("input", () => {
+      clearTimeout(saveDraftTimer);
+      saveDraftTimer = setTimeout(() => {
+        saveBackfillDraft();
+      }, 300);
+    });
+  }
+
+  // 检视面板顶部快捷复制按钮
+  if (dom.btnCopyShotEn) {
+    dom.btnCopyShotEn.addEventListener("click", () => handleCopyShotPrompt("video", dom.btnCopyShotEn));
+  }
+  if (dom.btnCopyShotZh) {
+    dom.btnCopyShotZh.addEventListener("click", () => handleCopyShotPrompt("zh", dom.btnCopyShotZh));
+  }
+  if (dom.btnCopyShotKf) {
+    dom.btnCopyShotKf.addEventListener("click", () => handleCopyShotPrompt("keyframe", dom.btnCopyShotKf));
+  }
+  if (dom.btnCopyShotMotion) {
+    dom.btnCopyShotMotion.addEventListener("click", () => handleCopyShotPrompt("motion", dom.btnCopyShotMotion));
+  }
+  if (dom.btnCopyShotAll) {
+    dom.btnCopyShotAll.addEventListener("click", () => handleCopyShotPrompt("all", dom.btnCopyShotAll));
+  }
+
+  // 检视面板单字段一键复制
+  if (dom.btnCopyFieldAction) {
+    dom.btnCopyFieldAction.addEventListener("click", () => copyTextToClipboard(dom.inspectorAction?.value, dom.btnCopyFieldAction, "动作描述"));
+  }
+  if (dom.btnCopyFieldRationale) {
+    dom.btnCopyFieldRationale.addEventListener("click", () => copyTextToClipboard(dom.inspectorRationale?.value, dom.btnCopyFieldRationale, "导演构思"));
+  }
+  if (dom.btnCopyFieldTransition) {
+    dom.btnCopyFieldTransition.addEventListener("click", () => copyTextToClipboard(dom.inspectorTransition?.value, dom.btnCopyFieldTransition, "镜头衔接"));
+  }
+  if (dom.btnCopyFieldKf) {
+    dom.btnCopyFieldKf.addEventListener("click", () => copyTextToClipboard(dom.inspectorKeyframePrompt?.value, dom.btnCopyFieldKf, "首帧提示词"));
+  }
+  if (dom.btnCopyFieldMotion) {
+    dom.btnCopyFieldMotion.addEventListener("click", () => copyTextToClipboard(dom.inspectorMotionPrompt?.value, dom.btnCopyFieldMotion, "运镜提示词"));
+  }
+  if (dom.btnCopyFieldEndframe) {
+    dom.btnCopyFieldEndframe.addEventListener("click", () => copyTextToClipboard(dom.inspectorEndframePrompt?.value, dom.btnCopyFieldEndframe, "尾帧提示词"));
+  }
+  if (dom.btnCopyFieldLegacy) {
+    dom.btnCopyFieldLegacy.addEventListener("click", () => copyTextToClipboard(dom.inspectorPrompt?.value, dom.btnCopyFieldLegacy, "全景提示词"));
   }
 
   // 检视面板属性变动即时同步
@@ -485,6 +569,407 @@ async function handleAutoDirect() {
 }
 
 // ---------------------------------------------------------------------------
+// 提示词 (Prompt) 复制与中英文生成辅助体系
+// ---------------------------------------------------------------------------
+async function copyTextToClipboard(text, btnElement = null, successMsg = "已复制到剪贴板！") {
+  const content = (text || "").trim();
+  if (!content) {
+    alert("没有可复制的内容！");
+    return;
+  }
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(content);
+    } else {
+      throw new Error("Clipboard API unavailable");
+    }
+  } catch (err) {
+    const ta = document.createElement("textarea");
+    ta.value = content;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+    } finally {
+      document.body.removeChild(ta);
+    }
+  }
+  if (btnElement) {
+    const oldHtml = btnElement.innerHTML;
+    btnElement.innerHTML = `✅ 已复制！`;
+    btnElement.disabled = true;
+    setTimeout(() => {
+      btnElement.innerHTML = oldHtml;
+      btnElement.disabled = false;
+    }, 1800);
+  }
+  status(`✅ ${successMsg}`);
+}
+
+const SHOT_SIZE_NAMES = {
+  ECU: "大特写 (Extreme Close-Up)",
+  CU: "特写 (Close-Up)",
+  MCU: "中近景 (Medium Close-Up)",
+  MS: "中景 (Medium Shot)",
+  MLS: "中远景 (Medium Long Shot)",
+  WS: "全景 (Wide Shot)",
+  EWS: "大全景 (Extreme Wide Shot)",
+};
+
+const CAMERA_MOTION_NAMES = {
+  static: "固定镜头 (Static)",
+  slow_dolly_in: "慢速推进 (Slow Dolly In)",
+  dolly_out: "镜头拉开 (Dolly Out)",
+  pan_left: "向左平摇 (Pan Left)",
+  pan_right: "向右平摇 (Pan Right)",
+  crane_up: "摇臂升起 (Crane Up)",
+  tilt_up: "镜头仰起 (Tilt Up)",
+  tilt_down: "镜头俯视 (Tilt Down)",
+  tracking: "跟拍滑轨 (Tracking)",
+  handheld: "呼吸手持 (Handheld)",
+  slow_orbit_with_vertical_roll: "慢速环绕带垂直翻转 (Slow Orbit with Roll)",
+};
+
+function getShotSizeNameZH(scale) {
+  return SHOT_SIZE_NAMES[scale] || scale || "中景";
+}
+
+function getCameraMotionNameZH(motion) {
+  return CAMERA_MOTION_NAMES[motion] || motion || "固定镜头";
+}
+
+function buildShotPromptEN(shot, type = "video") {
+  if (!shot) return "";
+  if (type === "keyframe") {
+    return shot.keyframe_prompt || shot.prompt_en || shot.video_prompt || "";
+  }
+  if (type === "motion") {
+    if (shot.motion_prompt) return shot.motion_prompt;
+    const motion = shot.camera_motion || shot.camera_movement || "static";
+    return `${motion} camera motion, primary subject remains anatomically stable and rigid without warping, smooth cinematic lighting shifts, steady continuous movement`;
+  }
+  if (type === "endframe") {
+    return shot.endframe_prompt || "";
+  }
+  // 完整视频 prompt (T2V)
+  return shot.video_prompt || shot.prompt_en || shot.keyframe_prompt || "";
+}
+
+function buildShotPromptZH(shot) {
+  if (!shot) return "";
+  const lines = [];
+  const shotNum = shot.shot_id || (currentShotIndex >= 0 ? currentShotIndex + 1 : 1);
+  const dur = (shot.end && shot.start) ? (shot.end - shot.start).toFixed(2) : "0.00";
+  const sizeName = getShotSizeNameZH(shot.shot_size || shot.scale);
+  const motionName = getCameraMotionNameZH(shot.camera_motion || shot.camera_movement);
+
+  lines.push(`【第 ${String(shotNum).padStart(2, '0')} 镜 | 时长: ${dur}s】`);
+  lines.push(`【景别与运镜】${sizeName}，${motionName}。`);
+
+  if (shot.lyric_reference || shot.text) {
+    lines.push(`【对应歌词】“${shot.lyric_reference || shot.text}”`);
+  }
+
+  // 画面构图与动作
+  let visualDesc = shot.action || shot.prompt_zh || "";
+  if (shot.storyboard_design) {
+    if (typeof shot.storyboard_design === "object") {
+      const comp = shot.storyboard_design.composition || "";
+      const mot = shot.storyboard_design.motion_effect || "";
+      if (comp || mot) visualDesc = `构图：${comp} | 动效：${mot}`;
+    }
+  }
+  if (visualDesc) {
+    lines.push(`【画面构图与动作】${visualDesc}`);
+  }
+
+  // 导演构思
+  const rationale = shot.design_rationale || shot.director_note || "";
+  if (rationale) {
+    lines.push(`【导演构思】${rationale.replace(/^【导演构思】/, "")}`);
+  }
+
+  // 镜头衔接
+  const trans = shot.transition_rationale || "";
+  if (trans) {
+    lines.push(`【镜头衔接】${trans.replace(/^【镜头衔接】/, "")}`);
+  }
+
+  // 安全区
+  if (shot.layout_contract) {
+    const sz = shot.layout_contract.primary_subject_zone || "center";
+    const tz = (shot.layout_contract.preferred_text_regions || []).join(", ") || "bottom_center";
+    lines.push(`【构图安全区】主体区域：${sz} | 推荐字幕区：${tz}`);
+  }
+
+  return lines.join("\n");
+}
+
+function buildShotPromptCard(shot) {
+  if (!shot) return "";
+  const zh = buildShotPromptZH(shot);
+  const enVideo = buildShotPromptEN(shot, "video");
+  const enKf = buildShotPromptEN(shot, "keyframe");
+  const enMotion = buildShotPromptEN(shot, "motion");
+
+  return [
+    zh,
+    "",
+    "=== 对应 AI 英文提示词 (English Prompts) ===",
+    enVideo ? `【Video Prompt (T2V)】\n${enVideo}` : "",
+    enKf ? `【Keyframe Prompt (FLUX 12B T2I)】\n${enKf}` : "",
+    enMotion ? `【Motion Prompt (LTX-Video I2V)】\n${enMotion}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function handleCopyShotPrompt(type = "video", btn = null) {
+  if (!activeShot) {
+    alert("请先在时间轴或画廊中选中一个分镜镜头！");
+    return;
+  }
+  let text = "";
+  let label = "英文 Prompt";
+  if (type === "zh") {
+    text = buildShotPromptZH(activeShot);
+    label = `Shot ${activeShot.shot_id || currentShotIndex + 1} 中文分镜提示词`;
+  } else if (type === "all") {
+    text = buildShotPromptCard(activeShot);
+    label = `Shot ${activeShot.shot_id || currentShotIndex + 1} 双语分镜全卡`;
+  } else if (type === "keyframe") {
+    text = buildShotPromptEN(activeShot, "keyframe");
+    label = `Shot ${activeShot.shot_id || currentShotIndex + 1} 静态首帧 Prompt`;
+  } else if (type === "motion") {
+    text = buildShotPromptEN(activeShot, "motion");
+    label = `Shot ${activeShot.shot_id || currentShotIndex + 1} 运镜动势 Prompt`;
+  } else {
+    text = buildShotPromptEN(activeShot, "video");
+    label = `Shot ${activeShot.shot_id || currentShotIndex + 1} 英文视频 Prompt`;
+  }
+
+  if (!text) {
+    alert(`该镜头的${label}为空，请先回填大模型数据或在下方输入！`);
+    return;
+  }
+
+  copyTextToClipboard(text, btn, `已复制 ${label}`);
+}
+
+// ---------------------------------------------------------------------------
+// 本地草稿与持久化缓存管理 (解决每次重新回填痛点)
+// ---------------------------------------------------------------------------
+function getBackfillCacheKey() {
+  return state.currentFile ? `suno2mv_backfill_${state.currentFile.name}` : null;
+}
+
+function saveBackfillDraft(explicitText = null) {
+  const key = getBackfillCacheKey();
+  if (!key) return;
+  const text = explicitText !== null ? explicitText : (dom.llmBackfillTextarea?.value || "");
+  if (text.trim()) {
+    try {
+      localStorage.setItem(key, text);
+    } catch (e) {
+      console.warn("保存 localStorage 草稿失败:", e);
+    }
+  } else {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {}
+  }
+}
+
+async function checkAndRestoreBackfillCache() {
+  if (!state.currentFile || !dom.llmBackfillTextarea) return;
+  const key = getBackfillCacheKey();
+
+  // 1. 优先尝试从 LocalStorage 读取当前歌曲编辑草稿
+  let localDraft = null;
+  if (key) {
+    try {
+      localDraft = localStorage.getItem(key);
+    } catch (e) {}
+  }
+
+  if (localDraft && localDraft.trim()) {
+    if (!dom.llmBackfillTextarea.value.trim() || dom.llmBackfillTextarea.value === localDraft) {
+      dom.llmBackfillTextarea.value = localDraft;
+      if (dom.backfillCacheBanner) {
+        dom.backfillCacheBanner.style.display = "flex";
+        let count = 0;
+        try {
+          const p = JSON.parse(localDraft.replace(/```(?:json)?\s*([\s\S]*?)```/, "$1"));
+          count = Array.isArray(p) ? p.length : (p.shots?.length || 1);
+        } catch (e) {}
+        if (dom.backfillCacheMsg) {
+          dom.backfillCacheMsg.textContent = `已恢复本地实时草稿 (${count > 0 ? count + ' 个分镜' : '已缓存数据'})`;
+        }
+      }
+      return;
+    }
+  }
+
+  // 2. 本地草稿为空，尝试从服务端工程目录读取历史回填文件 (llm_director_response.json)
+  try {
+    const res = await fetch(`/api/director/llm_cached_response?json_path=${encodeURIComponent(state.currentFile.json_path)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.exists && data.data) {
+        if (!dom.llmBackfillTextarea.value.trim()) {
+          dom.llmBackfillTextarea.value = data.data;
+          saveBackfillDraft(data.data);
+          if (dom.backfillCacheBanner) {
+            dom.backfillCacheBanner.style.display = "flex";
+            if (dom.backfillCacheMsg) {
+              dom.backfillCacheMsg.textContent = `已恢复已持久化的回填数据 (${data.shots_count} 个分镜，保存于 ${data.mtime || ''})`;
+            }
+          }
+        }
+        return;
+      }
+    }
+  } catch (err) {
+    console.warn("检查服务端回填缓存异常:", err);
+  }
+
+  // 3. 既无本地草稿也无持久化文件
+  if (dom.backfillCacheBanner) {
+    dom.backfillCacheBanner.style.display = "none";
+  }
+}
+
+async function clearBackfillCache() {
+  if (!state.currentFile) return;
+  if (!confirm("确定要清空该歌曲的本地与服务端回填缓存吗？")) return;
+  const key = getBackfillCacheKey();
+  if (key) {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {}
+  }
+  try {
+    await fetch(`/api/director/llm_cached_response?json_path=${encodeURIComponent(state.currentFile.json_path)}`, {
+      method: "DELETE",
+    });
+  } catch (e) {
+    console.warn("清除服务端缓存失败:", e);
+  }
+  if (dom.llmBackfillTextarea) dom.llmBackfillTextarea.value = "";
+  if (dom.backfillCacheBanner) dom.backfillCacheBanner.style.display = "none";
+  if (dom.backfillStatus) dom.backfillStatus.textContent = "缓存已清空";
+  status("✅ 本地与磁盘回填缓存已清空");
+}
+
+function extractShotsDataForCopy() {
+  // 1. 优先尝试解析回填框里的 JSON 数据
+  const text = (dom.llmBackfillTextarea && dom.llmBackfillTextarea.value || "").trim();
+  if (text) {
+    try {
+      let clean = text;
+      const m = clean.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (m) clean = m[1].trim();
+      const parsed = JSON.parse(clean);
+      const list = Array.isArray(parsed) ? parsed : (parsed.shots || parsed.data || [parsed]);
+      if (list && list.length > 0) {
+        return list;
+      }
+    } catch (e) {
+      console.warn("回填框文本非有效 JSON，降级读取当前工程分镜:", e);
+    }
+  }
+  // 2. 降级从当前工程分镜读取
+  return (state.alignment && state.alignment.storyboard) || [];
+}
+
+async function copyAllPrompts(lang = "en", btnElement = null) {
+  const shots = extractShotsDataForCopy();
+  if (!shots || shots.length === 0) {
+    alert("未找到分镜数据！请先粘贴大模型回填数据或载入歌曲分镜。");
+    return;
+  }
+
+  const songName = state.currentFile?.name || "歌曲工程";
+  const output = [];
+
+  if (lang === "en") {
+    output.push(`=== ${songName} 全曲英文 AI 视频提示词 (All Video Prompts) ===`);
+    output.push(`共 ${shots.length} 个镜头 | 包含完整 Video Prompt 与动静解耦参数\n`);
+
+    shots.forEach((s, idx) => {
+      const shotId = s.shot_id || `shot_${String(idx + 1).padStart(3, '0')}`;
+      const start = typeof s.start === 'number' ? s.start.toFixed(3) : "0.000";
+      const end = typeof s.end === 'number' ? s.end.toFixed(3) : "0.000";
+      const scale = s.shot_size || s.scale || "MS";
+      const motion = s.camera_motion || s.camera_movement || "static";
+      const videoP = s.video_prompt || s.prompt_en || s.keyframe_prompt || "";
+      const kfP = s.keyframe_prompt || s.video_prompt || "";
+      const motP = s.motion_prompt || "";
+      const endP = s.endframe_prompt || "";
+
+      output.push(`------------------------------------------------------------`);
+      output.push(`[SHOT ${idx + 1}] (${start}s - ${end}s | ${scale} | ${motion})`);
+      if (s.lyric_reference || s.text) {
+        output.push(`Lyric: "${s.lyric_reference || s.text}"`);
+      }
+      if (videoP) {
+        output.push(`🎬 Video Prompt:\n${videoP}`);
+      }
+      if (kfP && kfP !== videoP) {
+        output.push(`📸 Keyframe Prompt (FLUX 12B):\n${kfP}`);
+      }
+      if (motP) {
+        output.push(`🌊 Motion Prompt (I2V):\n${motP}`);
+      }
+      if (endP) {
+        output.push(`🔗 Endframe Prompt:\n${endP}`);
+      }
+      output.push("");
+    });
+  } else {
+    output.push(`=== ${songName} 全曲中文分镜与导演构思脚本 ===`);
+    output.push(`共 ${shots.length} 个镜头 | 包含景别运镜、画面构图、导演构思与转场蒙太奇\n`);
+
+    shots.forEach((s, idx) => {
+      const start = typeof s.start === 'number' ? s.start.toFixed(3) : "0.000";
+      const end = typeof s.end === 'number' ? s.end.toFixed(3) : "0.000";
+      const scaleName = getShotSizeNameZH(s.shot_size || s.scale);
+      const motionName = getCameraMotionNameZH(s.camera_motion || s.camera_movement);
+
+      output.push(`------------------------------------------------------------`);
+      output.push(`[第 ${String(idx + 1).padStart(2, '0')} 镜] (${start}s - ${end}s | 景别: ${scaleName} | 运镜: ${motionName})`);
+      if (s.lyric_reference || s.text) {
+        output.push(`歌词原句：“${s.lyric_reference || s.text}”`);
+      }
+
+      let visual = s.action || s.prompt_zh || "";
+      if (s.storyboard_design && typeof s.storyboard_design === "object") {
+        const c = s.storyboard_design.composition || "";
+        const m = s.storyboard_design.motion_effect || "";
+        if (c || m) visual = `构图: ${c} | 动效: ${m}`;
+      }
+      if (visual) {
+        output.push(`画面构图：${visual}`);
+      }
+
+      const desRat = (s.design_rationale || s.director_note || "").trim();
+      if (desRat) {
+        output.push(`导演构思：${desRat.replace(/^【导演构思】/, "")}`);
+      }
+
+      const transRat = (s.transition_rationale || "").trim();
+      if (transRat) {
+        output.push(`镜头衔接：${transRat.replace(/^【镜头衔接】/, "")}`);
+      }
+      output.push("");
+    });
+  }
+
+  const resultText = output.join("\n");
+  await copyTextToClipboard(resultText, btnElement, `成功复制全曲 ${shots.length} 个镜头的${lang === 'en' ? '英文 Prompt' : '中文分镜'}！`);
+}
+
+// ---------------------------------------------------------------------------
 // AI 导演大模型深度模式 (Prompt 导出 / JSON 回填)
 // ---------------------------------------------------------------------------
 function openLlmDirectorModal() {
@@ -496,6 +981,7 @@ function openLlmDirectorModal() {
     dom.llmDirectorModal.style.display = "block";
     switchLlmTab("prompt");
     fetchLlmPrompt();
+    checkAndRestoreBackfillCache();
   }
 }
 
@@ -517,6 +1003,7 @@ function switchLlmTab(tab) {
     dom.panelLlmBackfill.style.display = "flex";
     if (dom.tabLlmPrompt) dom.tabLlmPrompt.classList.remove("active");
     if (dom.tabLlmBackfill) dom.tabLlmBackfill.classList.add("active");
+    checkAndRestoreBackfillCache();
   }
 }
 
@@ -597,6 +1084,15 @@ async function submitLlmBackfill() {
 
     const data = await res.json();
     state.alignment = data.project;
+
+    // 成功回填后，保存草稿与持久化缓存状态
+    saveBackfillDraft(content);
+    if (dom.backfillCacheBanner) {
+      dom.backfillCacheBanner.style.display = "flex";
+      if (dom.backfillCacheMsg) {
+        dom.backfillCacheMsg.textContent = `已保存并生效 (${data.shots_count} 个分镜)`;
+      }
+    }
 
     status(`✅ ${data.message || '大模型分镜回填成功！'}`);
     if (dom.backfillStatus) {
@@ -1600,16 +2096,29 @@ function renderGalleryView() {
         <div style="font-size: 11px; color: #9ca3af; line-height: 1.3; height: 32px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
           ${shot.action || shot.prompt_zh || shot.prompt_en || '无描述'}
         </div>
-        <div style="margin-top: auto; display: flex; gap: 6px;">
-          <button class="btn-card-kf" style="flex: 1; padding: 4px 8px; background: #1e1b4b; border: 1px solid #4f46e5; color: #c7d2fe; border-radius: 3px; font-size: 10px; cursor: pointer;">
+        <div style="margin-top: auto; display: flex; gap: 4px;">
+          <button class="btn-card-copy" style="padding: 4px 6px; background: #0b1120; border: 1px solid #38bdf8; color: #7dd3fc; border-radius: 3px; font-size: 10px; cursor: pointer;" title="复制英文 Prompt (按住 Shift 或 Alt 复制中文分镜)">
+            📋 复制
+          </button>
+          <button class="btn-card-kf" style="flex: 1; padding: 4px 6px; background: #1e1b4b; border: 1px solid #4f46e5; color: #c7d2fe; border-radius: 3px; font-size: 10px; cursor: pointer;">
             📸 ${hasKf ? '重刷首帧' : '生成首帧'}
           </button>
-          <button class="btn-card-edit" style="padding: 4px 8px; background: #1f2937; border: 1px solid #374151; color: #e5e7eb; border-radius: 3px; font-size: 10px; cursor: pointer;">
+          <button class="btn-card-edit" style="padding: 4px 6px; background: #1f2937; border: 1px solid #374151; color: #e5e7eb; border-radius: 3px; font-size: 10px; cursor: pointer;">
             🎬 剪辑
           </button>
         </div>
       </div>
     `;
+
+    const copyBtn = card.querySelector(".btn-card-copy");
+    if (copyBtn) {
+      copyBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const copyZh = e.shiftKey || e.altKey;
+        const text = copyZh ? buildShotPromptZH(shot) : buildShotPromptEN(shot, "video");
+        copyTextToClipboard(text, copyBtn, `已复制 Shot ${shot.shot_id || idx + 1} ${copyZh ? '中文分镜' : '英文 Prompt'}`);
+      });
+    }
 
     card.querySelector(".btn-card-kf").addEventListener("click", async (e) => {
       e.stopPropagation();

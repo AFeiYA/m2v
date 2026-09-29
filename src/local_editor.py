@@ -877,13 +877,76 @@ def api_director_llm_merge(req: LLMMergeRequest):
         log.error("大模型回填失败: %s", e)
         raise HTTPException(status_code=400, detail=f"解析或回填大模型数据失败: {e}")
 
+    # 保存原始回填响应到本地文件作为持久化缓存
+    cached_file = song_dir / "llm_director_response.json"
+    try:
+        if isinstance(req.response_data, str):
+            cached_file.write_text(req.response_data, encoding="utf-8")
+        else:
+            cached_file.write_text(json.dumps(req.response_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as ce:
+        log.warning("缓存大模型回填响应失败: %s", ce)
+
     return {
         "status": "ok",
         "track_mode": track_mode,
         "shots_count": len(project.storyboard),
         "message": f"成功识别 [{mode_text}] 并回填 {len(project.storyboard)} 个分镜数据",
         "project": project.model_dump(),
+        "cached": True,
     }
+
+
+@app.get("/api/director/llm_cached_response")
+def api_director_get_cached_response(json_path: str):
+    """
+    获取当前工程历史保存的大模型回填 JSON 响应与元信息
+    """
+    jp = _validate_path(Path(json_path))
+    cached_file = jp.parent / "llm_director_response.json"
+    if not cached_file.exists():
+        return {"exists": False, "data": None}
+
+    try:
+        content = cached_file.read_text(encoding="utf-8").strip()
+        count = 0
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, list):
+                count = len(parsed)
+            elif isinstance(parsed, dict):
+                count = len(parsed.get("shots", []) or parsed.get("data", []) or [parsed])
+        except Exception:
+            pass
+
+        mtime = cached_file.stat().st_mtime
+        from datetime import datetime
+        mtime_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+        return {
+            "exists": True,
+            "data": content,
+            "mtime": mtime_str,
+            "shots_count": count,
+        }
+    except Exception as e:
+        log.warning("读取大模型缓存失败: %s", e)
+        return {"exists": False, "error": str(e), "data": None}
+
+
+@app.delete("/api/director/llm_cached_response")
+def api_director_delete_cached_response(json_path: str):
+    """
+    清除当前工程的大模型回填持久化缓存
+    """
+    jp = _validate_path(Path(json_path))
+    cached_file = jp.parent / "llm_director_response.json"
+    if cached_file.exists():
+        try:
+            cached_file.unlink()
+            return {"status": "ok", "message": "已清除本地回填缓存"}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"删除缓存文件失败: {e}")
+    return {"status": "ok", "message": "缓存文件不存在"}
 
 
 @app.get("/api/storyboard_frame")

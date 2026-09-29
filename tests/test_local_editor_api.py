@@ -156,6 +156,23 @@ def test_api_llm_prompt_and_merge(tmp_path):
     assert "慢速仰角升起" in clip_txt
     assert (song_dir / "storyboard" / "shot_001.png").exists()
 
+    # 3. 验证本地持久化缓存文件与接口 /api/director/llm_cached_response
+    cached_file = song_dir / "llm_director_response.json"
+    assert cached_file.exists()
+    res_cache = client.get(f"/api/director/llm_cached_response?json_path={json_path}")
+    assert res_cache.status_code == 200
+    cache_data = res_cache.json()
+    assert cache_data["exists"] is True
+    assert cache_data["shots_count"] == 2
+    assert "海浪拍打着礁石" in cache_data["data"]
+
+    # 4. 测试清除缓存接口 DELETE /api/director/llm_cached_response
+    res_del = client.delete(f"/api/director/llm_cached_response?json_path={json_path}")
+    assert res_del.status_code == 200
+    assert not cached_file.exists()
+    res_cache_after = client.get(f"/api/director/llm_cached_response?json_path={json_path}")
+    assert res_cache_after.json()["exists"] is False
+
 
 def test_plugin_direct_import_endpoint(tmp_path, monkeypatch):
     """测试 Chrome 插件 / 外部扩展直传接口 /api/plugin/import"""
