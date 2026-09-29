@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Suno2MV — Motion Studio (动效与音乐节奏工坊)</title>
+  <script src="/static/wavesurfer.min.js"></script>
+  <script src="/static/kinetic_runtime.js?v=20260929b"></script>
+  <link rel="stylesheet" href="/static/style.css?v=20260928b">
+  <style>
+    :root {
+      --bg-dark: #07090e;
+      --panel-bg: #0d121d;
+      --panel-border: #1a2333;
+      --accent-cyan: #00f0ff;
+      --accent-magenta: #ff007f;
+      --accent-yellow: #ffe600;
+      --text-muted: #8492a6;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── 顶部导航栏 ── */
+    .motion-header {
+      height: 48px;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--panel-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      flex-shrink: 0;
+      z-index: 50;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-title {
+      font-weight: 800;
+      font-size: 15px;
+      letter-spacing: 0.05em;
+      background: linear-gradient(135deg, #00f0ff, #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-btn {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      border: 1px solid var(--panel-border);
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .nav-btn:hover {
+      color: #fff;
+      border-color: #3b82f6;
+    }
+
+    .nav-btn.active {
+      color: var(--accent-cyan);
+      border-color: rgba(0, 240, 255, 0.4);
+      background: rgba(0, 240, 255, 0.08);
+      font-weight: 600;
+    }
+
+    /* ── 主工作区 ── */
+    .motion-layout {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .stage-column {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 12px 16px;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    /* ── 核心动效大屏视口 ── */
+    .viewport-box {
+      flex: 1;
+      position: relative;
+      background: #000000;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.85);
+    }
+
+    .viewport-box.portrait-mode {
+      max-width: 480px;
+      margin: 0 auto;
+      aspect-ratio: 9 / 16;
+    }
+
+    #kinetic-motion-stage {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 10;
+      overflow: hidden;
+    }
+
+    /* HUD 悬浮参数层 */
+    .viewport-hud {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      pointer-events: none;
+      font-family: "SF Mono", Monaco, Consolas, monospace;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .hud-badge {
+      background: rgba(13, 18, 29, 0.85);
+      border: 1px solid rgba(0, 240, 255, 0.25);
+      padding: 2px 8px;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .hud-badge.accent {
+      color: var(--accent-cyan);
+      border-color: var(--accent-cyan);
+    }
+
+    /* 视口右上角工具条 */
+    .viewport-toolbar {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 25;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .view-tool-btn {
+      background: rgba(13, 18, 29, 0.85);
+      border: 1px solid var(--panel-border);
+      color: #cbd5e1;
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s;
+    }
+
+    .view-tool-btn:hover {
+      background: #1e293b;
+      color: #fff;
+    }
+
+    .view-tool-btn.active {
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+
+    /* ── 发音大字提词器 (Syllable Prompt Bar) ── */
+    .active-lyric-bar {
+      height: 48px;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 16px;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+      user-select: none;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .active-lyric-bar .highlight-word {
+      color: #ffffff;
+      text-shadow: 0 0 14px var(--accent-cyan);
+      font-weight: 900;
+      transform: scale(1.08);
+      display: inline-block;
+      margin: 0 2px;
+      transition: all 0.06s;
+    }
+
+    /* ── 底部时间轴与波形区 ── */
+    .timeline-container {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .timeline-controls-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+    }
+
+    .playback-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .play-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #2563eb;
+      border: none;
+      color: #ffffff;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.1s, background 0.15s;
+    }
+
+    .play-btn:hover {
+      background: #3b82f6;
+      transform: scale(1.05);
+    }
+
+    .time-display {
+      font-family: "SF Mono", Monaco, Consolas, monospace;
+      font-size: 13px;
+      color: #cbd5e1;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* 律动词组可视化轨 */
+    .cue-blocks-track {
+      height: 36px;
+      background: #030712;
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+      position: relative;
+      overflow-x: auto;
+      overflow-y: hidden;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+    }
+
+    .cue-block {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      border-right: 1px solid #111827;
+      padding: 0 8px;
+      font-size: 11px;
+      color: #cbd5e1;
+      background: #1e293b;
+      cursor: pointer;
+      position: relative;
+      flex-shrink: 0;
+      transition: all 0.12s;
+    }
+
+    .cue-block:hover {
+      background: #334155;
+      color: #fff;
+    }
+
+    .cue-block.active {
+      background: linear-gradient(135deg, rgba(0, 240, 255, 0.3), rgba(168, 85, 247, 0.3));
+      border: 1px solid var(--accent-cyan);
+      color: #ffffff;
+      font-weight: 700;
+    }
+
+    .cue-block.is-hero {
+      border-top: 2px solid var(--accent-cyan);
+    }
+
+    /* ── 右侧控制台面板 ── */
+    .inspector-panel {
+      width: 340px;
+      background: var(--panel-bg);
+      border-left: 1px solid var(--panel-border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .inspector-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--panel-border);
+      font-weight: 700;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .inspector-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--panel-border);
+      background: #090d15;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 8px 0;
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+
+    .tab-btn:hover {
+      color: #fff;
+    }
+
+    .tab-btn.active {
+      color: var(--accent-cyan);
+      border-bottom-color: var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .inspector-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .control-label {
+      font-size: 11px;
+      color: #94a3b8;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .control-label span.value-badge {
+      color: var(--accent-cyan);
+      font-family: monospace;
+    }
+
+    .control-input, .control-select {
+      background: #030712;
+      border: 1px solid var(--panel-border);
+      color: #e2e8f0;
+      padding: 6px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      outline: none;
+    }
+
+    .control-input:focus, .control-select:focus {
+      border-color: #3b82f6;
+    }
+
+    .cue-list-item {
+      padding: 8px 10px;
+      background: #090e17;
+      border: 1px solid var(--panel-border);
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+
+    .cue-list-item:hover {
+      border-color: #334155;
+      background: #111827;
+    }
+
+    .cue-list-item.selected {
+      border-color: var(--accent-cyan);
+      background: rgba(0, 240, 255, 0.06);
+    }
+  </style>
+</head>
+
+<body>
+  <!-- 顶部导航 -->
+  <header class="motion-header">
+    <div class="brand-group">
+      <div class="brand-title">
+        <span>⚡</span> Suno2MV Motion Studio
+      </div>
+      <span style="color: #374151;">|</span>
+      <select id="select-file" class="control-select" style="min-width: 160px; height: 28px; padding: 2px 8px;">
+        <option value="">加载中...</option>
+      </select>
+      <div id="badge-bpm" class="hud-badge accent" style="display: none;">
+        ⚡ 123.05 BPM
+      </div>
+    </div>
+
+    <div class="nav-links">
+      <a href="/storyboard" class="nav-btn">🎬 视频分镜工作室</a>
+      <a href="/" class="nav-btn">📝 歌词字级精调</a>
+      <a href="/motion_studio" class="nav-btn active">⚡ 动效工作室</a>
+      <span style="color: #374151;">|</span>
+      <button id="btn-export-dsl" class="view-tool-btn" style="border-color: var(--accent-cyan); color: var(--accent-cyan);">
+        📥 导出 Motion DSL
+      </button>
+    </div>
+  </header>
+
+  <!-- 工作区 -->
+  <main class="motion-layout">
+    <!-- 主舞台列 -->
+    <div class="stage-column">
+      <!-- 3D 动效视口 -->
+      <div class="viewport-box" id="viewport-box">
+        <!-- 核心确定性动效舞台 -->
+        <div id="kinetic-motion-stage"></div>
+
+        <!-- HUD 实时参数覆盖层 -->
+        <div class="viewport-hud">
+          <div class="hud-badge">
+            <span style="color: #64748b;">TIME</span>
+            <span id="hud-time" style="color: #fff; font-weight: bold;">00.000s</span>
+          </div>
+          <div class="hud-badge" id="hud-beat-box">
+            <span style="color: #64748b;">BEAT</span>
+            <span id="hud-beat" style="color: var(--accent-cyan); font-weight: bold;">-- / --</span>
+          </div>
+          <div class="hud-badge" id="hud-phrase-box" style="display: none;">
+            <span style="color: #64748b;">CUE</span>
+            <span id="hud-phrase" style="color: #a855f7;">--</span>
+          </div>
+        </div>
+
+        <!-- 视口控制工具栏 -->
+        <div class="viewport-toolbar">
+          <button id="btn-toggle-ratio" class="view-tool-btn" title="切换 16:9 横屏 / 9:16 竖屏">
+            📱 16:9
+          </button>
+          <button id="btn-toggle-grid" class="view-tool-btn active" title="开启/关闭 3D 透视地平线网格">
+            🌐 3D 透视网格
+          </button>
+        </div>
+      </div>
+
+      <!-- 发音大字提词器 -->
+      <div class="active-lyric-bar" id="active-lyric-bar">
+        <span>等待播放或选择词组...</span>
+      </div>
+
+      <!-- 音频与时间轴区 -->
+      <div class="timeline-container">
+        <div class="timeline-controls-row">
+          <div class="playback-group">
+            <button id="btn-play" class="play-btn" title="播放/暂停 (空格键)">▶</button>
+            <div class="time-display">
+              <span id="time-current">00:00.00</span>
+              <span style="color: #475569;">/</span>
+              <span id="time-total" style="color: #64748b;">00:00.00</span>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 12px; font-size: 11px; color: #94a3b8;">
+            <label style="cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+              <input type="checkbox" id="chk-loop-cue" style="accent-color: #00f0ff;">
+              🔂 循环当前词组
+            </label>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span>缩放:</span>
+              <input type="range" id="slider-zoom" min="20" max="250" value="80" style="width: 80px; accent-color: #3b82f6;">
+            </div>
+          </div>
+        </div>
+
+        <!-- WaveSurfer 波形轨 -->
+        <div id="waveform" style="background: #030712; border-radius: 4px; overflow: hidden; height: 58px;"></div>
+
+        <!-- 动效词组节奏轨 -->
+        <div class="cue-blocks-track" id="cue-blocks-track">
+          <!-- 动态渲染词组块 -->
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧控制台面板 -->
+    <aside class="inspector-panel">
+      <div class="inspector-header">
+        <span>🎛️ 动效与节奏导演控制台</span>
+      </div>
+
+      <div class="inspector-tabs">
+        <button class="tab-btn active" data-tab="physics">物理与视觉</button>
+        <button class="tab-btn" data-tab="cues">词组编排</button>
+        <button class="tab-btn" data-tab="audio">音乐智能</button>
+      </div>
+
+      <div class="inspector-body" id="tab-content-physics">
+        <!-- 预设选择 -->
+        <div class="control-group">
+          <div class="control-label">
+            <span>动效预设风格</span>
+          </div>
+          <select id="select-preset" class="control-select">
+            <option value="pdoom_cyber" selected>⚡ 赛博空间暴击 (Pdoom Cyber 3D)</option>
+            <option value="swiss_minimal">🖤 瑞士粗野先锋 (Swiss Minimal)</option>
+            <option value="street_pop">🏷️ 潮流街头贴纸 (Street Pop)</option>
+            <option value="neon_glow">✨ 赛博复古流光 (Neon Glow)</option>
+          </select>
+        </div>
+
+        <!-- 物理冲击参数 -->
+        <div class="control-group">
+          <div class="control-label">
+            <span>鼓点后坐力震颤 (Camera Recoil)</span>
+            <span class="value-badge" id="val-recoil">1.0x</span>
+          </div>
+          <input type="range" id="slider-recoil" min="0" max="2.5" step="0.1" value="1.0" style="accent-color: #00f0ff;">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>Slam Zoom 撞击深度</span>
+            <span class="value-badge" id="val-slam">2.4x</span>
+          </div>
+          <input type="range" id="slider-slam" min="1.0" max="4.0" step="0.1" value="2.4" style="accent-color: #00f0ff;">
+        </div>
+
+        <div class="control-group">
+          <div class="control-label">
+            <span>RGB 色散过载 (Chromatic Split)</span>
+            <span class="value-badge" id="val-split">8px</span>
+          </div>
+          <input type="range" id="slider-split" min="0" max="20" step="1" value="8" style="accent-color: #00f0ff;">
+        </div>
+
+        <div class="control-group" style="margin-top: 10px;">
+          <div style="font-size: 11px; color: #64748b; line-height: 1.5;">
+            💡 <strong>Pdoom 纯确定性铁律</strong>: 无论你在波形上如何拖拽，任意时刻 \(t\) 的画面几何状态完全一致，无状态累积，完美匹配未来无头浏览器逐帧导出。
+          </div>
+        </div>
+      </div>
+
+      <!-- 词组编排面板 -->
+      <div class="inspector-body" id="tab-content-cues" style="display: none;">
+        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">全曲动效词组列表 (点击跳转/试听):</div>
+        <div id="cues-list-container" style="display: flex; flex-direction: column; gap: 6px;">
+          <!-- 动态注入 -->
+        </div>
+      </div>
+
+      <!-- 音乐智能面板 -->
+      <div class="inspector-body" id="tab-content-audio" style="display: none;">
+        <div class="control-group">
+          <div class="control-label">
+            <span>歌曲测定 BPM</span>
+          </div>
+          <input type="number" id="input-bpm" class="control-input" value="120" step="0.1">
+        </div>
+        <div class="control-group">
+          <div class="control-label">
+            <span>拍点总数 (Beats)</span>
+            <span class="value-badge" id="val-beats-count">--</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <div class="control-label">
+            <span>鼓点打击总数 (Drum Hits)</span>
+            <span class="value-badge" id="val-drums-count">--</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/static/motion_studio.js?v=20260929"></script>
+</body>
+
+</html>

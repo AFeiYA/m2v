@@ -2055,6 +2055,15 @@ def storyboard():
     return HTMLResponse("<h1>frontend/local/storyboard.html 不存在</h1>", status_code=500)
 
 
+@app.get("/motion", response_class=HTMLResponse)
+@app.get("/motion_studio", response_class=HTMLResponse)
+def motion_studio():
+    ms_file = _FRONTEND_DIR / "motion_studio.html"
+    if ms_file.exists():
+        return HTMLResponse(ms_file.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>frontend/local/motion_studio.html 不存在</h1>", status_code=500)
+
+
 def _find_audio(stem: str, song_output_dir: Path | None = None) -> Path | None:
     """在 input/{song_name}/ 和 output/{song_name}/ 专属子目录中查找原音频"""
     scan_dir = _get_scan_dir()
