@@ -495,11 +495,14 @@
               <span id="prompt-copy-hint" style="font-size: 10px; color: #64748b;">支持中/英文主流AI视频平台</span>
             </div>
             <div style="display: flex; gap: 6px;">
-              <button id="btn-copy-shot-en" style="flex: 1; padding: 6px 8px; background: linear-gradient(135deg, #0284c7, #2563eb); color: #fff; font-size: 11px; font-weight: 600; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;" title="复制当前镜头英文 Prompt (Midjourney / Kling / Runway / LTX)">
-                📋 复制英文 Prompt
+              <button id="btn-copy-shot-bilingual" style="flex: 1.2; padding: 6px 6px; background: linear-gradient(135deg, #4f46e5, #7c3aed); color: #fff; font-size: 11px; font-weight: 600; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px;" title="复制当前镜头【中英双语完整对照】卡片">
+                📑 中英双语
               </button>
-              <button id="btn-copy-shot-zh" style="flex: 1; padding: 6px 8px; background: linear-gradient(135deg, #0d9488, #059669); color: #fff; font-size: 11px; font-weight: 600; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;" title="复制当前镜头中文提示词 (可灵 / 即梦 / 海螺 / 导演审查)">
-                📋 复制中文 Prompt
+              <button id="btn-copy-shot-en" style="flex: 1; padding: 6px 6px; background: linear-gradient(135deg, #0284c7, #2563eb); color: #fff; font-size: 11px; font-weight: 600; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px;" title="复制英文 Prompt (Google Veo / Google Vids / Runway / Kling)">
+                🎬 英文 (Veo/Vids)
+              </button>
+              <button id="btn-copy-shot-zh" style="flex: 1; padding: 6px 6px; background: linear-gradient(135deg, #0d9488, #059669); color: #fff; font-size: 11px; font-weight: 600; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px;" title="复制中文提示词 (可灵 / 即梦 / 海螺 / 导演审查)">
+                ✍️ 中文 (可灵)
               </button>
             </div>
             <div style="display: flex; gap: 4px; justify-content: space-between; border-top: 1px dashed #1e293b; padding-top: 6px;">
@@ -507,10 +510,10 @@
                 📸 静态首帧
               </button>
               <button id="btn-copy-shot-motion" style="flex: 1; background: #111827; color: #e9d5ff; border: 1px solid rgba(192, 132, 252, 0.25); border-radius: 3px; font-size: 10px; padding: 3px 2px; cursor: pointer;" title="复制运镜与物理动势 Prompt (LTX-Video / I2V)">
-                🎬 运镜动势
+                🌊 运镜动势
               </button>
-              <button id="btn-copy-shot-all" style="flex: 1; background: #111827; color: #fde68a; border: 1px solid rgba(251, 191, 36, 0.25); border-radius: 3px; font-size: 10px; padding: 3px 2px; cursor: pointer;" title="复制中英双语完整导演分镜卡片">
-                📑 双语全卡
+              <button id="btn-copy-shot-veo" style="flex: 1; background: #111827; color: #fde68a; border: 1px solid rgba(251, 191, 36, 0.25); border-radius: 3px; font-size: 10px; padding: 3px 2px; cursor: pointer;" title="复制经 8K 胶片与 Arri 优化的纯英文生成提示词">
+                🌐 Veo 专配
               </button>
             </div>
           </div>
@@ -934,16 +937,22 @@
         </div>
 
         <!-- 快捷提取与批量复制工具栏 -->
-        <div style="display: flex; gap: 8px; align-items: center; justify-content: space-between; background: #0b1120; border: 1px solid #1e293b; border-radius: 4px; padding: 6px 10px;">
+        <div style="display: flex; gap: 8px; align-items: center; justify-content: space-between; background: #0b1120; border: 1px solid #1e293b; border-radius: 4px; padding: 6px 10px; flex-wrap: wrap;">
           <span style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px;">
-            <span>⚡</span> <span>Prompt 提取转换 (支持回填前直接提取复制):</span>
+            <span>⚡</span> <span>全曲 Prompts 批量提取 (支持直接粘贴发送至 Veo / Google Vids):</span>
           </span>
-          <div style="display: flex; gap: 8px;">
-            <button id="btn-copy-all-en" style="padding: 4px 12px; background: #1e293b; border: 1px solid #38bdf8; color: #7dd3fc; border-radius: 3px; font-size: 11px; cursor: pointer; font-weight: 600;" title="从下方文本或工程一键提取全部镜头的英文 Prompt">
-              📋 一键复制全曲英文 Prompts
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button id="btn-copy-all-bilingual" style="padding: 4px 10px; background: linear-gradient(135deg, #4f46e5, #7c3aed); border: none; color: #fff; border-radius: 3px; font-size: 11px; cursor: pointer; font-weight: 600;" title="复制全曲所有镜头的【中英双语对照版】分镜剧本">
+              📑 一键复制【中英双语对照】
             </button>
-            <button id="btn-copy-all-zh" style="padding: 4px 12px; background: #1e293b; border: 1px solid #34d399; color: #6ee7b7; border-radius: 3px; font-size: 11px; cursor: pointer; font-weight: 600;" title="从下方文本或工程一键提取全部镜头的中文分镜脚本">
-              📋 一键复制全曲中文分镜
+            <button id="btn-copy-all-veo" style="padding: 4px 10px; background: #1e293b; border: 1px solid #38bdf8; color: #7dd3fc; border-radius: 3px; font-size: 11px; cursor: pointer; font-weight: 600;" title="专为 Google Veo / Google Vids 优化的纯英文视频提示词清单">
+              🎬 复制 Google Veo/Vids 英文
+            </button>
+            <button id="btn-copy-all-zh" style="padding: 4px 10px; background: #1e293b; border: 1px solid #34d399; color: #6ee7b7; border-radius: 3px; font-size: 11px; cursor: pointer; font-weight: 600;" title="从下方文本或工程一键提取全部镜头的中文分镜脚本">
+              ✍️ 复制中文分镜
+            </button>
+            <button id="btn-download-prompts" style="padding: 4px 8px; background: #111827; border: 1px solid #475569; color: #cbd5e1; border-radius: 3px; font-size: 11px; cursor: pointer;" title="下载全曲提示词脚本为 .txt 文件">
+              💾 导出 TXT
             </button>
           </div>
         </div>

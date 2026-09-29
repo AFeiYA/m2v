@@ -119,10 +119,12 @@ document.addEventListener("DOMContentLoaded", () => {
   dom.safeZoneTextAnchor  = $("#safe-zone-text-anchor");
 
   // 提示词复制工具栏 DOM
+  dom.btnCopyShotBilingual= $("#btn-copy-shot-bilingual");
   dom.btnCopyShotEn       = $("#btn-copy-shot-en");
   dom.btnCopyShotZh       = $("#btn-copy-shot-zh");
   dom.btnCopyShotKf       = $("#btn-copy-shot-kf");
   dom.btnCopyShotMotion   = $("#btn-copy-shot-motion");
+  dom.btnCopyShotVeo      = $("#btn-copy-shot-veo");
   dom.btnCopyShotAll      = $("#btn-copy-shot-all");
   dom.btnCopyFieldAction  = $("#btn-copy-field-action");
   dom.btnCopyFieldRationale = $("#btn-copy-field-rationale");
@@ -152,8 +154,11 @@ document.addEventListener("DOMContentLoaded", () => {
   dom.backfillCacheMsg    = $("#backfill-cache-msg");
   dom.btnReapplyCache     = $("#btn-reapply-cache");
   dom.btnClearCache       = $("#btn-clear-cache");
+  dom.btnCopyAllBilingual = $("#btn-copy-all-bilingual");
+  dom.btnCopyAllVeo       = $("#btn-copy-all-veo");
   dom.btnCopyAllEn        = $("#btn-copy-all-en");
   dom.btnCopyAllZh        = $("#btn-copy-all-zh");
+  dom.btnDownloadPrompts  = $("#btn-download-prompts");
 
   try {
     initWaveSurfer();
@@ -243,11 +248,20 @@ function bindAnimaticEvents() {
   if (dom.btnClearCache) {
     dom.btnClearCache.addEventListener("click", clearBackfillCache);
   }
+  if (dom.btnCopyAllBilingual) {
+    dom.btnCopyAllBilingual.addEventListener("click", () => copyAllPrompts("bilingual", dom.btnCopyAllBilingual));
+  }
+  if (dom.btnCopyAllVeo) {
+    dom.btnCopyAllVeo.addEventListener("click", () => copyAllPrompts("veo", dom.btnCopyAllVeo));
+  }
   if (dom.btnCopyAllEn) {
     dom.btnCopyAllEn.addEventListener("click", () => copyAllPrompts("en", dom.btnCopyAllEn));
   }
   if (dom.btnCopyAllZh) {
     dom.btnCopyAllZh.addEventListener("click", () => copyAllPrompts("zh", dom.btnCopyAllZh));
+  }
+  if (dom.btnDownloadPrompts) {
+    dom.btnDownloadPrompts.addEventListener("click", downloadPromptsFile);
   }
 
   // 自动缓存回填文本输入草稿 (实时输入防丢)
@@ -262,6 +276,9 @@ function bindAnimaticEvents() {
   }
 
   // 检视面板顶部快捷复制按钮
+  if (dom.btnCopyShotBilingual) {
+    dom.btnCopyShotBilingual.addEventListener("click", () => handleCopyShotPrompt("bilingual", dom.btnCopyShotBilingual));
+  }
   if (dom.btnCopyShotEn) {
     dom.btnCopyShotEn.addEventListener("click", () => handleCopyShotPrompt("video", dom.btnCopyShotEn));
   }
@@ -274,8 +291,11 @@ function bindAnimaticEvents() {
   if (dom.btnCopyShotMotion) {
     dom.btnCopyShotMotion.addEventListener("click", () => handleCopyShotPrompt("motion", dom.btnCopyShotMotion));
   }
+  if (dom.btnCopyShotVeo) {
+    dom.btnCopyShotVeo.addEventListener("click", () => handleCopyShotPrompt("veo", dom.btnCopyShotVeo));
+  }
   if (dom.btnCopyShotAll) {
-    dom.btnCopyShotAll.addEventListener("click", () => handleCopyShotPrompt("all", dom.btnCopyShotAll));
+    dom.btnCopyShotAll.addEventListener("click", () => handleCopyShotPrompt("bilingual", dom.btnCopyShotAll));
   }
 
   // 检视面板单字段一键复制
@@ -640,8 +660,34 @@ function getCameraMotionNameZH(motion) {
   return CAMERA_MOTION_NAMES[motion] || motion || "固定镜头";
 }
 
+function buildVeoPrompt(shot) {
+  if (!shot) return "";
+  const scale = shot.shot_size || shot.scale || "WS";
+  const motion = shot.camera_motion || shot.camera_movement || "static";
+  let core = (shot.video_prompt || shot.prompt_en || shot.action || "Cinematic scene").trim();
+  // 滤除可能误导模型的文字与非画面描述
+  core = core.replace(/Chinese text/gi, "subject").replace(/no visible writing or typography\.?/gi, "").trim();
+  if (core && !core.endsWith(".")) core += ".";
+
+  const prefix = "Photorealistic 8K cinematic master shot, Arri Alexa Mini LF, 35mm anamorphic lens";
+  const suffix = "high dynamic range, natural physical lighting, shallow depth of field, award-winning cinematography, photorealistic, no visible text or typography";
+
+  let motionClause = "";
+  if (motion && motion !== "static") {
+    const motionName = CAMERA_MOTION_NAMES[motion] || motion;
+    motionClause = `Camera motion: ${motion}, smooth continuous cinematic movement, anatomically stable subject without warping.`;
+  } else {
+    motionClause = "Camera motion: static, locked frame.";
+  }
+
+  return `${prefix}, ${scale} shot. ${core} ${motionClause} ${suffix}.`;
+}
+
 function buildShotPromptEN(shot, type = "video") {
   if (!shot) return "";
+  if (type === "veo") {
+    return buildVeoPrompt(shot);
+  }
   if (type === "keyframe") {
     return shot.keyframe_prompt || shot.prompt_en || shot.video_prompt || "";
   }
@@ -707,21 +753,31 @@ function buildShotPromptZH(shot) {
   return lines.join("\n");
 }
 
-function buildShotPromptCard(shot) {
+function buildShotBilingual(shot) {
   if (!shot) return "";
+  const shotNum = shot.shot_id || (currentShotIndex >= 0 ? currentShotIndex + 1 : 1);
+  const dur = (shot.end && shot.start) ? (shot.end - shot.start).toFixed(2) : "0.00";
   const zh = buildShotPromptZH(shot);
-  const enVideo = buildShotPromptEN(shot, "video");
-  const enKf = buildShotPromptEN(shot, "keyframe");
-  const enMotion = buildShotPromptEN(shot, "motion");
+  const veo = buildVeoPrompt(shot);
+  const kf = shot.keyframe_prompt || "";
+  const mot = shot.motion_prompt || "";
 
   return [
+    `============================================================`,
+    `【第 ${String(shotNum).padStart(2, '0')} 镜 / SHOT ${String(shotNum).padStart(2, '0')}】(时长: ${dur}s)`,
+    `============================================================`,
+    `🇨🇳 [中文分镜导演构思 / Chinese Creative Breakdown]`,
     zh,
     "",
-    "=== 对应 AI 英文提示词 (English Prompts) ===",
-    enVideo ? `【Video Prompt (T2V)】\n${enVideo}` : "",
-    enKf ? `【Keyframe Prompt (FLUX 12B T2I)】\n${enKf}` : "",
-    enMotion ? `【Motion Prompt (LTX-Video I2V)】\n${enMotion}` : "",
+    `🇺🇸 [Google Veo / Google Vids / AI 视频生成英文 Prompt]`,
+    veo,
+    kf ? `\n📸 [FLUX 12B 首帧静态提示词 (Keyframe T2I)]:\n${kf}` : "",
+    mot ? `\n🌊 [时空运镜与物理演进 (LTX-Video I2V)]:\n${mot}` : "",
   ].filter(Boolean).join("\n");
+}
+
+function buildShotPromptCard(shot) {
+  return buildShotBilingual(shot);
 }
 
 function handleCopyShotPrompt(type = "video", btn = null) {
@@ -731,12 +787,15 @@ function handleCopyShotPrompt(type = "video", btn = null) {
   }
   let text = "";
   let label = "英文 Prompt";
-  if (type === "zh") {
+  if (type === "bilingual" || type === "all") {
+    text = buildShotBilingual(activeShot);
+    label = `Shot ${activeShot.shot_id || currentShotIndex + 1} 中英双语对照分镜`;
+  } else if (type === "veo") {
+    text = buildVeoPrompt(activeShot);
+    label = `Shot ${activeShot.shot_id || currentShotIndex + 1} Google Veo/Vids 英文 Prompt`;
+  } else if (type === "zh") {
     text = buildShotPromptZH(activeShot);
     label = `Shot ${activeShot.shot_id || currentShotIndex + 1} 中文分镜提示词`;
-  } else if (type === "all") {
-    text = buildShotPromptCard(activeShot);
-    label = `Shot ${activeShot.shot_id || currentShotIndex + 1} 双语分镜全卡`;
   } else if (type === "keyframe") {
     text = buildShotPromptEN(activeShot, "keyframe");
     label = `Shot ${activeShot.shot_id || currentShotIndex + 1} 静态首帧 Prompt`;
@@ -882,17 +941,91 @@ function extractShotsDataForCopy() {
   return (state.alignment && state.alignment.storyboard) || [];
 }
 
-async function copyAllPrompts(lang = "en", btnElement = null) {
-  const shots = extractShotsDataForCopy();
-  if (!shots || shots.length === 0) {
-    alert("未找到分镜数据！请先粘贴大模型回填数据或载入歌曲分镜。");
-    return;
-  }
-
-  const songName = state.currentFile?.name || "歌曲工程";
+function generateAllPromptsText(mode = "bilingual", shots = [], songName = "歌曲工程") {
+  if (!shots || shots.length === 0) return "";
   const output = [];
 
-  if (lang === "en") {
+  if (mode === "bilingual") {
+    output.push(`=== ${songName} 全曲中英双语分镜与 AI 视频提示词脚本 ===`);
+    output.push(`共 ${shots.length} 个镜头 | 包含导演构思、中英对照、机位运镜、Veo / Kling / FLUX 专用提示词\n`);
+
+    shots.forEach((s, idx) => {
+      const shotId = s.shot_id || `shot_${String(idx + 1).padStart(3, '0')}`;
+      const start = typeof s.start === 'number' ? s.start.toFixed(3) : "0.000";
+      const end = typeof s.end === 'number' ? s.end.toFixed(3) : "0.000";
+      const dur = typeof s.start === 'number' && typeof s.end === 'number' ? (s.end - s.start).toFixed(2) : "0.00";
+      const scaleName = getShotSizeNameZH(s.shot_size || s.scale);
+      const scale = s.shot_size || s.scale || "MS";
+      const motionName = getCameraMotionNameZH(s.camera_motion || s.camera_movement);
+      const motion = s.camera_motion || s.camera_movement || "static";
+
+      const lyric = s.lyric_reference || s.text || "（间奏 / 纯器乐过渡）";
+
+      let visual = s.action || s.prompt_zh || "";
+      if (s.storyboard_design && typeof s.storyboard_design === "object") {
+        const c = s.storyboard_design.composition || "";
+        const m = s.storyboard_design.motion_effect || "";
+        if (c || m) visual = `构图: ${c} | 动效: ${m}`;
+      }
+
+      const desRat = (s.design_rationale || s.director_note || "").trim().replace(/^【导演构思】/, "");
+      const transRat = (s.transition_rationale || "").trim().replace(/^【镜头衔接】/, "");
+      const veoP = buildVeoPrompt(s);
+      const videoP = s.video_prompt || s.prompt_en || s.keyframe_prompt || "";
+      const kfP = s.keyframe_prompt || "";
+      const motP = s.motion_prompt || "";
+
+      output.push(`============================================================`);
+      output.push(`[第 ${String(idx + 1).padStart(2, '0')} 镜 / SHOT ${String(idx + 1).padStart(2, '0')}] (${start}s - ${end}s | 时长: ${dur}s | ${scaleName} ${scale} | ${motionName} ${motion})`);
+      output.push(`歌词原句 / Lyric: “${lyric}”\n`);
+
+      output.push(`🇨🇳 【中文导演分镜设计】`);
+      if (visual) output.push(`· 画面构图: ${visual}`);
+      if (desRat) output.push(`· 导演构思: ${desRat}`);
+      if (transRat) output.push(`· 镜头衔接: ${transRat}`);
+      if (s.layout_contract) {
+        const sz = s.layout_contract.primary_subject_zone || "center";
+        const tz = (s.layout_contract.preferred_text_regions || []).join(", ") || "bottom_center";
+        output.push(`· 安全区域: 主体 ${sz} | 推荐字幕区 ${tz}`);
+      }
+      output.push("");
+
+      output.push(`🇺🇸 【AI 视频提示词 (English Prompts for Veo / Runway / Sora)】`);
+      if (veoP) {
+        output.push(`🎬 Veo / Vids 专配 (Cinematic 35mm Master):\n${veoP}\n`);
+      }
+      if (videoP && videoP !== veoP) {
+        output.push(`🎥 Standard Video Prompt:\n${videoP}\n`);
+      }
+      if (kfP) {
+        output.push(`📸 静态首帧 (FLUX 12B Keyframe):\n${kfP}\n`);
+      }
+      if (motP) {
+        output.push(`🌊 运镜动势 (I2V Motion):\n${motP}\n`);
+      }
+    });
+  } else if (mode === "veo") {
+    output.push(`=== ${songName} - Google Veo & Google Vids AI Video Prompts ===`);
+    output.push(`Total Shots: ${shots.length} | Format: English Master Shot Prompts with Camera Motion\n`);
+
+    shots.forEach((s, idx) => {
+      const shotId = s.shot_id || `shot_${String(idx + 1).padStart(3, '0')}`;
+      const start = typeof s.start === 'number' ? s.start.toFixed(3) : "0.000";
+      const end = typeof s.end === 'number' ? s.end.toFixed(3) : "0.000";
+      const scale = s.shot_size || s.scale || "MS";
+      const motion = s.camera_motion || s.camera_movement || "static";
+      const lyric = s.lyric_reference || s.text || "Instrumental transition";
+      const veoP = buildVeoPrompt(s);
+
+      output.push(`------------------------------------------------------------`);
+      output.push(`[Scene ${idx + 1}] (${start}s - ${end}s | ${scale} | ${motion})`);
+      output.push(`Lyric Context: "${lyric}"`);
+      output.push(`Prompt:`);
+      output.push(veoP);
+      output.push(`Negative Prompt:`);
+      output.push(`text, watermarks, logo, cartoonish, low resolution, bad hands, deformed faces, shaky camera, amateur video, subtitles\n`);
+    });
+  } else if (mode === "en") {
     output.push(`=== ${songName} 全曲英文 AI 视频提示词 (All Video Prompts) ===`);
     output.push(`共 ${shots.length} 个镜头 | 包含完整 Video Prompt 与动静解耦参数\n`);
 
@@ -965,8 +1098,47 @@ async function copyAllPrompts(lang = "en", btnElement = null) {
     });
   }
 
-  const resultText = output.join("\n");
-  await copyTextToClipboard(resultText, btnElement, `成功复制全曲 ${shots.length} 个镜头的${lang === 'en' ? '英文 Prompt' : '中文分镜'}！`);
+  return output.join("\n");
+}
+
+async function copyAllPrompts(mode = "bilingual", btnElement = null) {
+  const shots = extractShotsDataForCopy();
+  if (!shots || shots.length === 0) {
+    alert("未找到分镜数据！请先粘贴大模型回填数据或载入歌曲分镜。");
+    return;
+  }
+
+  const songName = state.currentFile?.name || "歌曲工程";
+  const resultText = generateAllPromptsText(mode, shots, songName);
+
+  let labelName = "中英双语分镜脚本";
+  if (mode === "veo") labelName = "Google Veo / Vids 英文 Prompt";
+  else if (mode === "en") labelName = "英文 Video Prompt";
+  else if (mode === "zh") labelName = "中文导演分镜脚本";
+
+  await copyTextToClipboard(resultText, btnElement, `成功复制全曲 ${shots.length} 个镜头的【${labelName}】！`);
+}
+
+function downloadPromptsFile() {
+  const shots = extractShotsDataForCopy();
+  if (!shots || shots.length === 0) {
+    alert("未找到分镜数据！请先粘贴大模型回填数据或载入歌曲分镜。");
+    return;
+  }
+  const songName = state.currentFile?.name ? state.currentFile.name.replace(/\.[^/.]+$/, "") : "suno2mv_storyboard";
+  const fullText = generateAllPromptsText("bilingual", shots, songName);
+
+  const blob = new Blob([fullText], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${songName}_中英双语分镜脚本.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  status(`✅ 已下载分镜脚本文件: ${songName}_中英双语分镜脚本.txt`);
 }
 
 // ---------------------------------------------------------------------------
