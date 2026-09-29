@@ -175,7 +175,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (typeof DeterministicMotionRuntime !== "undefined") {
       window.kineticRuntime = new DeterministicMotionRuntime({
         container: "#kinetic-motion-stage",
-        preset: dom.selectKineticPreset ? dom.selectKineticPreset.value : "swiss_minimal",
+        preset: dom.selectKineticPreset ? dom.selectKineticPreset.value : "pdoom_cyber",
         enabled: dom.chkKineticEnable ? dom.chkKineticEnable.checked : true,
       });
 
@@ -240,54 +240,114 @@ function updateKineticTimeline() {
   if (!window.kineticRuntime || !state.alignment) return;
   const shots = state.alignment.storyboard || [];
   const lines = state.alignment.lines || [];
+  const analysis = state.alignment.analysis || {};
+
+  const bpm = Number(analysis.bpm || 120.0);
+  const beats = Array.isArray(analysis.beats) ? analysis.beats.map(Number) : [];
+  const drumHits = Array.isArray(analysis.drum_hits) ? analysis.drum_hits : [];
+
+  // 注入音频节奏时钟与鼓点
+  window.kineticRuntime.setAudioFeatures({
+    bpm: bpm,
+    beats: beats,
+    drum_hits: drumHits,
+  });
 
   const scenes = shots.map((s, idx) => {
     const shotId = s.id || `shot_${String(s.shot_id || idx + 1).padStart(3, "0")}`;
     const start = Number(s.start) || 0;
     const end = Number(s.end) || 0;
 
+    const matchedLines = lines.filter((l) => (l.start >= start - 0.2 && l.start < end) || (l.end > start && l.end <= end + 0.2));
     const cues = [];
-    const semGroups = s.semantic_groups || [];
+
+    // 候选语义短语组：优先镜头自带，若无则探查行级 style_overrides.semantic_groups
+    let semGroups = s.semantic_groups || [];
+    if (semGroups.length === 0) {
+      matchedLines.forEach((l) => {
+        if (l.style_overrides && Array.isArray(l.style_overrides.semantic_groups)) {
+          semGroups = semGroups.concat(l.style_overrides.semantic_groups);
+        }
+      });
+    }
+
     if (semGroups.length > 0) {
       semGroups.forEach((g, gIdx) => {
         const text = g.phrase || g.text || "";
         if (!text) return;
+        const gStart = Number(g.start !== undefined ? g.start : start);
+        const gEnd = Number(g.end !== undefined ? g.end : end);
+        const emp = Number(g.emphasis !== undefined ? g.emphasis : (gIdx === 0 ? 0.85 : 0.7));
+
+        // 提取该短语包含的音节/字符级详细时间戳
+        const phraseWords = [];
+        matchedLines.forEach((l) => {
+          (l.words || []).forEach((w) => {
+            if (w.start >= gStart - 0.08 && w.end <= gEnd + 0.08) {
+              phraseWords.push({
+                word: w.word,
+                start: Number(w.start),
+                end: Number(w.end),
+              });
+            }
+          });
+        });
+
         cues.push({
           cue_id: `${shotId}:phrase_${String(gIdx + 1).padStart(2, "0")}`,
           text: text,
-          start: Number(g.start !== undefined ? g.start : start),
-          end: Number(g.end !== undefined ? g.end : end),
-          emphasis: Number(g.emphasis !== undefined ? g.emphasis : 0.8),
+          start: gStart,
+          end: gEnd,
+          emphasis: emp,
+          words: phraseWords,
+          role: emp >= 0.8 ? "hero" : "connector",
         });
       });
     } else {
-      // 降级: 从 lines 提取在该镜头时间窗口内的词
-      const matched = lines.filter((l) => (l.start >= start - 0.2 && l.start < end) || (l.end > start && l.end <= end + 0.2));
+      // 降级: 自然语义切分 (按停顿 gap > 0.22s 或标点分割，严禁生硬切断)
       let count = 0;
-      matched.forEach((l) => {
+      matchedLines.forEach((l) => {
         const words = l.words || [];
         if (words.length > 0) {
-          const chunkSize = 3;
-          for (let i = 0; i < words.length; i += chunkSize) {
-            const chunk = words.slice(i, i + chunkSize);
-            const text = chunk.map((w) => w.word).join("");
+          const chunks = [];
+          let cur = [words[0]];
+          for (let i = 1; i < words.length; i++) {
+            const prev = words[i - 1];
+            const curr = words[i];
+            const gap = curr.start - prev.end;
+            if (gap > 0.22 || [" ", "，", "、", "！", "？", ",", "!"].includes(prev.word) || cur.length >= 5) {
+              chunks.push(cur);
+              cur = [curr];
+            } else {
+              cur.push(curr);
+            }
+          }
+          if (cur.length > 0) chunks.push(cur);
+
+          chunks.forEach((chunk) => {
+            const chunkText = chunk.map((w) => w.word).join("").replace(/[ ，、！？,!]/g, "");
+            if (!chunkText) return;
             count++;
+            const emp = count === 1 ? 0.85 : 0.65;
             cues.push({
               cue_id: `${shotId}:chunk_${String(count).padStart(2, "0")}`,
-              text: text,
-              start: chunk[0].start,
-              end: chunk[chunk.length - 1].end,
-              emphasis: count === 1 ? 0.85 : 0.65,
+              text: chunkText,
+              start: Number(chunk[0].start),
+              end: Number(chunk[chunk.length - 1].end),
+              emphasis: emp,
+              words: chunk.map((w) => ({ word: w.word, start: Number(w.start), end: Number(w.end) })),
+              role: emp >= 0.8 ? "hero" : "stagger",
             });
-          }
+          });
         } else if (l.text) {
           count++;
           cues.push({
             cue_id: `${shotId}:line_${String(count).padStart(2, "0")}`,
             text: l.text,
-            start: l.start,
-            end: l.end,
+            start: Number(l.start),
+            end: Number(l.end),
             emphasis: 0.8,
+            role: "hero",
           });
         }
       });
@@ -300,7 +360,7 @@ function updateKineticTimeline() {
       layers: [
         {
           type: "kinetic_typography",
-          preset: window.kineticRuntime.preset || "swiss_minimal",
+          preset: window.kineticRuntime.preset || "pdoom_cyber",
           seed: `${shotId}:kinetic_seed`,
           cues: cues,
         },
@@ -310,7 +370,12 @@ function updateKineticTimeline() {
 
   window.kineticRuntime.setTimeline({
     version: "1.0.0",
-    meta: { title: state.currentFile?.name || "MV Project" },
+    meta: {
+      title: state.currentFile?.name || "MV Project",
+      bpm: bpm,
+      beats: beats,
+      drum_hits: drumHits,
+    },
     scenes: scenes,
   });
 }

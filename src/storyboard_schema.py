@@ -7,11 +7,12 @@ M2V / Suno2MV 视听与 AI 导演领域模型规范 (Pydantic v2)
 """
 from __future__ import annotations
 
+import itertools
 import json
 from pathlib import Path
-from typing import Any, Literal, Optional
-from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Any, Literal
 
+from pydantic import BaseModel, Field, model_validator
 
 # ============================================================================
 # 1. 歌词与字级时间戳契约
@@ -24,7 +25,7 @@ class WordTimestamp(BaseModel):
     end: float = Field(..., ge=0, description="结束时间(秒)")
 
     @model_validator(mode="after")
-    def validate_duration(self) -> "WordTimestamp":
+    def validate_duration(self) -> WordTimestamp:
         if self.end < self.start - 0.01:
             raise ValueError(f"字 '{self.word}' 结束时间 ({self.end}) 小于起始时间 ({self.start})")
         return self
@@ -40,7 +41,7 @@ class AlignedLine(BaseModel):
     section: str = Field(default="", description="归属乐段名称，如 'Verse 1', 'Chorus'")
 
     @model_validator(mode="after")
-    def validate_line(self) -> "AlignedLine":
+    def validate_line(self) -> AlignedLine:
         if self.words:
             self.start = self.words[0].start
             self.end = self.words[-1].end
@@ -466,7 +467,7 @@ class ShotPlan(BaseModel):
         return self.motion_prompt or self.action or self.camera_motion
 
     @model_validator(mode="after")
-    def validate_shot(self) -> "ShotPlan":
+    def validate_shot(self) -> ShotPlan:
         if not self.id:
             self.id = f"shot_{self.shot_id:03d}"
         if self.end > 0 and self.end < self.start:
@@ -591,7 +592,7 @@ class MultiTrackTimeline(BaseModel):
     def __getitem__(self, idx: Any) -> Any:
         return self.video_track[idx]
 
-    def get_video_clip_for_shot(self, shot_id: str) -> Optional[NLEClip]:
+    def get_video_clip_for_shot(self, shot_id: str) -> NLEClip | None:
         for clip in self.video_track:
             if clip.shot_id == shot_id:
                 return clip
@@ -621,6 +622,8 @@ class MotionCue(BaseModel):
     emphasis: float = Field(default=0.5, ge=0.0, le=1.0, description="重音/强调权重 (0.0~1.0)")
     layout: dict[str, Any] = Field(default_factory=dict, description="排版与安全区参数")
     params: dict[str, Any] = Field(default_factory=dict, description="特定预设个性化参数")
+    words: list[dict[str, Any]] = Field(default_factory=list, description="音节/字符级详细时间戳列表 [{'word': '天', 'start': 28.1, 'end': 28.4}]")
+    role: str = Field(default="hero", description="戏剧角色: hero, connector, stagger, monolith")
 
 
 class MotionLayer(BaseModel):
@@ -678,7 +681,7 @@ class MotionTimelineDSL(BaseModel):
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
 
     @classmethod
-    def from_json(cls, json_str: str) -> "MotionTimelineDSL":
+    def from_json(cls, json_str: str) -> MotionTimelineDSL:
         return cls.model_validate(json.loads(json_str))
 
 
@@ -736,7 +739,7 @@ class AlignmentProject(BaseModel):
         self.storyboard = value
 
     @model_validator(mode="after")
-    def sync_bibles(self) -> "AlignmentProject":
+    def sync_bibles(self) -> AlignmentProject:
         # 兼容性同步：保证 visual_bible 与 bibles.visual 互通
         if self.visual_bible and not self.bibles:
             self.bibles = GlobalBibles(visual=self.visual_bible)
@@ -758,7 +761,7 @@ class AlignmentProject(BaseModel):
         )
 
     @classmethod
-    def load_json(cls, path: Path | str) -> "AlignmentProject":
+    def load_json(cls, path: Path | str) -> AlignmentProject:
         """从 JSON 文件加载并严格校验 (支持老版本平滑升级)"""
         p = Path(path)
         if not p.exists():
@@ -769,11 +772,23 @@ class AlignmentProject(BaseModel):
     def to_motion_dsl(self, default_preset: str = "swiss_minimal") -> MotionTimelineDSL:
         """
         将当前 AlignmentProject 自动升维并转换为标准的 MotionTimelineDSL 规范。
-        为每个镜头构建背景层与基于 Whisper 词级时间戳/语义切分的 KineticTypography 图层。
+        集成音频节奏特征 (BPM, Beats, Drum Hits)，音节级字词时间戳与自然语义组。
         """
         bpm = 120.0
-        if self.analysis and hasattr(self.analysis, "bpm") and self.analysis.bpm:
-            bpm = self.analysis.bpm
+        beats_list: list[float] = []
+        drum_hits_list: list[dict[str, Any]] = []
+
+        if self.analysis:
+            if hasattr(self.analysis, "bpm") and self.analysis.bpm:
+                bpm = float(self.analysis.bpm)
+            if hasattr(self.analysis, "beats") and self.analysis.beats:
+                beats_list = [round(float(b), 3) for b in self.analysis.beats]
+            if hasattr(self.analysis, "drum_hits") and self.analysis.drum_hits:
+                drum_hits_list = [
+                    {"time": round(float(h["time"]), 3), "type": h.get("type", "kick")}
+                    for h in self.analysis.drum_hits
+                    if h.get("type") in ("kick", "snare")
+                ]
 
         scenes: list[MotionScene] = []
         shots = self.storyboard or []
@@ -818,9 +833,20 @@ class AlignmentProject(BaseModel):
 
             # 2. 收集归属该镜头的歌词与词组
             cues: list[MotionCue] = []
+            matched_lines = [
+                l
+                for l in self.lines
+                if (l.start >= start - 0.2 and l.start < end) or (l.end > start and l.end <= end + 0.2)
+            ]
 
-            # 优先从 shot.semantic_groups 获取切分好的短语
-            sem_groups = getattr(shot, "semantic_groups", []) or []
+            # 候选语义组：优先 shot.semantic_groups，若无则探查 line.style_overrides 中的 semantic_groups
+            sem_groups: list[dict[str, Any]] = getattr(shot, "semantic_groups", []) or []
+            if not sem_groups:
+                for line in matched_lines:
+                    overrides = getattr(line, "style_overrides", {}) or {}
+                    if isinstance(overrides, dict) and "semantic_groups" in overrides:
+                        sem_groups.extend(overrides["semantic_groups"])
+
             if sem_groups:
                 for g_idx, g in enumerate(sem_groups):
                     phrase_text = g.get("phrase") or g.get("text") or ""
@@ -828,43 +854,75 @@ class AlignmentProject(BaseModel):
                         continue
                     g_start = float(g.get("start", start))
                     g_end = float(g.get("end", end))
+
+                    # 提取该短语内部的音节级时间戳
+                    phrase_words: list[dict[str, Any]] = []
+                    for line in matched_lines:
+                        for w in getattr(line, "words", []) or []:
+                            if w.start >= g_start - 0.08 and w.end <= g_end + 0.08:
+                                phrase_words.append({
+                                    "word": w.word,
+                                    "start": round(float(w.start), 3),
+                                    "end": round(float(w.end), 3),
+                                })
+
+                    emp = float(g.get("emphasis", 0.85 if g_idx == 0 else 0.7))
                     cues.append(
                         MotionCue(
                             cue_id=f"{shot_id}:phrase_{str(g_idx + 1).zfill(2)}",
                             text=phrase_text,
                             start=g_start,
                             end=g_end,
-                            emphasis=float(g.get("emphasis", 0.7)),
-                            layout={"anchor": "center", "size": "hero"},
+                            emphasis=emp,
+                            layout={"anchor": "center", "size": "hero" if emp >= 0.8 else "normal"},
                             params={"visual_effect": g.get("visual_effect", "")},
+                            words=phrase_words,
+                            role="hero" if emp >= 0.8 else "connector",
                         )
                     )
             else:
-                # 降级：从 lines 中提取在该时间窗口内的歌词并按 2-4 字切词组
-                matched_lines = [
-                    l
-                    for l in self.lines
-                    if (l.start >= start - 0.2 and l.start < end) or (l.end > start and l.end <= end + 0.2)
-                ]
+                # 降级：自然语义切分 (按停顿 gap > 0.25s 或标点分割，严禁暴力3字切断)
                 cue_counter = 0
                 for line in matched_lines:
                     words = getattr(line, "words", []) or []
                     if words:
-                        chunk_size = 3
-                        for i in range(0, len(words), chunk_size):
-                            chunk = words[i : i + chunk_size]
-                            chunk_text = "".join(w.word for w in chunk)
-                            c_start = chunk[0].start
-                            c_end = chunk[-1].end
+                        chunks: list[list[Any]] = []
+                        current_chunk = [words[0]]
+                        for w_prev, w_curr in itertools.pairwise(words):
+                            gap = w_curr.start - w_prev.end
+                            if gap > 0.22 or w_prev.word in (" ", "，", "、", "！", "？", ",", "!") or len(current_chunk) >= 5:
+                                chunks.append(current_chunk)
+                                current_chunk = [w_curr]
+                            else:
+                                current_chunk.append(w_curr)
+                        if current_chunk:
+                            chunks.append(current_chunk)
+
+                        for chunk in chunks:
+                            chunk_text = "".join(w.word for w in chunk).strip(" ，、！？,!")
+                            if not chunk_text:
+                                continue
+                            c_start = float(chunk[0].start)
+                            c_end = float(chunk[-1].end)
                             cue_counter += 1
+                            emp = 0.85 if cue_counter == 1 else 0.65
                             cues.append(
                                 MotionCue(
                                     cue_id=f"{shot_id}:chunk_{str(cue_counter).zfill(2)}",
                                     text=chunk_text,
                                     start=c_start,
                                     end=c_end,
-                                    emphasis=0.85 if cue_counter == 1 else 0.6,
-                                    layout={"anchor": "center", "size": "hero"},
+                                    emphasis=emp,
+                                    layout={"anchor": "center", "size": "hero" if emp >= 0.8 else "normal"},
+                                    words=[
+                                        {
+                                            "word": w.word,
+                                            "start": round(float(w.start), 3),
+                                            "end": round(float(w.end), 3),
+                                        }
+                                        for w in chunk
+                                    ],
+                                    role="hero" if emp >= 0.8 else "stagger",
                                 )
                             )
                     elif line.text:
@@ -873,10 +931,11 @@ class AlignmentProject(BaseModel):
                             MotionCue(
                                 cue_id=f"{shot_id}:line_{str(cue_counter).zfill(2)}",
                                 text=line.text,
-                                start=line.start,
-                                end=line.end,
+                                start=float(line.start),
+                                end=float(line.end),
                                 emphasis=0.8,
                                 layout={"anchor": "center", "size": "hero"},
+                                role="hero",
                             )
                         )
 
@@ -925,6 +984,8 @@ class AlignmentProject(BaseModel):
                 "duration": self.duration,
                 "aspect_ratio": "16:9",
                 "fps": 30,
+                "beats": beats_list,
+                "drum_hits": drum_hits_list,
             },
             scenes=scenes,
         )
