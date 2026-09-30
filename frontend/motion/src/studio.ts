@@ -1,4 +1,4 @@
-import {compilePoster,canvasMeasure,paintCompiledPoster,automaticPoster,type CompiledPoster} from './poster-layout';
+import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,type CompiledPoster} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
 import { defaults, normalizeProject, renderSize, type Project, type Options, type MotionPlan } from './model';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -78,7 +78,7 @@ $('poster-sample').onclick=action(async()=>{
  const line=project?.lines.find(l=>l.id===currentCue);if(!line)throw new Error('请先选择一句歌词');
  audio.pause();clipEnd=null;playing=false;$('play').textContent='▶';await document.fonts.ready;
  const canvas=$<HTMLCanvasElement>('poster-canvas'),size=renderSize(options);canvas.width=size.width;canvas.height=size.height;canvas.style.aspectRatio=`${size.width}/${size.height}`;
- const c=canvas.getContext('2d')!;posterPreview=compilePoster(line,plan?.cues.find(c=>c.line_id===currentCue),size.width,size.height,canvasMeasure(c));paintCompiledPoster(c,posterPreview);
+ const c=canvas.getContext('2d')!;posterPreview=compileSongPosters(project!,size.width,size.height,canvasMeasure(c)).find(p=>p.line_id===currentCue)!;paintCompiledPoster(c,posterPreview);
  $('poster-title').textContent='当前句 · 最终海报';$('poster-lyric').textContent=line.text;
  const hold=Math.max(0,line.end-Math.max(...posterPreview.nodes.map(n=>n.settled)));
  $('poster-description').textContent=`${posterPreview.source==='director'?'导演设计':'自动基础排版'} · ${options.aspect} · ${posterPreview.nodes.length} 个文字块 · 完成后可停留 ${hold.toFixed(2)} 秒。与动画和 MP4 使用同一排版。`;
@@ -101,7 +101,7 @@ $('poster-layout').onchange=action(()=>{
 $('play-cue').onclick=action(async()=>{
  const line=project?.lines.find(l=>l.id===currentCue);if(!line)throw new Error('请先选择一句歌词');
  $<HTMLDialogElement>('poster-dialog').close();const size=renderSize(options),context=document.createElement('canvas').getContext('2d')!;
- const compiled=compilePoster(line,plan?.cues.find(c=>c.line_id===currentCue),size.width,size.height,canvasMeasure(context));
+ const compiled=compileSongPosters(project!,size.width,size.height,canvasMeasure(context)).find(p=>p.line_id===currentCue)!;
  clipReviewTime=Math.max(line.start,Math.min(line.end-.001,Math.max(...compiled.nodes.map(n=>n.settled),line.end-.16)));
  audio.currentTime=line.start;clipEnd=line.end;await audio.play();playing=true;$('play').textContent='Ⅱ';
 });

@@ -1,4 +1,4 @@
-import type {Line, CuePlan, PosterDirection} from './model';
+import type {Line, CuePlan, PosterDirection, Project} from './model';
 export const POSTER_FONT='"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
 export type Metrics={width:number;ascent:number;descent:number};
 export type Measure=(text:string,size:number,weight:number)=>Metrics;
@@ -25,26 +25,38 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
   const dark=.2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]<.45;
   const foreground=dark?'#f3f7e9':'#20261e',muted=dark?'#adbba8':'#697263';
   const dense=Array.from(line.text.replace(/\s/g,'')).length/Math.max(.001,line.end-line.start)>6;
-  const nodes:CompiledNode[]=[];const gap=H*.016,top=H*.09,usable=H*.82-gap*(design.nodes.length-1);
-  const weights=design.nodes.map(n=>design.layout==='hero-stack'?(n.role==='primary'?2.8:n.role==='secondary'?1.2:1):1);
-  const total=weights.reduce((a,b)=>a+b,0);let y=top;
-  for(let i=0;i<design.nodes.length;i++){
-    const n=design.nodes[i],height=usable*weights[i]/total;
-    const x=W*(design.layout==='staggered'?(i%2?.20:.09):.09),width=W*(design.layout==='staggered'?.71:.82);
+  const nodes:CompiledNode[]=[];
+  const short=Array.from(line.text.replace(/\s/g,'')).length<=6;
+  const section=(line.section||'').toLowerCase();
+  const maxHeight=H*(dense?.48:section.includes('chorus')?.66:section.includes('verse')?.48:.56);
+  const gap=H*.009,padding=H*.008,width=W*.80;
+  const fitted=design.nodes.map(n=>{
     const weight=n.role==='primary'?900:n.role==='secondary'?800:600;
-    // Reserve internal padding so actual glyphs and entering offsets stay in safe slots.
-    const innerWidth=width-W*.012,innerHeight=height-H*.012;
-    let size=Math.min(H*(n.role==='primary'?.19:n.role==='secondary'?.075:.048),innerHeight*.85);
-    let rows=rowsFor(n.text,size,weight,innerWidth,measure);
-    for(let attempt=0;attempt<100;attempt++){
-      const maxInk=Math.max(...rows.map(r=>{const m=measure(r,size,weight);return m.ascent+m.descent;}));
-      if(rows.every(r=>measure(r,size,weight).width<=innerWidth)&&maxInk+(rows.length-1)*size*1.2<=innerHeight)break;
-      size*=.92;rows=rowsFor(n.text,size,weight,innerWidth,measure);
-    }
-    const first=measure(rows[0],size,weight),last=measure(rows.at(-1)!,size,weight);
-    const inkHeight=first.ascent+last.descent+(rows.length-1)*size*1.2;
-    const baseline=y+(height-inkHeight)/2+first.ascent;
-    const resolved=rows.map((text,j)=>({text,x:design.layout==='center-stack'?x+(width-measure(text,size,weight).width)/2:x+W*.006,y:baseline+j*size*1.2}));
+    let size=H*(n.role==='primary'?(short?.28:.18):n.role==='secondary'?.07:.045);
+    const maxWidth=width-W*.018;
+    let rows=rowsFor(n.text,size,weight,maxWidth,measure);
+    for(let attempt=0;attempt<100&&rows.length>3;attempt++){size*=.92;rows=rowsFor(n.text,size,weight,maxWidth,measure);}
+    return {n,weight,size,rows,maxWidth};
+  });
+  const primarySize=fitted.find(f=>f.n.role==='primary')!.size;
+  for(const f of fitted)if(f.n.role!=='primary'&&f.size>primarySize*.55){f.size=primarySize*.55;f.rows=rowsFor(f.n.text,f.size,f.weight,f.maxWidth,measure);}
+  const ink=(f:typeof fitted[number])=>measure(f.rows[0],f.size,f.weight).ascent+measure(f.rows.at(-1)!,f.size,f.weight).descent+(f.rows.length-1)*f.size*1.04;
+  const content=fitted.reduce((sum,f)=>sum+ink(f),0);
+  const scale=Math.min(1,Math.max(H*.1,maxHeight-padding*2*fitted.length-gap*(fitted.length-1))/content);
+  for(const f of fitted)f.size*=scale;
+  const blockWidth=Math.max(...fitted.flatMap(f=>f.rows.map(row=>measure(row,f.size,f.weight).width)));
+  const leftAxis=(W-blockWidth)/2;
+  const heights=fitted.map(f=>ink(f)+padding*2),totalHeight=heights.reduce((a,b)=>a+b,0)+gap*(fitted.length-1);
+  const primaryIndex=fitted.findIndex(f=>f.n.role==='primary');
+  const before=heights.slice(0,primaryIndex).reduce((a,b)=>a+b+gap,0);
+  // Keep the primary near one central baseline while retaining safe bounds.
+  let y=Math.max(H*.12,Math.min(H*.88-totalHeight,H*.5-before-heights[primaryIndex]/2));
+  for(let i=0;i<fitted.length;i++){
+    const {n,weight,size,rows}=fitted[i],height=heights[i];
+    const shift=design.layout==='staggered'?(i%2?W*.025:-W*.025):0;
+    const x=(W-width)/2+shift;
+    const baseline=y+padding+measure(rows[0],size,weight).ascent;
+    const resolved=rows.map((text,j)=>({text,x:design.layout==='hero-stack'?leftAxis:x+(width-measure(text,size,weight).width)/2,y:baseline+j*size*1.04}));
     const a=line.words[n.word_indices[0]],b=line.words[n.word_indices.at(-1)!];
     const start=Math.max(line.start,a?.start??line.start),end=Math.min(line.end,b?.end??line.end);
     const entrance=n.entrance!=='none'&&(dense||end-start<.16)?'fade':n.entrance;
@@ -53,6 +65,28 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     y+=height+gap;
   }
   return {version:'motion-poster-layout-v1',line_id:line.id,source:cue?.poster?'director':'automatic',width:W,height:H,background:design.background,accent:design.accent,motif:design.motif,layout:design.layout,transition_out:design.transition_out,start:line.start,end:line.end,nodes};
+}
+// Song stage remains continuous; saved direction and alignment are not mutated.
+export function compileSongPosters(project:Project,W:number,H:number,measure:Measure):CompiledPoster[]{
+  const first=project.motion_plan?.cues.find(c=>c.poster)?.poster;
+  const visual=project.motion_plan?.visual_language;
+  const background=visual?.background||first?.background||'#eeeee6';
+  const accent=visual?.accent||first?.accent||'#c1ee47';
+  const motif=first?.motif||'none';
+  const recurring=new Map<string,PosterDirection>();
+  return project.lines.map(line=>{
+    const cue=project.motion_plan?.cues.find(c=>c.line_id===line.id);
+    let design=cue?.poster||automaticPoster(line,cue?.palette);
+    const key=line.text.replace(/\s/g,''),previous=recurring.get(key);
+    if(previous&&!cue?.locked&&previous.nodes.length===design.nodes.length&&previous.nodes.every((n,i)=>n.text===design.nodes[i].text)){
+      design={...design,layout:previous.layout,nodes:design.nodes.map((n,i)=>({...n,role:previous.nodes[i].role,color_role:previous.nodes[i].color_role}))};
+    }else if(!previous)recurring.set(key,design);
+    const result=compilePoster(line,{...cue,poster:{...design,background,accent,motif}} as CuePlan,W,H,measure);
+    result.source=cue?.poster?'director':'automatic';return result;
+  });
+}
+export function stageAt(layouts:CompiledPoster[],t:number):CompiledPoster|undefined{
+  return layouts.find(p=>t>=p.start&&t<p.end)||layouts.filter(p=>p.start<=t).at(-1)||layouts[0];
 }
 const clamp=(v:number)=>Math.max(0,Math.min(1,v));
 export function posterNodeState(node:CompiledNode,t:number,H:number){

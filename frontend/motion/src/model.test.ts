@@ -88,3 +88,32 @@ test('dense lyrics suppress movement and hold effects to prioritize reading',()=
  const n=compilePoster(line,cue,1280,720,measure).nodes[0];
  assert.equal(n.entrance,'fade');assert.equal(n.hold,'none');assert.equal(n.beat_reaction,'none');
 });
+
+test('compact stacks keep the primary anchor and enforce typographic hierarchy',()=>{
+ const line={id:'line_1',text:'欢迎来到 我的兔子洞 这里没有 所谓的成功',start:0,end:8,words:['欢迎来到','我的兔子洞','这里没有','所谓的成功'].map((word,i)=>({word,start:i*2,end:i*2+2}))};
+ for(const [W,H] of [[1280,720],[720,1280]])for(const primary of [0,1,2,3]){
+  const poster=automaticPoster(line);poster.nodes.forEach((n,i)=>n.role=i===primary?'primary':'secondary');
+  const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
+  const p=compilePoster(line,cue,W,H,measure),hero=p.nodes[primary];
+  assert.ok(Math.abs(hero.y+hero.height/2-H*.5)<=H*.2);
+  assert.ok(p.nodes.at(-1)!.y+p.nodes.at(-1)!.height-p.nodes[0].y<=H*.56+1e-6);
+  for(const [i,n] of p.nodes.entries())if(i!==primary)assert.ok(n.fontSize<=hero.fontSize*.55+1e-6);
+ }
+});
+
+test('song stage persists across gaps and repeated posters retain composition without changing source',async()=>{
+ const {compileSongPosters,stageAt}=await import('./poster-layout.ts');
+ const p=normalizeProject({lines:[{text:'失重 失重',start:1,end:3,words:[{word:'失重',start:1,end:2},{word:'失重',start:2,end:3}]},{text:'失重 失重',start:5,end:7,words:[{word:'失重',start:5,end:6},{word:'失重',start:6,end:7}]}]});
+ p.motion_plan={version:'motion-plan-v1',source_signature:'test',seed:1,cues:p.lines.map((line,i)=>{
+  const poster=automaticPoster(line);poster.background=i?'#ffffff':'#111111';poster.layout=i?'staggered':'hero-stack';
+  return {line_id:line.id,template:'phrase-rise',layout:'center',palette:'impact',intensity:.5,emphasis:'',locked:false,poster};
+ })};
+ const original=JSON.stringify(p),layouts=compileSongPosters(p,1280,720,measure);
+ assert.equal(JSON.stringify(p),original);
+ assert.equal(layouts[0].background,layouts[1].background);
+ assert.equal(layouts[0].layout,layouts[1].layout);
+ assert.deepEqual(layouts[0].nodes.map(n=>n.rows),layouts[1].nodes.map(n=>n.rows));
+ assert.equal(layouts[1].nodes[0].start,5);
+ assert.equal(stageAt(layouts,4),layouts[0]);assert.equal(stageAt(layouts,0),layouts[0]);
+ assert.equal(posterOpacity(stageAt(layouts,4)!,4),0);
+});
