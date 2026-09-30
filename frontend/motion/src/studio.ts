@@ -1,3 +1,4 @@
+import { drawPoster, rabbitPoster } from './poster';
 import { MotionEngine } from './engine';
 import { defaults, normalizeProject, renderSize, type Project, type Options, type MotionPlan } from './model';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -64,3 +65,18 @@ async function loadExports(){
 }
 
 $('focus-preview').onclick=()=>{const focused=document.body.classList.toggle('preview-focus');$('focus-preview').textContent=focused?'显示设置':'放大预览';};
+
+$('poster-sample').onclick=action(async()=>{
+ audio.pause();playing=false;$('play').textContent='▶';
+ await document.fonts.ready;
+ drawPoster($<HTMLCanvasElement>('poster-canvas'));
+ $<HTMLDialogElement>('poster-dialog').showModal();
+});
+$('poster-close').onclick=()=>$<HTMLDialogElement>('poster-dialog').close();
+$('poster-json').onclick=()=>download('rabbit-hole-poster.json',JSON.stringify(rabbitPoster,null,2));
+$('poster-png').onclick=action(()=>{
+ $<HTMLCanvasElement>('poster-canvas').toBlob(blob=>{
+  if(!blob){status('海报导出失败');return;}
+  const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download='rabbit-hole-poster.png';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ },'image/png');
+});
