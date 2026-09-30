@@ -1,5 +1,6 @@
 export type Word = { word: string; start: number; end: number };
-export type CuePlan = {line_id:string; template:'word-impact'|'phrase-rise'|'quiet-hold'; layout:'center'|'left'; palette:'impact'|'neon'; intensity:number; emphasis:string; locked:boolean};
+export type PhrasePlan = {text:string;word_indices:number[];action:'reveal'|'push'|'settle'|'hold';emphasis:string;intensity:number};
+export type CuePlan = {whole_line_visible?:true;intent?:string;groups?:PhrasePlan[];line_id:string; template:'word-impact'|'phrase-rise'|'quiet-hold'; layout:'center'|'left'; palette:'impact'|'neon'; intensity:number; emphasis:string; locked:boolean};
 export type MotionPlan = {version:'motion-plan-v1'; source_signature:string; seed:number; cues:CuePlan[]};
 export type Line = { id:string; text: string; start: number; end: number; words: Word[]; section?: string };
 export type Project = {
@@ -97,4 +98,12 @@ export function demoAudio(): Blob {
 export function renderSize(options:Options) {
   const short=options.height||720, long=Math.round(short*16/9);
   return options.aspect==='9:16'?{width:short,height:long}:{width:long,height:short};
+}
+
+export function groupAt(line:Line,cue:CuePlan|undefined,t:number) {
+  const groups=cue?.groups||[];
+  return groups.find(group=>{
+    const first=line.words[group.word_indices[0]],last=line.words[group.word_indices.at(-1)!];
+    return first&&last&&t>=first.start&&t<last.end;
+  });
 }

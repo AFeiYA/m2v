@@ -36,7 +36,9 @@ def test_plan_save_locks_and_route_shared_song_store(song):
         assert payload['audio_url'].startswith('/api/audio?')
         assert client.get('/api/motion/project',params={'project_id':'../other_alignment.json'}).status_code==400
         assert client.post('/api/motion/render',json={'project_id':id,'start':1,'length':5}).status_code==422
-        assert client.post('/api/motion/director/input',json={'project_id':id}).status_code==200
+        whole_input=client.post('/api/motion/director/input',json={'project_id':id,'instruction':'保持安静的节奏'})
+        assert whole_input.status_code==200
+        assert '保持安静的节奏' in whole_input.json()['prompt']
 
 
 @pytest.mark.skipif(os.getenv('RUN_MOTION_RENDER')!='1',reason='需显式启用 Chrome/FFmpeg 成片测试')
@@ -45,6 +47,7 @@ def test_render_worker_outputs_audio_video_and_exact_frames(song,tmp_path):
     path,id=song
     root=Path(__file__).resolve().parents[1]
     project=json.loads(path.read_text());project['motion_plan']=rule_plan(project).model_dump()
+    project['motion_plan']['cues'][0]['groups']=[{'text':'听见你','word_indices':[0],'action':'push','emphasis':'你','intensity':.7}]
     snapshot=tmp_path/'job.json';out=tmp_path/'result.mp4'
     snapshot.write_text(json.dumps({'project':project,'options':{'aspect':'16:9','height':360,'preset':'impact','mode':'phrase','bloom':.7,'grain':.035,'shake':.65,'punch':.7,'post':True},'start':0,'length':2,'audioPath':str(path.parent/'test.wav')}))
     result=subprocess.run([shutil.which('node'),str(root/'frontend/motion/scripts/render.mjs'),str(snapshot),str(out)],capture_output=True,text=True,timeout=120)
@@ -68,3 +71,34 @@ def test_partial_regeneration_preserves_other_edits(song):
         assert client.put('/api/motion/plan',json={'project_id':id,'plan':plan,'from_llm':False}).status_code==200
         updated=client.post('/api/motion/director/rules',json={'project_id':id,'line_id':'line_0001'}).json()
         assert updated['cues'][1]==plan['cues'][1]
+
+
+def test_single_line_validate_apply_conflict_and_other_cues(song):
+    path,id=song
+    data=json.loads(path.read_text());data['lines'].append({'text':'下一句','start':.3,'end':1.9})
+    path.write_text(json.dumps(data))
+    with TestClient(app) as client:
+        plan=client.post('/api/motion/director/rules',json={'project_id':id}).json()
+        request={'project_id':id,'line_id':'line_0001','instruction':'强调听见你，整句保留'}
+        bundle=client.post('/api/motion/director/line/input',json=request).json()
+        response=bundle['response_example'];response['cue']['intent']='邀请听见'
+        body={**request,'response':response}
+        before=path.with_name('test_motion_plan.json').read_text()
+        checked=client.post('/api/motion/director/line/validate',json=body)
+        assert checked.status_code==200,checked.text
+        assert checked.json()['compiled_groups'][0]['start']==.2
+        assert path.with_name('test_motion_plan.json').read_text()==before
+        # Another line changed after prompt creation: merge must preserve its new state.
+        plan['cues'][1]['intensity']=.15
+        client.put('/api/motion/plan',json={'project_id':id,'plan':plan,'from_llm':False})
+        applied=client.post('/api/motion/director/line/apply',json=body)
+        assert applied.status_code==200,applied.text
+        assert applied.json()['plan']['cues'][1]['intensity']==.15
+        # Reusing the prompt after this same line changed is a conflict.
+        assert client.post('/api/motion/director/line/apply',json=body).status_code==409
+        fresh=client.post('/api/motion/director/line/input',json=request).json()
+        plan=applied.json()['plan'];plan['cues'][0]['locked']=True
+        client.put('/api/motion/plan',json={'project_id':id,'plan':plan,'from_llm':False})
+        assert client.post('/api/motion/director/line/apply',json={**request,'response':fresh['response_example']}).status_code==409
+        unknown=client.post('/api/motion/director/line/input',json={**request,'line_id':'line_9999'})
+        assert unknown.status_code==422

@@ -45,3 +45,28 @@ def test_alignment_edit_invalidates_plan_and_locks_survive_regeneration(project)
     assert regenerated['seed']==123
     project['lines'][1]['words'][0]['start']=1.1
     with pytest.raises(ValueError,match='已经变化'): validate_plan(project,old)
+
+
+def test_single_line_prompt_uses_only_target_words_and_neighbors(project):
+    from src.motion_director import line_prompt_bundle, line_response
+    bundle=line_prompt_bundle(project,'line_0003',rule_plan(project).model_dump(),instruction='整句保留，强调这一刻')
+    assert bundle['input']['target']['text']=='放大这一刻'
+    assert [w['word_index'] for w in bundle['input']['target']['words']]==[0,1]
+    assert len(bundle['input']['neighbors'])==2
+    assert '整句歌词' in bundle['prompt'] and '没有真正的三维' in bundle['prompt']
+    response,groups=line_response(project,bundle['response_example'],'line_0003')
+    assert groups[0]['start']==5 and groups[0]['end']==8
+    assert response.cue.whole_line_visible
+
+@pytest.mark.parametrize('bad',['missing','duplicate','reorder','rewrite','time','empty','hide'])
+def test_single_line_phrase_validation(project,bad):
+    from src.motion_director import line_prompt_bundle, line_response
+    data=line_prompt_bundle(project,'line_0003')['response_example']
+    if bad=='missing':data['cue']['groups'][0]['word_indices']=[0]
+    elif bad=='duplicate':data['cue']['groups'][0]['word_indices']=[0,0,1]
+    elif bad=='reorder':data['cue']['groups'][0]['word_indices']=[1,0]
+    elif bad=='rewrite':data['cue']['groups'][0]['text']='改写歌词'
+    elif bad=='time':data['cue']['groups'][0]['start']=10
+    elif bad=='empty':data['cue']['groups']=[]
+    else:data['cue']['whole_line_visible']=False
+    with pytest.raises(ValueError):line_response(project,data,'line_0003')

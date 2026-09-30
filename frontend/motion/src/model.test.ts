@@ -36,3 +36,13 @@ test('zero-length annotations keep following line IDs stable',()=>{
   assert.equal(p.lines.length,1);assert.equal(p.lines[0].id,'line_0002');
   assert.equal(normalizeProject(p).lines[0].id,'line_0002');
 });
+
+test('phrase motion boundaries come only from alignment',async()=>{
+  const {groupAt}=await import('./model.ts');
+  const p=normalizeProject({lines:[{text:'听见你',start:1,end:3,words:[{word:'听',start:1,end:1.4},{word:'见',start:1.4,end:2},{word:'你',start:2,end:3}]}]});
+  const cue={line_id:p.lines[0].id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,groups:[{text:'听见',word_indices:[0,1],action:'reveal' as const,intensity:.5,emphasis:''},{text:'你',word_indices:[2],action:'hold' as const,intensity:.5,emphasis:''}]};
+  assert.equal(groupAt(p.lines[0],cue,.9),undefined);
+  assert.equal(groupAt(p.lines[0],cue,1.4)?.text,'听见');
+  assert.equal(groupAt(p.lines[0],cue,2)?.text,'你');
+  assert.equal(groupAt(p.lines[0],cue,3),undefined);
+});

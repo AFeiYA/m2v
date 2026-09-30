@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FSPass, makeRT } from './vendor/pdoom/gl';
 import { Post, DEFAULT_POST } from './vendor/pdoom/post';
-import { featuresAt, pulseAt, type Project, type Options, type Line } from './model';
+import { featuresAt, pulseAt, groupAt, type Project, type Options, type Line } from './model';
 
 // Text is rasterized with the platform's Chinese-capable font into a texture.
 // All animation is evaluated from absolute song time, including noise/grain.
@@ -107,15 +107,18 @@ export class MotionEngine {
     const active=l.words.find(w=>t>=w.start && t<w.end);
     const visible=l.words.filter(w=>w.start<=t);
     const word=active || visible[visible.length-1];
-    const hero=o.mode==='slam' && word ? word.word : l.text;
-    const start=o.mode==='slam' && word ? word.start : l.start;
-    const attack=cue?.template==='quiet-hold'?0:pulseAt(t,start,18);
+    const group=groupAt(l,cue,t);
+    const hero=group?group.text:o.mode==='slam' && word ? word.word : l.text;
+    const start=group?l.words[group.word_indices[0]].start:o.mode==='slam' && word ? word.start : l.start;
+    const attack=group?group.action==='hold'?0:pulseAt(t,start,12)*group.intensity:cue?.template==='quiet-hold'?0:pulseAt(t,start,18);
     const enter=clamp((t-l.start)/.09),exit=clamp((l.end-t)/.14);
     const base=Math.min(W*.23,H*.31,hero.length>4?W*.12:Infinity);
     c.save();c.translate(W/2,H*.43+(cue?.template==='phrase-rise'?(1-clamp((t-l.start)/.45))*H*.08:0));
     // Keep oversized words inside the frame even during their attack.
     const zoom=1+attack*o.punch*.18+(cue?.template==='quiet-hold'?0:impact*.018);
-    c.scale(zoom,zoom);c.rotate(Math.sin(start*3)*.025*attack*o.punch);
+    const groupZoom=group?.action==='push'?1+attack*.12:group?.action==='settle'?1-attack*.06:zoom;
+    c.scale(groupZoom,groupZoom);
+    if(group?.action==='reveal')c.translate(-attack*W*.035,0);c.rotate(Math.sin(start*3)*.025*attack*o.punch);
     c.globalAlpha=enter*exit;
     c.textAlign='center';c.font=`900 ${base}px ${FONT}`;
     c.strokeStyle=o.preset==='neon'?'#134252':'#2e4939';c.lineWidth=Math.max(1,W/900);
@@ -129,11 +132,14 @@ export class MotionEngine {
     let offset=0;
     l.words.forEach(w=>{const at=l.text.indexOf(w.word,offset);if(at>=0){const from=Array.from(l.text.slice(0,at)).length;for(let j=0;j<Array.from(w.word).length;j++)matched[from+j]=t>=w.start&&t<w.end?2:t>=w.end?1:0;offset=at+w.word.length;}});
     const font=Math.min(W*.037,H*.043);
+    const highlight=group?.emphasis||cue?.emphasis||'';
+    const groupPositions=new Set<number>();
+    if(group){let cursor=0;l.words.forEach((token,i)=>{const at=l.text.indexOf(token.word,cursor);if(at>=0){if(group.word_indices.includes(i)){const from=Array.from(l.text.slice(0,at)).length;for(let j=0;j<Array.from(token.word).length;j++)groupPositions.add(from+j);}cursor=at+token.word.length;}});}
     c.font=`600 ${font}px ${FONT}`;
     const rows:{ch:string;i:number}[][]=[[]]; let rowWidth=0;
     chars.forEach((ch,i)=>{const cw=c.measureText(ch).width;if(rowWidth+cw>W*.79&&rows.at(-1)!.length){rows.push([]);rowWidth=0;}rows.at(-1)!.push({ch,i});rowWidth+=cw;});
     let y=H*.72-(rows.length-1)*font*.7;
-    for(const row of rows){let x=cue?.layout==='left'?W*.105:(W-row.reduce((v,g)=>v+c.measureText(g.ch).width,0))/2;c.textAlign='left';for(const g of row){const emphasisStart=cue?.emphasis?Array.from(l.text.slice(0,l.text.indexOf(cue.emphasis))).length:-1;const emphasized=!!cue?.emphasis&&g.i>=emphasisStart&&g.i<emphasisStart+Array.from(cue.emphasis).length;c.fillStyle=emphasized||matched[g.i]===2?accent:matched[g.i]===1?'#c1ccbc':'#657169';c.fillText(g.ch,x,y);x+=c.measureText(g.ch).width;}y+=font*1.4;}
+    for(const row of rows){let x=cue?.layout==='left'?W*.105:(W-row.reduce((v,g)=>v+c.measureText(g.ch).width,0))/2;c.textAlign='left';for(const g of row){const highlightAt=highlight?l.text.indexOf(highlight):-1;const emphasisStart=highlightAt>=0?Array.from(l.text.slice(0,highlightAt)).length:-1;const emphasized=!!highlight&&emphasisStart>=0&&g.i>=emphasisStart&&g.i<emphasisStart+Array.from(highlight).length;c.fillStyle=emphasized||groupPositions.has(g.i)||matched[g.i]===2?accent:matched[g.i]===1?'#c1ccbc':'#657169';c.fillText(g.ch,x,y);x+=c.measureText(g.ch).width;}y+=font*1.4;}
     // Small deterministic particles react to word attacks, never to a wall clock.
     for(let i=0;i<14;i++){const a=noise(i+start+(this.project.motion_plan?.seed||0))*Math.PI*2,r=(.12+(1-attack)*.28)*Math.min(W,H);c.globalAlpha=attack*.55;c.fillStyle=accent;c.fillRect(W/2+Math.cos(a)*r,H*.43+Math.sin(a)*r,2+noise(i)*3,2);}
     c.globalAlpha=1;

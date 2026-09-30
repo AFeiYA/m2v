@@ -1,0 +1,68 @@
+{
+  "version": "motion-line-response-v1",
+  "source_signature": "56e2a258f10d0a328000fef3155082d45498ea8cb92052b721b5e19084bcfcf1",
+  "base_cue_signature": "77bd9d1341d2c7193703e876fa3deffcd1990c284a7c98e8dcc2d6f5d2d51625",
+  "cue": {
+    "line_id": "line_0013",
+    "template": "phrase-rise",
+    "layout": "center",
+    "palette": "impact",
+    "intensity": 0.6,
+    "emphasis": "",
+    "locked": false,
+    "whole_line_visible": true,
+    "intent": "邀请进入兔子洞，再否定常规成功叙事",
+    "groups": [
+      {
+        "text": "欢迎来到",
+        "word_indices": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "action": "reveal",
+        "emphasis": "",
+        "intensity": 0.45
+      },
+      {
+        "text": "我的兔子洞",
+        "word_indices": [
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "action": "push",
+        "emphasis": "兔子洞",
+        "intensity": 0.75
+      },
+      {
+        "text": "这里没有",
+        "word_indices": [
+          9,
+          10,
+          11,
+          12
+        ],
+        "action": "settle",
+        "emphasis": "没有",
+        "intensity": 0.5
+      },
+      {
+        "text": "所谓的成功",
+        "word_indices": [
+          13,
+          14,
+          15,
+          16,
+          17
+        ],
+        "action": "push",
+        "emphasis": "成功",
+        "intensity": 0.65
+      }
+    ]
+  }
+}

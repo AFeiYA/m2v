@@ -12,7 +12,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from src.motion_director import validate_plan, rule_plan, llm_prompt, director_input
+from src.motion_director import validate_plan, rule_plan, llm_prompt, director_input, line_prompt_bundle, line_response, cue_signature
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -20,6 +20,14 @@ class ProjectRequest(BaseModel):
     project_id: str
     style: Literal['impact', 'neon'] = 'impact'
     line_id: str | None = None
+    instruction: str = Field(default='', max_length=2000)
+
+class LineInputRequest(ProjectRequest):
+    line_id: str
+    instruction: str = Field(default='', max_length=2000)
+
+class LineApplyRequest(LineInputRequest):
+    response: dict
 
 class PlanRequest(ProjectRequest):
     plan: dict
@@ -101,6 +109,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
                 if not old or req.line_id not in {cue['line_id'] for cue in result['cues']}:
                     raise HTTPException(422, '局部重新导演需要有效的已保存句子')
                 result['cues'] = [cue if cue['line_id'] == req.line_id else next(c for c in old['cues'] if c['line_id'] == cue['line_id']) for cue in result['cues']]
+            result = validate_plan(payload, result).model_dump()
             atomic_write(plan_path(path), result)
         return result
 
@@ -108,26 +117,74 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
     def prompt(req: ProjectRequest):
         path, payload = read(req.project_id)
         try:
-            return {'input': director_input(payload), 'prompt': llm_prompt(payload, previous(path), req.style)}
+            return {'input': director_input(payload), 'prompt': llm_prompt(payload, previous(path), req.style, req.instruction)}
         except ValueError as exc: raise HTTPException(422, str(exc))
+
+    def checked_plan(payload, data, old, from_llm):
+        result = validate_plan(payload, data).model_dump()
+        if from_llm and old:
+            canonical = validate_plan(payload, old).model_dump()
+            locked = {cue['line_id']: cue for cue in canonical['cues'] if cue['locked']}
+            if locked and result['seed'] != canonical['seed']:
+                raise ValueError('存在锁定句子时不能改变随机种子')
+            for cue in result['cues']:
+                if cue['line_id'] in locked and cue != locked[cue['line_id']]:
+                    raise ValueError('LLM 方案修改了锁定句子，请保留锁定条目')
+        return result
+
+    @router.post('/director/validate')
+    def validate_full(req: PlanRequest):
+        with plan_lock:
+            _, payload = read(req.project_id)
+            path = project_path(req.project_id)
+            try: result = checked_plan(payload, req.plan, previous(path), req.from_llm)
+            except ValueError as exc: raise HTTPException(422, str(exc))
+        return {'valid': True, 'plan': result}
 
     @router.put('/plan')
     def save(req: PlanRequest):
         with plan_lock:
             path, payload = read(req.project_id)
-            try:
-                result = validate_plan(payload, req.plan).model_dump()
-                old = previous(path)
-                if req.from_llm and old:
-                    locked = {cue['line_id']: cue for cue in old['cues'] if cue.get('locked')}
-                    if locked and result['seed'] != old['seed']:
-                        raise ValueError('存在锁定句子时不能改变随机种子')
-                    for cue in result['cues']:
-                        if cue['line_id'] in locked and cue != locked[cue['line_id']]:
-                            raise ValueError('LLM 方案修改了锁定句子，请保留锁定条目')
+            try: result = checked_plan(payload, req.plan, previous(path), req.from_llm)
             except ValueError as exc: raise HTTPException(422, str(exc))
             atomic_write(plan_path(path), result)
         return result
+
+    @router.post('/director/line/input')
+    def line_input(req: LineInputRequest):
+        path, payload = read(req.project_id)
+        try: return line_prompt_bundle(payload, req.line_id, previous(path), req.style, req.instruction)
+        except ValueError as exc: raise HTTPException(422, str(exc))
+
+    def prepare_line(req, apply=False):
+        with plan_lock:
+            path, payload = read(req.project_id)
+            try:
+                response, compiled = line_response(payload, req.response, req.line_id)
+                old = previous(path)
+                baseline = validate_plan(payload, old) if old else None
+                if baseline:
+                    target = next(cue for cue in baseline.cues if cue.line_id == req.line_id)
+                    if target.locked: raise HTTPException(409, '当前句已锁定，请先解锁')
+                    if response.base_cue_signature != cue_signature(baseline, req.line_id):
+                        raise HTTPException(409, '当前句在提示词生成后已修改，请重新获取提示词')
+                elif response.base_cue_signature is not None:
+                    raise HTTPException(409, '原导演方案已移除，请重新获取提示词')
+                base = baseline or rule_plan(payload, style=req.style)
+                result = base.model_copy(deep=True)
+                result.cues = [response.cue if cue.line_id == req.line_id else cue for cue in result.cues]
+                result = validate_plan(payload, result.model_dump()).model_dump()
+            except ValueError as exc: raise HTTPException(422, str(exc))
+            if apply: atomic_write(plan_path(path), result)
+        return {'valid': True, 'applied': apply, 'cue': response.cue.model_dump(), 'compiled_groups': compiled, 'plan': result}
+
+    @router.post('/director/line/validate')
+    def validate_line(req: LineApplyRequest):
+        return prepare_line(req)
+
+    @router.post('/director/line/apply')
+    def apply_line(req: LineApplyRequest):
+        return prepare_line(req, apply=True)
 
     @router.post('/render', status_code=202)
     def render(req: RenderRequest):
