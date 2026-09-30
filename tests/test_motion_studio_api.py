@@ -131,3 +131,33 @@ def test_semantic_relations_persist_in_plan_store(song):
         response['base_cue_signature']=None
         response['cue']['poster']['relations'][0]['node_indices']=[5]
         assert client.post('/api/motion/director/line/validate',json={'project_id':id,'line_id':'line_0001','response':response}).status_code==422
+
+
+@pytest.mark.skipif(os.getenv('RUN_MOTION_RENDER')!='1',reason='需显式启用 Chrome/FFmpeg 成片测试')
+def test_portrait_export_preserves_readable_lyric_during_handover_gap(tmp_path):
+    from src.motion_director import rule_plan
+    from PIL import Image
+    root=Path(__file__).resolve().parents[1]
+    project={'title':'交接测试','duration':3,'lines':[
+        {'text':'引导 核心','start':.2,'end':1.0,'words':[{'word':'引导','start':.2,'end':.5},{'word':'核心','start':.5,'end':1.0}]},
+        {'text':'下一句','start':1.9,'end':2.8,'words':[{'word':'下一句','start':1.9,'end':2.8}]}]}
+    plan=rule_plan(project).model_dump()
+    from src.motion_director import example_poster
+    from src.motion_director import director_input
+    for cue,row in zip(plan['cues'],director_input(project)['lines']):
+        cue['poster']=example_poster(row).model_dump();cue['poster']['transition_out']='fade'
+    project['motion_plan']=plan
+    audio=tmp_path/'audio.wav';sf.write(audio,np.zeros(22050*3),22050)
+    job=tmp_path/'job.json';video=tmp_path/'portrait.mp4'
+    job.write_text(json.dumps({'project':project,'options':{'aspect':'9:16','height':720},'start':0,'length':3,'audioPath':str(audio)}))
+    result=subprocess.run([shutil.which('node'),str(root/'frontend/motion/scripts/render-remotion.mjs'),str(job),str(video)],capture_output=True,text=True,timeout=120)
+    assert result.returncode==0,result.stderr
+    info=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-of','json',str(video)]))
+    v=next(s for s in info['streams'] if s['codec_type']=='video');assert (v['width'],v['height'],int(v['nb_frames']))==(720,1280,90)
+    assert any(s['codec_type']=='audio' for s in info['streams'])
+    values=[]
+    for time,name in [(0,'empty'),(1.2,'gap'),(2.3,'next')]:
+        path=tmp_path/(name+'.png')
+        subprocess.run(['ffmpeg','-v','error','-ss',str(time),'-i',str(video),'-frames:v','1',str(path)],check=True)
+        values.append(np.asarray(Image.open(path).convert('RGB'),dtype=float).std(axis=(0,1)).max())
+    assert values[0]<3 and values[1]>10 and values[2]>10

@@ -2,8 +2,8 @@ import type {Line, CuePlan, PosterDirection, Project} from './model';
 export const POSTER_FONT='"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
 export type Metrics={width:number;ascent:number;descent:number};
 export type Measure=(text:string,size:number,weight:number)=>Metrics;
-export type CompiledNode={text:string;word_indices:number[];x:number;y:number;width:number;height:number;fontSize:number;weight:number;color:string;rows:{text:string;x:number;y:number}[];start:number;settled:number;hold:'none'|'drift';beat_reaction:'none'|'pulse';entrance:PosterDirection['nodes'][number]['entrance']};
-export type CompiledPoster={version:'motion-poster-layout-v1';line_id:string;source:'director'|'automatic';width:number;height:number;background:string;accent:string;motif:'none'|'rings';layout:PosterDirection['layout'];transition_out:'cut'|'fade';relations:NonNullable<PosterDirection['relations']>;start:number;end:number;nodes:CompiledNode[]};
+export type CompiledNode={text:string;word_indices:number[];role:'primary'|'secondary'|'support';x:number;y:number;width:number;height:number;fontSize:number;weight:number;color:string;rows:{text:string;x:number;y:number}[];start:number;settled:number;hold:'none'|'drift';beat_reaction:'none'|'pulse';entrance:PosterDirection['nodes'][number]['entrance']};
+export type CompiledPoster={version:'motion-poster-layout-v1';line_id:string;source:'director'|'automatic';width:number;height:number;background:string;accent:string;motif:'none'|'rings';layout:PosterDirection['layout'];transition_out:'cut'|'fade';relations:NonNullable<PosterDirection['relations']>;start:number;end:number;handover?:{mode:'cut'|'fade'|'layered-fade';visible_end:number;exit_start:number;primary_exit_start:number;next_start:number|null};nodes:CompiledNode[]};
 
 export function automaticPoster(line:Line,palette='impact'):PosterDirection {
   let blocks:{text:string;word_indices:number[]}[]=[];
@@ -28,11 +28,12 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
   const nodes:CompiledNode[]=[];
   const short=Array.from(line.text.replace(/\s/g,'')).length<=6;
   const section=(line.section||'').toLowerCase();
-  const maxHeight=H*(dense?.48:section.includes('chorus')?.66:section.includes('verse')?.48:.56);
-  const gap=H*.009,padding=H*.008,width=W*.80;
+  const portrait=H>W,chorus=section.includes('chorus')||section.includes('副歌'),verse=section.includes('verse')||section.includes('主歌');
+  const maxHeight=H*(portrait?(dense?.40:chorus?.48:.44):(dense?.48:chorus?.66:verse?.48:.56));
+  const gap=portrait?W*.012:H*.009,padding=portrait?W*.012:H*.008,width=W*(portrait?.78:.80);
   const fitted=design.nodes.map(n=>{
     const weight=n.role==='primary'?900:n.role==='secondary'?800:600;
-    let size=H*(n.role==='primary'?(short?.28:.18):n.role==='secondary'?.07:.045);
+    let size=portrait?W*(n.role==='primary'?(short?.30:.22):n.role==='secondary'?.075:.055):H*(n.role==='primary'?(short?.28:.18):n.role==='secondary'?.07:.045);
     const maxWidth=width-W*.018;
     let rows=rowsFor(n.text,size,weight,maxWidth,measure);
     for(let attempt=0;attempt<100&&rows.length>3;attempt++){size*=.92;rows=rowsFor(n.text,size,weight,maxWidth,measure);}
@@ -50,7 +51,7 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
   const primaryIndex=fitted.findIndex(f=>f.n.role==='primary');
   const before=heights.slice(0,primaryIndex).reduce((a,b)=>a+b+gap,0);
   // Keep the primary near one central baseline while retaining safe bounds.
-  let y=Math.max(H*.12,Math.min(H*.88-totalHeight,H*.5-before-heights[primaryIndex]/2));
+  let y=Math.max(H*(portrait?.16:.12),Math.min(H*(portrait?.74:.88)-totalHeight,H*(portrait?.42:.5)-before-heights[primaryIndex]/2));
   for(let i=0;i<fitted.length;i++){
     const {n,weight,size,rows}=fitted[i],height=heights[i];
     const shift=design.layout==='staggered'?(i%2?W*.025:-W*.025):0;
@@ -61,7 +62,7 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     const start=Math.max(line.start,a?.start??line.start),end=Math.min(line.end,b?.end??line.end);
     const entrance=n.entrance!=='none'&&(dense||end-start<.16)?'fade':n.entrance;
     const duration=entrance==='none'?0:Math.min(.6,Math.max(1/30,(end-start)*n.settle_fraction),Math.max(0,(line.end-start)*.5));
-    nodes.push({text:n.text,word_indices:[...n.word_indices],x,y,width,height,fontSize:size,weight,color:n.color_role==='accent'?design.accent:n.color_role==='muted'?muted:foreground,rows:resolved,start,settled:start+duration,hold:dense?'none':n.hold||'none',beat_reaction:n.role==='primary'&&!dense?(n.beat_reaction||'none'):'none',entrance});
+    nodes.push({text:n.text,role:n.role,word_indices:[...n.word_indices],x,y,width,height,fontSize:size,weight,color:n.color_role==='accent'?design.accent:n.color_role==='muted'?muted:foreground,rows:resolved,start,settled:start+duration,hold:dense?'none':n.hold||'none',beat_reaction:n.role==='primary'&&!dense?(n.beat_reaction||'none'):'none',entrance});
     y+=height+gap;
   }
   return {version:'motion-poster-layout-v1',line_id:line.id,source:cue?.poster?'director':'automatic',width:W,height:H,background:design.background,accent:design.accent,motif:design.motif,layout:design.layout,transition_out:design.transition_out,relations:(design.relations||[]).map(r=>({...r,node_indices:[...r.node_indices]})),start:line.start,end:line.end,nodes};
@@ -74,7 +75,7 @@ export function compileSongPosters(project:Project,W:number,H:number,measure:Mea
   const accent=visual?.accent||first?.accent||'#c1ee47';
   const motif=first?.motif||'none';
   const recurring=new Map<string,PosterDirection>();
-  return project.lines.map(line=>{
+  const layouts=project.lines.map(line=>{
     const cue=project.motion_plan?.cues.find(c=>c.line_id===line.id);
     let design=cue?.poster||automaticPoster(line,cue?.palette);
     const key=line.text.replace(/\s/g,''),previous=recurring.get(key);
@@ -84,6 +85,21 @@ export function compileSongPosters(project:Project,W:number,H:number,measure:Mea
     const result=compilePoster(line,{...cue,poster:{...design,background,accent,motif}} as CuePlan,W,H,measure);
     result.source=cue?.poster?'director':'automatic';return result;
   });
+  for(let i=0;i<layouts.length;i++)bindHandover(layouts[i],layouts[i+1]?.start??null,project.duration);
+  return layouts;
+}
+export function bindHandover(plan:CompiledPoster,nextStart:number|null,duration:number){
+  const boundary=Math.min(duration,nextStart??duration);
+  const gap=Math.max(0,boundary-plan.end);
+  // Short gaps hand off at the next anchor; long instrumental gaps breathe after a bounded tail.
+  const visibleEnd=Math.max(plan.start,Math.min(boundary,plan.end+(gap>1.5?1.2:gap)));
+  const complete=Math.max(...plan.nodes.map(n=>n.settled));
+  const exitStart=Math.min(visibleEnd,Math.max(plan.end,complete+.18,visibleEnd-(gap<=.22?.12:.36)));
+  const layered=visibleEnd-exitStart>=.18;
+  plan.handover={mode:plan.transition_out==='cut'||exitStart>=visibleEnd?'cut':layered?'layered-fade':'fade',visible_end:visibleEnd,exit_start:exitStart,primary_exit_start:layered?Math.min(visibleEnd-.06,exitStart+.10):exitStart,next_start:nextStart};
+}
+export function visiblePosterAt(layouts:CompiledPoster[],t:number):CompiledPoster|undefined{
+  return layouts.filter(p=>t>=p.start&&t<(p.handover?.visible_end??p.end)).at(-1);
 }
 export function stageAt(layouts:CompiledPoster[],t:number):CompiledPoster|undefined{
   return layouts.find(p=>t>=p.start&&t<p.end)||layouts.filter(p=>p.start<=t).at(-1)||layouts[0];
@@ -94,20 +110,33 @@ export function posterNodeState(node:CompiledNode,t:number,H:number){
   const progress=node.settled===node.start?1:clamp((t-node.start)/(node.settled-node.start)),ease=1-Math.pow(1-progress,3);
   return {alpha:node.entrance==='none'?1:ease,dx:node.entrance==='slide-left'?-(1-ease)*H*.025:0,dy:node.entrance==='slide-up'?(1-ease)*H*.025:0,scale:node.entrance==='scale-in'?.92+.08*ease:1};
 }
-export function posterOpacity(plan:CompiledPoster,t:number){
+export function posterExitOpacity(plan:CompiledPoster,node:CompiledNode,t:number){
+  if(!plan.handover)return posterOpacity(plan,t);
+  const h=plan.handover;
+  if(t<plan.start||t>=h.visible_end)return 0;
+  if(h.mode==='cut')return 1;
+  const start=node.role==='primary'?h.primary_exit_start:h.exit_start;
+  return start>=h.visible_end?1:1-clamp((t-start)/(h.visible_end-start));
+}
+export function posterOpacity(plan:CompiledPoster,t:number):number{
+  if(plan.handover)return Math.max(...plan.nodes.map(n=>posterExitOpacity(plan,n,t)));
   if(t<plan.start||t>=plan.end)return 0;
   if(plan.transition_out==='cut')return 1;
   const settled=Math.max(...plan.nodes.map(n=>n.settled));
   const start=Math.max(settled,plan.end-.15);return start>=plan.end?1:1-clamp((t-start)/(plan.end-start));
 }
+export function posterRings(W:number,H:number){
+  const portrait=H>W;
+  return [0,1,2].map(i=>({cx:W*(portrait?.96:.81),cy:H*(portrait?.14:.20),rx:W*(portrait?(.20+i*.022):(.08+i*.012)),ry:portrait?W*(.20+i*.022):H*(.12+i*.017),opacity:portrait?.24:1}));
+}
 export function paintCompiledPoster(c:CanvasRenderingContext2D,plan:CompiledPoster,t?:number,beat=0){
   const W=plan.width,H=plan.height;c.save();c.clearRect(0,0,W,H);c.fillStyle=plan.background;c.fillRect(0,0,W,H);
-  c.globalAlpha=t===undefined?1:posterOpacity(plan,t);
-  if(plan.motif==='rings'){c.strokeStyle=plan.accent;c.lineWidth=H*.003;for(let i=0;i<3;i++){c.beginPath();c.ellipse(W*.81,H*.20,W*(.08+i*.012),H*(.12+i*.017),0,0,Math.PI*2);c.stroke();}}
+  c.globalAlpha=1;
+  if(plan.motif==='rings'){c.strokeStyle=plan.accent;c.lineWidth=Math.min(W,H)*.003;for(const ring of posterRings(W,H)){c.globalAlpha=ring.opacity;c.beginPath();c.ellipse(ring.cx,ring.cy,ring.rx,ring.ry,0,0,Math.PI*2);c.stroke();}c.globalAlpha=1;}
   const complete=Math.max(...plan.nodes.map(n=>n.settled));
   const alpha=c.globalAlpha;c.textAlign='left';c.textBaseline='alphabetic';
   for(const n of plan.nodes){const state=t===undefined?{alpha:1,dx:0,dy:0,scale:1}:posterNodeState(n,t,H);if(!state.alpha)continue;
-    c.save();c.globalAlpha=alpha*state.alpha;const holding=t!==undefined&&t>=complete;
+    c.save();c.globalAlpha=alpha*state.alpha*(t===undefined?1:posterExitOpacity(plan,n,t));const holding=t!==undefined&&t>=complete;
     const drift=holding&&n.hold==='drift'?Math.sin((t!-complete)*1.4)*H*.002:0;
     const pulse=holding&&n.beat_reaction==='pulse'?1+Math.max(0,Math.min(1,beat))*.012:1;
     c.translate(n.x+n.width/2+state.dx,n.y+n.height/2+state.dy+drift);c.scale(state.scale*pulse,state.scale*pulse);

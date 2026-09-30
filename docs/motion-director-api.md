@@ -83,3 +83,5 @@ Studio 现使用 React / Remotion 4.0.530。Canvas 测量文字，SVG 文本按�
 `poster.relations` 可省略（旧方案默认 `[]`），每项包含 `kind`、`node_indices`、`intent`。kind 为 guidance/contrast/negation/repetition/spatial，分别表示引导、对照、否定、重复、空间意象。引用从零开始的 `poster.nodes` 索引，不是 alignment 的 word_indices。引用必须存在、唯一；引导按阅读引导方向排列，引导/对照至少引用两个节点；其他关系可在一个文字块内部。没有明确关系时为空，不能强行凑齐五类。校验只保证引用和协议正确，语义判断仍由导演与人工复核。
 
 关系作为导演意图保存、导入、下载，并在 Studio 逐句调整区展示。当前不会自动改变排版或新增动画，也不接受坐标、时间或任意代码。旧无关系方案的单句签名保持不变；添加或修改关系会更新签名，防止旧返回覆盖新意图。具体五节点示例见 `examples/rabbit-hole-line-response.json`。
+
+Studio 的 cut/fade 已接入按下一句起点编译的有限驻留与交接，原 end 不变，详见 motion-studio-director.md。横竖屏无需另写导演数据，竖屏几何由编译器生成。

@@ -96,7 +96,7 @@ test('compact stacks keep the primary anchor and enforce typographic hierarchy',
   const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
   const p=compilePoster(line,cue,W,H,measure),hero=p.nodes[primary];
   assert.ok(Math.abs(hero.y+hero.height/2-H*.5)<=H*.2);
-  assert.ok(p.nodes.at(-1)!.y+p.nodes.at(-1)!.height-p.nodes[0].y<=H*.56+1e-6);
+  assert.ok(p.nodes.at(-1)!.y+p.nodes.at(-1)!.height-p.nodes[0].y<=H*(H>W?.44:.56)+1e-6);
   for(const [i,n] of p.nodes.entries())if(i!==primary)assert.ok(n.fontSize<=hero.fontSize*.55+1e-6);
  }
 });
@@ -115,5 +115,36 @@ test('song stage persists across gaps and repeated posters retain composition wi
  assert.deepEqual(layouts[0].nodes.map(n=>n.rows),layouts[1].nodes.map(n=>n.rows));
  assert.equal(layouts[1].nodes[0].start,5);
  assert.equal(stageAt(layouts,4),layouts[0]);assert.equal(stageAt(layouts,0),layouts[0]);
- assert.equal(posterOpacity(stageAt(layouts,4)!,4),0);
+ assert.equal(posterOpacity(stageAt(layouts,4)!,4),1);assert.equal(posterOpacity(stageAt(layouts,4.3)!,4.3),0);
+});
+
+
+test('handover holds the poster then retires support before primary without changing alignment',async()=>{
+ const {bindHandover,posterExitOpacity,visiblePosterAt}=await import('./poster-layout.ts');
+ const line={id:'line_1',text:'引导 核心',start:1,end:3,words:[{word:'引导',start:1,end:2},{word:'核心',start:2,end:3}]};
+ const poster=automaticPoster(line);poster.transition_out='fade';poster.nodes[0].role='secondary';poster.nodes[1].role='primary';
+ const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
+ const p=compilePoster(line,cue,1280,720,measure);bindHandover(p,4,8);
+ assert.equal(p.end,3);assert.equal(p.handover?.visible_end,4);
+ assert.equal(posterExitOpacity(p,p.nodes[0],3.2),1);
+ const t=p.handover!.exit_start+.05;
+ assert.ok(posterExitOpacity(p,p.nodes[0],t)<posterExitOpacity(p,p.nodes[1],t));
+ assert.equal(visiblePosterAt([p],3.5),p);assert.equal(visiblePosterAt([p],4),undefined);
+ bindHandover(p,3,8);assert.equal(p.handover?.mode,'cut');assert.equal(posterOpacity(p,2.99),1);
+ bindHandover(p,12,15);assert.ok(p.handover!.visible_end<=4.2);
+ bindHandover(p,null,3);assert.equal(p.handover?.visible_end,3);
+ bindHandover(p,2.8,8);assert.equal(p.handover?.visible_end,2.8);
+});
+
+
+test('portrait uses readable short rows and an upper reading field with quiet edge decoration',async()=>{
+ const {posterRings}=await import('./poster-layout.ts');
+ const line={id:'line_1',text:'别试图呼救你的声音 本身就是一种 幻梦',start:1,end:9,words:['别试图呼救你的声音','本身就是一种','幻梦'].map((word,i)=>({word,start:1+i*2,end:3+i*2}))};
+ const poster=automaticPoster(line);poster.nodes.forEach((n,i)=>n.role=i===2?'primary':i===0?'secondary':'support');
+ const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
+ const p=compilePoster(line,cue,720,1280,measure),hero=p.nodes[2];
+ assert.ok(Math.abs(hero.y+hero.height/2-1280*.42)<1e-6);
+ assert.ok(hero.rows.length===1);assert.ok(p.nodes[0].fontSize>=720*.06);
+ assert.ok(p.nodes.every(n=>n.y>=1280*.16&&n.y+n.height<=1280*.74));
+ assert.ok(posterRings(720,1280).every(r=>r.opacity<=.25&&r.cx>720*.9&&r.rx===r.ry));
 });
