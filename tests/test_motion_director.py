@@ -145,3 +145,40 @@ def test_hold_reactivity_is_bounded_to_supported_intents_and_primary(project):
     with pytest.raises(ValueError):line_response(project,data,'line_0003')
     node.update(beat_reaction='pulse',role='secondary')
     with pytest.raises(ValueError):line_response(project,data,'line_0003')
+
+
+def test_semantic_relations_round_trip_and_old_signatures_stay_valid(project):
+    from src.motion_director import line_prompt_bundle,line_response,cue_signature
+    import hashlib
+    plan=rule_plan(project)
+    bundle=line_prompt_bundle(project,'line_0003')
+    poster=bundle['response_example']['cue']['poster']
+    poster['nodes']=[{**poster['nodes'][0],'text':'放大','word_indices':[0]},
+                     {**poster['nodes'][0],'text':'这一刻','word_indices':[1],'role':'secondary'}]
+    poster['relations']=[{'kind':'guidance','node_indices':[0,1],'intent':'放大引导阅读焦点到这一刻'}]
+    response,_=line_response(project,bundle['response_example'],'line_0003')
+    plan.cues[1]=response.cue
+    assert validate_plan(project,plan.model_dump()).cues[1].poster.relations[0].node_indices==[0,1]
+    assert 'semantic_relations' in director_input(project)['capabilities']
+    assert 'PosterRelation' in bundle['input']['output_schema']['$defs']
+    empty=copy.deepcopy(bundle['response_example']);empty['cue']['poster'].pop('relations')
+    old,_=line_response(project,empty,'line_0003');plan.cues[1]=old.cue
+    legacy=old.cue.model_dump();legacy['poster'].pop('relations')
+    expected=hashlib.sha256(json.dumps({'cue':legacy,'seed':plan.seed},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+    assert cue_signature(plan,'line_0003')==expected
+
+
+@pytest.mark.parametrize('bad',['negative','missing','duplicate','bool','unknown','coordinate','single_contrast'])
+def test_invalid_semantic_relation_rejected(project,bad):
+    from src.motion_director import line_prompt_bundle,line_response
+    data=line_prompt_bundle(project,'line_0003')['response_example']
+    relation={'kind':'spatial','node_indices':[0],'intent':'单块内部的空间意象'}
+    if bad=='negative':relation['node_indices']=[-1]
+    elif bad=='missing':relation['node_indices']=[1]
+    elif bad=='duplicate':relation['node_indices']=[0,0]
+    elif bad=='bool':relation['node_indices']=[True]
+    elif bad=='unknown':relation['kind']='glitch'
+    elif bad=='coordinate':relation['x']=100
+    else:relation['kind']='contrast'
+    data['cue']['poster']['relations']=[relation]
+    with pytest.raises(ValueError):line_response(project,data,'line_0003')

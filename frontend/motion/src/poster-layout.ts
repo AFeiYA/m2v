@@ -3,7 +3,7 @@ export const POSTER_FONT='"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",san
 export type Metrics={width:number;ascent:number;descent:number};
 export type Measure=(text:string,size:number,weight:number)=>Metrics;
 export type CompiledNode={text:string;word_indices:number[];x:number;y:number;width:number;height:number;fontSize:number;weight:number;color:string;rows:{text:string;x:number;y:number}[];start:number;settled:number;hold:'none'|'drift';beat_reaction:'none'|'pulse';entrance:PosterDirection['nodes'][number]['entrance']};
-export type CompiledPoster={version:'motion-poster-layout-v1';line_id:string;source:'director'|'automatic';width:number;height:number;background:string;accent:string;motif:'none'|'rings';layout:PosterDirection['layout'];transition_out:'cut'|'fade';start:number;end:number;nodes:CompiledNode[]};
+export type CompiledPoster={version:'motion-poster-layout-v1';line_id:string;source:'director'|'automatic';width:number;height:number;background:string;accent:string;motif:'none'|'rings';layout:PosterDirection['layout'];transition_out:'cut'|'fade';relations:NonNullable<PosterDirection['relations']>;start:number;end:number;nodes:CompiledNode[]};
 
 export function automaticPoster(line:Line,palette='impact'):PosterDirection {
   let blocks:{text:string;word_indices:number[]}[]=[];
@@ -64,7 +64,7 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     nodes.push({text:n.text,word_indices:[...n.word_indices],x,y,width,height,fontSize:size,weight,color:n.color_role==='accent'?design.accent:n.color_role==='muted'?muted:foreground,rows:resolved,start,settled:start+duration,hold:dense?'none':n.hold||'none',beat_reaction:n.role==='primary'&&!dense?(n.beat_reaction||'none'):'none',entrance});
     y+=height+gap;
   }
-  return {version:'motion-poster-layout-v1',line_id:line.id,source:cue?.poster?'director':'automatic',width:W,height:H,background:design.background,accent:design.accent,motif:design.motif,layout:design.layout,transition_out:design.transition_out,start:line.start,end:line.end,nodes};
+  return {version:'motion-poster-layout-v1',line_id:line.id,source:cue?.poster?'director':'automatic',width:W,height:H,background:design.background,accent:design.accent,motif:design.motif,layout:design.layout,transition_out:design.transition_out,relations:(design.relations||[]).map(r=>({...r,node_indices:[...r.node_indices]})),start:line.start,end:line.end,nodes};
 }
 // Song stage remains continuous; saved direction and alignment are not mutated.
 export function compileSongPosters(project:Project,W:number,H:number,measure:Measure):CompiledPoster[]{

@@ -97,6 +97,24 @@
           "hold": "none",
           "beat_reaction": "none"
         }
+      ],
+      "relations": [
+        {
+          "kind": "guidance",
+          "node_indices": [
+            0,
+            2
+          ],
+          "intent": "欢迎来到邀请观众进入兔子洞，核心意象承接邀请"
+        },
+        {
+          "kind": "negation",
+          "node_indices": [
+            3,
+            4
+          ],
+          "intent": "这里没有否定所谓的成功，后半句收束并挑战常规成功叙事"
+        }
       ]
     }
   }

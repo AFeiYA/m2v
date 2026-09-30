@@ -108,6 +108,12 @@ $('play-cue').onclick=action(async()=>{
 
 function renderPosterNodes(line:import('./model').Line,cue:import('./model').CuePlan){
  const host=$('poster-node-editor');host.replaceChildren();const direction=cue.poster||automaticPoster(line,cue.palette);
+ const relations=document.createElement('div');relations.setAttribute('aria-label','歌词语义关系');
+ const names={guidance:'引导',contrast:'对照',negation:'否定',repetition:'重复',spatial:'空间意象'};
+ if(direction.relations?.length){for(const relation of direction.relations){const item=document.createElement('p');item.textContent=`${names[relation.kind]} · ${relation.node_indices.map(i=>direction.nodes[i]?.text||'无效节点').join(' → ')}：${relation.intent}`;relations.append(item);}}
+ else relations.textContent='暂无语义关系，可通过新版 LLM 提示词规划。';
+ const help=document.createElement('small');help.textContent='关系用于记录导演意图；当前动画仍由下方节点参数控制。';relations.append(help);host.append(relations);
+
  direction.nodes.forEach((node,i)=>{
   const card=document.createElement('div');card.style.cssText='padding:12px 0;border-bottom:1px solid #263530';
   const title=document.createElement('strong');title.textContent=node.text;title.style.display='block';card.append(title);

@@ -114,3 +114,20 @@ def test_single_line_validate_apply_conflict_and_other_cues(song):
         assert client.post('/api/motion/director/line/apply',json={**request,'response':fresh['response_example']}).status_code==409
         unknown=client.post('/api/motion/director/line/input',json={**request,'line_id':'line_9999'})
         assert unknown.status_code==422
+
+
+def test_semantic_relations_persist_in_plan_store(song):
+    path,id=song
+    with TestClient(app) as client:
+        plan=client.post('/api/motion/director/rules',json={'project_id':id}).json()
+        bundle=client.post('/api/motion/director/line/input',json={'project_id':id,'line_id':'line_0001'}).json()
+        response=bundle['response_example']
+        relation={'kind':'spatial','node_indices':[0],'intent':'整句中的空间意象；仅为导演数据'}
+        response['cue']['poster']['relations']=[relation]
+        applied=client.post('/api/motion/director/line/apply',json={'project_id':id,'line_id':'line_0001','response':response})
+        assert applied.status_code==200,applied.text
+        saved=client.get('/api/motion/project',params={'project_id':id}).json()['plan']
+        assert saved['cues'][0]['poster']['relations']==[relation]
+        response['base_cue_signature']=None
+        response['cue']['poster']['relations'][0]['node_indices']=[5]
+        assert client.post('/api/motion/director/line/validate',json={'project_id':id,'line_id':'line_0001','response':response}).status_code==422

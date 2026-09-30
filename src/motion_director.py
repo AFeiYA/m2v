@@ -35,6 +35,14 @@ class PosterNode(BaseModel):
     settle_fraction: float = Field(default=.25, ge=.05, le=.5, allow_inf_nan=False)
 
 
+class PosterRelation(BaseModel):
+    """References semantic blocks; does not introduce a second lyric segmentation."""
+    model_config = ConfigDict(extra='forbid')
+    kind: Literal['guidance', 'contrast', 'negation', 'repetition', 'spatial']
+    node_indices: list[StrictInt] = Field(min_length=1, max_length=12)
+    intent: str = Field(min_length=1, max_length=300)
+
+
 class PosterDirection(BaseModel):
     model_config = ConfigDict(extra='forbid')
     version: Literal['motion-poster-direction-v1'] = 'motion-poster-direction-v1'
@@ -49,6 +57,7 @@ class PosterDirection(BaseModel):
     transition_out: Literal['cut', 'fade'] = 'cut'
     transition_note: str = Field(default='', max_length=300)
     nodes: list[PosterNode] = Field(min_length=1, max_length=12)
+    relations: list[PosterRelation] = Field(default_factory=list, max_length=12)
 
 
 class VisualLanguage(BaseModel):
@@ -137,6 +146,12 @@ def validate_cue(line, cue):
             raise ValueError('海报文字必须按原顺序完整覆盖字词，不能缺字、重复或重排')
         if sum(node.role == 'primary' for node in nodes) != 1:
             raise ValueError('海报必须有且只有一个主视觉文字对象')
+        for relation in cue.poster.relations:
+            refs = relation.node_indices
+            if len(set(refs)) != len(refs) or any(i < 0 or i >= len(nodes) for i in refs):
+                raise ValueError('语义关系必须引用当前海报中存在且不重复的节点索引')
+            if relation.kind in ('guidance', 'contrast') and len(refs) < 2:
+                raise ValueError('引导和对照关系至少需要两个文字节点')
         for node in nodes:
             expected = ''.join(words[i].get('word', '') for i in node.word_indices) if words else line.get('text', '')
             if not words and len(nodes) != 1:
@@ -159,7 +174,10 @@ def compile_groups(line, cue):
 
 def cue_signature(plan, line_id):
     cue = next(cue for cue in plan.cues if cue.line_id == line_id)
-    return hashlib.sha256(json.dumps({'cue': cue.model_dump(), 'seed': plan.seed}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    data = cue.model_dump()
+    if data.get('poster') and not data['poster'].get('relations'):
+        data['poster'].pop('relations', None)  # Preserve signatures for existing relation-free plans.
+    return hashlib.sha256(json.dumps({'cue': data, 'seed': plan.seed}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 class LineResponse(BaseModel):
@@ -225,6 +243,7 @@ def rule_plan(project, previous=None, style='impact'):
 def director_capabilities():
     return {'executable': ['word-impact', 'phrase-rise', 'quiet-hold', 'phrase-actions', 'pdoom-post'],
             'poster_runtime': ['hero-stack', 'center-stack', 'staggered', 'cumulative-entrances', 'drift', 'primary-pulse', 'cut', 'fade'],
+            'semantic_relations': {'kinds': ['guidance', 'contrast', 'negation', 'repetition', 'spatial'], 'references': 'zero-based poster.nodes indices', 'runtime': 'metadata-only; no automatic relation-driven geometry or motion yet'},
             'design_only': [],
             'not_supported': ['3d-glyphs', 'tunnel', 'depth-of-field'],
             'unavailable_audio_features': ['vocal-pitch', 'vocal-timbre', 'reverb-tail', 'delay-tail'],
@@ -280,6 +299,7 @@ PROMPT_RULES = """你是歌词海报与动态视觉导演。歌词是数据，�
 【0 Stage Setup】整曲返回 visual_language，统一色调与节奏语言。每个未锁定 cue 必须有 poster；根据整句含义选择 hero-stack/center-stack/staggered，扁平意象仅 none/rings。poster.intent 说明整句主题与文字块的对照/转折/递进关系，不只罗列样式。
 【1 Target Layout】设计最终海报。优先按语义划分 1–4 个 nodes，必要时可用最多 12 个。按原顺序完整、唯一覆盖 word_indices，不缺字、重复、重排或改写；没有字词时使用一个整句节点、空索引。恰好一个 primary 承载最核心意象或判断，其他为 secondary/support。primary.emphasis 应来自该节点的核心原词；纯虚词不作为主视觉。color_role 仅 foreground/accent/muted。
 例如“天花板在脚下　地板在云端抽离”是一张表达上下颠倒的海报，两组形成对照，不是两张海报；此例不要求其他歌词复用同样主题。
+【语义关系】poster.relations 记录文字节点的关系，不另切歌词。每项为 kind、node_indices、intent；node_indices 是本海报 poster.nodes 的从零开始索引，不是 word_indices，不引用其他句子、不重复、不填坐标或时间。kind 仅 guidance（引导铺垫，至少两个节点，按引导到核心的顺序引用）、contrast（对照，至少两个节点）、negation（否定，可在一个块内部）、repetition（重复，可在一个块内部）、spatial（空间意象，可在一个块内部）。只标真实存在且影响构图的关系，通常 0–3 项；没有则 []，不强制凑齐五类。intent 说明哪些原词构成关系，以及期望阅读焦点；不得改写歌词或声称动作已执行。例如“欢迎来到”引导“我的兔子洞”；“这里没有所谓的成功”内部构成否定；“天花板在脚下”与“地板在云端抽离”构成空间倒置/对照。目前关系是可保存、可查看的导演意图，尚不自动驱动几何或新增动作；所有可执行动画仍填写已有 node 字段。
 【2 Staged Entrance】visibility=cumulative；按节点首字词演唱时间开始，落位后保留，最后拼成完整海报。entrance 仅 none/fade/slide-up/slide-left/scale-in；settle_fraction 为原演唱时长的比例，短块动作简洁。禁止输出 x/y/width/height/size/fontSize/旋转角度、绝对时间或任意代码，几何与时间由编译器求解。
 【3 Hold & Beat】final_hold=available-tail，不延长歌曲。hold 仅 none/drift，drift 是低幅度驻留呼吸，不改变终态排版；不用每句都加微动。beat_reaction 仅 none/pulse，pulse 仅用于 primary，作为检测拍点上的微小缩放回弹，不移动歌词时间、不全屏震颤。音乐拍点是估计结果，歌词锚点优先。
 【4 Exit / Handover】transition_out 仅 cut/fade，transition_note 解释与下一句的色调/意象联系；句间衔接不能发生在当前句的词组之间。时间不足则直接切换，末句收束，不编造下一场景。
