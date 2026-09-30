@@ -86,6 +86,11 @@ class SongAnalysis(BaseModel):
     drum_hits: list[dict[str, Any]] = Field(default_factory=list, description="鼓点打击事件 (Kick, Snare, Hi-Hat)")
     cut_candidates: list[MusicCutPoint] = Field(default_factory=list, description="推荐硬切剪辑点序列")
     sections: list[MusicSection] = Field(default_factory=list, description="解析出的乐段骨架")
+    feature_rate_hz: int = Field(default=100, description="连续动效特征采样率")
+    envelopes: list[dict[str, float]] = Field(default_factory=list, description="连续特征 [{time,rms,low,mid,high,flux}]")
+    onsets: list[dict[str, float]] = Field(default_factory=list, description="瞬态起音 [{time,strength}]")
+    section_candidates: list[dict[str, float]] = Field(default_factory=list, description="能量转折候选，不代表主副歌识别")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="分析来源、算法版本、缓存指纹与估计可信度")
 
 
 # ============================================================================

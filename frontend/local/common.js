@@ -233,6 +233,7 @@ async function loadSong(idx) {
     const r = await fetch("/api/alignment?path=" + encodeURIComponent(file.json_path));
     if (!r.ok) throw new Error(await r.text());
     state.alignment = await r.json();
+    updateAudioAnalysisSummary();
   } catch (e) {
     status("对齐数据加载失败: " + e, true);
     state.alignment = null;
@@ -689,3 +690,51 @@ window.addEventListener("DOMContentLoaded", () => {
 window.addEventListener("beforeunload", (e) => {
   if (state.dirty) { e.preventDefault(); e.returnValue = ""; }
 });
+
+window.addEventListener("DOMContentLoaded", () => {
+  const button = document.getElementById("btn-analyze-audio");
+  if (!button) return;
+  button.addEventListener("click", async () => {
+    if (!state.currentFile || !state.alignment) return status("请先选择歌曲", true);
+    const song = state.currentFile;
+    button.disabled = true;
+    try {
+      status("正在分析原曲节拍、能量和频段变化…");
+      const response = await fetch("/api/audio/analyze", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({json_path: song.json_path})});
+      if (!response.ok) throw new Error(await response.text());
+      const task = await response.json();
+      let result;
+      do {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const poll = await fetch("/api/audio/analyze/" + task.task_id);
+        if (!poll.ok) throw new Error(await poll.text());
+        result = await poll.json();
+      } while (result.status === "running");
+      if (result.status !== "done") throw new Error(result.error || "分析失败");
+      if (state.currentFile === song) {
+        const updated = await fetch("/api/alignment?path=" + encodeURIComponent(song.json_path));
+        if (!updated.ok) throw new Error(await updated.text());
+        const project = await updated.json();
+        // Retain unsaved lyric edits in the open editor.
+        state.alignment.analysis = project.analysis;
+        state.alignment.audio_path = project.audio_path;
+        state.alignment.duration = project.duration;
+        updateAudioAnalysisSummary();
+      }
+      status(`音频分析完成：${result.bpm ? result.bpm + " BPM" : "未检测到稳定节拍"}，${result.beats} 个拍点，100Hz 特征${result.cache_hit ? "（缓存）" : ""}；重拍和鼓点类别为估计值`);
+    } catch (error) {
+      status("音频分析失败：" + error.message, true);
+    } finally { button.disabled = false; }
+  });
+});
+
+function updateAudioAnalysisSummary() {
+  const panel = document.getElementById("audio-analysis-summary");
+  if (!panel) return;
+  const analysis = state.alignment?.analysis;
+  if (!analysis?.envelopes?.length) {
+    panel.textContent = "音频特征尚未分析 · 点击“分析音频”即可补做，无需重新对齐歌词";
+    return;
+  }
+  panel.textContent = `音频特征已就绪 · ${analysis.duration.toFixed(1)} 秒 · ${analysis.bpm ? "估算 " + analysis.bpm + " BPM" : "未检测到稳定节拍"} · ${analysis.beats.length} 个拍点 · ${analysis.feature_rate_hz}Hz / ${analysis.envelopes.length} 个采样点 · 重拍和鼓点类别为估计值`;
+}

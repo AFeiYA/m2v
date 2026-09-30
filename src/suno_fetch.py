@@ -632,6 +632,14 @@ def enrich_alignment_sections(
         line_cursor = end_idx
 
     alignment.sections = music_sections
+    if alignment.analysis is not None:
+        from src.audio_analyzer import detect_cut_candidates
+        analysis = alignment.analysis
+        analysis.sections = music_sections
+        analysis.cut_candidates = detect_cut_candidates(
+            analysis.duration, analysis.beats, analysis.downbeats,
+            analysis.drum_hits, analysis.energy_curve, music_sections,
+        )
     alignment.save_json(alignment_json_path)
     log.info("已成功将 %d 个乐段 (含 Intro/Verse/Chorus/Outro) 写入 %s", len(music_sections), alignment_json_path.name)
     return alignment
