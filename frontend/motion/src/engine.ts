@@ -1,3 +1,4 @@
+import { compilePoster, canvasMeasure, paintCompiledPoster, type CompiledPoster } from './poster-layout';
 import * as THREE from 'three';
 import { FSPass, makeRT } from './vendor/pdoom/gl';
 import { Post, DEFAULT_POST } from './vendor/pdoom/post';
@@ -22,6 +23,7 @@ export class MotionEngine {
   private blit: FSPass;
   private empty: THREE.DataTexture;
   private W:number; private H:number;
+  private posterCache=new Map<string,CompiledPoster>();
   project: Project;
   options: Options;
   constructor(element: HTMLCanvasElement, project:Project, options:Options, width=1280, height=720) {
@@ -39,7 +41,7 @@ export class MotionEngine {
     this.empty=new THREE.DataTexture(new Uint8Array([0,0,0,0]),1,1);this.empty.needsUpdate=true;
     this.post=new Post(width,height);
     this.scene=new FSPass(`
-      uniform sampler2D letters; uniform vec2 res; uniform float time, beat, energy, neon;
+      uniform sampler2D letters; uniform vec2 res; uniform float time, beat, energy, neon, poster;
       void main(){
         vec2 p=(vUv-.5)*vec2(res.x/res.y,1.0);
         vec3 accent=mix(vec3(.12,.75,.42),vec3(.02,.42,.85),neon);
@@ -53,8 +55,8 @@ export class MotionEngine {
         float ring=exp(-abs(length(p)-radius)*350.0);
         bg+=accent*ring*(.12+.2*energy);
         vec4 txt=texture(letters,vUv);
-        fragColor=vec4(mix(bg,txt.rgb*1.25,txt.a),1.0);
-      }`,{letters:{value:this.texture},res:{value:new THREE.Vector2(width,height)},time:{value:0},beat:{value:0},energy:{value:0},neon:{value:0}});
+        fragColor=vec4(mix(bg,txt.rgb*mix(1.25,1.0,poster),txt.a),1.0);
+      }`,{letters:{value:this.texture},res:{value:new THREE.Vector2(width,height)},time:{value:0},beat:{value:0},energy:{value:0},neon:{value:0},poster:{value:0}});
     this.blit=new FSPass('uniform sampler2D src; void main(){fragColor=texture(src,vUv);}',{src:{value:this.output.texture}});
   }
 
@@ -75,7 +77,9 @@ export class MotionEngine {
     if(!p.motion_plan)c.fillText('MOTION / '+(line?.section || 'LYRIC STUDY'),side,H*.09);
     c.textAlign='right';if(!p.motion_plan)c.fillText(`${String(index+1).padStart(2,'0')} / ${String(p.lines.length).padStart(2,'0')}`,W-side,H*.09);
     c.strokeStyle='#263530';c.lineWidth=1;c.beginPath();c.moveTo(side,H*.13);c.lineTo(W-side,H*.13);c.stroke();
-    if(line) this.drawLine(line,t,accent,f.impact,o,cue);
+    const usePoster=!!line&&!!p.motion_plan;
+    if(line&&usePoster){let compiled=this.posterCache.get(line.id);if(!compiled){compiled=compilePoster(line,cue,W,H,canvasMeasure(c));this.posterCache.set(line.id,compiled);}paintCompiledPoster(c,compiled,t,f.kick||f.beat*.3);}
+    else if(line) this.drawLine(line,t,accent,f.impact,o,cue);
     else {
       const next=p.lines.find(l=>l.start>t);
       c.textAlign='center';c.fillStyle='#dee8dc';c.font=`800 ${Math.min(W*.065,H*.07)}px ${FONT}`;
@@ -91,12 +95,13 @@ export class MotionEngine {
     c.textAlign='right';c.fillText(`${t.toFixed(2)} s`,W-side,H*.93);
     }
     this.texture.needsUpdate=true;
+    this.scene.u.poster.value=usePoster?1:0;
     this.scene.u.time.value=t;this.scene.u.beat.value=f.beat;
     this.scene.u.energy.value=f.energy;this.scene.u.neon.value=o.preset==='neon'?1:0;
     this.scene.render(this.renderer,this.hdr);
-    const impulse=f.impact*o.shake;
-    const post={...DEFAULT_POST,hud:0,bloom:o.post?o.bloom:0,halation:o.post?0.13:0,
-      grain:o.post?o.grain:0,ca:o.post?impulse*2:0,vignette:o.post?0.25:0,
+    const impulse=usePoster?0:f.impact*o.shake;
+    const post={...DEFAULT_POST,hud:0,bloom:o.post&&!usePoster?o.bloom:0,halation:o.post&&!usePoster?0.13:0,
+      grain:o.post&&!usePoster?o.grain:0,ca:o.post?impulse*2:0,vignette:o.post&&!usePoster?0.25:0,
       zoom:1+impulse*.014,shake:[Math.sin(t*87)*impulse*W*.003,Math.sin(t*71)*impulse*H*.004] as [number,number]};
     this.post.render(this.renderer,this.hdr.texture,this.empty,this.output,post,t);
     if(present)this.blit.render(this.renderer,null);

@@ -25,7 +25,7 @@
 
 响应提供 `input`、`prompt`、`response_example`、`can_apply`、`warnings`。`input.target.words[].word_index` 是当前句的零基字词索引；同时提供实际起止时间、拍点、平均能量、相邻句与已有方案。
 
-LLM 返回 `motion-line-response-v1`：`source_signature`、`base_cue_signature` 原样返回，`cue` 只引用目标句。`cue.groups` 的每组包含 `text`、`word_indices`、`action`、`emphasis` 和 `intensity`，不包含 start/end。actions 仅 reveal/push/settle/hold。索引必须顺序、完整、唯一地覆盖原字词；词组文字必须匹配引用文本；whole_line_visible 必须为 true。
+LLM 返回 `motion-line-response-v1`：`source_signature`、`base_cue_signature` 原样返回，`cue` 只引用目标句。新提示词仅返回 `cue.poster.nodes`，不输出旧的 groups/template 等兼容字段。节点完整引用原字词，设计层级、入场与驻留，不填写坐标或 start/end。旧格式仍可读取。
 
 校验/应用请求：
 
@@ -39,7 +39,7 @@ LLM 返回 `motion-line-response-v1`：`source_signature`、`base_cue_signature`
 
 这里的 `response` 示例仅说明包装位置，不是合法导演响应。实际响应形状见 input 接口返回的 `response_example` 或 `examples/rabbit-hole-line-response.json`。
 
-校验返回 `valid`、`applied`、`cue`、`compiled_groups`、`plan`；编译后的 start/end 只从原字词计算。422 表示数据/引用/范围错误；409 表示目标句在生成提示词后已修改、被锁定或原方案已移除。其他句子在此期间的修改不会被覆盖。应用成功后再次使用同一旧响应可能得到 409，需要重新获取输入。
+校验返回 `valid`、`applied`、`cue`、`compiled_nodes`（兼容别名 compiled_groups）、`plan`；编译后的 start/end 只从原字词计算。422 表示数据/引用/范围错误；409 表示目标句在生成提示词后已修改、被锁定或原方案已移除。其他句子在此期间的修改不会被覆盖。应用成功后再次使用同一旧响应可能得到 409，需要重新获取输入。
 
 ## 整曲接口
 
@@ -49,7 +49,7 @@ LLM 返回 `motion-line-response-v1`：`source_signature`、`base_cue_signature`
 
 提示词约束统一：整句作为一个场景保留，LLM 理解语义后分 1–6 组，空格仅作为提示；短组使用简洁动作，长音允许缓慢运动；音乐响应服从歌词时间。不把逐字重击当作所有句子的默认表达。
 
-现有运行能力是平面词组突出、揭示、回位、停留，加 pdoom 后处理。三维字组、隧道、景深仍属于后续渲染模板；提示词不会引导 LLM 返回不存在的模板。原 `spatial-direction-draft-v1` 样例仍是空间设计草案，新的单句响应样例可被当前接口校验/应用。
+Studio 使用 Remotion 执行逐块入场、落位、驻留与 cut/fade；pdoom 保留在实验链路。三维字组、隧道、景深仍属于后续渲染模板；提示词不会引导 LLM 返回不存在的模板。原 `spatial-direction-draft-v1` 样例仍是空间设计草案，新的单句响应样例可被当前接口校验/应用。
 
 ## 海报导演：先意图，再编译
 
@@ -63,10 +63,17 @@ LLM 返回 `motion-line-response-v1`：`source_signature`、`base_cue_signature`
 - `visibility=cumulative`、`final_hold=available-tail`：进入后保留，使用原时间轴可用尾部阅读，不拉长歌曲。
 - `transition_out=cut/fade` 与 `transition_note`：句间衔接策略。
 
-坐标、尺寸、字号、旋转角度与执行代码不属于该协议，会被拒绝。下一阶段排版编译器读取这些意图，按实际字体、画幅、安全区与包围盒计算几何；运动绑定器再读取 alignment 生成可执行时间。当前接口可校验、保存语义设计稿，海报动画和转场尚未接入预览/MP4；页面明确提示这一状态。
+坐标、尺寸、字号、旋转角度与执行代码不属于 LLM 协议，会被拒绝。排版编译器读取意图，按实际字体、画幅、安全区与包围盒计算几何；运动绑定器读取 alignment 生成可执行时间。海报预览、Remotion Player 与 MP4 使用同一编译器与节点时间。status=draft 表示导演源数据，不表示不能执行。
 
-当前渲染使用 Canvas 文字纹理、Three.js / pdoom 后处理，以及 Chrome / FFmpeg 导出，没有 React 或 Remotion 依赖。语义与编译数据不绑定渲染器，后续可评估 Remotion 适配层。
+Studio 现使用 React / Remotion 4.0.530。Canvas 测量文字，SVG 文本按编译包围盒绘制；节点由帧号驱动位置、透明度和缩放。服务器通过 @remotion/renderer 输出视频，再用 FFmpeg 合成原曲。原 Canvas/Three.js 导出脚本仍供实验与兼容验证。
 
 ### 句界规范
 
 一个有效 alignment `line_id` 对应一个 cue、一张最终海报。普通空格、全角空格、逗号只辅助理解语义，不会产生新海报；词组是时间激活单位，节点是同一海报内部排版对象。导演先理解整句，再说明节点之间的对照/转折等视觉关系。句间转场只发生在 line_id 之间。“天花板在脚下　地板在云端抽离”的单句提示词样例见 `examples/ceiling-floor-line-prompt.txt`。
+
+
+## 驻留与速度约束
+
+节点可设置 hold=none/drift、beat_reaction=none/pulse；pulse 仅允许 primary。微动在整句节点落位后开启，drift 振幅为画布高度 0.2%，pulse 最大 1.2% 缩放。超过 6 字/秒的句子、短于 0.16 秒的节点会把位移/缩放入场降级为淡入；密集句关闭驻留与回弹。支持固定段落与平均能量作为导演依据，尚无可靠音高、音色、混响或延迟尾部提取，提示词禁止臆造这些数据。
+
+整曲提示词加入八条全局原则（阅读地图、语义权重、发声触发、余响阅读、句内连续、密度克制、高潮对比、归位终态）。LLM 负责意图；代码负责时间锚点、幅度和几何边界。尚不支持未唱文字的低对比预显示、跨句推挤或真实声学尾响绑定。

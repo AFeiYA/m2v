@@ -49,3 +49,5 @@ frontend/player/songs/
 work/
 frontend/motion/node_modules
 frontend/local/motion/
+
+frontend/local/remotion/

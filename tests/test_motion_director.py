@@ -62,6 +62,8 @@ def test_single_line_prompt_uses_only_target_words_and_neighbors(project):
 def test_single_line_phrase_validation(project,bad):
     from src.motion_director import line_prompt_bundle, line_response
     data=line_prompt_bundle(project,'line_0003')['response_example']
+    data['cue'].pop('poster')
+    data['cue']['groups']=[{'text':'放大这一刻','word_indices':[0,1],'action':'hold','emphasis':'','intensity':.5}]
     if bad=='missing':data['cue']['groups'][0]['word_indices']=[0]
     elif bad=='duplicate':data['cue']['groups'][0]['word_indices']=[0,0,1]
     elif bad=='reorder':data['cue']['groups'][0]['word_indices']=[1,0]
@@ -76,10 +78,12 @@ def test_poster_prompt_contract_and_legacy_compatibility(project):
     from src.motion_director import line_prompt_bundle, line_response
     bundle=line_prompt_bundle(project,'line_0003')
     schema=bundle['input']['output_schema']
-    assert schema['$defs']['CuePlan']['allOf'][0]['else']['required']==['poster']
+    assert schema['$defs']['CuePlan']['anyOf'][1]['required']==['line_id','poster']
+    assert not {'template','groups'} & schema['$defs']['CuePlan']['anyOf'][1]['properties'].keys()
+    assert not {'template','groups'} & bundle['response_example']['cue'].keys()
     assert 'settle_fraction' in schema['$defs']['PosterNode']['properties']
     assert not {'start','x','y','fontSize','size'} & schema['$defs']['PosterNode']['properties'].keys()
-    assert 'poster-layout' in bundle['input']['capabilities']['design_only']
+    assert 'cumulative-entrances' in bundle['input']['capabilities']['poster_runtime']
     assert 'Remotion' not in bundle['prompt']
     assert '未锁定 cue' in llm_prompt(project)
     response,_=line_response(project,bundle['response_example'],'line_0003')
@@ -129,3 +133,15 @@ def test_one_alignment_line_is_one_poster_despite_full_width_spaces():
     data=rule_plan(project).model_dump()
     data['cues'].append({**data['cues'][0],'line_id':'line_0001-part2'})
     with pytest.raises(ValueError,match='完整覆盖'):validate_plan(project,data)
+
+
+def test_hold_reactivity_is_bounded_to_supported_intents_and_primary(project):
+    from src.motion_director import line_prompt_bundle,line_response
+    data=line_prompt_bundle(project,'line_0003')['response_example']
+    node=data['cue']['poster']['nodes'][0]
+    node.update(hold='drift',beat_reaction='pulse')
+    assert line_response(project,data,'line_0003')[0].cue.poster.nodes[0].hold=='drift'
+    node['beat_reaction']='glitch'
+    with pytest.raises(ValueError):line_response(project,data,'line_0003')
+    node.update(beat_reaction='pulse',role='secondary')
+    with pytest.raises(ValueError):line_response(project,data,'line_0003')

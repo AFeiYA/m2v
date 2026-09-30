@@ -38,6 +38,7 @@ COPY --chown=user:user . /app
 COPY --from=motion-build /usr/local/bin/node /usr/local/bin/node
 COPY --from=motion-build /app/frontend/motion/node_modules /app/frontend/motion/node_modules
 COPY --from=motion-build /app/frontend/local/motion /app/frontend/local/motion
+COPY --from=motion-build /app/frontend/local/remotion /app/frontend/local/remotion
 
 # 确保输出目录权限
 RUN mkdir -p /app/output /app/input /app/assets && chown -R user:user /app

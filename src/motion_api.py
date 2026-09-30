@@ -176,7 +176,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
                 result = validate_plan(payload, result.model_dump()).model_dump()
             except ValueError as exc: raise HTTPException(422, str(exc))
             if apply: atomic_write(plan_path(path), result)
-        return {'valid': True, 'applied': apply, 'cue': response.cue.model_dump(), 'compiled_groups': compiled, 'plan': result}
+        return {'valid': True, 'applied': apply, 'cue': response.cue.model_dump(), 'compiled_groups': compiled, 'compiled_nodes': compiled, 'plan': result}
 
     @router.post('/director/line/validate')
     def validate_line(req: LineApplyRequest):
@@ -204,7 +204,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
             raise HTTPException(422, '导出范围超出原曲')
         node = shutil.which('node')
         if not node: raise HTTPException(503, '渲染环境缺少 Node.js')
-        if not (ROOT / 'frontend/local/motion/render-entry.js').exists():
+        if not (ROOT / 'frontend/local/remotion/index.html').exists():
             raise HTTPException(503, '请先构建动效前端')
         with lock:
             if any(job['status'] in ('running', 'queued') for job in jobs.values()):
@@ -226,7 +226,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
             try:
                 with lock:
                     if jobs[job_id]['status'] == 'cancelled': return
-                    child = subprocess.Popen([node, str(ROOT/'frontend/motion/scripts/render.mjs'), str(snapshot), str(out)],
+                    child = subprocess.Popen([node, str(ROOT/'frontend/motion/scripts/render-remotion.mjs'), str(snapshot), str(out)],
                                              cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
                     processes[job_id] = child
                     jobs[job_id]['status'] = 'running'

@@ -42,22 +42,34 @@ def test_plan_save_locks_and_route_shared_song_store(song):
 
 
 @pytest.mark.skipif(os.getenv('RUN_MOTION_RENDER')!='1',reason='需显式启用 Chrome/FFmpeg 成片测试')
-def test_render_worker_outputs_audio_video_and_exact_frames(song,tmp_path):
+@pytest.mark.parametrize('worker',['render.mjs','render-remotion.mjs'])
+def test_render_worker_outputs_audio_video_and_exact_frames(song,tmp_path,worker):
     from src.motion_director import rule_plan
     path,id=song
     root=Path(__file__).resolve().parents[1]
     project=json.loads(path.read_text());project['motion_plan']=rule_plan(project).model_dump()
+    project['lines'][0]['words']=[{'word':'听','start':.2,'end':.7},{'word':'见','start':.7,'end':1.2},{'word':'你','start':1.2,'end':1.8}]
+    project['motion_plan']['cues'][0]['poster']={'version':'motion-poster-direction-v1','status':'draft','layout':'center-stack','intent':'逐组拼成整句','background':'#eeeee6','accent':'#c1ee47','motif':'none','visibility':'cumulative','final_hold':'available-tail','transition_out':'cut','transition_note':'','nodes':[{'text':ch,'word_indices':[i],'role':'primary' if i==1 else 'secondary','emphasis':'','color_role':'foreground','entrance':'slide-up','settle_fraction':.25} for i,ch in enumerate('听见你')]}
     project['motion_plan']['cues'][0]['groups']=[{'text':'听见你','word_indices':[0],'action':'push','emphasis':'你','intensity':.7}]
     snapshot=tmp_path/'job.json';out=tmp_path/'result.mp4'
-    snapshot.write_text(json.dumps({'project':project,'options':{'aspect':'16:9','height':360,'preset':'impact','mode':'phrase','bloom':.7,'grain':.035,'shake':.65,'punch':.7,'post':True},'start':0,'length':2,'audioPath':str(path.parent/'test.wav')}))
-    result=subprocess.run([shutil.which('node'),str(root/'frontend/motion/scripts/render.mjs'),str(snapshot),str(out)],capture_output=True,text=True,timeout=120)
+    snapshot.write_text(json.dumps({'project':project,'options':{'aspect':'16:9','height':360,'preset':'impact','mode':'phrase','bloom':.7,'grain':.035,'shake':.65,'punch':.7,'post':True},'start':.2,'length':1.6,'audioPath':str(path.parent/'test.wav')}))
+    result=subprocess.run([shutil.which('node'),str(root/'frontend/motion/scripts'/worker),str(snapshot),str(out)],capture_output=True,text=True,timeout=120)
     assert result.returncode==0,result.stderr
     info=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(out)]))
     video=next(s for s in info['streams'] if s['codec_type']=='video')
     assert video['width']==640 and video['height']==360
-    assert int(video['nb_frames'])==60
+    assert int(video['nb_frames'])==48
     assert any(s['codec_type']=='audio' for s in info['streams'])
-    assert float(info['format']['duration'])==pytest.approx(2,abs=.1)
+    assert float(info['format']['duration'])==pytest.approx(1.6,abs=.1)
+    # First frame is the empty poster; after all alignment anchors the poster has text.
+    from PIL import Image
+    for time,name in [(0,'empty'),(1.5,'complete')]:
+        subprocess.run(['ffmpeg','-v','error','-ss',str(time),'-i',str(out),'-frames:v','1',str(tmp_path/(name+'.png'))],check=True)
+    empty=np.asarray(Image.open(tmp_path/'empty.png').convert('RGB'),dtype=float)
+    complete=np.asarray(Image.open(tmp_path/'complete.png').convert('RGB'),dtype=float)
+    assert empty.std(axis=(0,1)).max()<3
+    assert complete.std(axis=(0,1)).max()>10
+
 
 
 def test_partial_regeneration_preserves_other_edits(song):

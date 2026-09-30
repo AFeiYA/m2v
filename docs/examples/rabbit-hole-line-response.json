@@ -1,69 +1,11 @@
 {
   "version": "motion-line-response-v1",
   "source_signature": "56e2a258f10d0a328000fef3155082d45498ea8cb92052b721b5e19084bcfcf1",
-  "base_cue_signature": "47fe2b970ec34ce821b3192f137c79ec26590ae0e4a1823c0ada16d782b8fdd1",
+  "base_cue_signature": "149cb05f5e337fd86874ac25a3ae703a8e7f08d793370fa3a640e97cb02c1e9d",
   "cue": {
     "line_id": "line_0013",
-    "template": "phrase-rise",
-    "layout": "center",
-    "palette": "impact",
-    "intensity": 0.6,
-    "emphasis": "",
     "locked": false,
-    "whole_line_visible": true,
     "intent": "邀请进入兔子洞，再否定常规成功叙事",
-    "groups": [
-      {
-        "text": "欢迎来到",
-        "word_indices": [
-          0,
-          1,
-          2,
-          3
-        ],
-        "action": "reveal",
-        "emphasis": "",
-        "intensity": 0.45
-      },
-      {
-        "text": "我的兔子洞",
-        "word_indices": [
-          4,
-          5,
-          6,
-          7,
-          8
-        ],
-        "action": "push",
-        "emphasis": "兔子洞",
-        "intensity": 0.75
-      },
-      {
-        "text": "这里没有",
-        "word_indices": [
-          9,
-          10,
-          11,
-          12
-        ],
-        "action": "settle",
-        "emphasis": "没有",
-        "intensity": 0.5
-      },
-      {
-        "text": "所谓的成功",
-        "word_indices": [
-          13,
-          14,
-          15,
-          16,
-          17
-        ],
-        "action": "push",
-        "emphasis": "成功",
-        "intensity": 0.65
-      }
-    ],
     "poster": {
       "version": "motion-poster-direction-v1",
       "status": "draft",
@@ -89,7 +31,9 @@
           "emphasis": "",
           "color_role": "foreground",
           "entrance": "slide-up",
-          "settle_fraction": 0.25
+          "settle_fraction": 0.25,
+          "hold": "none",
+          "beat_reaction": "none"
         },
         {
           "text": "我的",
@@ -101,7 +45,9 @@
           "emphasis": "",
           "color_role": "foreground",
           "entrance": "slide-up",
-          "settle_fraction": 0.25
+          "settle_fraction": 0.25,
+          "hold": "none",
+          "beat_reaction": "none"
         },
         {
           "text": "兔子洞",
@@ -114,7 +60,9 @@
           "emphasis": "兔子洞",
           "color_role": "accent",
           "entrance": "scale-in",
-          "settle_fraction": 0.25
+          "settle_fraction": 0.25,
+          "hold": "drift",
+          "beat_reaction": "pulse"
         },
         {
           "text": "这里没有",
@@ -128,7 +76,9 @@
           "emphasis": "",
           "color_role": "foreground",
           "entrance": "slide-up",
-          "settle_fraction": 0.25
+          "settle_fraction": 0.25,
+          "hold": "none",
+          "beat_reaction": "none"
         },
         {
           "text": "所谓的成功",
@@ -143,7 +93,9 @@
           "emphasis": "",
           "color_role": "foreground",
           "entrance": "slide-up",
-          "settle_fraction": 0.25
+          "settle_fraction": 0.25,
+          "hold": "none",
+          "beat_reaction": "none"
         }
       ]
     }
