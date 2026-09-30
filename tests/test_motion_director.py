@@ -111,3 +111,21 @@ def test_rule_regeneration_preserves_visual_language(project):
     plan=rule_plan(project).model_dump()
     plan['visual_language']={'direction':'纸色与绿','background':'#eeeee6','foreground':'#20261e','accent':'#c1ee47','rhythm':'主歌轻，副歌突出'}
     assert rule_plan(project,plan).model_dump()['visual_language']==plan['visual_language']
+
+
+def test_one_alignment_line_is_one_poster_despite_full_width_spaces():
+    from src.motion_director import line_prompt_bundle, line_response
+    text='天花板在脚下　地板在云端抽离'
+    chars=list(text.replace('　',''))
+    project={'lines':[{'text':text,'start':1,'end':14,'words':[{'word':ch,'start':i+1,'end':i+2} for i,ch in enumerate(chars)]}]}
+    bundle=line_prompt_bundle(project,'line_0001')
+    assert bundle['input']['target']['text']==text
+    assert bundle['input']['capabilities']['poster_scope']['count']=='one-poster-per-line'
+    assert '严格采用 alignment 的句界' in bundle['prompt']
+    assert '不能发生在当前句的词组之间' in bundle['prompt']
+    assert len(director_input(project)['lines'])==1
+    response,_=line_response(project,bundle['response_example'],'line_0001')
+    assert len(response.cue.poster.nodes)==1
+    data=rule_plan(project).model_dump()
+    data['cues'].append({**data['cues'][0],'line_id':'line_0001-part2'})
+    with pytest.raises(ValueError,match='完整覆盖'):validate_plan(project,data)

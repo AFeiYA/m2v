@@ -66,3 +66,7 @@ LLM 返回 `motion-line-response-v1`：`source_signature`、`base_cue_signature`
 坐标、尺寸、字号、旋转角度与执行代码不属于该协议，会被拒绝。下一阶段排版编译器读取这些意图，按实际字体、画幅、安全区与包围盒计算几何；运动绑定器再读取 alignment 生成可执行时间。当前接口可校验、保存语义设计稿，海报动画和转场尚未接入预览/MP4；页面明确提示这一状态。
 
 当前渲染使用 Canvas 文字纹理、Three.js / pdoom 后处理，以及 Chrome / FFmpeg 导出，没有 React 或 Remotion 依赖。语义与编译数据不绑定渲染器，后续可评估 Remotion 适配层。
+
+### 句界规范
+
+一个有效 alignment `line_id` 对应一个 cue、一张最终海报。普通空格、全角空格、逗号只辅助理解语义，不会产生新海报；词组是时间激活单位，节点是同一海报内部排版对象。导演先理解整句，再说明节点之间的对照/转折等视觉关系。句间转场只发生在 line_id 之间。“天花板在脚下　地板在云端抽离”的单句提示词样例见 `examples/ceiling-floor-line-prompt.txt`。

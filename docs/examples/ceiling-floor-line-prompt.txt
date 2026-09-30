@@ -18,7 +18,7 @@ locked=true 的句子逐字段原样保留，即使它还没有 poster 也不得
 {
   "version": "motion-line-input-v1",
   "source_signature": "56e2a258f10d0a328000fef3155082d45498ea8cb92052b721b5e19084bcfcf1",
-  "base_cue_signature": "ba159e70787c65108b40ad7b2762b5a47bcf5c14cf6d339130a9afd356404119",
+  "base_cue_signature": "b2bca2456b87cffbe65a990926d30e97855cae7760ba5f5038e031be669df9fd",
   "title": "04tuZiDongV1",
   "bpm": 122.73,
   "analysis_limits": {
@@ -28,227 +28,165 @@ locked=true 的句子逐字段原样保留，即使它还没有 poster 也不得
     "confidence_note": "Heuristic scores, not calibrated probabilities"
   },
   "target": {
-    "line_id": "line_0013",
-    "text": "欢迎来到　我的兔子洞　这里没有　所谓的成功",
-    "start": 74.983,
-    "end": 81.693,
+    "line_id": "line_0001",
+    "text": "天花板在脚下　地板在云端抽离",
+    "start": 28.1,
+    "end": 31.69,
     "words": [
       {
-        "word": "欢",
-        "start": 74.983,
-        "end": 75.283,
+        "word": "天",
+        "start": 28.1,
+        "end": 28.4,
         "word_index": 0
       },
       {
-        "word": "迎",
-        "start": 75.283,
-        "end": 75.463,
+        "word": "花",
+        "start": 28.4,
+        "end": 28.66,
         "word_index": 1
       },
       {
-        "word": "来",
-        "start": 75.463,
-        "end": 75.743,
+        "word": "板",
+        "start": 28.66,
+        "end": 28.88,
         "word_index": 2
       },
       {
-        "word": "到",
-        "start": 75.743,
-        "end": 75.983,
+        "word": "在",
+        "start": 28.88,
+        "end": 29.12,
         "word_index": 3
       },
       {
-        "word": "我",
-        "start": 75.983,
-        "end": 76.243,
+        "word": "脚",
+        "start": 29.12,
+        "end": 29.38,
         "word_index": 4
       },
       {
-        "word": "的",
-        "start": 76.243,
-        "end": 76.463,
+        "word": "下",
+        "start": 29.38,
+        "end": 29.66,
         "word_index": 5
       },
       {
-        "word": "兔",
-        "start": 76.463,
-        "end": 77.183,
+        "word": "地",
+        "start": 29.66,
+        "end": 30.1,
         "word_index": 6
       },
       {
-        "word": "子",
-        "start": 77.183,
-        "end": 77.423,
+        "word": "板",
+        "start": 30.1,
+        "end": 30.34,
         "word_index": 7
       },
       {
-        "word": "洞",
-        "start": 77.423,
-        "end": 78.863,
+        "word": "在",
+        "start": 30.34,
+        "end": 30.6,
         "word_index": 8
       },
       {
-        "word": "这",
-        "start": 78.863,
-        "end": 79.183,
+        "word": "云",
+        "start": 30.6,
+        "end": 30.82,
         "word_index": 9
       },
       {
-        "word": "里",
-        "start": 79.183,
-        "end": 79.343,
+        "word": "端",
+        "start": 30.82,
+        "end": 31.06,
         "word_index": 10
       },
       {
-        "word": "没",
-        "start": 79.343,
-        "end": 79.623,
+        "word": "抽",
+        "start": 31.06,
+        "end": 31.42,
         "word_index": 11
       },
       {
-        "word": "有",
-        "start": 79.623,
-        "end": 79.843,
+        "word": "离",
+        "start": 31.42,
+        "end": 31.69,
         "word_index": 12
-      },
-      {
-        "word": "所",
-        "start": 79.843,
-        "end": 80.123,
-        "word_index": 13
-      },
-      {
-        "word": "谓",
-        "start": 80.123,
-        "end": 80.403,
-        "word_index": 14
-      },
-      {
-        "word": "的",
-        "start": 80.403,
-        "end": 81.043,
-        "word_index": 15
-      },
-      {
-        "word": "成",
-        "start": 81.043,
-        "end": 81.423,
-        "word_index": 16
-      },
-      {
-        "word": "功",
-        "start": 81.423,
-        "end": 81.693,
-        "word_index": 17
       }
     ],
-    "section": "Chorus",
-    "mean_energy": 0.441,
+    "section": "Verse 1",
+    "mean_energy": 0.321,
     "beats": [
-      75.459,
-      75.937,
-      76.376,
-      76.925,
-      77.404,
-      77.903,
-      78.382,
-      78.821,
-      79.36,
-      79.849,
-      80.337,
-      80.826,
-      81.305
+      28.645,
+      29.104,
+      29.613,
+      30.092,
+      30.58,
+      31.01,
+      31.558
     ]
   },
   "neighbors": [
     {
-      "line_id": "line_0012",
-      "text": "我们都在　毫无意义地　狂欢与受洗",
-      "section": "Pre-Chorus"
-    },
-    {
-      "line_id": "line_0014",
-      "text": "只有无穷的　失重　失重　失重",
-      "section": "Chorus"
+      "line_id": "line_0002",
+      "text": "重力是　被成人世界　废弃的逻辑",
+      "section": "Verse 1"
     }
   ],
   "current_cue": {
-    "line_id": "line_0013",
-    "template": "word-impact",
+    "line_id": "line_0001",
+    "template": "phrase-rise",
     "layout": "center",
     "palette": "impact",
-    "intensity": 0.8,
-    "emphasis": "兔子洞",
+    "intensity": 0.5,
+    "emphasis": "抽离",
     "locked": false,
     "whole_line_visible": true,
-    "intent": "副歌主核心概念：欢迎入驻无所谓成功的荒诞深渊。",
+    "intent": "倒置空间感知，天花板与地板位置互换的抽离感。",
     "groups": [
       {
-        "text": "欢迎来到",
+        "text": "天花板在脚下",
         "word_indices": [
           0,
           1,
           2,
-          3
+          3,
+          4,
+          5
         ],
         "action": "reveal",
         "emphasis": "",
-        "intensity": 0.7
+        "intensity": 0.4
       },
       {
-        "text": "我的兔子洞",
+        "text": "地板在云端抽离",
         "word_indices": [
-          4,
-          5,
           6,
           7,
-          8
-        ],
-        "action": "push",
-        "emphasis": "兔子洞",
-        "intensity": 0.9
-      },
-      {
-        "text": "这里没有",
-        "word_indices": [
+          8,
           9,
           10,
           11,
           12
         ],
-        "action": "hold",
-        "emphasis": "",
+        "action": "push",
+        "emphasis": "抽离",
         "intensity": 0.6
-      },
-      {
-        "text": "所谓的成功",
-        "word_indices": [
-          13,
-          14,
-          15,
-          16,
-          17
-        ],
-        "action": "settle",
-        "emphasis": "",
-        "intensity": 0.7
       }
     ],
     "poster": {
       "version": "motion-poster-direction-v1",
       "status": "draft",
       "layout": "hero-stack",
-      "intent": "副歌第一声轰鸣，兔子洞作为最醒目的精神图腾。",
+      "intent": "确立上下颠倒的核心意象，以抽离为视觉高潮。",
       "background": "#0b0c10",
       "accent": "#ff2a6d",
       "motif": "rings",
       "visibility": "cumulative",
       "final_hold": "available-tail",
-      "transition_out": "cut",
-      "transition_note": "迎击连续失重声浪",
+      "transition_out": "fade",
+      "transition_note": "下移过渡到第二句冰冷规则陈述",
       "nodes": [
         {
-          "text": "欢迎来到 我的",
+          "text": "天花板在脚下",
           "word_indices": [
             0,
             1,
@@ -261,39 +199,34 @@ locked=true 的句子逐字段原样保留，即使它还没有 poster 也不得
           "emphasis": "",
           "color_role": "foreground",
           "entrance": "fade",
-          "settle_fraction": 0.2
+          "settle_fraction": 0.25
         },
         {
-          "text": "兔子洞",
+          "text": "地板在云端",
           "word_indices": [
             6,
             7,
-            8
-          ],
-          "role": "primary",
-          "emphasis": "兔子洞",
-          "color_role": "accent",
-          "entrance": "scale-in",
-          "settle_fraction": 0.3
-        },
-        {
-          "text": "这里没有所谓的成功",
-          "word_indices": [
+            8,
             9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-            16,
-            17
+            10
           ],
           "role": "support",
           "emphasis": "",
           "color_role": "muted",
           "entrance": "slide-up",
           "settle_fraction": 0.25
+        },
+        {
+          "text": "抽离",
+          "word_indices": [
+            11,
+            12
+          ],
+          "role": "primary",
+          "emphasis": "抽离",
+          "color_role": "accent",
+          "entrance": "scale-in",
+          "settle_fraction": 0.3
         }
       ]
     }
