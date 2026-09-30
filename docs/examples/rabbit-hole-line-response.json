@@ -1,7 +1,7 @@
 {
   "version": "motion-line-response-v1",
   "source_signature": "56e2a258f10d0a328000fef3155082d45498ea8cb92052b721b5e19084bcfcf1",
-  "base_cue_signature": "77bd9d1341d2c7193703e876fa3deffcd1990c284a7c98e8dcc2d6f5d2d51625",
+  "base_cue_signature": "47fe2b970ec34ce821b3192f137c79ec26590ae0e4a1823c0ada16d782b8fdd1",
   "cue": {
     "line_id": "line_0013",
     "template": "phrase-rise",
@@ -63,6 +63,89 @@
         "emphasis": "成功",
         "intensity": 0.65
       }
-    ]
+    ],
+    "poster": {
+      "version": "motion-poster-direction-v1",
+      "status": "draft",
+      "layout": "hero-stack",
+      "intent": "上方邀请，兔子洞为唯一主标题，下方否定并收尾",
+      "background": "#eeeee6",
+      "accent": "#c1ee47",
+      "motif": "rings",
+      "visibility": "cumulative",
+      "final_hold": "available-tail",
+      "transition_out": "cut",
+      "transition_note": "下一句失重延续兔子洞意象，以相同强调色保持连续",
+      "nodes": [
+        {
+          "text": "欢迎来到",
+          "word_indices": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "role": "support",
+          "emphasis": "",
+          "color_role": "foreground",
+          "entrance": "slide-up",
+          "settle_fraction": 0.25
+        },
+        {
+          "text": "我的",
+          "word_indices": [
+            4,
+            5
+          ],
+          "role": "support",
+          "emphasis": "",
+          "color_role": "foreground",
+          "entrance": "slide-up",
+          "settle_fraction": 0.25
+        },
+        {
+          "text": "兔子洞",
+          "word_indices": [
+            6,
+            7,
+            8
+          ],
+          "role": "primary",
+          "emphasis": "兔子洞",
+          "color_role": "accent",
+          "entrance": "scale-in",
+          "settle_fraction": 0.25
+        },
+        {
+          "text": "这里没有",
+          "word_indices": [
+            9,
+            10,
+            11,
+            12
+          ],
+          "role": "secondary",
+          "emphasis": "",
+          "color_role": "foreground",
+          "entrance": "slide-up",
+          "settle_fraction": 0.25
+        },
+        {
+          "text": "所谓的成功",
+          "word_indices": [
+            13,
+            14,
+            15,
+            16,
+            17
+          ],
+          "role": "secondary",
+          "emphasis": "",
+          "color_role": "foreground",
+          "entrance": "slide-up",
+          "settle_fraction": 0.25
+        }
+      ]
+    }
   }
 }

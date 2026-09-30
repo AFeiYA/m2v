@@ -53,7 +53,7 @@ def test_single_line_prompt_uses_only_target_words_and_neighbors(project):
     assert bundle['input']['target']['text']=='放大这一刻'
     assert [w['word_index'] for w in bundle['input']['target']['words']]==[0,1]
     assert len(bundle['input']['neighbors'])==2
-    assert '整句歌词' in bundle['prompt'] and '没有真正的三维' in bundle['prompt']
+    assert '最终海报' in bundle['prompt'] and '没有真正的三维' in bundle['prompt']
     response,groups=line_response(project,bundle['response_example'],'line_0003')
     assert groups[0]['start']==5 and groups[0]['end']==8
     assert response.cue.whole_line_visible
@@ -70,3 +70,44 @@ def test_single_line_phrase_validation(project,bad):
     elif bad=='empty':data['cue']['groups']=[]
     else:data['cue']['whole_line_visible']=False
     with pytest.raises(ValueError):line_response(project,data,'line_0003')
+
+
+def test_poster_prompt_contract_and_legacy_compatibility(project):
+    from src.motion_director import line_prompt_bundle, line_response
+    bundle=line_prompt_bundle(project,'line_0003')
+    schema=bundle['input']['output_schema']
+    assert schema['$defs']['CuePlan']['allOf'][0]['else']['required']==['poster']
+    assert 'settle_fraction' in schema['$defs']['PosterNode']['properties']
+    assert not {'start','x','y','fontSize','size'} & schema['$defs']['PosterNode']['properties'].keys()
+    assert 'poster-layout' in bundle['input']['capabilities']['design_only']
+    assert 'Remotion' not in bundle['prompt']
+    assert '未锁定 cue' in llm_prompt(project)
+    response,_=line_response(project,bundle['response_example'],'line_0003')
+    assert response.cue.poster.visibility=='cumulative'
+    assert response.cue.poster.status=='draft'
+    validate_plan(project,rule_plan(project).model_dump())
+    wordless=line_prompt_bundle(project,'line_0004')['response_example']
+    assert line_response(project,wordless,'line_0004')[0].cue.poster.nodes[0].word_indices==[]
+
+
+@pytest.mark.parametrize('bad',['coordinates','font_size','primary','duplicate','rewrite','fraction','time','emphasis','layout'])
+def test_invalid_poster_design_rejected(project,bad):
+    from src.motion_director import line_prompt_bundle, line_response
+    data=line_prompt_bundle(project,'line_0003')['response_example']
+    poster=data['cue']['poster'];node=poster['nodes'][0]
+    if bad=='coordinates':node['x']=.8
+    elif bad=='font_size':node['fontSize']=120
+    elif bad=='primary':node['role']='support'
+    elif bad=='duplicate':node['word_indices']=[0,0,1]
+    elif bad=='rewrite':node['text']='篡改歌词'
+    elif bad=='fraction':node['settle_fraction']=float('nan')
+    elif bad=='time':node['start']=5
+    elif bad=='emphasis':node['emphasis']='不存在'
+    else:poster['layout']='unknown-grid'
+    with pytest.raises(ValueError):line_response(project,data,'line_0003')
+
+
+def test_rule_regeneration_preserves_visual_language(project):
+    plan=rule_plan(project).model_dump()
+    plan['visual_language']={'direction':'纸色与绿','background':'#eeeee6','foreground':'#20261e','accent':'#c1ee47','rhythm':'主歌轻，副歌突出'}
+    assert rule_plan(project,plan).model_dump()['visual_language']==plan['visual_language']

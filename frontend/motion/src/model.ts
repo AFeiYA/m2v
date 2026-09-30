@@ -1,7 +1,8 @@
 export type Word = { word: string; start: number; end: number };
 export type PhrasePlan = {text:string;word_indices:number[];action:'reveal'|'push'|'settle'|'hold';emphasis:string;intensity:number};
-export type CuePlan = {whole_line_visible?:true;intent?:string;groups?:PhrasePlan[];line_id:string; template:'word-impact'|'phrase-rise'|'quiet-hold'; layout:'center'|'left'; palette:'impact'|'neon'; intensity:number; emphasis:string; locked:boolean};
-export type MotionPlan = {version:'motion-plan-v1'; source_signature:string; seed:number; cues:CuePlan[]};
+export type PosterDirection = {version:'motion-poster-direction-v1';status:'draft';layout:'hero-stack'|'center-stack'|'staggered';intent:string;background:string;accent:string;motif:'none'|'rings';visibility:'cumulative';final_hold:'available-tail';transition_out:'cut'|'fade';transition_note:string;nodes:{text:string;word_indices:number[];role:'primary'|'secondary'|'support';emphasis:string;color_role:'foreground'|'accent'|'muted';entrance:'none'|'fade'|'slide-up'|'slide-left'|'scale-in';settle_fraction:number}[]};
+export type CuePlan = {poster?:PosterDirection|null;whole_line_visible?:true;intent?:string;groups?:PhrasePlan[];line_id:string; template:'word-impact'|'phrase-rise'|'quiet-hold'; layout:'center'|'left'; palette:'impact'|'neon'; intensity:number; emphasis:string; locked:boolean};
+export type MotionPlan = {version:'motion-plan-v1'; source_signature:string; seed:number; visual_language?:{direction:string;background:string;foreground:string;accent:string;rhythm:string}|null; cues:CuePlan[]};
 export type Line = { id:string; text: string; start: number; end: number; words: Word[]; section?: string };
 export type Project = {
   title: string; duration: number; lines: Line[]; motion_plan?:MotionPlan;

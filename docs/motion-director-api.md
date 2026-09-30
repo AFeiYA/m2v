@@ -50,3 +50,19 @@ LLM 返回 `motion-line-response-v1`：`source_signature`、`base_cue_signature`
 提示词约束统一：整句作为一个场景保留，LLM 理解语义后分 1–6 组，空格仅作为提示；短组使用简洁动作，长音允许缓慢运动；音乐响应服从歌词时间。不把逐字重击当作所有句子的默认表达。
 
 现有运行能力是平面词组突出、揭示、回位、停留，加 pdoom 后处理。三维字组、隧道、景深仍属于后续渲染模板；提示词不会引导 LLM 返回不存在的模板。原 `spatial-direction-draft-v1` 样例仍是空间设计草案，新的单句响应样例可被当前接口校验/应用。
+
+## 海报导演：先意图，再编译
+
+整曲与单句提示词现在使用同一海报规划约束。整曲返回 `visual_language`（整曲方向、背景/前景/强调色、节奏语言）；每个未锁定 cue 必须返回 `poster`。锁定 cue 原样保留。LLM 输出 Schema 要求海报字段；持久化与读取仍兼容没有海报的旧方案。
+
+`poster.version=motion-poster-direction-v1`，`status=draft`。这是语义设计稿，不是已编译的像素排版，与静态样例 `motion-poster-v1` 区分：
+
+- `layout`：hero-stack / center-stack / staggered，仅选择排版规则。
+- `nodes`：原文字词引用、primary/secondary/support 层级（必须且只有一个 primary）、强调词、foreground/accent/muted 色彩角色。
+- `entrance`、`settle_fraction`：入场策略与相对时长比例；不输出绝对时间。
+- `visibility=cumulative`、`final_hold=available-tail`：进入后保留，使用原时间轴可用尾部阅读，不拉长歌曲。
+- `transition_out=cut/fade` 与 `transition_note`：句间衔接策略。
+
+坐标、尺寸、字号、旋转角度与执行代码不属于该协议，会被拒绝。下一阶段排版编译器读取这些意图，按实际字体、画幅、安全区与包围盒计算几何；运动绑定器再读取 alignment 生成可执行时间。当前接口可校验、保存语义设计稿，海报动画和转场尚未接入预览/MP4；页面明确提示这一状态。
+
+当前渲染使用 Canvas 文字纹理、Three.js / pdoom 后处理，以及 Chrome / FFmpeg 导出，没有 React 或 Remotion 依赖。语义与编译数据不绑定渲染器，后续可评估 Remotion 适配层。

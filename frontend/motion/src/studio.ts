@@ -34,7 +34,7 @@ async function directorPrompt(single:boolean){
  const result=await api(single?'director/line/input':'director/input','POST',{project_id:selected,style:$<HTMLSelectElement>('preset').value,instruction:$<HTMLTextAreaElement>('director-instruction').value,...(single?{line_id:currentCue}:{})});
  $<HTMLTextAreaElement>('director-prompt').value=result.prompt;$<HTMLSelectElement>('import-scope').value=single?'line':'song';
  download(single?`motion-${currentCue}-prompt.txt`:'motion-director-prompt.txt',result.prompt,'text/plain');
- status(result.warnings?.length?result.warnings.join('；'):single?'单句提示词已生成；LLM 返回词组索引，系统绑定真实时间':'整曲提示词已生成');
+ status(result.warnings?.length?result.warnings.join('；'):single?'单句提示词已生成：最终海报＋入场与衔接草案':'整曲提示词已生成：每句海报＋动画草案');
 }
 $('director-input').onclick=action(()=>directorPrompt(false));$('line-director-input').onclick=action(()=>directorPrompt(true));
 async function returnedPlan(apply:boolean){
@@ -45,6 +45,8 @@ async function returnedPlan(apply:boolean){
  $('director-validation').textContent=single?`校验通过 · 整句保留 · ${result.compiled_groups.length} 个词组：`+result.compiled_groups.map((group:{text:string;start:number;end:number})=>`${group.text} ${group.start.toFixed(3)}–${group.end.toFixed(3)}s`).join('；'):'整曲方案校验通过';
  if(apply){plan=single?result.plan:result;dirty=false;refresh();listCues();status(single?'单句方案已应用，其他句子保持原方案':'整曲方案已应用并保存');}
  else status('校验通过，尚未应用；确认内容后点击“应用并保存方案”');
+ const designPlan=single?result.plan:apply?result:result.plan;
+ if(designPlan?.cues?.some((cue:{poster?:unknown})=>cue.poster)){status(apply?'海报设计与动画草案已保存；当前动画预览仍使用现有模板':'方案校验通过；海报入场与转场为规划，尚未由播放器执行');}
 }
 $('validate-plan').onclick=action(()=>returnedPlan(false));$('import-plan').onclick=action(()=>returnedPlan(true));
 $('download-plan').onclick=action(()=>{if(!plan)throw new Error('尚无方案');download('motion-plan.json',JSON.stringify(plan,null,2));});
