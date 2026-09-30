@@ -19,6 +19,27 @@ export function automaticPoster(line:Line,palette='impact'):PosterDirection {
 function rowsFor(text:string,size:number,weight:number,maxWidth:number,measure:Measure){
   const rows:string[]=[''];for(const ch of Array.from(text)){const i=rows.length-1;if(rows[i]&&measure(rows[i]+ch,size,weight).width>maxWidth)rows.push(ch);else rows[i]+=ch;}return rows;
 }
+function fitPortraitTitle(text:string,size:number,weight:number,maxWidth:number,W:number,measure:Measure,emphasis:string){
+  const chars=Array.from(text),count=chars.length;
+  const fit=(rows:string[])=>Math.min(size,...rows.map(row=>size*maxWidth/Math.max(1,measure(row,size,weight).width)))*.99;
+  // Four/five-character titles should not acquire an orphan merely because the default size is large.
+  const single=fit([text]);
+  if(count<=5||count<=6&&single>=W*.135)return {size:single,rows:[text]};
+  if(count>12)return null;
+  const boundaries=new Set<number>();
+  const segmenter=new Intl.Segmenter('zh',{granularity:'word'});
+  for(const segment of segmenter.segment(text))boundaries.add(Array.from(text.slice(0,segment.index+segment.segment.length)).length);
+  const focus=text.indexOf(emphasis),focusStart=emphasis&&focus>=0?Array.from(text.slice(0,focus)).length:-1;
+  const focusEnd=focusStart<0?-1:focusStart+Array.from(emphasis).length;
+  let best:{size:number;rows:string[];score:number}|null=null;
+  // Compare balanced alternatives using measured widths and soft lexical boundaries.
+  for(let i=2;i<=count-2;i++){
+    const rows=[chars.slice(0,i).join(''),chars.slice(i).join('')],candidate=fit(rows);
+    const score=(size-candidate)/size+Math.abs(i-(count-i))/count*.35+(boundaries.has(i)?0:1.2)+(i>focusStart&&i<focusEnd?2:0);
+    if(!best||score<best.score)best={size:candidate,rows,score};
+  }
+  return best;
+}
 export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,measure:Measure):CompiledPoster {
   const design=cue?.poster||automaticPoster(line,cue?.palette);
   const rgb=design.background.slice(1).match(/../g)!.map(v=>parseInt(v,16)/255);
@@ -35,7 +56,9 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     const weight=n.role==='primary'?900:n.role==='secondary'?800:600;
     let size=portrait?W*(n.role==='primary'?(short?.30:.22):n.role==='secondary'?.075:.055):H*(n.role==='primary'?(short?.28:.18):n.role==='secondary'?.07:.045);
     const maxWidth=width-W*.018;
-    let rows=rowsFor(n.text,size,weight,maxWidth,measure);
+    const title=portrait&&n.role==='primary'?fitPortraitTitle(n.text,size,weight,maxWidth,W,measure,n.emphasis):null;
+    if(title)size=title.size;
+    let rows=title?.rows||rowsFor(n.text,size,weight,maxWidth,measure);
     for(let attempt=0;attempt<100&&rows.length>3;attempt++){size*=.92;rows=rowsFor(n.text,size,weight,maxWidth,measure);}
     return {n,weight,size,rows,maxWidth};
   });

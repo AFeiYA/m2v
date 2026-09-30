@@ -148,3 +148,19 @@ test('portrait uses readable short rows and an upper reading field with quiet ed
  assert.ok(p.nodes.every(n=>n.y>=1280*.16&&n.y+n.height<=1280*.74));
  assert.ok(posterRings(720,1280).every(r=>r.opacity<=.25&&r.cx>720*.9&&r.rx===r.ry));
 });
+
+
+test('portrait titles fit four/five characters on one line and avoid orphan endings',()=>{
+ for(const W of [360,720])for(const text of ['兔子洞','都像泡沫','所谓的成功','常识碎成琉璃','五彩斑斓废气']){
+  const line={id:'title',text,start:1,end:6,words:[{word:text,start:1,end:6}]};
+  const poster=automaticPoster(line);if(text==='五彩斑斓废气')poster.nodes[0].emphasis='五彩斑斓';
+  const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
+  const n=compilePoster(line,cue,W,W*16/9,measure).nodes[0];
+  assert.equal(n.rows.map(r=>r.text).join(''),text);
+  if(Array.from(text).length<=5)assert.equal(n.rows.length,1);
+  else assert.ok(n.rows.every(r=>Array.from(r.text).length>=2));
+  assert.ok(n.fontSize>=W*.13);
+  for(const r of n.rows)assert.ok(measure(r.text,n.fontSize).width<=n.width+1e-6);
+  if(text==='五彩斑斓废气')assert.deepEqual(n.rows.map(r=>r.text),['五彩斑斓','废气']);
+ }
+});
