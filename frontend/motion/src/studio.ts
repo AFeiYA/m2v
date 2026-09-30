@@ -17,6 +17,7 @@ function listCues(){const select=$<HTMLSelectElement>('cue-select');select.repla
 function showCue(seek=true){const cue=plan?.cues.find(c=>c.line_id===currentCue);if(!cue)return;
  const line=project?.lines.find(l=>l.id===currentCue);
  $<HTMLSelectElement>('poster-layout').value=cue.poster?.layout||'hero-stack';$('poster-design-status').textContent=cue.poster?'使用已保存的导演海报设计':'使用自动基础排版，可导入 LLM 海报设计';
+ $<HTMLSelectElement>('semantic-mode').value=cue.poster?.semantic_mode||'auto';$<HTMLSelectElement>('semantic-mode').disabled=cue.locked;
  $<HTMLSelectElement>('cue-exit').value=cue.poster?.transition_out||'cut';$<HTMLSelectElement>('cue-exit').disabled=cue.locked;
  if(line){renderPosterNodes(line,cue);const size=renderSize(options),c=document.createElement('canvas').getContext('2d')!;
   const p=compileSongPosters(project!,size.width,size.height,canvasMeasure(c)).find(p=>p.line_id===line.id)!;
@@ -114,17 +115,22 @@ async function playCue(handover=false){
 $('play-cue').onclick=action(()=>playCue());$('play-handover').onclick=action(()=>playCue(true));
 $('cue-exit').onchange=()=>{const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);if(!cue||!line||cue.locked)return;cue.poster=cue.poster||automaticPoster(line,cue.palette);cue.poster.transition_out=$<HTMLSelectElement>('cue-exit').value as 'fade'|'cut';dirty=true;refresh();showCue(false);status('交接策略已更新，请保存方案');};
 
+$('semantic-mode').onchange=()=>{const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);if(!cue||!line||cue.locked)return;cue.poster=cue.poster||automaticPoster(line,cue.palette);cue.poster.semantic_mode=$<HTMLSelectElement>('semantic-mode').value as 'auto'|'off';dirty=true;refresh();showCue(false);status('语义编排模式已更新，请保存方案');};
+
 function renderPosterNodes(line:import('./model').Line,cue:import('./model').CuePlan){
  const host=$('poster-node-editor');host.replaceChildren();const direction=cue.poster||automaticPoster(line,cue.palette);
  const relations=document.createElement('div');relations.setAttribute('aria-label','歌词语义关系');
  const names={guidance:'引导',contrast:'对照',negation:'否定',repetition:'重复',spatial:'空间意象'};
  if(direction.relations?.length){for(const relation of direction.relations){const item=document.createElement('p');item.textContent=`${names[relation.kind]} · ${relation.node_indices.map(i=>direction.nodes[i]?.text||'无效节点').join(' → ')}：${relation.intent}`;relations.append(item);}}
  else relations.textContent='暂无语义关系，可通过新版 LLM 提示词规划。';
- const help=document.createElement('small');help.textContent='关系用于记录导演意图；当前动画仍由下方节点参数控制。';relations.append(help);host.append(relations);
+ const size=renderSize(options),context=document.createElement('canvas').getContext('2d')!;
+ const compiled=compileSongPosters(project!,size.width,size.height,canvasMeasure(context)).find(p=>p.line_id===line.id)!;
+ for(const applied of compiled.semantic_arrangement){const item=document.createElement('p');item.textContent=`${names[applied.kind]} · ${applied.status==='applied'?'已编排':applied.status==='disabled'?'已关闭':'有限支持'}：${applied.effects.join('；')}`;relations.append(item);}
+ const help=document.createElement('small');help.textContent='自动模式会调整下方源参数；关闭后使用手工参数。演唱起点、唯一主视觉和快唱限制优先。';relations.append(help);host.append(relations);
 
  direction.nodes.forEach((node,i)=>{
   const card=document.createElement('div');card.style.cssText='padding:12px 0;border-bottom:1px solid #263530';
-  const title=document.createElement('strong');title.textContent=node.text;title.style.display='block';card.append(title);
+  const title=document.createElement('strong');title.textContent=node.text;title.style.display='block';card.append(title);const actual=document.createElement('small');const motionNames={none:'直接出现',fade:'淡入','slide-up':'向上落位','slide-left':'从左进入','scale-in':'缩放落位'};actual.textContent='当前实际入场：'+motionNames[compiled.nodes[i].entrance];card.append(actual);
   const fields:[string,string,[string,string][]][]=[['role','层级',[['primary','主视觉'],['secondary','次级'],['support','辅助']]],['entrance','入场',[['none','直接出现'],['fade','淡入'],['slide-up','向上落位'],['slide-left','从左进入'],['scale-in','缩放落位']]],['hold','驻留',[['none','静置'],['drift','轻微呼吸']]],['beat_reaction','拍点',[['none','无'],['pulse','主视觉回弹']]]];
   for(const [key,label,choices] of fields){const wrapper=document.createElement('label');wrapper.textContent=label;const select=document.createElement('select');select.setAttribute('aria-label',node.text+' '+label);
    for(const [value,text] of choices){const option=document.createElement('option');option.value=value;option.textContent=text;select.append(option);}

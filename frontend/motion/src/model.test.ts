@@ -164,3 +164,34 @@ test('portrait titles fit four/five characters on one line and avoid orphan endi
   if(text==='五彩斑斓废气')assert.deepEqual(n.rows.map(r=>r.text),['五彩斑斓','废气']);
  }
 });
+
+test('semantic arrangement changes hierarchy hints and motion without mutating lyrics or timing',async()=>{
+ const {resolveSemanticDirection}=await import('./poster-layout.ts');
+ const line={id:'semantic',text:'欢迎来到 兔子洞 这里没有 成功',start:1,end:9,words:['欢迎来到','兔子洞','这里没有','成功'].map((word,i)=>({word,start:1+i*2,end:3+i*2}))};
+ const poster=automaticPoster(line);poster.nodes.forEach((n,i)=>n.role=i===1?'primary':'secondary');
+ poster.relations=[{kind:'guidance',node_indices:[0,1],intent:'邀请进入兔子洞'},{kind:'negation',node_indices:[2,3],intent:'否定成功'}];
+ const original=JSON.stringify(poster),resolved=resolveSemanticDirection(poster);
+ assert.equal(JSON.stringify(poster),original);assert.equal(resolved.design.nodes[0].entrance,'fade');assert.equal(resolved.design.nodes[1].entrance,'scale-in');
+ assert.equal(resolved.design.nodes[2].color_role,'muted');assert.equal(resolved.design.nodes[3].color_role,'foreground');
+ const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
+ for(const [W,H] of [[1280,720],[720,1280]]){
+  const p=compilePoster(line,cue,W,H,measure);assert.deepEqual(p.nodes.map(n=>n.start),line.words.map(w=>w.start));
+  assert.deepEqual(p.nodes.map(n=>n.text),poster.nodes.map(n=>n.text));assert.equal(p.nodes.filter(n=>n.role==='primary').length,1);
+  assert.ok(p.semantic_arrangement.every(a=>a.status==='applied'));
+  for(const n of p.nodes){assert.ok(n.x>=W*.05&&n.x+n.width<=W*.95);assert.ok(n.y>=0&&n.y+n.height<=H);}
+ }
+ poster.semantic_mode='off';assert.deepEqual(resolveSemanticDirection(poster).design.nodes,poster.nodes);
+ assert.ok(resolveSemanticDirection(poster).applications.every(a=>a.status==='disabled'));
+});
+
+test('contrast spatial and repeated motions are bounded and dense vocals still win',async()=>{
+ const {resolveSemanticDirection}=await import('./poster-layout.ts');
+ const line={id:'semantic',text:'失重 失重',start:1,end:1.5,words:[{word:'失重',start:1,end:1.2},{word:'失重',start:1.2,end:1.5}]};
+ const poster=automaticPoster(line);poster.nodes[0].entrance='scale-in';poster.nodes[1].entrance='slide-left';
+ poster.relations=[{kind:'spatial',node_indices:[0,1],intent:'失重空间'},{kind:'contrast',node_indices:[0,1],intent:'对照'},{kind:'repetition',node_indices:[0,1],intent:'重复'}];
+ const resolved=resolveSemanticDirection(poster);assert.equal(resolved.design.nodes[0].entrance,resolved.design.nodes[1].entrance);
+ assert.ok(resolved.hints.every(h=>Math.abs(h.offset)<=.018&&h.scale<=1.15));
+ const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
+ const p=compilePoster(line,cue,720,1280,measure);assert.ok(p.nodes.every(n=>n.entrance==='fade'&&n.hold==='none'));
+ poster.relations=[{kind:'repetition',node_indices:[0],intent:'块内部重复'}];assert.equal(resolveSemanticDirection(poster).applications[0].status,'limited');
+});

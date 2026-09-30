@@ -146,6 +146,9 @@ def test_portrait_export_preserves_readable_lyric_during_handover_gap(tmp_path):
     from src.motion_director import director_input
     for cue,row in zip(plan['cues'],director_input(project)['lines']):
         cue['poster']=example_poster(row).model_dump();cue['poster']['transition_out']='fade'
+    base=plan['cues'][0]['poster']['nodes'][0]
+    plan['cues'][0]['poster']['nodes']=[{**base,'text':'引导','word_indices':[0],'role':'secondary'}, {**base,'text':'核心','word_indices':[1],'role':'primary'}]
+    plan['cues'][0]['poster']['relations']=[{'kind':'guidance','node_indices':[0,1],'intent':'引导承接核心'}]
     project['motion_plan']=plan
     audio=tmp_path/'audio.wav';sf.write(audio,np.zeros(22050*3),22050)
     job=tmp_path/'job.json';video=tmp_path/'portrait.mp4'

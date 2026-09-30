@@ -163,7 +163,7 @@ def test_semantic_relations_round_trip_and_old_signatures_stay_valid(project):
     assert 'PosterRelation' in bundle['input']['output_schema']['$defs']
     empty=copy.deepcopy(bundle['response_example']);empty['cue']['poster'].pop('relations')
     old,_=line_response(project,empty,'line_0003');plan.cues[1]=old.cue
-    legacy=old.cue.model_dump();legacy['poster'].pop('relations')
+    legacy=old.cue.model_dump();legacy['poster'].pop('relations');legacy['poster'].pop('semantic_mode')
     expected=hashlib.sha256(json.dumps({'cue':legacy,'seed':plan.seed},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     assert cue_signature(plan,'line_0003')==expected
 
@@ -181,4 +181,16 @@ def test_invalid_semantic_relation_rejected(project,bad):
     elif bad=='coordinate':relation['x']=100
     else:relation['kind']='contrast'
     data['cue']['poster']['relations']=[relation]
+    with pytest.raises(ValueError):line_response(project,data,'line_0003')
+
+
+def test_semantic_mode_is_optional_bounded_and_changes_cue_signature(project):
+    from src.motion_director import line_prompt_bundle,line_response,cue_signature
+    data=line_prompt_bundle(project,'line_0003')['response_example']
+    plan=rule_plan(project);plan.cues[1]=line_response(project,data,'line_0003')[0].cue
+    signature=cue_signature(plan,'line_0003')
+    data['cue']['poster']['semantic_mode']='off'
+    plan.cues[1]=line_response(project,data,'line_0003')[0].cue
+    assert cue_signature(plan,'line_0003')!=signature
+    data['cue']['poster']['semantic_mode']='unbounded'
     with pytest.raises(ValueError):line_response(project,data,'line_0003')

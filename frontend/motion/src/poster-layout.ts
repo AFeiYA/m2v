@@ -3,7 +3,7 @@ export const POSTER_FONT='"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",san
 export type Metrics={width:number;ascent:number;descent:number};
 export type Measure=(text:string,size:number,weight:number)=>Metrics;
 export type CompiledNode={text:string;word_indices:number[];role:'primary'|'secondary'|'support';x:number;y:number;width:number;height:number;fontSize:number;weight:number;color:string;rows:{text:string;x:number;y:number}[];start:number;settled:number;hold:'none'|'drift';beat_reaction:'none'|'pulse';entrance:PosterDirection['nodes'][number]['entrance']};
-export type CompiledPoster={version:'motion-poster-layout-v1';line_id:string;source:'director'|'automatic';width:number;height:number;background:string;accent:string;motif:'none'|'rings';layout:PosterDirection['layout'];transition_out:'cut'|'fade';relations:NonNullable<PosterDirection['relations']>;start:number;end:number;handover?:{mode:'cut'|'fade'|'layered-fade';visible_end:number;exit_start:number;primary_exit_start:number;next_start:number|null};nodes:CompiledNode[]};
+export type CompiledPoster={version:'motion-poster-layout-v1';line_id:string;source:'director'|'automatic';width:number;height:number;background:string;accent:string;motif:'none'|'rings';layout:PosterDirection['layout'];transition_out:'cut'|'fade';relations:NonNullable<PosterDirection['relations']>;semantic_arrangement:SemanticApplication[];start:number;end:number;handover?:{mode:'cut'|'fade'|'layered-fade';visible_end:number;exit_start:number;primary_exit_start:number;next_start:number|null};nodes:CompiledNode[]};
 
 export function automaticPoster(line:Line,palette='impact'):PosterDirection {
   let blocks:{text:string;word_indices:number[]}[]=[];
@@ -40,8 +40,46 @@ function fitPortraitTitle(text:string,size:number,weight:number,maxWidth:number,
   }
   return best;
 }
+export type SemanticApplication={kind:NonNullable<PosterDirection['relations']>[number]['kind'];node_indices:number[];status:'applied'|'limited'|'disabled';effects:string[]};
+export function resolveSemanticDirection(source:PosterDirection){
+  const design={...source,nodes:source.nodes.map(n=>({...n,word_indices:[...n.word_indices]}))};
+  const hints=source.nodes.map(()=>({scale:1,offset:0}));
+  const applications:SemanticApplication[]=[];
+  // Stable priority: structure first, reading hierarchy second, repeated motion last.
+  const order={spatial:0,contrast:1,guidance:2,negation:3,repetition:4};
+  for(const relation of [...(source.relations||[])].sort((a,b)=>order[a.kind]-order[b.kind])){
+    const refs=relation.node_indices;
+    const entry:SemanticApplication={kind:relation.kind,node_indices:[...refs],status:'applied',effects:[]};applications.push(entry);
+    if(source.semantic_mode==='off'){entry.status='disabled';entry.effects=['已使用手工参数'];continue;}
+    if(!refs.length||new Set(refs).size!==refs.length||refs.some(i=>!Number.isInteger(i)||!design.nodes[i])){entry.status='limited';entry.effects=['引用无效，保持原参数'];continue;}
+    const focus=refs.find(i=>design.nodes[i].role==='primary')??refs.at(-1)!;
+    const common=design.nodes[refs[0]].entrance;
+    switch(relation.kind){
+      case 'guidance':
+        for(const i of refs){const n=design.nodes[i];if(i!==focus){hints[i].scale*=.9;n.color_role='muted';n.entrance='fade';n.settle_fraction=Math.min(n.settle_fraction,.18);}else{n.entrance=n.role==='primary'?'scale-in':'slide-up';n.color_role=n.role==='primary'?'accent':'foreground';}}
+        entry.effects=['铺垫轻快落位，焦点承接；主次角色保持原样'];break;
+      case 'contrast':
+        if(refs.length<2){entry.status='limited';entry.effects=['单块对照保留原排版'];break;}
+        for(const [j,i] of refs.entries()){hints[i].offset=j%2?.018:-.018;design.nodes[i].entrance=common;if(design.nodes[i].role!=='primary')hints[i].scale*=1.12;}
+        entry.effects=['有限左右错位，相同入场语法，辅文稍增权重'];break;
+      case 'negation':
+        for(const i of refs){const n=design.nodes[i];n.color_role=i===focus?(n.role==='primary'?'accent':'foreground'):'muted';n.entrance=i===focus?(n.role==='primary'?'scale-in':'slide-up'):'fade';}
+        entry.effects=['弱化铺垫，突出判断对象；不新增主标题'];break;
+      case 'repetition':
+        if(refs.length<2){entry.status='limited';entry.effects=['单块内部重复暂不拆成子动画'];break;}
+        for(const i of refs){design.nodes[i].entrance=common;design.nodes[i].settle_fraction=design.nodes[refs[0]].settle_fraction;}
+        entry.effects=['重复块复用入场样式和相对落位时长'];break;
+      case 'spatial':
+        if(refs.length<2){entry.status='limited';entry.effects=['单块空间意象保持原构图'];break;}
+        for(const [j,i] of refs.entries()){hints[i].offset=j%2?.018:-.018;design.nodes[i].entrance='slide-up';if(design.nodes[i].role==='primary')design.nodes[i].hold='drift';}
+        entry.effects=['有限错位建立层次，主视觉驻留微动；不猜上下或三维方向'];break;
+    }
+  }
+  for(const hint of hints)hint.scale=Math.max(.8,Math.min(1.15,hint.scale));
+  return {design,hints,applications};
+}
 export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,measure:Measure):CompiledPoster {
-  const design=cue?.poster||automaticPoster(line,cue?.palette);
+  const semantic=resolveSemanticDirection(cue?.poster||automaticPoster(line,cue?.palette)),{design,hints}=semantic;
   const rgb=design.background.slice(1).match(/../g)!.map(v=>parseInt(v,16)/255);
   const dark=.2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]<.45;
   const foreground=dark?'#f3f7e9':'#20261e',muted=dark?'#adbba8':'#697263';
@@ -52,9 +90,10 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
   const portrait=H>W,chorus=section.includes('chorus')||section.includes('副歌'),verse=section.includes('verse')||section.includes('主歌');
   const maxHeight=H*(portrait?(dense?.40:chorus?.48:.44):(dense?.48:chorus?.66:verse?.48:.56));
   const gap=portrait?W*.012:H*.009,padding=portrait?W*.012:H*.008,width=W*(portrait?.78:.80);
-  const fitted=design.nodes.map(n=>{
+  const fitted=design.nodes.map((n,index)=>{
     const weight=n.role==='primary'?900:n.role==='secondary'?800:600;
     let size=portrait?W*(n.role==='primary'?(short?.30:.22):n.role==='secondary'?.075:.055):H*(n.role==='primary'?(short?.28:.18):n.role==='secondary'?.07:.045);
+    size*=hints[index].scale;
     const maxWidth=width-W*.018;
     const title=portrait&&n.role==='primary'?fitPortraitTitle(n.text,size,weight,maxWidth,W,measure,n.emphasis):null;
     if(title)size=title.size;
@@ -77,10 +116,10 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
   let y=Math.max(H*(portrait?.16:.12),Math.min(H*(portrait?.74:.88)-totalHeight,H*(portrait?.42:.5)-before-heights[primaryIndex]/2));
   for(let i=0;i<fitted.length;i++){
     const {n,weight,size,rows}=fitted[i],height=heights[i];
-    const shift=design.layout==='staggered'?(i%2?W*.025:-W*.025):0;
+    const shift=(design.layout==='staggered'?(i%2?W*.025:-W*.025):0)+W*hints[i].offset;
     const x=(W-width)/2+shift;
     const baseline=y+padding+measure(rows[0],size,weight).ascent;
-    const resolved=rows.map((text,j)=>({text,x:design.layout==='hero-stack'?leftAxis:x+(width-measure(text,size,weight).width)/2,y:baseline+j*size*1.04}));
+    const resolved=rows.map((text,j)=>({text,x:design.layout==='hero-stack'?leftAxis+W*hints[i].offset:x+(width-measure(text,size,weight).width)/2,y:baseline+j*size*1.04}));
     const a=line.words[n.word_indices[0]],b=line.words[n.word_indices.at(-1)!];
     const start=Math.max(line.start,a?.start??line.start),end=Math.min(line.end,b?.end??line.end);
     const entrance=n.entrance!=='none'&&(dense||end-start<.16)?'fade':n.entrance;
@@ -88,7 +127,7 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     nodes.push({text:n.text,role:n.role,word_indices:[...n.word_indices],x,y,width,height,fontSize:size,weight,color:n.color_role==='accent'?design.accent:n.color_role==='muted'?muted:foreground,rows:resolved,start,settled:start+duration,hold:dense?'none':n.hold||'none',beat_reaction:n.role==='primary'&&!dense?(n.beat_reaction||'none'):'none',entrance});
     y+=height+gap;
   }
-  return {version:'motion-poster-layout-v1',line_id:line.id,source:cue?.poster?'director':'automatic',width:W,height:H,background:design.background,accent:design.accent,motif:design.motif,layout:design.layout,transition_out:design.transition_out,relations:(design.relations||[]).map(r=>({...r,node_indices:[...r.node_indices]})),start:line.start,end:line.end,nodes};
+  return {version:'motion-poster-layout-v1',line_id:line.id,source:cue?.poster?'director':'automatic',width:W,height:H,background:design.background,accent:design.accent,motif:design.motif,layout:design.layout,transition_out:design.transition_out,semantic_arrangement:semantic.applications,relations:(design.relations||[]).map(r=>({...r,node_indices:[...r.node_indices]})),start:line.start,end:line.end,nodes};
 }
 // Song stage remains continuous; saved direction and alignment are not mutated.
 export function compileSongPosters(project:Project,W:number,H:number,measure:Measure):CompiledPoster[]{
