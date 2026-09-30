@@ -47,3 +47,5 @@ assets/
 *.mp4
 frontend/player/songs/
 work/
+frontend/motion/node_modules
+frontend/local/motion/

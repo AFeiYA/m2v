@@ -2126,7 +2126,7 @@ def storyboard():
 @app.get("/motion", response_class=HTMLResponse)
 @app.get("/motion_studio", response_class=HTMLResponse)
 def motion_studio():
-    ms_file = _FRONTEND_DIR / "motion_studio.html"
+    ms_file = _FRONTEND_DIR / "motion_studio_director.html"
     if ms_file.exists():
         return HTMLResponse(ms_file.read_text(encoding="utf-8"))
     return HTMLResponse("<h1>frontend/local/motion_studio.html 不存在</h1>", status_code=500)
@@ -2239,6 +2239,29 @@ def main() -> None:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
 
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+
+
+
+
+# The studio shares this editor's song paths and audio API.
+from src.motion_api import create_motion_router
+app.include_router(create_motion_router(_get_scan_dir, _validate_path, _find_audio))
+
+@app.get("/motion_lab", response_class=HTMLResponse)
+def motion_lab():
+    return HTMLResponse((_FRONTEND_DIR / "motion_lab.html").read_text(encoding="utf-8"))
+
+@app.get("/motion-lab.css")
+def motion_styles():
+    return FileResponse(_FRONTEND_DIR / "motion-lab.css", media_type="text/css")
+
+@app.get("/motion/{asset}")
+def motion_asset(asset: str):
+    if asset not in ("lab.js", "studio.js", "render-entry.js", "lab.js.LEGAL.txt", "studio.js.LEGAL.txt", "render-entry.js.LEGAL.txt"):
+        raise HTTPException(404, "文件不存在")
+    path = _FRONTEND_DIR / "motion" / asset
+    if not path.exists(): raise HTTPException(503, "动效前端尚未构建")
+    return FileResponse(path)
 
 
 if __name__ == "__main__":

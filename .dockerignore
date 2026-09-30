@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/__pycache__
+**/.pytest_cache
+**/.venv
+work
+input
+output
+frontend/local/motion

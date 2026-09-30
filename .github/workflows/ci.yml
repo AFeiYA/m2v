@@ -24,6 +24,22 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/motion/package-lock.json
+
+      - name: Check and build Motion Studio
+        working-directory: frontend/motion
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npm run build
+          node node_modules/playwright-core/cli.js install --with-deps chromium
+
       - name: Install system dependencies (ffmpeg)
         run: |
           sudo apt-get update
@@ -45,7 +61,8 @@ jobs:
 
       - name: Run Full Test Suite
         run: |
-          pytest tests/ -v --maxfail=1
+          export CHROME_PATH=$(cd frontend/motion && node --input-type=module -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')
+          RUN_MOTION_RENDER=1 pytest tests/ -v --maxfail=1
 
   deploy-to-hf:
     name: Auto Deploy to Hugging Face Spaces
