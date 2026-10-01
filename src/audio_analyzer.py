@@ -160,7 +160,7 @@ def detect_cut_candidates(
         curr_time = cut_points[i].time
         gap = curr_time - prev_time
 
-        while gap > max_shot_duration:
+        while beat_times and gap > max_shot_duration:
             # 在中间选一个合适的 beat
             ideal_split = prev_time + (gap / 2.0)
             best_beat = min(beat_times, key=lambda b: abs(b - ideal_split)) if beat_times else ideal_split
@@ -196,108 +196,151 @@ def detect_cut_candidates(
     return filled_cuts
 
 
+ANALYZER_VERSION = "motion-audio-v1"
+
+
+def _normalized(values):
+    values = np.asarray(values, dtype=float)
+    scale = float(np.percentile(values, 99)) if values.size else 0.0
+    if scale <= 1e-10 and values.size:
+        scale = float(np.max(values))
+    return np.clip(values / scale, 0, 1) if scale > 1e-10 else np.zeros_like(values)
+
+
 def analyze_audio_for_director(
     audio_path: str | Path,
     drums_path: Optional[str | Path] = None,
     bass_path: Optional[str | Path] = None,
     sections: Optional[list[MusicSection]] = None,
     sr: int = 22050,
+    feature_rate_hz: int = 100,
 ) -> SongAnalysis:
+    """Measured envelopes and estimated rhythm; never invent a pulse for silence.
+
+    Downbeats assume 4/4 with an energy-based phase, and drum names are spectral
+    heuristics, not instrument recognition. These limitations travel with data.
     """
-    针对 AI 导演与视听剪辑的音频高阶特征分析
-    """
-    audio_path = str(audio_path)
-    if not os.path.exists(audio_path):
-        raise FileNotFoundError(f"音频文件不存在: {audio_path}")
+    if not 10 <= feature_rate_hz <= 200 or sr < 16000:
+        raise ValueError("feature_rate_hz must be 10–200 and sr >=16000")
+    path = Path(audio_path)
+    if not path.is_file():
+        raise FileNotFoundError(f"音频文件不存在: {path}")
+    y, _ = librosa.load(path, sr=sr, mono=True)
+    if not len(y) or not np.isfinite(y).all():
+        raise ValueError("Audio must contain finite, non-empty samples")
+    duration = len(y) / sr
+    hop = max(1, round(sr / feature_rate_hz))
+    n_fft = 2048
+    spectrum = librosa.stft(y, n_fft=n_fft, hop_length=hop)
+    _, percussion = librosa.decompose.hpss(spectrum)
+    percussion_source = 'hpss_mix'
+    if drums_path:
+        drums, _ = librosa.load(drums_path, sr=sr, mono=True)
+        if abs(len(drums) / sr - duration) > .1:
+            raise ValueError("Drum stem duration differs from original audio")
+        percussion = librosa.stft(librosa.util.fix_length(drums, size=len(y)), n_fft=n_fft, hop_length=hop)
+        percussion_source = 'drums_stem'
+    magnitude = np.abs(spectrum)
+    percussive = np.abs(percussion)
+    frequencies = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+    frame_times = librosa.frames_to_time(np.arange(magnitude.shape[1]), sr=sr, hop_length=hop)
+    target_times = np.arange(int(np.ceil(duration * feature_rate_hz))) / feature_rate_hz
+    def sample(values):
+        return np.interp(target_times, frame_times, _normalized(values))
+    def band(spec, low, high):
+        mask = (frequencies >= low) & (frequencies < high)
+        return np.sqrt(np.mean(spec[mask] ** 2, axis=0))
+    low = band(magnitude, 20, 200)
+    if bass_path:
+        bass, _ = librosa.load(bass_path, sr=sr, mono=True)
+        if abs(len(bass) / sr - duration) > .1:
+            raise ValueError("Bass stem duration differs from original audio")
+        low = band(np.abs(librosa.stft(librosa.util.fix_length(bass, size=len(y)), n_fft=n_fft, hop_length=hop)), 20, 200)
+    rms = librosa.feature.rms(y=y, frame_length=n_fft, hop_length=hop)[0]
+    onset = librosa.onset.onset_strength(S=librosa.amplitude_to_db(percussive, ref=np.max), sr=sr, hop_length=hop)
+    silent = float(np.max(np.abs(y))) < 1e-7
+    bpm, beat_times = 0.0, []
+    if not silent and duration >= 2 and np.max(onset) > 1e-8:
+        tempo, frames = librosa.beat.beat_track(onset_envelope=onset, sr=sr, hop_length=hop)
+        detected = librosa.frames_to_time(frames, sr=sr, hop_length=hop)
+        beat_times = [float(t) for t in detected if 0 <= t < duration]
+        bpm = float(np.asarray(tempo).reshape(-1)[0]) if len(beat_times) >= 2 else 0.0
+    beat_times = sorted(set(round(t, 3) for t in beat_times))
+    # Energy phase heuristic; no claim of measured musical meter.
+    phase = 0
+    if len(beat_times) >= 8:
+        strengths = np.interp(beat_times, frame_times, _normalized(band(percussive, 20, 150)))
+        phase = int(np.argmax([np.mean(strengths[i::4]) for i in range(4)]))
+    downbeats = beat_times[phase::4]
+    onsets = []
+    drum_hits = []
+    for label, env, spacing in [
+        ('kick', band(percussive, 20, 150), .18),
+        ('snare', band(percussive, 150, 3000), .18),
+        ('hat', band(percussive, 4000, 10000), .08),
+        ('onset', onset, .08),
+    ]:
+        norm = _normalized(env)
+        peaks, _ = scipy.signal.find_peaks(norm, height=.15, prominence=.08, distance=max(1, round(spacing * sr / hop)))
+        for i in peaks:
+            time = float(frame_times[i])
+            if time >= duration or silent:
+                continue
+            event = {'time': round(time, 3), 'strength': round(float(norm[i]), 4)}
+            if label == 'onset': onsets.append(event)
+            else: drum_hits.append({**event, 'type': label, 'confidence': .4})
+    curves = [sample(v) for v in (rms, low, band(magnitude, 200, 4000), band(magnitude, 4000, 10000), onset)]
+    envelopes = [{ 'time': round(float(t), 4), **{k: round(float(v[i]), 4) for k, v in zip(('rms','low','mid','high','flux'), curves)}} for i, t in enumerate(target_times)]
+    energy_curve = [{'time': row['time'], 'energy': row['rms']} for row in envelopes]
+    coarse = curves[0][::max(1, feature_rate_hz // 2)]
+    changes = np.abs(np.diff(coarse, prepend=coarse[0]))
+    peaks, _ = scipy.signal.find_peaks(changes, height=.18, distance=10)
+    boundaries = [{'time': round(float(target_times[min(int(i * max(1, feature_rate_hz // 2)), len(target_times)-1)]), 3),
+                   'strength': round(float(changes[i]), 4), 'confidence': .35} for i in peaks]
+    drum_hits.sort(key=lambda h: (h['time'], h['type']))
+    return SongAnalysis(bpm=round(bpm, 2), duration=duration, beats=beat_times, downbeats=downbeats,
+        energy_curve=energy_curve, drum_hits=drum_hits, sections=sections or [], feature_rate_hz=feature_rate_hz,
+        envelopes=envelopes, onsets=onsets, section_candidates=boundaries,
+        cut_candidates=detect_cut_candidates(duration, beat_times, downbeats, drum_hits, energy_curve, sections),
+        metadata={'algorithm_version': ANALYZER_VERSION, 'sample_rate': sr, 'hop_length': hop,
+                  'percussion_source': percussion_source, 'downbeats_method': 'estimated_4_4_energy_phase',
+                  'downbeats_confidence': .35 if downbeats else 0, 'drum_hits_method': 'spectral_onset_heuristic',
+                  'section_candidates_method': 'energy_change_not_semantic_sections',
+                  'normalization': 'per_track_per_channel_99th_percentile', 'silent': silent,
+                  'beat_interval_regularity': round(float(np.clip(1 - np.std(np.diff(beat_times)) / np.mean(np.diff(beat_times)), 0, 1)), 3) if len(beat_times) > 2 else 0,
+                  'confidence_note': 'Heuristic scores, not calibrated probabilities'})
 
-    # 1. 加载音频并提取时长
-    y, sr = librosa.load(audio_path, sr=sr)
-    duration = float(librosa.get_duration(y=y, sr=sr))
 
-    # 2. 和声与打击乐分离 (HPSS)
-    y_harm, y_perc = librosa.effects.hpss(y)
-
-    # 如果提供了专门的 Demucs 提取的 drums 音频，优先使用其作为打击乐源
-    if drums_path and os.path.exists(str(drums_path)):
+def cached_audio_analysis(audio_path, cache_path, sections=None, feature_rate_hz=100, force=False):
+    """Content/version/settings keyed cache; lyric edits only refresh cut hints."""
+    import hashlib
+    import tempfile
+    audio_path, cache_path = Path(audio_path), Path(cache_path)
+    digest = hashlib.sha256()
+    with audio_path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1024*1024), b''): digest.update(block)
+    key = {'audio_sha256': digest.hexdigest(), 'algorithm_version': ANALYZER_VERSION,
+           'feature_rate_hz': feature_rate_hz, 'sample_rate': 22050, 'librosa_version': librosa.__version__}
+    result = None
+    if cache_path.is_file() and not force:
         try:
-            y_drums, _ = librosa.load(str(drums_path), sr=sr)
-            y_perc = y_drums
-        except Exception:
-            pass
-
-    # 3. 节拍与 BPM 估计
-    tempo, beat_frames = librosa.beat.beat_track(y=y_perc, sr=sr)
-    bpm = float(tempo[0]) if isinstance(tempo, np.ndarray) else float(tempo)
-    beat_times = [float(t) for t in librosa.frames_to_time(beat_frames, sr=sr)]
-
-    # 4. 计算小节重拍 (4/4 拍，每 4 拍一个小节头)
-    downbeats = [beat_times[i] for i in range(0, len(beat_times), 4)] if beat_times else []
-
-    # 5. 频段滤波提取 Kick, Snare, Hi-hat 鼓点打击事件
-    hop_length = 512
-    stft = np.abs(librosa.stft(y_perc, hop_length=hop_length))
-    freqs = librosa.fft_frequencies(sr=sr)
-    times = librosa.frames_to_time(np.arange(stft.shape[1]), sr=sr, hop_length=hop_length)
-
-    kick_mask = freqs < 120
-    kick_env = np.sum(stft[kick_mask, :], axis=0) if np.any(kick_mask) else np.zeros(stft.shape[1])
-
-    snare_mask = (freqs >= 200) & (freqs < 1000)
-    snare_env = np.sum(stft[snare_mask, :], axis=0) if np.any(snare_mask) else np.zeros(stft.shape[1])
-
-    hat_mask = (freqs >= 4000) & (freqs < 8000)
-    hat_env = np.sum(stft[hat_mask, :], axis=0) if np.any(hat_mask) else np.zeros(stft.shape[1])
-
-    kick_peaks = find_peaks(kick_env, times, sr, hop_length, min_dist_sec=0.22, threshold_factor=1.2)
-    snare_peaks = find_peaks(snare_env, times, sr, hop_length, min_dist_sec=0.25, threshold_factor=1.3)
-    hat_peaks = find_peaks(hat_env, times, sr, hop_length, min_dist_sec=0.15, threshold_factor=1.0)
-
-    drum_hits: list[dict[str, Any]] = []
-    for t in kick_peaks:
-        drum_hits.append({"time": float(t), "type": "kick"})
-    for t in snare_peaks:
-        drum_hits.append({"time": float(t), "type": "snare"})
-    for t in hat_peaks:
-        drum_hits.append({"time": float(t), "type": "hat"})
-    drum_hits.sort(key=lambda x: x["time"])
-
-    # 6. 计算连续 RMS 能量采样曲线 (采样率约 10Hz)
-    rms_raw = librosa.feature.rms(y=y, hop_length=hop_length)[0]
-    max_rms = float(np.max(rms_raw)) if len(rms_raw) > 0 and np.max(rms_raw) > 0 else 1.0
-    rms_norm = rms_raw / max_rms
-
-    times_raw = librosa.frames_to_time(np.arange(len(rms_raw)), sr=sr, hop_length=hop_length)
-    target_fps = 10
-    hop_sec = hop_length / sr
-    step = max(1, int(round(1.0 / (target_fps * hop_sec))))
-
-    energy_curve: list[dict[str, float]] = []
-    for idx in range(0, len(rms_norm), step):
-        energy_curve.append({
-            "time": round(float(times_raw[idx]), 2),
-            "energy": round(float(rms_norm[idx]), 3),
-        })
-
-    # 7. 综合生成推荐切刀点序列
-    cut_candidates = detect_cut_candidates(
-        duration=duration,
-        beat_times=beat_times,
-        downbeats=downbeats,
-        drum_hits=drum_hits,
-        energy_curve=energy_curve,
-        sections=sections,
-    )
-
-    return SongAnalysis(
-        bpm=round(bpm, 2),
-        duration=round(duration, 2),
-        beats=[round(b, 3) for b in beat_times],
-        downbeats=[round(db, 3) for db in downbeats],
-        energy_curve=energy_curve,
-        drum_hits=drum_hits,
-        cut_candidates=cut_candidates,
-        sections=sections or [],
-    )
+            candidate = SongAnalysis.model_validate_json(cache_path.read_text(encoding='utf-8'))
+            if all(candidate.metadata.get(k) == v for k,v in key.items()): result = candidate
+        except (ValueError, OSError): pass
+    hit = result is not None
+    if result is None: result = analyze_audio_for_director(audio_path, feature_rate_hz=feature_rate_hz)
+    result.sections = sections or []
+    result.cut_candidates = detect_cut_candidates(result.duration, result.beats, result.downbeats, result.drum_hits, result.energy_curve, result.sections)
+    result.metadata.update(key)
+    result.metadata['audio_path'] = str(audio_path.resolve())
+    result.metadata['cache_hit'] = hit
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=cache_path.parent, suffix='.tmp', delete=False) as stream:
+        tmp = Path(stream.name)
+        stream.write(result.model_dump_json(indent=2))
+    try: tmp.replace(cache_path)
+    finally: tmp.unlink(missing_ok=True)
+    return result
 
 
 # ----------------------------------------------------------------------------
@@ -308,7 +351,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Suno2MV 视听特征与节奏分析器")
     parser.add_argument("--audio", required=True, help="输入音频路径 (WAV/MP3)")
     parser.add_argument("--output", required=True, help="分析 JSON 输出路径")
-    parser.add_argument("--fps", type=int, default=20, help="采样率 (默认: 20Hz)")
+    parser.add_argument("--fps", type=int, default=100, help="动效特征采样率 (默认: 100Hz)")
     return parser.parse_args()
 
 
@@ -319,17 +362,9 @@ def main():
         sys.exit(1)
 
     print(f"Analyzing: {args.audio}")
-    analysis = analyze_audio_for_director(args.audio)
+    analysis = cached_audio_analysis(args.audio, args.output, feature_rate_hz=args.fps)
 
-    # 导出兼容旧版 3D 轨迹格式及完整分析
-    out_dict = analysis.model_dump()
-    output_dir = os.path.dirname(args.output)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-
-    with open(args.output, "w", encoding="utf-8") as f:
-        json.dump(out_dict, f, ensure_ascii=False, indent=2)
-
+    # Cache writer already persisted the complete analysis atomically.
     print(f"✅ Successfully wrote director analysis to: {args.output}")
 
 

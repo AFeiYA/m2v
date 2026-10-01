@@ -364,6 +364,17 @@ def process_one(
             output_json = output_dir / f"{stem}_alignment.json"
             shutil.copy2(json_path, output_json)
 
+        # Original mix drives motion; vocal/instrumental stems are not drum stems.
+        _progress("analyzing", 61, "分析原曲节拍与动效特征…")
+        from src.audio_analyzer import cached_audio_analysis
+        alignment.analysis = cached_audio_analysis(
+            mp3_path, output_dir / f"{stem}_analysis.json", sections=alignment.sections,
+        )
+        alignment.audio_path = str(mp3_path.resolve())
+        alignment.duration = alignment.analysis.duration
+        alignment.save_json(output_json)
+        _progress("analyzing", 64, "音频分析完成" + ("（复用缓存）" if alignment.analysis.metadata["cache_hit"] else ""))
+
         # ---------------------------------------------------------------
         # Step 4: ASS 字幕生成
         # ---------------------------------------------------------------

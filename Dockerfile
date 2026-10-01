@@ -1,8 +1,17 @@
+FROM node:22-bookworm-slim AS motion-build
+WORKDIR /app/frontend/motion
+COPY frontend/motion/package*.json ./
+RUN npm ci
+COPY frontend/motion/ ./
+RUN npm run check && npm test && npm run build && npm prune --omit=dev
+
 FROM python:3.11-slim
 
 # 安装 FFmpeg (含 libass 完整字幕支持) 与 中文字体
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    chromium \
+    libatomic1 \
     libass-dev \
     fonts-noto-cjk \
     fonts-wqy-zenhei \
@@ -26,13 +35,19 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 # 拷贝代码与静态资源
 COPY --chown=user:user . /app
 
+COPY --from=motion-build /usr/local/bin/node /usr/local/bin/node
+COPY --from=motion-build /app/frontend/motion/node_modules /app/frontend/motion/node_modules
+COPY --from=motion-build /app/frontend/local/motion /app/frontend/local/motion
+COPY --from=motion-build /app/frontend/local/remotion /app/frontend/local/remotion
+
 # 确保输出目录权限
 RUN mkdir -p /app/output /app/input /app/assets && chown -R user:user /app
 
 USER user
 ENV HOME=/home/user \
     PATH=/home/user/.local/bin:$PATH \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    CHROME_PATH=/usr/bin/chromium
 
 # 暴露端口 (Hugging Face 默认 7860，亦支持自定义 PORT)
 EXPOSE 7860

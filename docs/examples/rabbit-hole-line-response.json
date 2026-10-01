@@ -1,0 +1,121 @@
+{
+  "version": "motion-line-response-v1",
+  "source_signature": "56e2a258f10d0a328000fef3155082d45498ea8cb92052b721b5e19084bcfcf1",
+  "base_cue_signature": "149cb05f5e337fd86874ac25a3ae703a8e7f08d793370fa3a640e97cb02c1e9d",
+  "cue": {
+    "line_id": "line_0013",
+    "locked": false,
+    "intent": "邀请进入兔子洞，再否定常规成功叙事",
+    "poster": {
+      "version": "motion-poster-direction-v1",
+      "status": "draft",
+      "layout": "hero-stack",
+      "intent": "上方邀请，兔子洞为唯一主标题，下方否定并收尾",
+      "background": "#eeeee6",
+      "accent": "#c1ee47",
+      "motif": "rings",
+      "visibility": "cumulative",
+      "final_hold": "available-tail",
+      "transition_out": "cut",
+      "transition_note": "下一句失重延续兔子洞意象，以相同强调色保持连续",
+      "nodes": [
+        {
+          "text": "欢迎来到",
+          "word_indices": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "role": "support",
+          "emphasis": "",
+          "color_role": "foreground",
+          "entrance": "slide-up",
+          "settle_fraction": 0.25,
+          "hold": "none",
+          "beat_reaction": "none"
+        },
+        {
+          "text": "我的",
+          "word_indices": [
+            4,
+            5
+          ],
+          "role": "support",
+          "emphasis": "",
+          "color_role": "foreground",
+          "entrance": "slide-up",
+          "settle_fraction": 0.25,
+          "hold": "none",
+          "beat_reaction": "none"
+        },
+        {
+          "text": "兔子洞",
+          "word_indices": [
+            6,
+            7,
+            8
+          ],
+          "role": "primary",
+          "emphasis": "兔子洞",
+          "color_role": "accent",
+          "entrance": "scale-in",
+          "settle_fraction": 0.25,
+          "hold": "drift",
+          "beat_reaction": "pulse"
+        },
+        {
+          "text": "这里没有",
+          "word_indices": [
+            9,
+            10,
+            11,
+            12
+          ],
+          "role": "secondary",
+          "emphasis": "",
+          "color_role": "foreground",
+          "entrance": "slide-up",
+          "settle_fraction": 0.25,
+          "hold": "none",
+          "beat_reaction": "none"
+        },
+        {
+          "text": "所谓的成功",
+          "word_indices": [
+            13,
+            14,
+            15,
+            16,
+            17
+          ],
+          "role": "secondary",
+          "emphasis": "",
+          "color_role": "foreground",
+          "entrance": "slide-up",
+          "settle_fraction": 0.25,
+          "hold": "none",
+          "beat_reaction": "none"
+        }
+      ],
+      "relations": [
+        {
+          "kind": "guidance",
+          "node_indices": [
+            0,
+            2
+          ],
+          "intent": "欢迎来到邀请观众进入兔子洞，核心意象承接邀请"
+        },
+        {
+          "kind": "negation",
+          "node_indices": [
+            3,
+            4
+          ],
+          "intent": "这里没有否定所谓的成功，后半句收束并挑战常规成功叙事"
+        }
+      ]
+    }
+  }
+}

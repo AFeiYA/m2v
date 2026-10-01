@@ -1,0 +1,69 @@
+{
+  "version": "spatial-direction-draft-v1",
+  "status": "design_sample_not_current_runtime_plan",
+  "line_id": "line_0013",
+  "text": "欢迎来到　我的兔子洞　这里没有　所谓的成功",
+  "start": 74.983,
+  "end": 81.693,
+  "layout": {
+    "rows": ["欢迎来到　我的兔子洞", "这里没有　所谓的成功"],
+    "whole_line_visible": true,
+    "inactive_opacity_floor": 0.45,
+    "safe_margin_ratio": 0.1,
+    "max_yaw_degrees": 8,
+    "max_scale": 1.12
+  },
+  "timing_authority": "alignment_word_start_end",
+  "beat_response": "secondary_low_amplitude_pulse_only",
+  "groups": [
+    {
+      "text": "欢迎来到",
+      "word_indices": [0, 1, 2, 3],
+      "start": 74.983,
+      "end": 75.983,
+      "intent": "邀请进入空间",
+      "motion": "向观众轻移并逐字点亮；其余整句保持可读",
+      "enter_seconds": 0.18,
+      "settle_seconds": 0.12
+    },
+    {
+      "text": "我的兔子洞",
+      "word_indices": [4, 5, 6, 7, 8],
+      "start": 75.983,
+      "end": 78.863,
+      "intent": "建立核心空间意象",
+      "motion": "词组向前突出；相机轻推；背景环向纵深展开",
+      "emphasis": "兔子洞",
+      "emphasis_start": 76.463,
+      "long_vowel_start": 77.423,
+      "long_vowel_end": 78.863,
+      "enter_seconds": 0.24,
+      "settle_seconds": 0.2
+    },
+    {
+      "text": "这里没有",
+      "word_indices": [9, 10, 11, 12],
+      "start": 78.863,
+      "end": 79.843,
+      "intent": "否定转折",
+      "motion": "上组回到原布局；本组轻推近；在没有上加强对比",
+      "emphasis": "没有",
+      "emphasis_start": 79.343,
+      "enter_seconds": 0.12,
+      "settle_seconds": 0.1
+    },
+    {
+      "text": "所谓的成功",
+      "word_indices": [13, 14, 15, 16, 17],
+      "start": 79.843,
+      "end": 81.693,
+      "intent": "落在被否定的概念上",
+      "motion": "词组点亮；成功轻微放大后退回整句，不删除、不遮挡",
+      "emphasis": "成功",
+      "emphasis_start": 81.043,
+      "enter_seconds": 0.2,
+      "settle_seconds": 0.12
+    }
+  ],
+  "end_hold": {"start": 81.693, "end": 81.993, "motion": "整句恢复统一亮度并保持阅读，随后整句退出"}
+}

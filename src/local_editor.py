@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import threading
@@ -48,6 +49,8 @@ DEFAULT_DIR   = str(_PROJECT_ROOT / "output")
 DEFAULT_HOST  = "127.0.0.1"
 DEFAULT_PORT  = 8000
 # ─────────────────────────────────────────────────────────
+
+_alignment_write_lock = threading.Lock()
 
 app = FastAPI(title="M2V 本地编辑器", docs_url=None, redoc_url=None)
 
@@ -101,7 +104,7 @@ def _validate_path(p: Path, must_exist: bool = True) -> Path:
     resolved = p.resolve()
     # 允许扫描目录本身及其父目录下的 input/ 目录
     allowed_roots = [scan_dir.resolve(), (scan_dir.parent / "input").resolve(), scan_dir.parent.resolve()]
-    if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
+    if not any(resolved.is_relative_to(root) for root in allowed_roots):
         raise HTTPException(403, f"路径越界: 仅允许访问项目目录内的文件")
     if must_exist and not resolved.exists():
         raise HTTPException(404, f"文件不存在: {resolved.name}")
@@ -745,11 +748,78 @@ def save_alignment(path: str, project: AlignmentProject):
     p = _validate_path(Path(path))
 
     bak = p.with_suffix(".json.bak")
-    shutil.copy2(p, bak)
-    project.save_json(p)
+    with _alignment_write_lock:
+        shutil.copy2(p, bak)
+        project.save_json(p)
 
     log.info("保存完成: %s", p.name)
     return {"status": "ok", "backup": str(bak)}
+
+
+class AudioAnalysisRequest(BaseModel):
+    json_path: str
+    force: bool = False
+
+
+_audio_analysis_tasks: dict[str, dict[str, Any]] = {}
+_audio_analysis_lock = threading.Lock()
+
+
+@app.post("/api/audio/analyze")
+def api_analyze_audio(req: AudioAnalysisRequest):
+    """Analyze existing songs independently of alignment; reuse active work/cache."""
+    import uuid
+    json_path = _validate_path(Path(req.json_path))
+    stem = json_path.stem.removesuffix("_alignment")
+    audio = _find_audio(stem, song_output_dir=json_path.parent)
+    if audio is None:
+        raise HTTPException(404, "未找到原曲音频，不能用人声或伴奏代替")
+    audio = _validate_path(audio)
+    with _audio_analysis_lock:
+        for task_id, task in _audio_analysis_tasks.items():
+            if task["json_path"] == str(json_path) and task["status"] == "running":
+                return {"task_id": task_id, "status": "running"}
+        task_id = uuid.uuid4().hex
+        _audio_analysis_tasks[task_id] = {"status": "running", "json_path": str(json_path)}
+
+    def run():
+        try:
+            from src.audio_analyzer import cached_audio_analysis
+            from src.storyboard_schema import MusicSection
+            analysis = cached_audio_analysis(audio, json_path.parent / f"{stem}_analysis.json", force=req.force)
+            with _alignment_write_lock:
+                # Reload after analysis to retain lyric edits saved during the calculation.
+                payload = json.loads(json_path.read_text(encoding="utf-8"))
+                sections = [MusicSection.model_validate(s) for s in payload.get("sections", [])]
+                from src.audio_analyzer import detect_cut_candidates
+                analysis.sections = sections
+                analysis.cut_candidates = detect_cut_candidates(analysis.duration, analysis.beats, analysis.downbeats, analysis.drum_hits, analysis.energy_curve, sections)
+                payload["analysis"] = analysis.model_dump()
+                payload["audio_path"] = str(audio)
+                payload["duration"] = analysis.duration
+                import tempfile
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=json_path.parent, suffix=".tmp", delete=False) as stream:
+                    temporary = Path(stream.name)
+                    json.dump(payload, stream, ensure_ascii=False, indent=2)
+                try:
+                    temporary.replace(json_path)
+                finally:
+                    temporary.unlink(missing_ok=True)
+            _audio_analysis_tasks[task_id] = {"status": "done", "json_path": str(json_path), "bpm": analysis.bpm, "duration": analysis.duration, "beats": len(analysis.beats), "samples": len(analysis.envelopes), "cache_hit": analysis.metadata["cache_hit"]}
+        except Exception as exc:
+            log.exception("音频分析失败")
+            _audio_analysis_tasks[task_id] = {"status": "error", "json_path": str(json_path), "error": str(exc)}
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"task_id": task_id, "status": "running"}
+
+
+@app.get("/api/audio/analyze/{task_id}")
+def api_audio_analysis_status(task_id: str):
+    task = _audio_analysis_tasks.get(task_id)
+    if task is None:
+        raise HTTPException(404, "音频分析任务不存在")
+    return task
 
 
 class AutoDirectRequest(BaseModel):
@@ -770,7 +840,7 @@ def api_auto_direct(req: AutoDirectRequest):
         song_dir = json_path.parent
         audio_path = None
         if req.audio_path:
-            p = Path(req.audio_path)
+            p = _validate_path(Path(req.audio_path))
             if p.exists():
                 audio_path = p
         if not audio_path:
@@ -780,11 +850,10 @@ def api_auto_direct(req: AutoDirectRequest):
         analysis = None
         if audio_path and audio_path.exists():
             try:
-                from src.audio_analyzer import analyze_audio_for_director
-                drums_path = song_dir / f"{song_dir.name}_instrumental.wav"
-                analysis = analyze_audio_for_director(
+                from src.audio_analyzer import cached_audio_analysis
+                analysis = cached_audio_analysis(
                     audio_path=audio_path,
-                    drums_path=drums_path if drums_path.exists() else None,
+                    cache_path=song_dir / f"{json_path.stem.removesuffix('_alignment')}_analysis.json",
                     sections=project.sections,
                 )
                 project.analysis = analysis
@@ -2058,9 +2127,15 @@ def storyboard():
 @app.get("/motion", response_class=HTMLResponse)
 @app.get("/motion_studio", response_class=HTMLResponse)
 def motion_studio():
-    ms_file = _FRONTEND_DIR / "motion_studio.html"
+    ms_file = _FRONTEND_DIR / "motion_studio_director.html"
     if ms_file.exists():
-        return HTMLResponse(ms_file.read_text(encoding="utf-8"))
+        html = ms_file.read_text(encoding="utf-8")
+        for url, asset in (("/motion/studio.js", _FRONTEND_DIR / "motion" / "studio.js"),
+                           ("/motion-lab.css", _FRONTEND_DIR / "motion-lab.css")):
+            if asset.exists():
+                version = hashlib.sha256(asset.read_bytes()).hexdigest()[:16]
+                html = html.replace(f'{url}"', f'{url}?v={version}"')
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
     return HTMLResponse("<h1>frontend/local/motion_studio.html 不存在</h1>", status_code=500)
 
 
@@ -2171,6 +2246,29 @@ def main() -> None:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
 
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+
+
+
+
+# The studio shares this editor's song paths and audio API.
+from src.motion_api import create_motion_router
+app.include_router(create_motion_router(_get_scan_dir, _validate_path, _find_audio))
+
+@app.get("/motion_lab", response_class=HTMLResponse)
+def motion_lab():
+    return HTMLResponse((_FRONTEND_DIR / "motion_lab.html").read_text(encoding="utf-8"))
+
+@app.get("/motion-lab.css")
+def motion_styles():
+    return FileResponse(_FRONTEND_DIR / "motion-lab.css", media_type="text/css")
+
+@app.get("/motion/{asset}")
+def motion_asset(asset: str):
+    if asset not in ("lab.js", "studio.js", "render-entry.js", "lab.js.LEGAL.txt", "studio.js.LEGAL.txt", "render-entry.js.LEGAL.txt"):
+        raise HTTPException(404, "文件不存在")
+    path = _FRONTEND_DIR / "motion" / asset
+    if not path.exists(): raise HTTPException(503, "动效前端尚未构建")
+    return FileResponse(path)
 
 
 if __name__ == "__main__":

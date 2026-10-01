@@ -1,6 +1,6 @@
 """
 Hugging Face Spaces Entry Point
-- 适配 Hugging Face 免费 Gradio SDK (永久免费 16GB 内存，无需绑卡)
+- 保留 Gradio SDK 与 ZeroGPU 部署入口
 - 兼容原生 FastAPI 后端接口 (/api/suno/import, /api/alignment, /api/asset_file 等)
 - 支持 Vercel 前端无缝代理请求
 """
@@ -65,6 +65,9 @@ def mount_fastapi_routes(demo_instance):
         demo_instance.server_app.include_router(fastapi_app.router)
 
 if __name__ == "__main__":
+    from src.hf_motion_runtime import prepare_motion_runtime
+    if os.environ.get("SPACE_ID") or os.environ.get("M2V_PREPARE_MOTION_RUNTIME") == "1":
+        prepare_motion_runtime()
     port = int(os.environ.get("PORT", 7860))
     # 使用 Gradio 官方标准的 queue().launch() 启动，满足 Hugging Face ZeroGPU 探活生命周期
     demo.launch(

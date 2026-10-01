@@ -45,6 +45,7 @@
 
     <div id="toolbar">
       <button id="btn-save" title="保存修改 (Ctrl+S)">💾 保存</button>
+      <button id="btn-analyze-audio" title="提取原曲节拍、能量和频段变化；已有结果会复用缓存">🎵 分析音频</button>
       <button id="btn-undo" title="Ctrl+Z">↩ 撤销</button>
       <button id="btn-redo" title="Ctrl+Y">↪ 重做</button>
       <span class="sep">|</span>
@@ -63,6 +64,7 @@
 
   <main>
     <section id="waveform-section">
+      <div id="audio-analysis-summary" style="padding: 6px 10px; color: #8cc8ed; font-size: 12px;" role="status">音频特征尚未分析</div>
       <!-- 人声轨 -->
       <div class="track-row" id="track-vocals">
         <div class="track-label">

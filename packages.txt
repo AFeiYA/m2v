@@ -2,3 +2,6 @@ ffmpeg
 libass-dev
 fonts-noto-cjk
 fonts-wqy-zenhei
+chromium
+libatomic1
+xz-utils
