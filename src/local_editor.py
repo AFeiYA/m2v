@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import threading
@@ -2128,7 +2129,12 @@ def storyboard():
 def motion_studio():
     ms_file = _FRONTEND_DIR / "motion_studio_director.html"
     if ms_file.exists():
-        return HTMLResponse(ms_file.read_text(encoding="utf-8"))
+        html = ms_file.read_text(encoding="utf-8")
+        script = _FRONTEND_DIR / "motion" / "studio.js"
+        if script.exists():
+            version = hashlib.sha256(script.read_bytes()).hexdigest()[:16]
+            html = html.replace('/motion/studio.js"', f'/motion/studio.js?v={version}"')
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
     return HTMLResponse("<h1>frontend/local/motion_studio.html 不存在</h1>", status_code=500)
 
 

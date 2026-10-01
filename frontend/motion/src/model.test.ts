@@ -227,3 +227,13 @@ test('Chinese display spacing is optional while English and mixed word boundarie
   assert.equal(JSON.stringify(line),before);
  }
 });
+
+
+test('the saved water lyric never leaves a lone final character in either aspect',()=>{
+ const line={id:'line_1',text:'水 往低处流去',start:0,end:4,words:['水','往','低','处','流','去'].map((word,i)=>({word,start:i*.5,end:i*.5+.5}))};
+ const poster=automaticPoster(line);poster.layout='staggered';poster.nodes[1].emphasis='低处流去';
+ for(const [W,H] of [[1280,720],[720,1280]]){
+  const p=compilePoster(line,{poster} as any,W,H,measure);
+  assert.deepEqual(p.nodes[1].rows.map(r=>r.text),['往低处流去']);
+ }
+});
