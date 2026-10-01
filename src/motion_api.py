@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import hashlib
+from dataclasses import replace
 import os
 from pathlib import Path
 import shutil
@@ -15,7 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from src.motion_director import validate_plan, rule_plan, llm_prompt, director_input, line_prompt_bundle, line_response, cue_signature
 
-from src.motion_llm import configuration, generate_json, DirectorAPIError
+from src.motion_llm import configuration, generate_json, DirectorAPIError, DirectorQuotaError
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -143,7 +144,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
     def director_config():
         try:
             config = configuration()
-            return {'configured': True, 'model': config.model}
+            return {'configured': True, 'model': config.model, 'fallback_model': config.fallback_model}
         except DirectorAPIError as exc:
             return {'configured': False, 'message': str(exc)}
 
@@ -168,7 +169,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
                 if len(director_jobs) >= 20: director_jobs.pop(next(iter(director_jobs)))
                 job_id = uuid.uuid4().hex
                 director_jobs[job_id] = {'id': job_id, 'project_id': req.project_id, 'line_id': req.line_id,
-                                         'status': 'queued', 'model': config.model, 'attempt': 0,
+                                         'status': 'queued', 'model': config.model, 'requested_model': config.model, 'fallback_used': False, 'attempt': 0,
                                          'baseline': baseline, 'result': None, 'error': ''}
 
         def run():
@@ -176,10 +177,23 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
                 with lock: director_jobs[job_id].update(values)
             try:
                 repair = ''
+                active_config = config
+                fallback_used = False
                 for attempt in (1, 2):
                     update(status='running' if attempt == 1 else 'repairing', attempt=attempt)
                     try:
-                        data = generate_json(config, prompt_text, repair)
+                        try:
+                            data = generate_json(active_config, prompt_text, repair)
+                        except DirectorQuotaError:
+                            if fallback_used or not config.fallback_model or active_config.model == config.fallback_model:
+                                raise DirectorAPIError('模型额度不足，主模型或备用模型均无法继续，原方案未修改')
+                            active_config = replace(config, model=config.fallback_model)
+                            fallback_used = True
+                            update(model=active_config.model, fallback_used=True)
+                            # One switch per task; any JSON repair stays on the fallback model.
+                            try: data = generate_json(active_config, prompt_text, repair)
+                            except DirectorQuotaError:
+                                raise DirectorAPIError('备用模型也限流或额度不足，原方案未修改，请稍后重试') from None
                         update(status='validating')
                         if req.line_id:
                             response, _ = line_response(payload, data, req.line_id)

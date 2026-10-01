@@ -12,6 +12,11 @@ class DirectorAPIError(ValueError):
     pass
 
 
+class DirectorQuotaError(DirectorAPIError):
+    """HTTP 429 quota/rate exhaustion: eligible for a bounded model fallback."""
+    pass
+
+
 @dataclass(frozen=True)
 class DirectorConfig:
     base_url: str
@@ -20,6 +25,7 @@ class DirectorConfig:
     timeout: float = 180
     max_tokens: int = 16384
     json_mode: bool = True
+    fallback_model: str = 'gemini-3.5-flash-lite'
 
 
 def configuration():
@@ -32,6 +38,9 @@ def configuration():
         raise DirectorAPIError('请在后端 .env 配置 GEMINI_API_KEY（或 M2V_LLM_API_KEY）')
     if not __import__('re').fullmatch(r'gemini-[a-zA-Z0-9.-]+', model):
         raise DirectorAPIError('Gemini 模型名称无效')
+    fallback = str(values.get('M2V_LLM_FALLBACK_MODEL', 'gemini-3.5-flash-lite') or '').strip()
+    if fallback and not __import__('re').fullmatch(r'gemini-[a-zA-Z0-9.-]+', fallback):
+        raise DirectorAPIError('备用 Gemini 模型名称无效')
     parsed = urlsplit(base)
     if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise DirectorAPIError('模型 API 地址无效，请填写不带密钥的服务基础地址')
@@ -41,7 +50,7 @@ def configuration():
         if not 10 <= timeout <= 600 or not 1024 <= tokens <= 65536: raise ValueError()
     except ValueError:
         raise DirectorAPIError('模型超时应为 10–600 秒，输出上限应为 1024–65536 tokens') from None
-    return DirectorConfig(base, model, key, timeout, tokens, str(values.get('M2V_LLM_JSON_MODE') or 'true').lower() not in ('false', '0'))
+    return DirectorConfig(base, model, key, timeout, tokens, str(values.get('M2V_LLM_JSON_MODE') or 'true').lower() not in ('false', '0'), fallback)
 
 
 def generate_json(config: DirectorConfig, prompt: str, repair: str = ''):
@@ -56,7 +65,7 @@ def generate_json(config: DirectorConfig, prompt: str, repair: str = ''):
             response = client.post(config.base_url + '/models/' + config.model + ':generateContent', headers={'x-goog-api-key': config.api_key}, json=payload)
             if response.status_code >= 300:
                 if response.status_code in (401, 403): message = '模型服务认证失败，请检查后端密钥与权限'
-                elif response.status_code == 429: message = '模型服务限流或额度不足，请稍后重试'
+                elif response.status_code == 429: raise DirectorQuotaError('模型服务限流或额度不足，请稍后重试')
                 else: message = f'模型服务请求失败（HTTP {response.status_code}），请检查接口与模型配置'
                 raise DirectorAPIError(message)
             body = response.json()

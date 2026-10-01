@@ -47,3 +47,10 @@ def test_config_env_overrides_file_without_exposing_credentials(monkeypatch):
     assert 'secret' not in repr(config)
     monkeypatch.setenv('M2V_LLM_BASE_URL','https://api.test/?key=secret')
     with pytest.raises(DirectorAPIError): configuration()
+
+
+def test_http_429_is_a_typed_quota_error(monkeypatch):
+    from src.motion_llm import DirectorQuotaError
+    original=httpx.Client
+    monkeypatch.setattr(httpx,'Client',lambda **kwargs:original(transport=httpx.MockTransport(lambda request:httpx.Response(429,json={'error':{'status':'RESOURCE_EXHAUSTED','message':'private details'}})),**kwargs))
+    with pytest.raises(DirectorQuotaError):generate_json(DirectorConfig('https://example.test','gemini-3.8-flash','test-key'),'prompt')

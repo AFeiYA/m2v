@@ -68,8 +68,10 @@ poster.semantic_mode 默认为 auto，off 保留原节点参数。无 relations 
 
 自动 Gemini 导演：后端 `src/motion_llm.py` 使用 Gemini 原生 GenerateContent REST 接口，默认模型 `gemini-3.8-flash`，可用 `M2V_LLM_MODEL` 指定其他可用 Gemini 型号。在本分支根目录 `.env` 设置 `GEMINI_API_KEY`（环境变量优先；密钥不返回浏览器、不进入日志、不提交 Git）。其余配置见 `.env.example`。输入只有现有导演提示词的歌词、对齐与分析数据，不上传音频文件。
 
-页面提供“Gemini 导演当前句／整曲”，与“规则生成基础方案”区别明确。后台任务依次运行生成、校验，JSON/歌词/结构校验失败最多重新生成一次，认证/限流/超时不自动重试。生成失败不保存、不会回退成规则方案。校验成功后点击“应用 Gemini 方案并保存”，才更新预览和导出。服务器比较生成前后完整工程和方案快照，生成期间任何修改会导致 409，前端也阻止覆盖未保存的修改。单句只替换目标、整曲保护锁定条目。任务最多保留最近 20 个在内存中，服务重启后任务失效。
+页面提供“Gemini 导演当前句／整曲”，与“规则生成基础方案”区别明确。后台任务依次运行生成、校验，JSON/歌词/结构校验失败最多重新生成一次，认证/超时不自动重试，限流按下方备用规则处理。生成失败不保存、不会回退成规则方案。校验成功后点击“应用 Gemini 方案并保存”，才更新预览和导出。服务器比较生成前后完整工程和方案快照，生成期间任何修改会导致 409，前端也阻止覆盖未保存的修改。单句只替换目标、整曲保护锁定条目。任务最多保留最近 20 个在内存中，服务重启后任务失效。
 
 接口：`GET /api/motion/director/config` 只返回配置状态与模型名；`POST /director/generate` 参数沿用 project_id/style/instruction 与可选 line_id，返回 202 与任务 id；`GET /director/jobs/{id}` 返回进度及校验后的草案；`POST /director/jobs/{id}/apply` 应用并保存。最多一个生成任务同时运行。连接超时 15 秒，单次生成默认 180 秒，输出上限默认 16384 tokens；整曲截断时建议增大上限或使用单句。
 
 官方资料：[模型列表](https://ai.google.dev/gemini-api/docs/models)、[JSON 输出](https://ai.google.dev/gemini-api/docs/structured-output)。
+
+模型额度备用规则：默认主模型 `gemini-3.8-flash`，备用 `gemini-3.5-flash-lite`（`M2V_LLM_FALLBACK_MODEL` 可覆盖，空值关闭）。主模型返回 HTTP 429（限流／额度不足）时同一任务最多切换一次，仍使用原提示词、密钥与完整校验；后续 JSON 修正继续使用备用模型。认证、网络、超时、内容过滤、格式错误与输出截断不会触发切换。备用也返回 429 时明确失败，保留原方案，不继续轮询模型。每个新任务重新优先尝试主模型，不持久改写用户配置。任务返回 requested_model/model/fallback_used，页面展示实际模型。共用账户额度或预付余额不足不保证能靠换模型解决。

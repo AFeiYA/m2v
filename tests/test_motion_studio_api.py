@@ -271,3 +271,31 @@ def test_unconfigured_gemini_is_clear_and_does_not_start_job(song,monkeypatch):
     with TestClient(app) as client:
         config=client.get('/api/motion/director/config').json();assert not config['configured']
         assert client.post('/api/motion/director/generate',json={'project_id':song[1]}).status_code==503
+
+
+@pytest.mark.parametrize('outcome',['success','repair','both_exhausted','authentication'])
+def test_gemini_quota_fallback_is_bounded_and_repairs_stay_on_lite(song,monkeypatch,outcome):
+    from src.motion_director import line_prompt_bundle
+    from src.motion_llm import DirectorQuotaError,DirectorAPIError
+    path,id=song;mock_director_config(monkeypatch);calls=[]
+    with TestClient(app) as client:
+        old=client.post('/api/motion/director/rules',json={'project_id':id}).json()
+        valid=line_prompt_bundle(json.loads(path.read_text()),'line_0001',old)['response_example']
+        def generate(config,prompt,repair):
+            calls.append(config.model)
+            if len(calls)==1:
+                if outcome=='authentication':raise DirectorAPIError('认证失败')
+                raise DirectorQuotaError('额度不足')
+            if outcome=='both_exhausted':raise DirectorQuotaError('额度不足')
+            if outcome=='repair' and len(calls)==2:return {}
+            return valid
+        monkeypatch.setattr('src.motion_api.generate_json',generate)
+        job=wait_director(client,client.post('/api/motion/director/generate',json={'project_id':id,'line_id':'line_0001'}).json()['id'])
+        assert job['requested_model']=='gemini-3.8-flash'
+        if outcome=='authentication':
+            assert calls==['gemini-3.8-flash'] and not job['fallback_used'] and job['status']=='failed'
+        else:
+            assert calls==['gemini-3.8-flash']+['gemini-3.5-flash-lite']*(2 if outcome=='repair' else 1)
+            assert job['fallback_used'] and job['model']=='gemini-3.5-flash-lite'
+            assert job['status']==('failed' if outcome=='both_exhausted' else 'ready')
+        assert client.get('/api/motion/project',params={'project_id':id}).json()['plan']==old
