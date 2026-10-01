@@ -241,7 +241,7 @@ def test_poster_emphasis_accepts_chinese_spaces_without_rewriting_source():
 
 def test_parallel_lyric_subjects_share_an_explicit_focus_strategy(project):
     assert '【平行句导演】' in llm_prompt(project)
-    assert '一主体大、一谓语大' in llm_prompt(project)
+    assert '不要求 primary 属于同一种句法角色' in llm_prompt(project)
 
 
 def test_single_line_parallel_context_reaches_past_an_explanation_line():
@@ -261,7 +261,7 @@ def test_single_line_parallel_context_reaches_past_an_explanation_line():
     assert 'words' not in mountain and 'start' not in mountain
     assert previous==before
     assert '隔着“因为它……”' in bundle['prompt']
-    assert '以“水”为 primary' in bundle['prompt']
+    assert '主体优先的硬规则' in bundle['prompt']
     assert 'hold=none、beat_reaction=none' in bundle['prompt']
     assert 'schema 外字段' in bundle['prompt']
 
@@ -285,3 +285,37 @@ def test_new_direction_forbids_breathing_but_legacy_data_stays_readable(project)
     assert 'drift' not in director_capabilities()['poster_runtime']
     data=bundle['response_example'];data['cue']['poster']['nodes'][0]['hold']='drift'
     assert line_response(project,data,'line_0003')[0].cue.poster.nodes[0].hold=='drift'
+
+
+@pytest.mark.parametrize('chunks', [
+    ['这一秒我变得像山岳般', '巨大'],
+    ['别试图呼救', '你的声音本身就是一种', '幻梦'],
+    ['下一秒又缩进', '一滴泪水的', '缝隙'],
+])
+def test_independent_semantic_focus_preserves_complete_alignment(chunks):
+    from src.motion_director import line_prompt_bundle, line_response
+    text = ''.join(chunks)
+    words = [{'word': char, 'start': i * .2, 'end': (i + 1) * .2}
+             for i, char in enumerate(text)]
+    song = {'duration': len(words) * .2, 'lines': [
+        {'text': text, 'start': 0, 'end': len(words) * .2,
+         'section': 'Verse', 'words': words}]}
+    response = line_prompt_bundle(song, 'line_0001')['response_example']
+    nodes, offset = [], 0
+    for i, chunk in enumerate(chunks):
+        primary = i == len(chunks) - 1
+        nodes.append({'text': chunk, 'word_indices': list(range(offset, offset + len(chunk))),
+                      'role': 'primary' if primary else 'secondary',
+                      'emphasis': chunk if primary else '',
+                      'color_role': 'accent' if primary else 'foreground',
+                      'entrance': 'scale-in' if primary else 'fade', 'hold': 'none'})
+        offset += len(chunk)
+    response['cue']['poster']['nodes'] = nodes
+    response['cue']['poster']['visual_intensity'] = 'expanded'
+    validated, _ = line_response(song, response, 'line_0001')
+    assert validated.cue.poster.nodes[-1].text == chunks[-1]
+    assert [i for node in validated.cue.poster.nodes for i in node.word_indices] == list(range(len(words)))
+    # A semantic split still cannot drop sung text or invent a word boundary.
+    response['cue']['poster']['nodes'][0]['word_indices'].pop()
+    with pytest.raises(ValueError):
+        line_response(song, response, 'line_0001')
