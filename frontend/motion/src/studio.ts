@@ -1,3 +1,4 @@
+import {checkImportScope} from './import-scope';
 import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,type CompiledPoster} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
 import { defaults, normalizeProject, renderSize, type Project, type Options, type MotionPlan } from './model';
@@ -50,6 +51,7 @@ async function returnedPlan(apply:boolean){
  if(!selected)throw new Error('请先选择歌曲');if(dirty)throw new Error('请先保存本地修改，再校验或应用 LLM 方案');
  const data=JSON.parse($<HTMLTextAreaElement>('llm-return').value.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));
  const single=$<HTMLSelectElement>('import-scope').value==='line';
+ checkImportScope(data,single?'line':'song');
  const result=await api(single?`director/line/${apply?'apply':'validate'}`:apply?'plan':'director/validate',single?'POST':apply?'PUT':'POST',single?{project_id:selected,line_id:currentCue,response:data,style:$<HTMLSelectElement>('preset').value}:{project_id:selected,plan:data,from_llm:true});
  $('director-validation').textContent=single?`校验通过 · 整句保留 · ${result.compiled_groups.length} 个词组：`+result.compiled_groups.map((group:{text:string;start:number;end:number})=>`${group.text} ${group.start.toFixed(3)}–${group.end.toFixed(3)}s`).join('；'):'整曲方案校验通过';
  if(apply){plan=single?result.plan:result;dirty=false;refresh();listCues();status(single?'单句方案已应用，其他句子保持原方案':'整曲方案已应用并保存');}

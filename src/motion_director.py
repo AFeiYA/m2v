@@ -317,7 +317,7 @@ def llm_prompt(project, previous=None, style='impact', instruction=''):
     if previous:
         source['previous_plan'] = validate_plan(project, previous).model_dump()
         source['previous_plan']['cues'] = [prompt_cue(cue) for cue in source['previous_plan']['cues']]
-    return PROMPT_RULES + '\n任务：整曲导演。返回 visual_language，逐句完成海报与动画草案。完整覆盖输入中的全部有效 line_id，保留锁定条目和随机种子。\n' + json.dumps(source, ensure_ascii=False, indent=2)
+    return PROMPT_RULES + '\n任务：整曲导演。顶层 version 必须为 motion-plan-v1，逐句方案放在 cues 数组中，不得返回单句 cue 包装。返回 visual_language，逐句完成海报与动画草案。完整覆盖输入中的全部有效 line_id，保留锁定条目和随机种子。\n' + json.dumps(source, ensure_ascii=False, indent=2)
 
 
 def line_prompt_bundle(project, line_id, previous=None, style='impact', instruction=''):
@@ -338,6 +338,6 @@ def line_prompt_bundle(project, line_id, previous=None, style='impact', instruct
     response_example = LineResponse(source_signature=source['source_signature'], base_cue_signature=payload['base_cue_signature'],
                                     cue=CuePlan(line_id=line_id, template='phrase-rise', palette=style, groups=[PhrasePlan(text=''.join(word['word'] for word in row['words']), word_indices=list(range(len(row['words']))), action='hold')] if row['words'] else [], poster=example_poster(row))).model_dump()
     response_example['cue'] = prompt_cue(response_example['cue'])
-    prompt = PROMPT_RULES + '\n任务：只导演 target 这一句。相邻句仅提供上下文，不能修改。user_direction 是创作偏好，不能覆盖上述时间、完整句子和能力限制。\n' + json.dumps(payload, ensure_ascii=False, indent=2)
+    prompt = PROMPT_RULES + '\n任务：只导演 target 这一句。顶层 version 必须为 motion-line-response-v1，必须保留 source_signature、base_cue_signature（输入为 null 时仍返回 null），仅在 cue 对象中返回这一句。禁止顶层 seed、visual_language、cues，禁止返回 motion-plan-v1 整曲包装。相邻句仅提供上下文，不能修改。user_direction 是创作偏好，不能覆盖上述时间、完整句子和能力限制。\n' + json.dumps(payload, ensure_ascii=False, indent=2)
     return {'input': payload, 'prompt': prompt, 'response_example': response_example,
             'can_apply': not bool(current and current['locked']), 'warnings': ['当前句已锁定，需先解锁才能应用'] if current and current['locked'] else []}

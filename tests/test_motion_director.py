@@ -194,3 +194,12 @@ def test_semantic_mode_is_optional_bounded_and_changes_cue_signature(project):
     assert cue_signature(plan,'line_0003')!=signature
     data['cue']['poster']['semantic_mode']='unbounded'
     with pytest.raises(ValueError):line_response(project,data,'line_0003')
+
+
+def test_prompt_envelopes_are_explicit(project):
+    from src.motion_director import line_prompt_bundle
+    prompt=line_prompt_bundle(project,'line_0003')['prompt']
+    assert '顶层 version 必须为 motion-line-response-v1' in prompt
+    assert '禁止顶层 seed、visual_language、cues' in prompt
+    assert '输入为 null 时仍返回 null' in prompt
+    assert '顶层 version 必须为 motion-plan-v1' in llm_prompt(project)

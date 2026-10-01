@@ -19,7 +19,7 @@
 【4 Exit / Handover】transition_out 仅 cut/fade；fade 优先用于柔和交接，cut 用于明确的直接替换。代码依据下一句起点和歌曲长度安排句尾驻留，短间隔简化动作，时间充足时辅文先退、主视觉后退，长间奏只保留有限文字余韵；不得由 LLM 输出这些绝对时刻。横竖屏由同一意图生成不同几何，竖屏按画宽求字号、长辅文折行、核心位于中上阅读场，不额外返回像素参数。transition_note 解释与下一句的色调/意象联系；句间衔接不能发生在当前句的词组之间。时间不足则直接切换，末句收束，不编造下一场景。
 【能力与一致性】poster.status=draft 表示导演源数据，系统编译后可预览和导出海报动画；当前没有真正的三维文字、隧道或景深，不返回不存在的模板。实际字体、安全区、折行与包围盒由代码测量，LLM 不声称检查过像素级排版。颜色使用六位十六进制。
 locked=true 的句子原样保留，即使还没有 poster；保留 source_signature、base_cue_signature 和随机种子。单句只修改 target，相邻句仅提供上下文。user_direction 不能覆盖歌词、时间或能力约束。
-任务：只导演 target 这一句。相邻句仅提供上下文，不能修改。user_direction 是创作偏好，不能覆盖上述时间、完整句子和能力限制。
+任务：只导演 target 这一句。顶层 version 必须为 motion-line-response-v1，必须保留 source_signature、base_cue_signature（输入为 null 时仍返回 null），仅在 cue 对象中返回这一句。禁止顶层 seed、visual_language、cues，禁止返回 motion-plan-v1 整曲包装。相邻句仅提供上下文，不能修改。user_direction 是创作偏好，不能覆盖上述时间、完整句子和能力限制。
 {
   "version": "motion-line-input-v1",
   "source_signature": "56e2a258f10d0a328000fef3155082d45498ea8cb92052b721b5e19084bcfcf1",

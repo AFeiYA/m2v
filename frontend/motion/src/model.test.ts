@@ -195,3 +195,13 @@ test('contrast spatial and repeated motions are bounded and dense vocals still w
  const p=compilePoster(line,cue,720,1280,measure);assert.ok(p.nodes.every(n=>n.entrance==='fade'&&n.hold==='none'));
  poster.relations=[{kind:'repetition',node_indices:[0],intent:'块内部重复'}];assert.equal(resolveSemanticDirection(poster).applications[0].status,'limited');
 });
+
+import {checkImportScope} from './import-scope.ts';
+test('import scope rejects mismatched envelopes before applying any plan',()=>{
+  assert.doesNotThrow(()=>checkImportScope({version:'motion-plan-v1'},'song'));
+  assert.doesNotThrow(()=>checkImportScope({version:'motion-line-response-v1'},'line'));
+  assert.throws(()=>checkImportScope({version:'motion-plan-v1'},'line'),/收到的是整曲方案/);
+  assert.throws(()=>checkImportScope({version:'motion-line-response-v1'},'song'),/收到的是单句方案/);
+  assert.throws(()=>checkImportScope([], 'line'),/完整的导演 JSON/);
+  assert.throws(()=>checkImportScope({version:'wrong'},'song'),/不支持/);
+});
