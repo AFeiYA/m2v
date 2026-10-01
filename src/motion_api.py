@@ -1,6 +1,7 @@
 """Motion Studio uses the existing song store; Node is only a render worker."""
 from __future__ import annotations
 import json
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -13,6 +14,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from src.motion_director import validate_plan, rule_plan, llm_prompt, director_input, line_prompt_bundle, line_response, cue_signature
+
+from src.motion_llm import configuration, generate_json, DirectorAPIError
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -48,6 +51,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
     jobs, processes = {}, {}
     lock = threading.Lock()
     plan_lock = threading.Lock()
+    director_jobs = {}
 
     def project_path(project_id):
         scan = get_scan_dir().resolve()
@@ -131,6 +135,98 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
                 if cue['line_id'] in locked and cue != locked[cue['line_id']]:
                     raise ValueError('LLM 方案修改了锁定句子，请保留锁定条目')
         return result
+
+    def snapshot(payload, old):
+        return hashlib.sha256(json.dumps([payload, old], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+    @router.get('/director/config')
+    def director_config():
+        try:
+            config = configuration()
+            return {'configured': True, 'model': config.model}
+        except DirectorAPIError as exc:
+            return {'configured': False, 'message': str(exc)}
+
+    @router.post('/director/generate', status_code=202)
+    def generate_director(req: ProjectRequest):
+        try: config = configuration()
+        except DirectorAPIError as exc: raise HTTPException(503, str(exc))
+        with plan_lock:
+            path, payload = read(req.project_id)
+            old = previous(path)
+            try:
+                if req.line_id:
+                    bundle = line_prompt_bundle(payload, req.line_id, old, req.style, req.instruction)
+                    if not bundle['can_apply']: raise HTTPException(409, '当前句已锁定，请先解锁')
+                    prompt_text = bundle['prompt']
+                else: prompt_text = llm_prompt(payload, old, req.style, req.instruction)
+            except ValueError as exc: raise HTTPException(422, str(exc))
+            baseline = snapshot(payload, old)
+            with lock:
+                if any(j['status'] in ('queued', 'running', 'validating', 'repairing') for j in director_jobs.values()):
+                    raise HTTPException(409, '已有自动导演任务正在运行，请等待完成')
+                if len(director_jobs) >= 20: director_jobs.pop(next(iter(director_jobs)))
+                job_id = uuid.uuid4().hex
+                director_jobs[job_id] = {'id': job_id, 'project_id': req.project_id, 'line_id': req.line_id,
+                                         'status': 'queued', 'model': config.model, 'attempt': 0,
+                                         'baseline': baseline, 'result': None, 'error': ''}
+
+        def run():
+            def update(**values):
+                with lock: director_jobs[job_id].update(values)
+            try:
+                repair = ''
+                for attempt in (1, 2):
+                    update(status='running' if attempt == 1 else 'repairing', attempt=attempt)
+                    try:
+                        data = generate_json(config, prompt_text, repair)
+                        update(status='validating')
+                        if req.line_id:
+                            response, _ = line_response(payload, data, req.line_id)
+                            baseline_plan = validate_plan(payload, old) if old else None
+                            expected = cue_signature(baseline_plan, req.line_id) if baseline_plan else None
+                            if response.base_cue_signature != expected: raise ValueError('必须原样保留 base_cue_signature')
+                            base = baseline_plan or rule_plan(payload, style=req.style)
+                            result = base.model_copy(deep=True)
+                            result.cues = [response.cue if c.line_id == req.line_id else c for c in result.cues]
+                            result = checked_plan(payload, result.model_dump(), old, True)
+                        else: result = checked_plan(payload, data, old, True)
+                        missing = [c['line_id'] for c in result['cues'] if (not req.line_id or c['line_id'] == req.line_id) and not c['locked'] and not c.get('poster')]
+                        if missing: raise ValueError('每个未锁定句子必须有 poster 海报设计：' + ', '.join(missing))
+                        update(status='ready', result=result)
+                        return
+                    except DirectorAPIError: raise
+                    except ValueError as exc:
+                        repair = str(exc)[:4000]
+                        if attempt == 2: raise DirectorAPIError('模型结果两次未通过导演校验：' + repair)
+            except DirectorAPIError as exc: update(status='failed', error=str(exc))
+            except Exception: update(status='failed', error='自动导演任务失败，原方案未修改，请检查服务端配置')
+
+        threading.Thread(target=run, daemon=True).start()
+        return {'id': job_id, 'status': 'queued'}
+
+    @router.get('/director/jobs/{job_id}')
+    def director_job(job_id: str):
+        with lock:
+            if job_id not in director_jobs: raise HTTPException(404, '导演任务不存在或服务已重启')
+            return {k: v for k, v in director_jobs[job_id].items() if k != 'baseline'}
+
+    @router.post('/director/jobs/{job_id}/apply')
+    def apply_director_job(job_id: str):
+        with plan_lock:
+            with lock:
+                job = dict(director_jobs.get(job_id, {}))
+            if not job: raise HTTPException(404, '导演任务不存在或服务已重启')
+            if job['status'] != 'ready': raise HTTPException(409, '导演任务尚未就绪或已应用')
+            path, payload = read(job['project_id'])
+            old = previous(path)
+            if snapshot(payload, old) != job['baseline']:
+                raise HTTPException(409, '生成期间歌词或导演方案已修改，请重新生成，当前方案未被覆盖')
+            try: result = checked_plan(payload, job['result'], old, True)
+            except ValueError as exc: raise HTTPException(422, str(exc))
+            atomic_write(plan_path(path), result)
+            with lock: director_jobs[job_id]['status'] = 'applied'
+        return {'plan': result}
 
     @router.post('/director/validate')
     def validate_full(req: PlanRequest):

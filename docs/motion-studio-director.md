@@ -65,3 +65,11 @@ poster.semantic_mode 默认为 auto，off 保留原节点参数。无 relations 
 视觉强度统一规则：`poster.visual_intensity` 支持 auto（默认）、restrained（克制）、expanded（展开）、peak（峰值），界面“逐句调整”可覆盖。自动按已有 section 判定主歌/桥段/尾奏为克制、副歌为展开，无标签为展开；不猜测高潮，峰值由导演明确选择。字号倍率 0.82/1/1.12，入场幅度倍率 0.65/1/1.12；折行与安全区优先，密集歌词峰值降为展开且继续禁用位移与驻留响应。档位不修改角色、颜色或对齐时间，旧方案默认 auto 不改变旧 cue 签名。
 
 驻留 drift 改为每秒 0.9 弧度的慢速正弦，基础幅度为短边的 0.06%，再按档位缩放，开始的 0.6 秒渐入。720 短边展开档最大位移 0.432px（旧横屏 1.44px、旧竖屏 2.56px）。Canvas 与 Remotion 共用 `posterHoldState`，不使用墙钟或随机数；beat pulse 仍是独立声音响应，快唱继续关闭。
+
+自动 Gemini 导演：后端 `src/motion_llm.py` 使用 Gemini 原生 GenerateContent REST 接口，默认模型 `gemini-3.8-flash`，可用 `M2V_LLM_MODEL` 指定其他可用 Gemini 型号。在本分支根目录 `.env` 设置 `GEMINI_API_KEY`（环境变量优先；密钥不返回浏览器、不进入日志、不提交 Git）。其余配置见 `.env.example`。输入只有现有导演提示词的歌词、对齐与分析数据，不上传音频文件。
+
+页面提供“Gemini 导演当前句／整曲”，与“规则生成基础方案”区别明确。后台任务依次运行生成、校验，JSON/歌词/结构校验失败最多重新生成一次，认证/限流/超时不自动重试。生成失败不保存、不会回退成规则方案。校验成功后点击“应用 Gemini 方案并保存”，才更新预览和导出。服务器比较生成前后完整工程和方案快照，生成期间任何修改会导致 409，前端也阻止覆盖未保存的修改。单句只替换目标、整曲保护锁定条目。任务最多保留最近 20 个在内存中，服务重启后任务失效。
+
+接口：`GET /api/motion/director/config` 只返回配置状态与模型名；`POST /director/generate` 参数沿用 project_id/style/instruction 与可选 line_id，返回 202 与任务 id；`GET /director/jobs/{id}` 返回进度及校验后的草案；`POST /director/jobs/{id}/apply` 应用并保存。最多一个生成任务同时运行。连接超时 15 秒，单次生成默认 180 秒，输出上限默认 16384 tokens；整曲截断时建议增大上限或使用单句。
+
+官方资料：[模型列表](https://ai.google.dev/gemini-api/docs/models)、[JSON 输出](https://ai.google.dev/gemini-api/docs/structured-output)。

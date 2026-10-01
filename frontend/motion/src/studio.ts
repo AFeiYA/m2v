@@ -50,6 +50,25 @@ async function directorPrompt(single:boolean){
  status(result.warnings?.length?result.warnings.join('；'):single?'单句提示词已生成：最终海报＋入场与衔接草案':'整曲提示词已生成：每句海报＋动画草案');
 }
 $('director-input').onclick=action(()=>directorPrompt(false));$('line-director-input').onclick=action(()=>directorPrompt(true));
+let aiJob='',aiBaseline='',aiBusy=false;
+async function loadAIConfig(){try{const config=await api('director/config');$('ai-config-status').textContent=config.configured?`已接入 ${config.model} · 仅发送歌词、时间与音乐分析数据`:'未配置 Gemini 密钥 · 在后端 .env 设置 GEMINI_API_KEY';for(const id of ['ai-line','ai-song'])$<HTMLButtonElement>(id).disabled=!config.configured;}catch{$('ai-config-status').textContent='无法读取模型配置';}}
+async function aiDirector(single:boolean){
+ if(aiBusy)return;if(!selected)throw new Error('请先选择歌曲');if(single&&!currentCue)throw new Error('请先生成基础方案并选择一句歌词');if(dirty)await savePlan();
+ aiBusy=true;aiJob='';$('ai-apply').hidden=true;for(const id of ['ai-line','ai-song'])$<HTMLButtonElement>(id).disabled=true;
+ const projectId=selected;aiBaseline=JSON.stringify(plan);
+ try{
+  const request=await api('director/generate','POST',{project_id:projectId,line_id:single?currentCue:null,style:$<HTMLSelectElement>('preset').value,instruction:$<HTMLTextAreaElement>('director-instruction').value});
+  aiJob=request.id;
+  for(;;){const job=await api('director/jobs/'+aiJob);$('ai-job-status').textContent=({queued:'等待 Gemini…',running:'Gemini 正在设计海报与动画…',validating:'正在校验歌词、层级与锁定句…',repairing:'返回值未通过校验，正在自动修正一次…',ready:'校验通过，点击应用后预览和导出',failed:'生成失败：'+job.error} as Record<string,string>)[job.status]||job.status;
+   if(job.status==='failed')throw new Error(job.error);
+   if(job.status==='ready'){if(selected!==projectId)throw new Error('歌曲已切换，请回到原歌曲重新生成');$('ai-apply').hidden=false;break;}
+   await new Promise(resolve=>setTimeout(resolve,1000));
+  }
+ }finally{aiBusy=false;for(const id of ['ai-line','ai-song'])$<HTMLButtonElement>(id).disabled=false;}
+}
+$('ai-line').onclick=action(()=>aiDirector(true));$('ai-song').onclick=action(()=>aiDirector(false));
+$('ai-apply').onclick=action(async()=>{if(dirty||JSON.stringify(plan)!==aiBaseline)throw new Error('本地方案已修改，请保存后重新调用 Gemini，防止覆盖修改');const result=await api('director/jobs/'+aiJob+'/apply','POST');plan=result.plan;dirty=false;$('ai-apply').hidden=true;refresh();listCues();$('ai-job-status').textContent='Gemini 方案已应用并保存';status('已按 Gemini 导演方案更新预览，可导出 MP4');});
+void loadAIConfig();
 async function returnedPlan(apply:boolean){
  if(!selected)throw new Error('请先选择歌曲');if(dirty)throw new Error('请先保存本地修改，再校验或应用 LLM 方案');
  const data=JSON.parse($<HTMLTextAreaElement>('llm-return').value.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,''));

@@ -51,3 +51,8 @@ frontend/motion/node_modules
 frontend/local/motion/
 
 frontend/local/remotion/
+
+# Server credentials
+.env
+.env.*
+!.env.example

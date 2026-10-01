@@ -184,3 +184,90 @@ def test_studio_script_url_changes_with_build_content(tmp_path,monkeypatch):
         assert second!=first.text
         style.write_text('new style')
         assert client.get('/motion_studio').text!=second
+
+
+def wait_director(client,job_id):
+    import time
+    for _ in range(100):
+        result=client.get('/api/motion/director/jobs/'+job_id).json()
+        if result['status'] in ('ready','failed'):return result
+        time.sleep(.01)
+    pytest.fail('director worker did not finish')
+
+
+def mock_director_config(monkeypatch):
+    from src.motion_llm import DirectorConfig
+    monkeypatch.setattr('src.motion_api.configuration',lambda:DirectorConfig('https://example.test','gemini-3.8-flash','test-secret'))
+
+
+def test_gemini_line_generates_draft_then_applies_without_changing_alignment(song,monkeypatch):
+    from src.motion_director import line_prompt_bundle
+    path,id=song;original=path.read_text();mock_director_config(monkeypatch)
+    with TestClient(app) as client:
+        old=client.post('/api/motion/director/rules',json={'project_id':id}).json()
+        response=line_prompt_bundle(json.loads(original),'line_0001',old)['response_example']
+        response['cue']['poster']['visual_intensity']='restrained'
+        monkeypatch.setattr('src.motion_api.generate_json',lambda *args:response)
+        submitted=client.post('/api/motion/director/generate',json={'project_id':id,'line_id':'line_0001'})
+        assert submitted.status_code==202
+        job=wait_director(client,submitted.json()['id']);assert job['status']=='ready'
+        assert 'test-secret' not in json.dumps(job) and 'baseline' not in job
+        assert client.get('/api/motion/project',params={'project_id':id}).json()['plan']==old
+        applied=client.post('/api/motion/director/jobs/'+job['id']+'/apply')
+        assert applied.status_code==200
+        assert applied.json()['plan']['cues'][0]['poster']['visual_intensity']=='restrained'
+        assert path.read_text()==original
+        assert client.post('/api/motion/director/jobs/'+job['id']+'/apply').status_code==409
+
+
+def test_gemini_repair_once_and_conflict_never_overwrites_changes(song,monkeypatch):
+    from src.motion_director import line_prompt_bundle
+    path,id=song;mock_director_config(monkeypatch);calls=[]
+    with TestClient(app) as client:
+        old=client.post('/api/motion/director/rules',json={'project_id':id}).json()
+        valid=line_prompt_bundle(json.loads(path.read_text()),'line_0001',old)['response_example']
+        def generate(config,prompt,repair):
+            calls.append(repair)
+            return {'version':'motion-plan-v1'} if len(calls)==1 else valid
+        monkeypatch.setattr('src.motion_api.generate_json',generate)
+        job=wait_director(client,client.post('/api/motion/director/generate',json={'project_id':id,'line_id':'line_0001'}).json()['id'])
+        assert job['status']=='ready' and len(calls)==2 and calls[1]
+        old['cues'][0]['intensity']=.85
+        assert client.put('/api/motion/plan',json={'project_id':id,'plan':old,'from_llm':False}).status_code==200
+        assert client.post('/api/motion/director/jobs/'+job['id']+'/apply').status_code==409
+        assert client.get('/api/motion/project',params={'project_id':id}).json()['plan']['cues'][0]['intensity']==.85
+
+
+def test_gemini_invalid_result_fails_twice_and_locked_target_never_calls_api(song,monkeypatch):
+    path,id=song;mock_director_config(monkeypatch);calls=[]
+    monkeypatch.setattr('src.motion_api.generate_json',lambda *args:(calls.append(1) or {}))
+    with TestClient(app) as client:
+        old=client.post('/api/motion/director/rules',json={'project_id':id}).json()
+        job=wait_director(client,client.post('/api/motion/director/generate',json={'project_id':id}).json()['id'])
+        assert job['status']=='failed' and len(calls)==2
+        assert client.get('/api/motion/project',params={'project_id':id}).json()['plan']==old
+        old['cues'][0]['locked']=True;client.put('/api/motion/plan',json={'project_id':id,'plan':old,'from_llm':False})
+        assert client.post('/api/motion/director/generate',json={'project_id':id,'line_id':'line_0001'}).status_code==409
+        assert len(calls)==2
+
+
+def test_gemini_full_song_generation_and_changed_alignment_conflict(song,monkeypatch):
+    from src.motion_director import example_poster,director_input
+    path,id=song;mock_director_config(monkeypatch)
+    with TestClient(app) as client:
+        plan=client.post('/api/motion/director/rules',json={'project_id':id}).json()
+        plan['cues'][0]['poster']=example_poster(director_input(json.loads(path.read_text()))['lines'][0]).model_dump()
+        monkeypatch.setattr('src.motion_api.generate_json',lambda *args:plan)
+        job=wait_director(client,client.post('/api/motion/director/generate',json={'project_id':id}).json()['id'])
+        assert job['status']=='ready'
+        data=json.loads(path.read_text());data['lines'][0]['start']=.25;path.write_text(json.dumps(data))
+        assert client.post('/api/motion/director/jobs/'+job['id']+'/apply').status_code==409
+
+
+def test_unconfigured_gemini_is_clear_and_does_not_start_job(song,monkeypatch):
+    from src.motion_llm import DirectorAPIError
+    def missing(): raise DirectorAPIError('请在后端配置 GEMINI_API_KEY')
+    monkeypatch.setattr('src.motion_api.configuration',missing)
+    with TestClient(app) as client:
+        config=client.get('/api/motion/director/config').json();assert not config['configured']
+        assert client.post('/api/motion/director/generate',json={'project_id':song[1]}).status_code==503
