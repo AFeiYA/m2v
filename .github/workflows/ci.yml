@@ -99,6 +99,7 @@ jobs:
         run: |
           test -f frontend/local/motion/studio.js
           test -f frontend/local/remotion/index.html
+          rm -f frontend/local/remotion/favicon.ico frontend/local/remotion/*.map
           git config user.name "M2V Deploy"
           git config user.email "m2v-deploy@users.noreply.github.com"
           git add -f frontend/local/motion frontend/local/remotion
