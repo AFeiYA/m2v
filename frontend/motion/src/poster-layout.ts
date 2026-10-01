@@ -2,8 +2,8 @@ import type {Line, CuePlan, PosterDirection, Project} from './model';
 export const POSTER_FONT='"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
 export type Metrics={width:number;ascent:number;descent:number};
 export type Measure=(text:string,size:number,weight:number)=>Metrics;
-export type CompiledNode={text:string;word_indices:number[];role:'primary'|'secondary'|'support';x:number;y:number;width:number;height:number;fontSize:number;weight:number;color:string;rows:{text:string;x:number;y:number}[];start:number;settled:number;hold:'none'|'drift';beat_reaction:'none'|'pulse';entrance:PosterDirection['nodes'][number]['entrance']};
-export type CompiledPoster={version:'motion-poster-layout-v1';line_id:string;source:'director'|'automatic';width:number;height:number;background:string;accent:string;motif:'none'|'rings';layout:PosterDirection['layout'];transition_out:'cut'|'fade';relations:NonNullable<PosterDirection['relations']>;semantic_arrangement:SemanticApplication[];start:number;end:number;handover?:{mode:'cut'|'fade'|'layered-fade';visible_end:number;exit_start:number;primary_exit_start:number;next_start:number|null};nodes:CompiledNode[]};
+export type CompiledNode={motion_strength?:number;text:string;word_indices:number[];role:'primary'|'secondary'|'support';x:number;y:number;width:number;height:number;fontSize:number;weight:number;color:string;rows:{text:string;x:number;y:number}[];start:number;settled:number;hold:'none'|'drift';beat_reaction:'none'|'pulse';entrance:PosterDirection['nodes'][number]['entrance']};
+export type CompiledPoster={visual_intensity:'restrained'|'expanded'|'peak';version:'motion-poster-layout-v1';line_id:string;source:'director'|'automatic';width:number;height:number;background:string;accent:string;motif:'none'|'rings';layout:PosterDirection['layout'];transition_out:'cut'|'fade';relations:NonNullable<PosterDirection['relations']>;semantic_arrangement:SemanticApplication[];start:number;end:number;handover?:{mode:'cut'|'fade'|'layered-fade';visible_end:number;exit_start:number;primary_exit_start:number;next_start:number|null};nodes:CompiledNode[]};
 
 export function automaticPoster(line:Line,palette='impact'):PosterDirection {
   let blocks:{text:string;word_indices:number[]}[]=[];
@@ -96,12 +96,16 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
   const short=Array.from(line.text.replace(/\s/g,'')).length<=6;
   const section=(line.section||'').toLowerCase();
   const portrait=H>W,chorus=section.includes('chorus')||section.includes('副歌'),verse=section.includes('verse')||section.includes('主歌');
+  const requested=design.visual_intensity||'auto';
+  const resolved=requested==='auto'?(verse||/bridge|outro|桥段|尾奏/.test(section)?'restrained':'expanded'):requested;
+  const visual_intensity=dense&&resolved==='peak'?'expanded':resolved;
+  const strength={restrained:{size:.82,motion:.65},expanded:{size:1,motion:1},peak:{size:1.12,motion:1.12}}[visual_intensity];
   const maxHeight=H*(portrait?(dense?.40:chorus?.48:.44):(dense?.48:chorus?.66:verse?.48:.56));
   const gap=portrait?W*.012:H*.009,padding=portrait?W*.012:H*.008,width=W*(portrait?.78:.80);
   const fitted=design.nodes.map((n,index)=>{
     const weight=n.role==='primary'?900:n.role==='secondary'?800:600;
     let size=portrait?W*(n.role==='primary'?(short?.30:.22):n.role==='secondary'?.075:.055):H*(n.role==='primary'?(short?.28:.18):n.role==='secondary'?.07:.045);
-    size*=hints[index].scale;
+    size*=hints[index].scale*strength.size;
     const maxWidth=width-W*.018;
     const text=displayText(n.text),focus=displayText(n.emphasis);
     const longestWord=Math.max(0,...(text.match(/[\p{Script=Latin}\p{N}]+(?:['’\-][\p{Script=Latin}\p{N}]+)*/gu)||[]).map(word=>measure(word,size,weight).width));
@@ -135,10 +139,10 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     const start=Math.max(line.start,a?.start??line.start),end=Math.min(line.end,b?.end??line.end);
     const entrance=n.entrance!=='none'&&(dense||end-start<.16)?'fade':n.entrance;
     const duration=entrance==='none'?0:Math.min(.6,Math.max(1/30,(end-start)*n.settle_fraction),Math.max(0,(line.end-start)*.5));
-    nodes.push({text:n.text,role:n.role,word_indices:[...n.word_indices],x,y,width,height,fontSize:size,weight,color:n.color_role==='accent'?design.accent:n.color_role==='muted'?muted:foreground,rows:resolved,start,settled:start+duration,hold:dense?'none':n.hold||'none',beat_reaction:n.role==='primary'&&!dense?(n.beat_reaction||'none'):'none',entrance});
+    nodes.push({motion_strength:strength.motion,text:n.text,role:n.role,word_indices:[...n.word_indices],x,y,width,height,fontSize:size,weight,color:n.color_role==='accent'?design.accent:n.color_role==='muted'?muted:foreground,rows:resolved,start,settled:start+duration,hold:dense?'none':n.hold||'none',beat_reaction:n.role==='primary'&&!dense?(n.beat_reaction||'none'):'none',entrance});
     y+=height+gap;
   }
-  return {version:'motion-poster-layout-v1',line_id:line.id,source:cue?.poster?'director':'automatic',width:W,height:H,background:design.background,accent:design.accent,motif:design.motif,layout:design.layout,transition_out:design.transition_out,semantic_arrangement:semantic.applications,relations:(design.relations||[]).map(r=>({...r,node_indices:[...r.node_indices]})),start:line.start,end:line.end,nodes};
+  return {visual_intensity,version:'motion-poster-layout-v1',line_id:line.id,source:cue?.poster?'director':'automatic',width:W,height:H,background:design.background,accent:design.accent,motif:design.motif,layout:design.layout,transition_out:design.transition_out,semantic_arrangement:semantic.applications,relations:(design.relations||[]).map(r=>({...r,node_indices:[...r.node_indices]})),start:line.start,end:line.end,nodes};
 }
 // Song stage remains continuous; saved direction and alignment are not mutated.
 export function compileSongPosters(project:Project,W:number,H:number,measure:Measure):CompiledPoster[]{
@@ -181,7 +185,15 @@ const clamp=(v:number)=>Math.max(0,Math.min(1,v));
 export function posterNodeState(node:CompiledNode,t:number,H:number){
   if(t<node.start)return {alpha:0,dx:0,dy:0,scale:1};
   const progress=node.settled===node.start?1:clamp((t-node.start)/(node.settled-node.start)),ease=1-Math.pow(1-progress,3);
-  return {alpha:node.entrance==='none'?1:ease,dx:node.entrance==='slide-left'?-(1-ease)*H*.025:0,dy:node.entrance==='slide-up'?(1-ease)*H*.025:0,scale:node.entrance==='scale-in'?.92+.08*ease:1};
+  const strength=node.motion_strength??1;
+  return {alpha:node.entrance==='none'?1:ease,dx:node.entrance==='slide-left'?-(1-ease)*H*.025*strength:0,dy:node.entrance==='slide-up'?(1-ease)*H*.025*strength:0,scale:node.entrance==='scale-in'?1-.08*strength*(1-ease):1};
+}
+// Frame-time based and shared by preview, static canvas review and video export.
+export function posterHoldState(node:CompiledNode,t:number,complete:number,W:number,H:number,beat=0){
+  const elapsed=Math.max(0,t-complete),strength=node.motion_strength??1;
+  const drift=t>=complete&&node.hold==='drift'?Math.sin(elapsed*.9)*Math.min(W,H)*.0006*strength*Math.min(1,elapsed/.6):0;
+  const pulse=t>=complete&&node.beat_reaction==='pulse'?1+Math.max(0,Math.min(1,beat))*.012*strength:1;
+  return {drift,pulse};
 }
 export function posterExitOpacity(plan:CompiledPoster,node:CompiledNode,t:number){
   if(!plan.handover)return posterOpacity(plan,t);
@@ -209,9 +221,8 @@ export function paintCompiledPoster(c:CanvasRenderingContext2D,plan:CompiledPost
   const complete=Math.max(...plan.nodes.map(n=>n.settled));
   const alpha=c.globalAlpha;c.textAlign='left';c.textBaseline='alphabetic';
   for(const n of plan.nodes){const state=t===undefined?{alpha:1,dx:0,dy:0,scale:1}:posterNodeState(n,t,H);if(!state.alpha)continue;
-    c.save();c.globalAlpha=alpha*state.alpha*(t===undefined?1:posterExitOpacity(plan,n,t));const holding=t!==undefined&&t>=complete;
-    const drift=holding&&n.hold==='drift'?Math.sin((t!-complete)*1.4)*H*.002:0;
-    const pulse=holding&&n.beat_reaction==='pulse'?1+Math.max(0,Math.min(1,beat))*.012:1;
+    c.save();c.globalAlpha=alpha*state.alpha*(t===undefined?1:posterExitOpacity(plan,n,t));
+    const {drift,pulse}=t===undefined?{drift:0,pulse:1}:posterHoldState(n,t,complete,W,H,beat);
     c.translate(n.x+n.width/2+state.dx,n.y+n.height/2+state.dy+drift);c.scale(state.scale*pulse,state.scale*pulse);
     c.font=`${n.weight} ${n.fontSize}px ${POSTER_FONT}`;c.fillStyle=n.color;
     for(const row of n.rows)c.fillText(row.text,row.x-(n.x+n.width/2),row.y-(n.y+n.height/2));c.restore();

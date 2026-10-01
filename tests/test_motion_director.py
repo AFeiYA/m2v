@@ -163,7 +163,7 @@ def test_semantic_relations_round_trip_and_old_signatures_stay_valid(project):
     assert 'PosterRelation' in bundle['input']['output_schema']['$defs']
     empty=copy.deepcopy(bundle['response_example']);empty['cue']['poster'].pop('relations')
     old,_=line_response(project,empty,'line_0003');plan.cues[1]=old.cue
-    legacy=old.cue.model_dump();legacy['poster'].pop('relations');legacy['poster'].pop('semantic_mode')
+    legacy=old.cue.model_dump();legacy['poster'].pop('relations');legacy['poster'].pop('semantic_mode');legacy['poster'].pop('visual_intensity')
     expected=hashlib.sha256(json.dumps({'cue':legacy,'seed':plan.seed},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     assert cue_signature(plan,'line_0003')==expected
 
@@ -264,3 +264,15 @@ def test_single_line_parallel_context_reaches_past_an_explanation_line():
     assert '以“水”为 primary' in bundle['prompt']
     assert 'hold=none、beat_reaction=none' in bundle['prompt']
     assert 'schema 外字段' in bundle['prompt']
+
+
+def test_visual_intensity_round_trip_and_bounded_values(project):
+    from src.motion_director import line_prompt_bundle, line_response
+    data=line_prompt_bundle(project,'line_0003')['response_example']
+    for tier in ('auto','restrained','expanded','peak'):
+        data['cue']['poster']['visual_intensity']=tier
+        response,_=line_response(project,data,'line_0003')
+        assert response.cue.poster.visual_intensity==tier
+    data['cue']['poster']['visual_intensity']='unlimited'
+    with pytest.raises(ValueError):
+        line_response(project,data,'line_0003')

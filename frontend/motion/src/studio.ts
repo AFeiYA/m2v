@@ -19,10 +19,12 @@ function listCues(){const select=$<HTMLSelectElement>('cue-select');select.repla
 function showCue(seek=true){const cue=plan?.cues.find(c=>c.line_id===currentCue);if(!cue)return;
  const line=project?.lines.find(l=>l.id===currentCue);
  $<HTMLSelectElement>('poster-layout').value=cue.poster?.layout||'hero-stack';$('poster-design-status').textContent=cue.poster?'使用已保存的导演海报设计':'使用自动基础排版，可导入 LLM 海报设计';
+ $<HTMLSelectElement>('visual-intensity').value=cue.poster?.visual_intensity||'auto';$<HTMLSelectElement>('visual-intensity').disabled=cue.locked;
  $<HTMLSelectElement>('semantic-mode').value=cue.poster?.semantic_mode||'auto';$<HTMLSelectElement>('semantic-mode').disabled=cue.locked;
  $<HTMLSelectElement>('cue-exit').value=cue.poster?.transition_out||'cut';$<HTMLSelectElement>('cue-exit').disabled=cue.locked;
  if(line){renderPosterNodes(line,cue);const size=renderSize(options),c=document.createElement('canvas').getContext('2d')!;
   const p=compileSongPosters(project!,size.width,size.height,canvasMeasure(c)).find(p=>p.line_id===line.id)!;
+  $('visual-intensity-status').textContent=`当前采用${{restrained:'克制',expanded:'展开',peak:'峰值'}[p.visual_intensity]}档 · 统一控制字号与入场幅度；快唱与安全区优先。`;
   $('handover-status').textContent=`唱完后保留 ${(Math.max(0,(p.handover?.visible_end||p.end)-p.end)).toFixed(2)} 秒 · ${p.handover?.mode==='layered-fade'?'辅文先退，核心词后退':p.handover?.mode==='fade'?'短淡出交接':'直接交接'}。歌词与音频时间保持原样。`;
  }
  $<HTMLSelectElement>('cue-template').value=cue.template;$<HTMLSelectElement>('cue-layout').value=cue.layout;$<HTMLSelectElement>('cue-palette').value=cue.palette;$<HTMLInputElement>('cue-intensity').value=String(cue.intensity);$<HTMLInputElement>('cue-emphasis').value=cue.emphasis;$<HTMLInputElement>('cue-locked').checked=cue.locked;
@@ -126,6 +128,7 @@ async function playCue(handover=false){
 $('play-cue').onclick=action(()=>playCue());$('play-handover').onclick=action(()=>playCue(true));
 $('cue-exit').onchange=()=>{const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);if(!cue||!line||cue.locked)return;cue.poster=cue.poster||automaticPoster(line,cue.palette);cue.poster.transition_out=$<HTMLSelectElement>('cue-exit').value as 'fade'|'cut';dirty=true;refresh();showCue(false);status('交接策略已更新，请保存方案');};
 
+$('visual-intensity').onchange=()=>{const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);if(!cue||!line||cue.locked)return;cue.poster=cue.poster||automaticPoster(line,cue.palette);cue.poster.visual_intensity=$<HTMLSelectElement>('visual-intensity').value as NonNullable<typeof cue.poster.visual_intensity>;dirty=true;refresh();showCue(false);status('视觉强度已更新，请保存方案');};
 $('semantic-mode').onchange=()=>{const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);if(!cue||!line||cue.locked)return;cue.poster=cue.poster||automaticPoster(line,cue.palette);cue.poster.semantic_mode=$<HTMLSelectElement>('semantic-mode').value as 'auto'|'off';dirty=true;refresh();showCue(false);status('语义编排模式已更新，请保存方案');};
 
 function renderPosterNodes(line:import('./model').Line,cue:import('./model').CuePlan){

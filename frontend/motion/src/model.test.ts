@@ -237,3 +237,32 @@ test('the saved water lyric never leaves a lone final character in either aspect
   assert.deepEqual(p.nodes[1].rows.map(r=>r.text),['往低处流去']);
  }
 });
+
+test('visual tiers fit both formats, preserve anchors and respect known sections',()=>{
+ const line={id:'tier',text:'幻梦',section:'Verse',start:1,end:7,words:[{word:'幻梦',start:1,end:7}]},poster=automaticPoster(line);
+ poster.nodes[0].entrance='slide-up';
+ const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
+ for(const [W,H] of [[1280,720],[720,1280]]){
+  const results=(['restrained','expanded','peak'] as const).map(tier=>{poster.visual_intensity=tier;return compilePoster(line,cue,W,H,measure);});
+  assert.ok(results[0].nodes[0].fontSize<results[1].nodes[0].fontSize&&results[1].nodes[0].fontSize<results[2].nodes[0].fontSize);
+  assert.ok(posterNodeState(results[0].nodes[0],1,H).dy<posterNodeState(results[2].nodes[0],1,H).dy);
+  for(const p of results){const n=p.nodes[0];assert.equal(n.start,1);assert.equal(n.settled,results[0].nodes[0].settled);assert.ok(n.y>=H*.12&&n.y+n.height<=H*.88);for(const row of n.rows)assert.ok(row.x>=0&&row.x+measure(row.text,n.fontSize).width<=W);}
+ }
+ poster.visual_intensity='auto';assert.equal(compilePoster(line,cue,1280,720,measure).visual_intensity,'restrained');
+ assert.equal(compilePoster({...line,section:'Chorus'},cue,1280,720,measure).visual_intensity,'expanded');
+ assert.equal(compilePoster({...line,section:''},cue,1280,720,measure).visual_intensity,'expanded');
+ poster.visual_intensity='peak';const dense=compilePoster({...line,end:1.2,words:[{word:'幻梦',start:1,end:1.2}]},cue,1280,720,measure);
+ assert.equal(dense.visual_intensity,'expanded');assert.equal(dense.nodes[0].entrance,'fade');
+});
+
+test('breathing is subtle, deterministic and starts after all nodes settle',async()=>{
+ const {posterHoldState}=await import('./poster-layout.ts');
+ const line={id:'breath',text:'幻梦',start:0,end:10,words:[{word:'幻梦',start:0,end:10}]},poster=automaticPoster(line);
+ poster.nodes[0].hold='drift';
+ const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
+ for(const [W,H] of [[1280,720],[720,1280]]){
+  const n=compilePoster(line,cue,W,H,measure).nodes[0],complete=n.settled;
+  assert.equal(posterHoldState(n,complete-.1,complete,W,H).drift,0);assert.equal(posterHoldState(n,complete,complete,W,H).drift,0);
+  for(let i=0;i<600;i++){const t=complete+i/60,state=posterHoldState(n,t,complete,W,H);assert.ok(Math.abs(state.drift)<=Math.min(W,H)*.0006+1e-9);assert.deepEqual(posterHoldState(n,t,complete,W,H),state);assert.equal(state.pulse,1);}
+ }
+});
