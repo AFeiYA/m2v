@@ -203,3 +203,37 @@ def test_prompt_envelopes_are_explicit(project):
     assert '禁止顶层 seed、visual_language、cues' in prompt
     assert '输入为 null 时仍返回 null' in prompt
     assert '顶层 version 必须为 motion-plan-v1' in llm_prompt(project)
+
+
+@pytest.mark.parametrize('text,focus,valid',[
+    ('你不必 询问意义','不必询问',True),
+    ('已经　开过了','已经开过',True),
+    ('已经\n开过了','已经 开过',True),
+    ('不必询问','不必　询问',True),
+    ('New  York','New York',True),
+    ('New\nYork','New　York',True),
+    ('New York','NewYork',False),
+    ('NewYork','New York',False),
+    ('中文 AI 世界','中文AI',False),
+    ('你不必询问意义','不必意义',False),
+    ('山','形状',False),
+    ('山','　',False),
+])
+def test_emphasis_whitespace_language_boundaries(text,focus,valid):
+    from src.motion_director import emphasis_matches
+    assert emphasis_matches(text,focus) is valid
+
+
+def test_poster_emphasis_accepts_chinese_spaces_without_rewriting_source():
+    from src.motion_director import line_prompt_bundle, line_response
+    project={'lines':[{'text':'你不必 询问意义','start':1,'end':4,'words':[]}]}
+    data=line_prompt_bundle(project,'line_0001')['response_example']
+    data['cue']['poster']['nodes'][0]['emphasis']='不必询问'
+    before=copy.deepcopy(data)
+    response,_=line_response(project,data,'line_0001')
+    assert response.cue.poster.nodes[0].text=='你不必 询问意义'
+    assert response.cue.poster.nodes[0].emphasis=='不必询问'
+    assert data==before
+    data['cue']['poster']['nodes'][0]['emphasis']='不必意义'
+    with pytest.raises(ValueError,match='line_0001.*不必意义'):
+        line_response(project,data,'line_0001')

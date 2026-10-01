@@ -1,6 +1,7 @@
 """Versioned director intent; alignment stays authoritative for song timing."""
 from __future__ import annotations
 import math
+import re
 import hashlib
 import json
 from typing import Literal
@@ -126,8 +127,21 @@ def validate_plan(project, data):
     return plan
 
 
+# Only presentation whitespace between Han characters is optional; English word boundaries remain.
+_HAN = r'\u3400-\u9fff\uf900-\ufaff\U00020000-\U000323af'
+
+def normalize_emphasis_text(text):
+    text = ' '.join(text.split())
+    return re.sub(rf'(?<=[{_HAN}]) (?=[{_HAN}])', '', text)
+
+
+def emphasis_matches(text, emphasis):
+    focus = normalize_emphasis_text(emphasis)
+    return bool(focus) and focus in normalize_emphasis_text(text)
+
+
 def validate_cue(line, cue):
-    if cue.emphasis and cue.emphasis not in line.get('text', ''):
+    if cue.emphasis and not emphasis_matches(line.get('text', ''), cue.emphasis):
         raise ValueError(f'{cue.line_id} 的强调词不在歌词中')
     words = line.get('words', [])
     if cue.groups:
@@ -138,7 +152,7 @@ def validate_cue(line, cue):
             text = ''.join(words[i].get('word', '') for i in group.word_indices)
             if ''.join(group.text.split()) != ''.join(text.split()):
                 raise ValueError('词组文字必须与引用的原始字词一致')
-            if group.emphasis and group.emphasis not in group.text:
+            if group.emphasis and not emphasis_matches(group.text, group.emphasis):
                 raise ValueError('词组强调词必须属于该词组')
     if cue.poster:
         nodes = cue.poster.nodes
@@ -161,8 +175,8 @@ def validate_cue(line, cue):
                 raise ValueError('海报文字必须与引用的歌词一致')
             if node.beat_reaction != 'none' and node.role != 'primary':
                 raise ValueError('拍点回弹只允许用于主视觉对象')
-            if node.emphasis and node.emphasis not in node.text:
-                raise ValueError('海报强调词必须来自对应文字对象')
+            if node.emphasis and not emphasis_matches(node.text, node.emphasis):
+                raise ValueError(f'{cue.line_id} 的海报强调词“{node.emphasis}”必须来自对应文字对象“{node.text}”（中文间空白可忽略，英文词界须保留）')
     return cue
 
 
