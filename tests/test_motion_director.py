@@ -240,5 +240,27 @@ def test_poster_emphasis_accepts_chinese_spaces_without_rewriting_source():
 
 
 def test_parallel_lyric_subjects_share_an_explicit_focus_strategy(project):
-    assert '平行句式和成组意象' in llm_prompt(project)
+    assert '【平行句导演】' in llm_prompt(project)
     assert '一主体大、一谓语大' in llm_prompt(project)
+
+
+def test_single_line_parallel_context_reaches_past_an_explanation_line():
+    from src.motion_director import line_prompt_bundle
+    lyrics=['山 是山的形状','因为它 长成了山的形状','水 往低处流去','因为它 正在往低处流去']
+    project={'lines':[{'text':text,'section':'Verse','start':i*4,'end':i*4+3,'words':[]} for i,text in enumerate(lyrics)]}
+    previous=rule_plan(project).model_dump()
+    previous['cues'][0]['poster']=line_prompt_bundle(project,'line_0001')['response_example']['cue']['poster']
+    previous['cues'][0]['locked']=True
+    before=copy.deepcopy(previous)
+    bundle=line_prompt_bundle(project,'line_0003',previous)
+    mountain=bundle['input']['neighbors'][0]
+    assert mountain['line_id']=='line_0001'
+    assert mountain['poster_context']['locked'] is True
+    assert mountain['poster_context']['nodes'][0]['role']=='primary'
+    assert 'word_indices' not in mountain['poster_context']['nodes'][0]
+    assert 'words' not in mountain and 'start' not in mountain
+    assert previous==before
+    assert '隔着“因为它……”' in bundle['prompt']
+    assert '以“水”为 primary' in bundle['prompt']
+    assert 'hold=none、beat_reaction=none' in bundle['prompt']
+    assert 'schema 外字段' in bundle['prompt']
