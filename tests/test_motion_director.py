@@ -276,3 +276,12 @@ def test_visual_intensity_round_trip_and_bounded_values(project):
     data['cue']['poster']['visual_intensity']='unlimited'
     with pytest.raises(ValueError):
         line_response(project,data,'line_0003')
+
+
+def test_new_direction_forbids_breathing_but_legacy_data_stays_readable(project):
+    from src.motion_director import line_prompt_bundle,line_response,director_capabilities
+    bundle=line_prompt_bundle(project,'line_0003')
+    assert bundle['input']['output_schema']['$defs']['ActivePosterNode']['properties']['hold']['const']=='none'
+    assert 'drift' not in director_capabilities()['poster_runtime']
+    data=bundle['response_example'];data['cue']['poster']['nodes'][0]['hold']='drift'
+    assert line_response(project,data,'line_0003')[0].cue.poster.nodes[0].hold=='drift'

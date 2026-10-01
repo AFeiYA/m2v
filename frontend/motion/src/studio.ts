@@ -165,7 +165,7 @@ function renderPosterNodes(line:import('./model').Line,cue:import('./model').Cue
  direction.nodes.forEach((node,i)=>{
   const card=document.createElement('div');card.style.cssText='padding:12px 0;border-bottom:1px solid #263530';
   const title=document.createElement('strong');title.textContent=node.text;title.style.display='block';card.append(title);const actual=document.createElement('small');const motionNames={none:'直接出现',fade:'淡入','slide-up':'向上落位','slide-left':'从左进入','scale-in':'缩放落位'};actual.textContent='当前实际入场：'+motionNames[compiled.nodes[i].entrance];card.append(actual);
-  const fields:[string,string,[string,string][]][]=[['role','层级',[['primary','主视觉'],['secondary','次级'],['support','辅助']]],['entrance','入场',[['none','直接出现'],['fade','淡入'],['slide-up','向上落位'],['slide-left','从左进入'],['scale-in','缩放落位']]],['hold','驻留',[['none','静置'],['drift','轻微呼吸']]],['beat_reaction','拍点',[['none','无'],['pulse','主视觉回弹']]]];
+  const fields:[string,string,[string,string][]][]=[['role','层级',[['primary','主视觉'],['secondary','次级'],['support','辅助']]],['entrance','入场',[['none','直接出现'],['fade','淡入'],['slide-up','向上落位'],['slide-left','从左进入'],['scale-in','缩放落位']]],['beat_reaction','拍点',[['none','无'],['pulse','主视觉回弹']]]];
   for(const [key,label,choices] of fields){const wrapper=document.createElement('label');wrapper.textContent=label;const select=document.createElement('select');select.setAttribute('aria-label',node.text+' '+label);
    for(const [value,text] of choices){const option=document.createElement('option');option.value=value;option.textContent=text;select.append(option);}
    select.value=String((node as any)[key]||'none');select.disabled=cue.locked;

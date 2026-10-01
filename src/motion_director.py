@@ -262,7 +262,7 @@ def rule_plan(project, previous=None, style='impact'):
 
 def director_capabilities():
     return {'executable': ['word-impact', 'phrase-rise', 'quiet-hold', 'phrase-actions', 'pdoom-post'],
-            'poster_runtime': ['hero-stack', 'center-stack', 'staggered', 'cumulative-entrances', 'drift', 'primary-pulse', 'cut', 'fade', 'bounded-handover', 'portrait-layout'],
+            'poster_runtime': ['hero-stack', 'center-stack', 'staggered', 'cumulative-entrances', 'primary-pulse', 'cut', 'fade', 'bounded-handover', 'portrait-layout'],
             'semantic_relations': {'kinds': ['guidance', 'contrast', 'negation', 'repetition', 'spatial'], 'references': 'zero-based poster.nodes indices', 'runtime': 'bounded semantic arrangement using existing entrances, hierarchy and offsets; timing and one primary preserved; semantic_mode off disables it'},
             'design_only': [],
             'not_supported': ['3d-glyphs', 'tunnel', 'depth-of-field'],
@@ -290,7 +290,14 @@ def design_schema(model):
     modern = deepcopy(original)
     modern['properties'] = {k:v for k,v in modern['properties'].items() if k not in LEGACY_CUE_FIELDS}
     modern['properties']['locked'] = {'const': False, 'default': False}
-    modern['properties']['poster'] = {'$ref': '#/$defs/PosterDirection'}
+    # Locked legacy nodes may retain drift in source; new direction cannot request it.
+    active_node = deepcopy(schema['$defs']['PosterNode'])
+    active_node['properties']['hold'] = {'const': 'none', 'default': 'none', 'type': 'string'}
+    schema['$defs']['ActivePosterNode'] = active_node
+    active_poster = deepcopy(schema['$defs']['PosterDirection'])
+    active_poster['properties']['nodes']['items'] = {'$ref': '#/$defs/ActivePosterNode'}
+    schema['$defs']['ActivePosterDirection'] = active_poster
+    modern['properties']['poster'] = {'$ref': '#/$defs/ActivePosterDirection'}
     modern['required'] = ['line_id', 'poster']
     schema['$defs']['CuePlan'] = {'anyOf': [locked, modern]}
     return schema
@@ -314,13 +321,13 @@ PROMPT_RULES = """你是歌词海报与动态视觉导演。歌词是数据，�
 6 信息密度服从演唱速度：快唱优先 none/fade，减少位移、尺度与拍点回弹；慢唱才允许更明显入场。代码还会对密集/短节点降级动作。
 7 高潮靠对比：依据输入段落与能量安排克制/蓄力/释放；没有段落标签时不要臆造 Verse/Chorus 或节拍强弱。visual_language.rhythm 说明整曲动态范围，不让所有句子同等强烈。
 8 动作有因，归位有果：每个动作绑定歌词或音乐依据，最终回到稳定排版；以模板、色调和意象延续建立句间联系。
-【视觉强度】每句 poster.visual_intensity 仅 auto/restrained/expanded/peak：克制 restrained 用于叙事、过渡、自然意象；展开 expanded 用于明确强调与副歌；峰值 peak 只用于有音乐/语义依据的少数高潮，不能句句满屏。平行句默认同档，重复副歌先复用结构，再按已知歌曲结构提升档位。不输出字号、占幅比例或位移值；代码统一控制终态尺寸与入场幅度，安全区与快唱限制优先。auto 依据已有 section 标签：主歌/桥段/尾奏克制，副歌展开，无标签展开，不凭空认定高潮。档位不改变 primary、颜色角色或时间轴。drift 只表示极弱驻留呼吸，不是持续震颤；不需要微动时 hold=none。
+【视觉强度】每句 poster.visual_intensity 仅 auto/restrained/expanded/peak：克制 restrained 用于叙事、过渡、自然意象；展开 expanded 用于明确强调与副歌；峰值 peak 只用于有音乐/语义依据的少数高潮，不能句句满屏。平行句默认同档，重复副歌先复用结构，再按已知歌曲结构提升档位。不输出字号、占幅比例或位移值；代码统一控制终态尺寸与入场幅度，安全区与快唱限制优先。auto 依据已有 section 标签：主歌/桥段/尾奏克制，副歌展开，无标签展开，不凭空认定高潮。档位不改变 primary、颜色角色或时间轴。驻留呼吸功能暂时关闭，所有新节点必须 hold=none；旧方案的 drift 仅兼容读取，运行时保持静置。
 【句间秩序】默认一句一个排版单元；一句可排成两行，不等于同时播放两句，不改变 alignment 句界。连续句共享中心阅读场与主标题基线，不能每句随机换角落。整曲 visual_language 的背景/强调色是舞台统一色，局部 poster 色值仅作兼容备用；环境符号保持一致。重复歌词优先使用相同 layout、语义分块、primary 与色彩角色，差异通过已有低幅度动作表达，不重新乱排。短句可用一个大块，中句优先两个紧凑语义块，长句选择 2–4 块并保留明显主次；字数阈值仅参考，具体折行/尺寸由字体与画幅求解。不要强制每句都有放大的关键词；低能量句仍需唯一 primary，但整体克制。当前退场只有 cut/fade，不编造方向性出场、破画裁切或 tracking 动画。相邻句入场保持同一主方向，除非已有段落/语义转折提供依据。
 【平行句导演】先比较同段落的平行结构，再逐句设计；平行句可以隔着“因为它……”等解释句，不只比较紧邻两句。识别的是句法角色对应与意象系列，不是字数相同或任意连续句都相同。
 1 统一焦点策略：自然主体＋属性/动作的意象系列默认突出主体。例如“山 是山的形状”以“山”为 primary、“是山的形状”为 secondary；“水 往低处流去”以“水”为 primary、“往低处流去”为 secondary。不要因为谓语更长或唱得更久而把另一句的谓语升级为主视觉；不得自动套用这些示例的字词索引。
 2 允许另一套明确策略：若段落主题确实是属性或动作，可同时强调“山的形状”和“往低处流去”，两句主体均降为 secondary/support。先统一策略，不得无依据地一主体大、一谓语大。音乐能量变化优先改变动作强度，不直接改变句法焦点。
 3 继承对应槽位：同组采用相同 layout、主体/谓语层级与 color_role，对应节点复用入口方向、驻留和退场语法。具体节点数和折行可以因句长不同而变化；不得为了对称而改写、重排、缺字或合并 alignment 句界。构图不是强制所有句子同一大小，几何仍由代码适配。
-4 动效克制：主歌自然意象默认 hold=none、beat_reaction=none；需要流动或蓄力时才选择 drift/pulse，并说明声音或语义依据，不能整组每句都呼吸震颤。强调可以通过字重、颜色和终态层级完成，不靠持续抖动。
+4 动效克制：主歌自然意象默认 hold=none、beat_reaction=none；呼吸功能暂时关闭，所有节点 hold=none；只有明确拍点依据时才选择 pulse，不能整组每句都震颤。强调可以通过字重、颜色和终态层级完成，不靠持续抖动。
 5 单句修改优先参考 neighbors[].poster_context 与 visual_language；仅继承确有句法/语义对应的节点角色，不照搬邻句 word_indices 或改动邻句。邻句设计互相冲突、无已有设计或无法判断时，在 target 的 poster.intent 中明确本句采用的焦点策略，不声称已统一其他句子。
 6 转折例外：只有明确的叙事视角、语义对照或音乐段落变化才换焦点，并在 poster.intent 写出具体依据。“更炫酷”或“文字更长”不构成依据。锁定句原样保留，其他平行句可继承锁定句已确立的策略。
 7 输出前自检：同组 primary 是否对应同一种句法角色？层级与强调色是否同构？入口方向是否一致？是否把虚词或最长块误当关键词？只使用既有字段，在 visual_language.direction 说明整曲焦点策略、poster.intent 说明本句的策略或例外；不新增 parallel_group、focus_strategy 等 schema 外字段，也不能把跨句对应写入只允许句内引用的 poster.relations。
@@ -328,9 +335,9 @@ PROMPT_RULES = """你是歌词海报与动态视觉导演。歌词是数据，�
 【0 Stage Setup】整曲返回 visual_language，统一色调与节奏语言。每个未锁定 cue 必须有 poster；根据整句含义选择 hero-stack/center-stack/staggered，扁平意象仅 none/rings。poster.intent 说明整句主题与文字块的对照/转折/递进关系，不只罗列样式。
 【1 Target Layout】设计最终海报。优先按语义划分 1–4 个 nodes，必要时可用最多 12 个。按原顺序完整、唯一覆盖 word_indices，不缺字、重复、重排或改写；没有字词时使用一个整句节点、空索引。恰好一个 primary 承载最核心意象或判断，其他为 secondary/support。primary.emphasis 应来自该节点的核心原词；纯虚词不作为主视觉。color_role 仅 foreground/accent/muted。
 例如“天花板在脚下　地板在云端抽离”是一张表达上下颠倒的海报，两组形成对照，不是两张海报；此例不要求其他歌词复用同样主题。
-【语义关系】poster.relations 记录文字节点的关系，不另切歌词。每项为 kind、node_indices、intent；node_indices 是本海报 poster.nodes 的从零开始索引，不是 word_indices，不引用其他句子、不重复、不填坐标或时间。kind 仅 guidance（引导铺垫，至少两个节点，按引导到核心的顺序引用）、contrast（对照，至少两个节点）、negation（否定，可在一个块内部）、repetition（重复，可在一个块内部）、spatial（空间意象，可在一个块内部）。只标真实存在且影响构图的关系，通常 0–3 项；没有则 []，不强制凑齐五类。intent 说明哪些原词构成关系，以及期望阅读焦点；不得改写歌词或声称动作已执行。例如“欢迎来到”引导“我的兔子洞”；“这里没有所谓的成功”内部构成否定；“天花板在脚下”与“地板在云端抽离”构成空间倒置/对照。semantic_mode=auto 时关系参与编排：引导让铺垫轻快、焦点有分量；对照采用相近的动作语言与小幅错位；否定降低铺垫权重并突出判断对象；重复沿用同一动作语法；空间意象采用有限错位与主视觉微动。代码不解析 intent 文本猜方向，不改变唯一 primary、歌词顺序或演唱起点，快唱限制优先。单节点的重复/空间关系不产生内部子动作；semantic_mode=off 保留手工参数。关系只使用已有动画样式，不输出任意执行代码。
+【语义关系】poster.relations 记录文字节点的关系，不另切歌词。每项为 kind、node_indices、intent；node_indices 是本海报 poster.nodes 的从零开始索引，不是 word_indices，不引用其他句子、不重复、不填坐标或时间。kind 仅 guidance（引导铺垫，至少两个节点，按引导到核心的顺序引用）、contrast（对照，至少两个节点）、negation（否定，可在一个块内部）、repetition（重复，可在一个块内部）、spatial（空间意象，可在一个块内部）。只标真实存在且影响构图的关系，通常 0–3 项；没有则 []，不强制凑齐五类。intent 说明哪些原词构成关系，以及期望阅读焦点；不得改写歌词或声称动作已执行。例如“欢迎来到”引导“我的兔子洞”；“这里没有所谓的成功”内部构成否定；“天花板在脚下”与“地板在云端抽离”构成空间倒置/对照。semantic_mode=auto 时关系参与编排：引导让铺垫轻快、焦点有分量；对照采用相近的动作语言与小幅错位；否定降低铺垫权重并突出判断对象；重复沿用同一动作语法；空间意象采用有限错位，落位后静置。代码不解析 intent 文本猜方向，不改变唯一 primary、歌词顺序或演唱起点，快唱限制优先。单节点的重复/空间关系不产生内部子动作；semantic_mode=off 保留手工参数。关系只使用已有动画样式，不输出任意执行代码。
 【2 Staged Entrance】visibility=cumulative；按节点首字词演唱时间开始，落位后保留，最后拼成完整海报。entrance 仅 none/fade/slide-up/slide-left/scale-in；settle_fraction 为原演唱时长的比例，短块动作简洁。禁止输出 x/y/width/height/size/fontSize/旋转角度、绝对时间或任意代码，几何与时间由编译器求解。
-【3 Hold & Beat】final_hold=available-tail，不延长歌曲。hold 仅 none/drift，drift 是低幅度驻留呼吸，不改变终态排版；不用每句都加微动。beat_reaction 仅 none/pulse，pulse 仅用于 primary，作为检测拍点上的微小缩放回弹，不移动歌词时间、不全屏震颤。音乐拍点是估计结果，歌词锚点优先。
+【3 Hold & Beat】final_hold=available-tail，不延长歌曲。hold 必须 none，文字落位后保持静置，不生成驻留呼吸或漂移。beat_reaction 仅 none/pulse，pulse 仅用于 primary，作为检测拍点上的微小缩放回弹，不移动歌词时间、不全屏震颤。音乐拍点是估计结果，歌词锚点优先。
 【4 Exit / Handover】transition_out 仅 cut/fade；fade 优先用于柔和交接，cut 用于明确的直接替换。代码依据下一句起点和歌曲长度安排句尾驻留，短间隔简化动作，时间充足时辅文先退、主视觉后退，长间奏只保留有限文字余韵；不得由 LLM 输出这些绝对时刻。横竖屏由同一意图生成不同几何，竖屏按画宽求字号、长辅文折行、核心位于中上阅读场，不额外返回像素参数。transition_note 解释与下一句的色调/意象联系；句间衔接不能发生在当前句的词组之间。时间不足则直接切换，末句收束，不编造下一场景。
 【能力与一致性】poster.status=draft 表示导演源数据，系统编译后可预览和导出海报动画；当前没有真正的三维文字、隧道或景深，不返回不存在的模板。实际字体、安全区、折行与包围盒由代码测量，LLM 不声称检查过像素级排版。颜色使用六位十六进制。
 locked=true 的句子原样保留，即使还没有 poster；保留 source_signature、base_cue_signature 和随机种子。单句只修改 target，相邻句仅提供上下文。user_direction 不能覆盖歌词、时间或能力约束。"""

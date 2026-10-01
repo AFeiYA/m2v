@@ -79,7 +79,7 @@ export function resolveSemanticDirection(source:PosterDirection){
         entry.effects=['重复块复用入场样式和相对落位时长'];break;
       case 'spatial':
         if(refs.length<2){entry.status='limited';entry.effects=['单块空间意象保持原构图'];break;}
-        for(const [j,i] of refs.entries()){hints[i].offset=j%2?.018:-.018;design.nodes[i].entrance='slide-up';if(design.nodes[i].role==='primary')design.nodes[i].hold='drift';}
+        for(const [j,i] of refs.entries()){hints[i].offset=j%2?.018:-.018;design.nodes[i].entrance='slide-up';}
         entry.effects=['有限错位建立层次，主视觉驻留微动；不猜上下或三维方向'];break;
     }
   }
@@ -139,7 +139,7 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     const start=Math.max(line.start,a?.start??line.start),end=Math.min(line.end,b?.end??line.end);
     const entrance=n.entrance!=='none'&&(dense||end-start<.16)?'fade':n.entrance;
     const duration=entrance==='none'?0:Math.min(.6,Math.max(1/30,(end-start)*n.settle_fraction),Math.max(0,(line.end-start)*.5));
-    nodes.push({motion_strength:strength.motion,text:n.text,role:n.role,word_indices:[...n.word_indices],x,y,width,height,fontSize:size,weight,color:n.color_role==='accent'?design.accent:n.color_role==='muted'?muted:foreground,rows:resolved,start,settled:start+duration,hold:dense?'none':n.hold||'none',beat_reaction:n.role==='primary'&&!dense?(n.beat_reaction||'none'):'none',entrance});
+    nodes.push({motion_strength:strength.motion,text:n.text,role:n.role,word_indices:[...n.word_indices],x,y,width,height,fontSize:size,weight,color:n.color_role==='accent'?design.accent:n.color_role==='muted'?muted:foreground,rows:resolved,start,settled:start+duration,hold:'none',beat_reaction:n.role==='primary'&&!dense?(n.beat_reaction||'none'):'none',entrance});
     y+=height+gap;
   }
   return {visual_intensity,version:'motion-poster-layout-v1',line_id:line.id,source:cue?.poster?'director':'automatic',width:W,height:H,background:design.background,accent:design.accent,motif:design.motif,layout:design.layout,transition_out:design.transition_out,semantic_arrangement:semantic.applications,relations:(design.relations||[]).map(r=>({...r,node_indices:[...r.node_indices]})),start:line.start,end:line.end,nodes};
@@ -190,8 +190,8 @@ export function posterNodeState(node:CompiledNode,t:number,H:number){
 }
 // Frame-time based and shared by preview, static canvas review and video export.
 export function posterHoldState(node:CompiledNode,t:number,complete:number,W:number,H:number,beat=0){
-  const elapsed=Math.max(0,t-complete),strength=node.motion_strength??1;
-  const drift=t>=complete&&node.hold==='drift'?Math.sin(elapsed*.9)*Math.min(W,H)*.0006*strength*Math.min(1,elapsed/.6):0;
+  const strength=node.motion_strength??1;
+  const drift=0; // Disabled even for previously compiled/saved drift nodes.
   const pulse=t>=complete&&node.beat_reaction==='pulse'?1+Math.max(0,Math.min(1,beat))*.012*strength:1;
   return {drift,pulse};
 }

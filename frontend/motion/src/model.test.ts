@@ -255,14 +255,14 @@ test('visual tiers fit both formats, preserve anchors and respect known sections
  assert.equal(dense.visual_intensity,'expanded');assert.equal(dense.nodes[0].entrance,'fade');
 });
 
-test('breathing is subtle, deterministic and starts after all nodes settle',async()=>{
+test('legacy breathing is disabled in compiled and old nodes at every frame',async()=>{
  const {posterHoldState}=await import('./poster-layout.ts');
  const line={id:'breath',text:'幻梦',start:0,end:10,words:[{word:'幻梦',start:0,end:10}]},poster=automaticPoster(line);
  poster.nodes[0].hold='drift';
  const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
  for(const [W,H] of [[1280,720],[720,1280]]){
-  const n=compilePoster(line,cue,W,H,measure).nodes[0],complete=n.settled;
+  const n=compilePoster(line,cue,W,H,measure).nodes[0],complete=n.settled;assert.equal(n.hold,'none');n.hold='drift';
   assert.equal(posterHoldState(n,complete-.1,complete,W,H).drift,0);assert.equal(posterHoldState(n,complete,complete,W,H).drift,0);
-  for(let i=0;i<600;i++){const t=complete+i/60,state=posterHoldState(n,t,complete,W,H);assert.ok(Math.abs(state.drift)<=Math.min(W,H)*.0006+1e-9);assert.deepEqual(posterHoldState(n,t,complete,W,H),state);assert.equal(state.pulse,1);}
+  for(let i=0;i<600;i++){const t=complete+i/60,state=posterHoldState(n,t,complete,W,H);assert.equal(state.drift,0);assert.deepEqual(posterHoldState(n,t,complete,W,H),state);assert.equal(state.pulse,1);}
  }
 });
