@@ -205,3 +205,25 @@ test('import scope rejects mismatched envelopes before applying any plan',()=>{
   assert.throws(()=>checkImportScope([], 'line'),/完整的导演 JSON/);
   assert.throws(()=>checkImportScope({version:'wrong'},'song'),/不支持/);
 });
+
+
+import {displayText} from './poster-layout.ts';
+test('Chinese display spacing is optional while English and mixed word boundaries stay visible',()=>{
+ assert.equal(displayText('并不是　 为了吹向你'),'并不是为了吹向你');
+ assert.equal(displayText('New　 York'), 'New York');
+ assert.equal(displayText('中文　 AI　 世界'), '中文 AI 世界');
+ for(const text of ['并不是 为了吹向你','是山的形状','New York never stops dreaming','中文 AI 世界','Supercalifragilisticexpialidocious']){
+  const line={id:'line_1',text,start:1,end:8,words:[{word:text,start:1,end:8}]};
+  const before=JSON.stringify(line);
+  for(const [W,H] of [[1280,720],[720,1280]]){
+   const p=compilePoster(line,undefined,W,H,measure),n=p.nodes[0];
+   assert.equal(n.text,text);
+   assert.equal(n.start,1);
+   assert.equal(n.rows.map(r=>r.text).join('').replace(/\s/g,''),text.replace(/\s/g,''));
+   for(const row of n.rows)assert.ok(measure(row.text,n.fontSize).width<=W*.782+1e-6);
+   if(text==='并不是 为了吹向你'||text==='是山的形状')assert.ok(n.rows.every(r=>Array.from(r.text).length>1));
+   if(text==='New York never stops dreaming')for(const word of text.split(' '))assert.ok(n.rows.some(r=>r.text.includes(word)));
+  }
+  assert.equal(JSON.stringify(line),before);
+ }
+});

@@ -16,15 +16,23 @@ export function automaticPoster(line:Line,palette='impact'):PosterDirection {
   const primary=blocks.reduce((best,b,i)=>b.text.length>blocks[best].text.length?i:best,0);
   return {version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:'自动基础排版，最长词组为主视觉',background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',nodes:blocks.map((b,i)=>({...b,role:i===primary?'primary':'secondary',emphasis:'',color_role:'foreground',entrance:'slide-up',settle_fraction:.25}))};
 }
-function rowsFor(text:string,size:number,weight:number,maxWidth:number,measure:Measure){
-  const rows:string[]=[''];for(const ch of Array.from(text)){const i=rows.length-1;if(rows[i]&&measure(rows[i]+ch,size,weight).width>maxWidth)rows.push(ch);else rows[i]+=ch;}return rows;
+export function displayText(text:string){
+  return text.replace(/\s+/gu,' ').trim().replace(/(?<=\p{Script=Han}) (?=\p{Script=Han})/gu,'');
 }
-function fitPortraitTitle(text:string,size:number,weight:number,maxWidth:number,W:number,measure:Measure,emphasis:string){
+function rowsFor(text:string,size:number,weight:number,maxWidth:number,measure:Measure){
+  // Keep English words intact; Chinese may wrap at glyph boundaries.
+  const tokens=text.match(/[\p{Script=Latin}\p{N}]+(?:['’\-][\p{Script=Latin}\p{N}]+)*|[^\p{Script=Latin}\p{N}]/gu)||[];
+  const rows:string[]=[''];
+  for(const token of tokens){const i=rows.length-1;if(rows[i]&&measure(rows[i]+token,size,weight).width>maxWidth&&token.trim()){rows.push(token.trimStart());}else rows[i]+=token;}
+  return rows.map(row=>row.trim()).filter(Boolean);
+}
+function fitTitle(text:string,size:number,weight:number,maxWidth:number,W:number,measure:Measure,emphasis:string,portrait:boolean){
+  if(!/^[\p{Script=Han}]+$/u.test(text))return null;
   const chars=Array.from(text),count=chars.length;
   const fit=(rows:string[])=>Math.min(size,...rows.map(row=>size*maxWidth/Math.max(1,measure(row,size,weight).width)))*.99;
   // Four/five-character titles should not acquire an orphan merely because the default size is large.
   const single=fit([text]);
-  if(count<=5||count<=6&&single>=W*.135)return {size:single,rows:[text]};
+  if(portrait?(count<=5||count<=6&&single>=W*.135):single>=size*.72)return {size:single,rows:[text]};
   if(count>12)return null;
   const boundaries=new Set<number>();
   const segmenter=new Intl.Segmenter('zh',{granularity:'word'});
@@ -95,14 +103,17 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     let size=portrait?W*(n.role==='primary'?(short?.30:.22):n.role==='secondary'?.075:.055):H*(n.role==='primary'?(short?.28:.18):n.role==='secondary'?.07:.045);
     size*=hints[index].scale;
     const maxWidth=width-W*.018;
-    const title=portrait&&n.role==='primary'?fitPortraitTitle(n.text,size,weight,maxWidth,W,measure,n.emphasis):null;
+    const text=displayText(n.text),focus=displayText(n.emphasis);
+    const longestWord=Math.max(0,...(text.match(/[\p{Script=Latin}\p{N}]+(?:['’\-][\p{Script=Latin}\p{N}]+)*/gu)||[]).map(word=>measure(word,size,weight).width));
+    if(longestWord>maxWidth)size*=maxWidth/longestWord*.99;
+    const title=n.role==='primary'?fitTitle(text,size,weight,maxWidth,W,measure,focus,portrait):null;
     if(title)size=title.size;
-    let rows=title?.rows||rowsFor(n.text,size,weight,maxWidth,measure);
-    for(let attempt=0;attempt<100&&rows.length>3;attempt++){size*=.92;rows=rowsFor(n.text,size,weight,maxWidth,measure);}
-    return {n,weight,size,rows,maxWidth};
+    let rows=title?.rows||rowsFor(text,size,weight,maxWidth,measure);
+    for(let attempt=0;attempt<100&&rows.length>3;attempt++){size*=.92;rows=rowsFor(text,size,weight,maxWidth,measure);}
+    return {n,text,weight,size,rows,maxWidth};
   });
   const primarySize=fitted.find(f=>f.n.role==='primary')!.size;
-  for(const f of fitted)if(f.n.role!=='primary'&&f.size>primarySize*.55){f.size=primarySize*.55;f.rows=rowsFor(f.n.text,f.size,f.weight,f.maxWidth,measure);}
+  for(const f of fitted)if(f.n.role!=='primary'&&f.size>primarySize*.55){f.size=primarySize*.55;f.rows=rowsFor(f.text,f.size,f.weight,f.maxWidth,measure);}
   const ink=(f:typeof fitted[number])=>measure(f.rows[0],f.size,f.weight).ascent+measure(f.rows.at(-1)!,f.size,f.weight).descent+(f.rows.length-1)*f.size*1.04;
   const content=fitted.reduce((sum,f)=>sum+ink(f),0);
   const scale=Math.min(1,Math.max(H*.1,maxHeight-padding*2*fitted.length-gap*(fitted.length-1))/content);
