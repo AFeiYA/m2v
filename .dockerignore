@@ -6,4 +6,4 @@
 work
 input
 output
-frontend/local/motion
+# Motion assets are delivered by CI and must reach the Gradio runtime.
