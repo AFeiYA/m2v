@@ -66,6 +66,7 @@ def generate_json(config: DirectorConfig, prompt: str, repair: str = ''):
             if response.status_code >= 300:
                 if response.status_code in (401, 403): message = '模型服务认证失败，请检查后端密钥与权限'
                 elif response.status_code == 429: raise DirectorQuotaError('模型服务限流或额度不足，请稍后重试')
+                elif response.status_code == 503: message = '模型服务暂时繁忙（HTTP 503），请稍后重试；这不是密钥或额度错误'
                 else: message = f'模型服务请求失败（HTTP {response.status_code}），请检查接口与模型配置'
                 raise DirectorAPIError(message)
             body = response.json()

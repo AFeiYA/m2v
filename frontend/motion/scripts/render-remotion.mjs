@@ -23,7 +23,7 @@ try{
    if(renderedFrames!==previous&&(renderedFrames%15===0||renderedFrames===composition.durationInFrames)){previous=renderedFrames;process.stdout.write(`PROGRESS ${renderedFrames}/${composition.durationInFrames}\n`);}
  }});
  await new Promise((resolve,reject)=>{
-   mux=spawn('ffmpeg',['-y','-v','error','-i',silent,'-ss',String(start),'-t',String(length),'-i',audioPath,'-map','0:v:0','-map','1:a:0','-c:v','copy','-c:a','aac','-b:a','192k','-shortest','-movflags','+faststart',outFile]);
+   mux=spawn('ffmpeg',['-y','-v','error','-i',silent,'-ss',String(start),'-t',String(length),'-i',audioPath,'-map','0:v:0','-map','1:a:0','-c:v','copy','-c:a','aac','-b:a','192k','-af','apad','-t',String(composition.durationInFrames/composition.fps),'-movflags','+faststart',outFile]);
    let error='';mux.stderr.on('data',d=>error+=d);mux.on('error',reject);mux.on('close',code=>code===0?resolve():reject(new Error(error||`音频合成失败 ${code}`)));
  });
  process.stdout.write(`PROGRESS ${composition.durationInFrames}/${composition.durationInFrames}\n`);

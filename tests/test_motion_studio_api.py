@@ -299,3 +299,22 @@ def test_gemini_quota_fallback_is_bounded_and_repairs_stay_on_lite(song,monkeypa
             assert job['fallback_used'] and job['model']=='gemini-3.5-flash-lite'
             assert job['status']==('failed' if outcome=='both_exhausted' else 'ready')
         assert client.get('/api/motion/project',params={'project_id':id}).json()['plan']==old
+
+
+@pytest.mark.skipif(os.getenv('RUN_MOTION_RENDER')!='1',reason='需显式启用 Chrome/FFmpeg 成片测试')
+def test_fractional_mp3_clip_preserves_all_remotion_frames(tmp_path):
+    from src.motion_director import rule_plan
+    root=Path(__file__).resolve().parents[1]
+    project={'title':'非整帧片段测试','duration':40,'lines':[{'text':'水往低处流去','start':34.12,'end':36.91,'words':[]}]}
+    project['motion_plan']=rule_plan(project).model_dump()
+    wav=tmp_path/'source.wav';mp3=tmp_path/'source.mp3';sf.write(wav,np.zeros(22050*40),22050)
+    subprocess.run(['ffmpeg','-v','error','-i',str(wav),str(mp3)],check=True)
+    job=tmp_path/'job.json';out=tmp_path/'clip.mp4'
+    job.write_text(json.dumps({'project':project,'options':{'aspect':'9:16','height':360},'start':33.92,'length':3.99,'audioPath':str(mp3)}))
+    result=subprocess.run([shutil.which('node'),str(root/'frontend/motion/scripts/render-remotion.mjs'),str(job),str(out)],capture_output=True,text=True,timeout=120)
+    assert result.returncode==0,result.stderr
+    info=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-of','json',str(out)]))
+    video=next(s for s in info['streams'] if s['codec_type']=='video');audio=next(s for s in info['streams'] if s['codec_type']=='audio')
+    assert int(video['nb_frames'])==120
+    assert float(video['duration'])==pytest.approx(4,abs=.001)
+    assert float(audio['duration'])==pytest.approx(4,abs=.05)

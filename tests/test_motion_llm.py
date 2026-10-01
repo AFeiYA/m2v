@@ -22,12 +22,13 @@ def test_gemini_native_request_json_and_private_key(monkeypatch):
     assert data['contents'][0]['parts'][0]['text']=='测试导演输入'
 
 
-@pytest.mark.parametrize('status',[401,429,500,302])
+@pytest.mark.parametrize('status',[401,429,500,503,302])
 def test_upstream_error_never_exposes_key_or_body(monkeypatch,status):
     original=httpx.Client
     monkeypatch.setattr(httpx,'Client',lambda **kwargs: original(transport=httpx.MockTransport(lambda request:httpx.Response(status,text='test-private-key upstream internal details')),**kwargs))
     with pytest.raises(DirectorAPIError) as error: generate_json(DirectorConfig('https://example.test','gemini-3.8-flash','test-private-key'),'prompt')
     assert 'test-private-key' not in str(error.value) and 'upstream internal details' not in str(error.value)
+    if status==503: assert '暂时繁忙' in str(error.value)
 
 
 @pytest.mark.parametrize('finish',['MAX_TOKENS','SAFETY'])
