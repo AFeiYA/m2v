@@ -240,7 +240,7 @@ def test_poster_emphasis_accepts_chinese_spaces_without_rewriting_source():
 
 
 def test_parallel_lyric_subjects_share_an_explicit_focus_strategy(project):
-    assert '【平行句导演】' in llm_prompt(project)
+    assert '平行句共享主题即可' in llm_prompt(project)
     assert '不要求 primary 属于同一种句法角色' in llm_prompt(project)
 
 
@@ -260,9 +260,9 @@ def test_single_line_parallel_context_reaches_past_an_explanation_line():
     assert 'word_indices' not in mountain['poster_context']['nodes'][0]
     assert 'words' not in mountain and 'start' not in mountain
     assert previous==before
-    assert '隔着“因为它……”' in bundle['prompt']
-    assert '主体优先的硬规则' in bundle['prompt']
-    assert 'hold=none、beat_reaction=none' in bundle['prompt']
+    assert '邻句仅作上下文' in bundle['prompt']
+    assert '不要求 primary 属于同一种句法角色' in bundle['prompt']
+    assert 'hold 必须 none' in bundle['prompt']
     assert 'schema 外字段' in bundle['prompt']
 
 
