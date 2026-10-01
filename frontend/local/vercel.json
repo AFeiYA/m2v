@@ -1,8 +1,21 @@
 {
+  "buildCommand": "cd ../motion && npm ci && npm run build",
   "rewrites": [
     {
       "source": "/api/:match*",
       "destination": "https://lucazhou-suno2mv-api.hf.space/api/:match*"
+    },
+    {
+      "source": "/motion_studio",
+      "destination": "/motion_studio_director.html"
+    },
+    {
+      "source": "/motion",
+      "destination": "/motion_studio_director.html"
+    },
+    {
+      "source": "/motion_lab",
+      "destination": "/motion_lab.html"
     },
     {
       "source": "/storyboard",
@@ -12,5 +25,6 @@
       "source": "/static/:match*",
       "destination": "/:match*"
     }
-  ]
+  ],
+  "outputDirectory": "."
 }

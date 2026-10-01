@@ -30,7 +30,7 @@ Studio 全曲使用 visual_language 的背景/强调色，缺省继承第一张�
 
 Motion Lab 保留原 pdoom/Three.js 实验渲染；Studio 海报模式暂不执行 pdoom 后处理、三维文字、自适应运动模糊或跨句推挤转场。Remotion 提供组件与逐帧工具，排版与美术效果仍需模板和视觉验证。
 
-接口、版本兼容与提示词见 `motion-director-api.md`。Remotion 商用许可遵循官方说明：https://www.remotion.dev/docs/license/pricing 。Docker/云部署尚未在本机实测。
+接口、版本兼容与提示词见 `motion-director-api.md`。Remotion 商用许可遵循官方说明：https://www.remotion.dev/docs/license/pricing 。Gradio 云部署步骤见 `motion-gradio-deployment.md`；实际 HF 重建与云端导出尚待上线验证。
 
 ## 句间交接与竖屏
 

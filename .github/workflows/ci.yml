@@ -64,6 +64,20 @@ jobs:
           export CHROME_PATH=$(cd frontend/motion && node --input-type=module -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')
           RUN_MOTION_RENDER=1 pytest tests/ -v --maxfail=1
 
+      - name: Verify Gradio Motion runtime preparation
+        run: |
+          export CHROME_PATH=$(cd frontend/motion && node --input-type=module -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')
+          python -c 'from src.hf_motion_runtime import prepare_motion_runtime; prepare_motion_runtime()'
+
+      - name: Preserve verified Motion Studio assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: motion-assets
+          path: |
+            frontend/local/motion/
+            frontend/local/remotion/
+          if-no-files-found: error
+
   deploy-to-hf:
     name: Auto Deploy to Hugging Face Spaces
     needs: test
@@ -75,6 +89,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Restore verified Motion Studio assets
+        uses: actions/download-artifact@v4
+        with:
+          name: motion-assets
+          path: frontend/local
+
+      - name: Include assets in the HF deployment snapshot
+        run: |
+          test -f frontend/local/motion/studio.js
+          test -f frontend/local/remotion/index.html
+          git config user.name "M2V Deploy"
+          git config user.email "m2v-deploy@users.noreply.github.com"
+          git add -f frontend/local/motion frontend/local/remotion
+          git commit -m "Build Motion Studio assets for HF deployment" || git diff --cached --quiet
+
       - name: Push to Hugging Face Spaces
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
@@ -85,4 +114,4 @@ jobs:
           fi
           echo "🚀 正在向 Hugging Face Spaces 镜像同步最新代码..."
           git push --force "https://LucaZhou:$HF_TOKEN@huggingface.co/spaces/LucaZhou/suno2mv-api" HEAD:refs/heads/main
-          echo "✅ Hugging Face Spaces 自动同步部署成功！"
+          echo "✅ 代码与动效资源已同步；请检查 HF 构建与运行日志。"

@@ -55,6 +55,10 @@ def test_hf_app_entrypoint_routes():
     # 2. 网络真实链路探活：关键业务接口绝对不能返回 404 Not Found
     endpoints = [
         ("GET", "/api/files"),
+        ("GET", "/motion_studio"),
+        ("GET", "/motion_lab"),
+        ("GET", "/api/motion/projects"),
+        ("GET", "/api/motion/director/config"),
         ("POST", "/api/suno/import"),
         ("GET", "/api/suno/task_status"),
         ("GET", "/api/suno/download_mp3"),
@@ -86,6 +90,13 @@ def test_hf_app_entrypoint_routes():
     res_suno = requests.post(f"{base_url}/api/suno/import", json={"url": ""})
     assert res_suno.status_code == 400
     assert "Suno URL" in res_suno.json().get("detail", "")
+
+    # 已构建资源也必须通过 Gradio 的运行期路由提供。
+    from pathlib import Path
+    if (Path(app.__file__).parent / "frontend/local/motion/studio.js").exists():
+        response = requests.get(f"{base_url}/motion/studio.js")
+        assert response.status_code == 200
+        assert "javascript" in response.headers.get("content-type", "")
 
     # 关闭当前测试实例
     app.demo.close()
