@@ -2130,10 +2130,11 @@ def motion_studio():
     ms_file = _FRONTEND_DIR / "motion_studio_director.html"
     if ms_file.exists():
         html = ms_file.read_text(encoding="utf-8")
-        script = _FRONTEND_DIR / "motion" / "studio.js"
-        if script.exists():
-            version = hashlib.sha256(script.read_bytes()).hexdigest()[:16]
-            html = html.replace('/motion/studio.js"', f'/motion/studio.js?v={version}"')
+        for url, asset in (("/motion/studio.js", _FRONTEND_DIR / "motion" / "studio.js"),
+                           ("/motion-lab.css", _FRONTEND_DIR / "motion-lab.css")):
+            if asset.exists():
+                version = hashlib.sha256(asset.read_bytes()).hexdigest()[:16]
+                html = html.replace(f'{url}"', f'{url}?v={version}"')
         return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
     return HTMLResponse("<h1>frontend/local/motion_studio.html 不存在</h1>", status_code=500)
 

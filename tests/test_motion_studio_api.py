@@ -169,13 +169,18 @@ def test_portrait_export_preserves_readable_lyric_during_handover_gap(tmp_path):
 def test_studio_script_url_changes_with_build_content(tmp_path,monkeypatch):
     import src.local_editor as editor
     front=tmp_path/'frontend';(front/'motion').mkdir(parents=True)
-    (front/'motion_studio_director.html').write_text('<script src="/motion/studio.js"></script>')
+    (front/'motion_studio_director.html').write_text('<link href="/motion-lab.css"><script src="/motion/studio.js"></script>')
     script=front/'motion/studio.js';script.write_text('first build')
+    style=front/'motion-lab.css';style.write_text('first style')
     monkeypatch.setattr(editor,'_FRONTEND_DIR',front)
     with TestClient(app) as client:
         first=client.get('/motion_studio')
         assert first.headers['cache-control']=='no-cache'
         assert '/motion/studio.js?v=' in first.text
+        assert '/motion-lab.css?v=' in first.text
         assert client.get('/motion_studio').text==first.text
         script.write_text('new build')
-        assert client.get('/motion_studio').text!=first.text
+        second=client.get('/motion_studio').text
+        assert second!=first.text
+        style.write_text('new style')
+        assert client.get('/motion_studio').text!=second

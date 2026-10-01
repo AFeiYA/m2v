@@ -12,3 +12,6 @@
 
 .header-right button{border:1px solid #365334;background:#172219;color:#b9ff70;border-radius:6px;padding:7px 10px;font-size:12px}.preview-focus aside{display:none}.preview-focus main{grid-template-columns:minmax(0,1fr)}
 @media(max-width:900px){.preview-focus main{height:calc(100vh - 68px)}.preview-focus .stage-wrap{height:100%}.preview-focus #stage-box{flex:1;aspect-ratio:auto!important}}
+
+/* A changing clock must not move the timeline; dragging owns the seek position. */
+.transport #time,.transport #duration{flex:0 0 7ch;width:7ch;font-variant-numeric:tabular-nums;white-space:nowrap}.transport #seek{min-width:0;transition:none}

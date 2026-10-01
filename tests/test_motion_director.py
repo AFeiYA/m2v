@@ -237,3 +237,8 @@ def test_poster_emphasis_accepts_chinese_spaces_without_rewriting_source():
     data['cue']['poster']['nodes'][0]['emphasis']='不必意义'
     with pytest.raises(ValueError,match='line_0001.*不必意义'):
         line_response(project,data,'line_0001')
+
+
+def test_parallel_lyric_subjects_share_an_explicit_focus_strategy(project):
+    assert '平行句式和成组意象' in llm_prompt(project)
+    assert '一主体大、一谓语大' in llm_prompt(project)
