@@ -135,3 +135,41 @@ def test_quality_ignores_long_arrangement_annotation():
     from src.aligner import alignment_quality_issue
     line=AlignedLine(text="（Instrumental）",start=0,end=30,words=[WordTimestamp(word="（Instrumental）",start=0,end=30)])
     assert alignment_quality_issue([line]) is None
+
+
+def test_long_foreign_passages_use_ordered_bilingual_anchors():
+    from src.aligner import _requires_ordered_bilingual
+    from src.preprocessor import LyricLine
+    def run(lang, lines): return (lang, list(enumerate(LyricLine(text=t) for t in lines)))
+    assert not _requires_ordered_bilingual([run('en', ['Yo Check it out', "Let's go"]), run('zh', ['左手在右手的左边'])], 'zh')
+    assert _requires_ordered_bilingual([run('en', ['Give me the window seat and let the world roll by in gold']), run('zh', ['给我靠窗的位子'])], 'zh')
+    assert _requires_ordered_bilingual([run('en', ['English verse']), run('zh', ['高铁穿过稻田', '隧道剪开白天', '司机放着老歌', '给我靠窗位子'])], 'en')
+
+
+def test_ordered_windows_preserve_language_switch_boundaries():
+    import pytest
+    from src.aligner import _ordered_run_windows
+    assert _ordered_run_windows([(19, 84), (88, 140), (172, 176), (177, 181)], 3.8, 269) == [(3.8, 86), (86, 156), (156, 176.5), (176.5, 269)]
+    with pytest.raises(ValueError): _ordered_run_windows([(20, 140), (87, 130)], 0, 269)
+    with pytest.raises(ValueError): _ordered_run_windows([(2, 300)], 0, 269)
+
+
+def test_word_start_does_not_absorb_a_long_silent_intro():
+    from src.aligner import _trim_word_over_silence
+    blocks=[(3.8, 6.1), (19.3, 84.4)]
+    assert _trim_word_over_silence(3.8, 20, blocks) == 19.3
+    assert _trim_word_over_silence(20, 28, blocks) == 20
+    assert _trim_word_over_silence(3.8, 20, [(3.8, 84.4)]) == 3.8
+
+
+def test_healthy_english_phrase_does_not_trigger_self_heal(monkeypatch):
+    import src.aligner as a
+    calls=[]
+    def unexpected(*args, **kwargs):
+        calls.append(args)
+        raise AssertionError('healthy phrase was re-aligned')
+    monkeypatch.setattr(a, 'realign_lines', unexpected)
+    lines=[AlignedLine(text='Boarding pass folded in my passport', start=19.3, end=22.6, words=[WordTimestamp(word='Boarding pass folded in my passport', start=19.3, end=22.6)]),
+           AlignedLine(text='Coffee going cold on the tray', start=23, end=26, words=[WordTimestamp(word='Coffee going cold on the tray', start=23, end=26)])]
+    assert a._self_heal_alignment(Path('unused.wav'), lines, [(19.3, 26)], 26) == lines
+    assert calls == []

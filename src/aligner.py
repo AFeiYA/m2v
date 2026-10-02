@@ -222,6 +222,32 @@ def alignment_quality_issue(lines: list[AlignedLine]) -> str | None:
     return None
 
 
+def _requires_ordered_bilingual(lang_runs, dominant):
+    """Short foreign shouts can use anchors; longer foreign passages cannot."""
+    minority = [ly for lang, items in lang_runs if lang != dominant for _, ly in items]
+    units = sum(len(re.findall(r"[\u4e00-\u9fff]|[a-zA-Z]+(?:['’\-][a-zA-Z]+)*", ly.text)) for ly in minority)
+    return bool(minority) and (len(minority) >= 4 or units >= 12)
+
+
+def _ordered_run_windows(bounds, start, end):
+    """Partition acoustic anchors into ordered, non-overlapping search windows."""
+    if not bounds or any(b <= a or a < start or b > end for a, b in bounds):
+        raise ValueError("双语声学定位产生无效段落范围")
+    if any(bounds[i][1] > bounds[i+1][0] for i in range(len(bounds)-1)):
+        raise ValueError("双语声学定位段落顺序冲突")
+    cuts = [start, *((bounds[i][1]+bounds[i+1][0])/2 for i in range(len(bounds)-1)), end]
+    return list(zip(cuts, cuts[1:]))
+
+
+def _trim_word_over_silence(start, end, singing_sections):
+    """A word must not absorb a long silent intro before its acoustic match."""
+    if end-start > 4:
+        for before, after in zip(singing_sections, singing_sections[1:]):
+            if start < before[1] and end > after[0] and after[0]-before[1] >= 3.5 and end-after[0] <= 4:
+                start = after[0]
+    return start
+
+
 def _audit_alignment(aligned: list[AlignedLine]) -> list[AlignedLine]:
     """审计对齐时间戳单调性与合理性"""
     out: list[AlignedLine] = []
@@ -387,8 +413,8 @@ def align_lyrics_ctc(
     aligned_line_map: dict[int, AlignedLine] = {}
 
     def _align_en(lines_with_idx: list[tuple[int, LyricLine]], s_sec: float, e_sec: float):
-        s_sec = max(0.0, s_sec - 0.2)
-        e_sec = min(total_audio_sec, e_sec + 0.3)
+        s_sec = max(0.0, s_sec - (0.0 if ordered_bilingual else 0.2))
+        e_sec = min(total_audio_sec, e_sec + (0.0 if ordered_bilingual else 0.3))
         wav_slice = wav_16k[:, int(s_sec * 16000): int(e_sec * 16000)]
         if wav_slice.size(1) < 400:
             return
@@ -429,6 +455,7 @@ def align_lyrics_ctc(
                 curr_s_idx += len(tok_clean) + 1
                 w_s = s_sec + w_spans[0].start * frame_dur
                 w_e = s_sec + w_spans[-1].end * frame_dur
+                w_s = _trim_word_over_silence(w_s, w_e, singing_sections)
                 words.append(WordTimestamp(word=tok, start=round(w_s, 3), end=round(max(w_e, w_s + 0.05), 3)))
 
             aligned_line_map[orig_idx] = AlignedLine(
@@ -439,8 +466,8 @@ def align_lyrics_ctc(
             )
 
     def _align_zh(lines_with_idx: list[tuple[int, LyricLine]], s_sec: float, e_sec: float):
-        s_sec = max(0.0, s_sec - 0.2)
-        e_sec = min(total_audio_sec, e_sec + 0.3)
+        s_sec = max(0.0, s_sec - (0.0 if ordered_bilingual else 0.2))
+        e_sec = min(total_audio_sec, e_sec + (0.0 if ordered_bilingual else 0.3))
         wav_slice = wav_16k[:, int(s_sec * 16000): int(e_sec * 16000)]
         if wav_slice.size(1) < 400:
             return
@@ -495,37 +522,109 @@ def align_lyrics_ctc(
                 words=words,
             )
 
-    # Language switches are lyric boundaries, not RMS-section boundaries.
-    # Align the dominant language across the song, then locate short switches
-    # inside the gaps between its neighboring lyric anchors.
+    # Short foreign shouts may use dominant-language anchors. Substantial bilingual
+    # sections require an ordered acoustic pass containing BOTH languages first.
     dominant = max(("zh", "en"), key=lambda lang: sum(len(re.sub(r"\W", "", ly.text))
                     for block_lang, items in lang_runs if block_lang == lang for _, ly in items))
-    dominant_lines = [item for lang, items in lang_runs if lang == dominant for item in items]
-    align_dominant = _align_zh if dominant == "zh" else _align_en
-    align_dominant(dominant_lines, min_start, total_audio_sec)
-    for lang, items in lang_runs:
-        if lang == dominant:
-            continue
-        first, last = items[0][0], items[-1][0]
-        before = [idx for idx, _ in dominant_lines if idx < first]
-        after = [idx for idx, _ in dominant_lines if idx > last]
-        sec_s = aligned_line_map[before[-1]].end if before else min_start
-        sec_e = aligned_line_map[after[0]].start if after else total_audio_sec
-        # CTC can let neighboring dominant-language tokens touch across a short
-        # foreign-language shout. Allow bounded context, never whole sections.
-        if sec_e < sec_s - 0.5:
-            raise ValueError("跨语言歌词定位失败：相邻歌词没有有效声学区间，请检查歌词顺序或手动定位")
-        interior = [(start, end) for start, end in singing_sections
-                    if start >= sec_s and end <= sec_e]
-        if len(interior) == 1:
-            # A unique isolated vocal block inside lyric anchors is stronger
-            # evidence than letting a short English shout span an interlude.
-            sec_s, sec_e = interior[0]
-        else:
-            sec_s = max(min_start, sec_s - 1.0)
-            sec_e = min(total_audio_sec, sec_e + 1.0)
-        log.info("跨语言锚点定位: %s %d 行，区间 %.2fs ~ %.2fs", lang, len(items), sec_s, sec_e)
-        (_align_en if lang == "en" else _align_zh)(items, sec_s, sec_e)
+    ordered_bilingual = has_en and has_zh and _requires_ordered_bilingual(lang_runs, dominant)
+    if ordered_bilingual:
+        log.info("双语顺序定位：联合两种语言的声学证据，保持全部歌词段落顺序")
+        # Project each acoustic model onto only the symbols present in this song.
+        # No full Chinese vocabulary is retained across the entire audio.
+        symbols: list[tuple[str, str]] = []
+        run_targets: list[list[int]] = []
+        for lang, items in lang_runs:
+            text = "|".join("|".join(ly.text.upper().split()) for _, ly in items) if lang == "en" else "".join(
+                c for _, ly in items for c in ly.text if _CHINESE_CHAR_RE.match(c))
+            ids = []
+            for char in text:
+                if lang == "en" and char not in dict_en:
+                    continue
+                if lang == "zh" and proc_zh.tokenizer.convert_tokens_to_ids(char) in (blank_zh, proc_zh.tokenizer.unk_token_id):
+                    # Missing dictionary glyphs cannot anchor a section. They remain
+                    # in the original lyrics for the subsequent fine alignment.
+                    continue
+                symbol = (lang, char)
+                if symbol not in symbols:
+                    symbols.append(symbol)
+                ids.append(symbols.index(symbol) + 1)
+            if not ids:
+                raise ValueError("双语段落缺少可对齐的发音字符")
+            run_targets.append(ids)
+        en_ids = [dict_en[char] for lang, char in symbols if lang == "en"]
+        zh_ids = proc_zh.tokenizer.convert_tokens_to_ids([char for lang, char in symbols if lang == "zh"])
+        if any(idx in (blank_zh, proc_zh.tokenizer.unk_token_id) for idx in zh_ids):
+            raise ValueError("中文声学模型缺少歌词字形，不能可靠定位双语段落")
+        en_cols = [i+1 for i, (lang, _) in enumerate(symbols) if lang == "en"]
+        zh_cols = [i+1 for i, (lang, _) in enumerate(symbols) if lang == "zh"]
+        coarse_start = min_start
+        sliced = wav_16k[:, int(coarse_start*16000):]
+        projected = []
+        with torch.inference_mode():
+            for chunk in sliced.split(20*16000, dim=1):
+                if chunk.size(1) < 400:
+                    continue
+                en = model_en(chunk)[0].log_softmax(dim=-1)
+                zh = model_zh(chunk).logits.log_softmax(dim=-1)
+                if zh.size(1) != en.size(1):
+                    zh = torch.nn.functional.interpolate(zh.transpose(1, 2), size=en.size(1), mode="linear", align_corners=False).transpose(1, 2)
+                joint = en.new_full((1, en.size(1), len(symbols)+1), -100.0)
+                joint[:, :, 0] = torch.maximum(en[:, :, 0], zh[:, :, blank_zh])
+                joint[:, :, en_cols] = en[:, :, en_ids]
+                joint[:, :, zh_cols] = zh[:, :, zh_ids]
+                projected.append(joint.log_softmax(dim=-1))
+        emissions = torch.cat(projected, dim=1)
+        targets = torch.tensor([sum(run_targets, [])], dtype=torch.int32)
+        path, scores = forced_align(emissions, targets, blank=0)
+        spans = merge_tokens(path[0], scores[0], blank=0)
+        if len(spans) != targets.size(1):
+            raise ValueError("双语声学定位未覆盖全部歌词字符")
+        frame_duration = (sliced.size(1)/16000.0)/emissions.size(1)
+        run_bounds = []
+        offset = 0
+        for ids in run_targets:
+            selected = spans[offset:offset+len(ids)]
+            offset += len(ids)
+            run_bounds.append((coarse_start+selected[0].start*frame_duration,
+                               coarse_start+selected[-1].end*frame_duration))
+        del emissions, projected
+        windows = _ordered_run_windows(run_bounds, min_start, total_audio_sec)
+        for i, ((lang, items), (sec_s, sec_e)) in enumerate(zip(lang_runs, windows)):
+            log.info("顺序语言段 %d：%s %d 行，声学区间 %.2fs ~ %.2fs", i+1, lang, len(items), sec_s, sec_e)
+            (_align_en if lang == "en" else _align_zh)(items, sec_s, sec_e)
+    else:
+        # Language switches are lyric boundaries, not RMS-section boundaries.
+        # Align the dominant language across the song, then locate short switches
+        # inside the gaps between its neighboring lyric anchors.
+        dominant = max(("zh", "en"), key=lambda lang: sum(len(re.sub(r"\W", "", ly.text))
+                        for block_lang, items in lang_runs if block_lang == lang for _, ly in items))
+        dominant_lines = [item for lang, items in lang_runs if lang == dominant for item in items]
+        align_dominant = _align_zh if dominant == "zh" else _align_en
+        align_dominant(dominant_lines, min_start, total_audio_sec)
+        for lang, items in lang_runs:
+            if lang == dominant:
+                continue
+            first, last = items[0][0], items[-1][0]
+            before = [idx for idx, _ in dominant_lines if idx < first]
+            after = [idx for idx, _ in dominant_lines if idx > last]
+            sec_s = aligned_line_map[before[-1]].end if before else min_start
+            sec_e = aligned_line_map[after[0]].start if after else total_audio_sec
+            # CTC can let neighboring dominant-language tokens touch across a short
+            # foreign-language shout. Allow bounded context, never whole sections.
+            if sec_e < sec_s - 0.5:
+                raise ValueError("跨语言歌词定位失败：相邻歌词没有有效声学区间，请检查歌词顺序或手动定位")
+            interior = [(start, end) for start, end in singing_sections
+                        if start >= sec_s and end <= sec_e]
+            if len(interior) == 1:
+                # A unique isolated vocal block inside lyric anchors is stronger
+                # evidence than letting a short English shout span an interlude.
+                sec_s, sec_e = interior[0]
+            else:
+                sec_s = max(min_start, sec_s - 1.0)
+                sec_e = min(total_audio_sec, sec_e + 1.0)
+            log.info("跨语言锚点定位: %s %d 行，区间 %.2fs ~ %.2fs", lang, len(items), sec_s, sec_e)
+            (_align_en if lang == "en" else _align_zh)(items, sec_s, sec_e)
+
 
     aligned_lines = []
     for li, ly in enumerate(lyrics):
@@ -707,8 +806,9 @@ def _self_heal_alignment(
     tail_lag = last_vocal_end - last_line_end
 
     for k, (orig_i, line) in enumerate(indexed_lines):
-        clean_chars = [c for c in line.text if not c.isspace() and c not in '.,!?:;...~—"\'()[]（）【】']
-        char_count = len(clean_chars)
+        # English letters are not separate sung words; counting them falsely
+        # marks healthy English phrases as collapsed and repeatedly reloads models.
+        char_count = len(re.findall(r"[\u4e00-\u9fff]|[a-zA-Z0-9]+(?:['’\-][a-zA-Z0-9]+)*", line.text))
         dur = max(0.0, line.end - line.start)
         rate = dur / max(1, char_count)
 
