@@ -495,37 +495,116 @@ def align_lyrics_ctc(
                 words=words,
             )
 
-    # Language switches are lyric boundaries, not RMS-section boundaries.
-    # Align the dominant language across the song, then locate short switches
-    # inside the gaps between its neighboring lyric anchors.
-    dominant = max(("zh", "en"), key=lambda lang: sum(len(re.sub(r"\W", "", ly.text))
-                    for block_lang, items in lang_runs if block_lang == lang for _, ly in items))
-    dominant_lines = [item for lang, items in lang_runs if lang == dominant for item in items]
-    align_dominant = _align_zh if dominant == "zh" else _align_en
-    align_dominant(dominant_lines, min_start, total_audio_sec)
-    for lang, items in lang_runs:
-        if lang == dominant:
-            continue
-        first, last = items[0][0], items[-1][0]
-        before = [idx for idx, _ in dominant_lines if idx < first]
-        after = [idx for idx, _ in dominant_lines if idx > last]
-        sec_s = aligned_line_map[before[-1]].end if before else min_start
-        sec_e = aligned_line_map[after[0]].start if after else total_audio_sec
-        # CTC can let neighboring dominant-language tokens touch across a short
-        # foreign-language shout. Allow bounded context, never whole sections.
-        if sec_e < sec_s - 0.5:
-            raise ValueError("跨语言歌词定位失败：相邻歌词没有有效声学区间，请检查歌词顺序或手动定位")
-        interior = [(start, end) for start, end in singing_sections
-                    if start >= sec_s and end <= sec_e]
-        if len(interior) == 1:
-            # A unique isolated vocal block inside lyric anchors is stronger
-            # evidence than letting a short English shout span an interlude.
-            sec_s, sec_e = interior[0]
+    # 6. 乐段与语言块智能映射
+    if len(lang_runs) == 1:
+        lang, r_lines = lang_runs[0]
+        sec_s = min_start
+        sec_e = max(singing_sections[-1][1] if singing_sections else total_audio_sec, total_audio_sec - 1.0)
+        log.info("单语言全曲对齐: 纵跨所有乐段 (%.2fs - %.2fs), 共 %d 行", sec_s, sec_e, len(r_lines))
+        if lang == "en":
+            _align_en(r_lines, sec_s, sec_e)
         else:
-            sec_s = max(min_start, sec_s - 1.0)
-            sec_e = min(total_audio_sec, sec_e + 1.0)
-        log.info("跨语言锚点定位: %s %d 行，区间 %.2fs ~ %.2fs", lang, len(items), sec_s, sec_e)
-        (_align_en if lang == "en" else _align_zh)(items, sec_s, sec_e)
+            _align_zh(r_lines, sec_s, sec_e)
+    elif len(lang_runs) == len(singing_sections):
+        for ri, (lang, r_lines) in enumerate(lang_runs):
+            sec_s, sec_e = singing_sections[ri]
+            if ri == len(lang_runs) - 1:
+                sec_e = max(sec_e, total_audio_sec - 1.0)
+            if lang == "en":
+                _align_en(r_lines, sec_s, sec_e)
+            else:
+                _align_zh(r_lines, sec_s, sec_e)
+    else:
+        cur_sec_idx = 0
+        ri = 0
+        while ri < len(lang_runs) and cur_sec_idx < len(singing_sections):
+            sec_s, sec_e = singing_sections[cur_sec_idx]
+            if ri == len(lang_runs) - 1:
+                sec_e = max(sec_e, singing_sections[-1][1], total_audio_sec - 1.0)
+            sec_dur = sec_e - sec_s
+            lang, r_lines = lang_runs[ri]
+
+            # 容量检查：若当前乐段时长严重不足以容纳当前语言块（如开场杂音仅1-2s，而歌词有十多行），
+            # 且后续乐段具有充足容量，则跳过此虚假乐段
+            min_needed_dur = max(2.0, len(r_lines) * 1.0)
+            if (sec_dur < min_needed_dur and cur_sec_idx + 1 < len(singing_sections)
+                    and (singing_sections[cur_sec_idx + 1][1] - singing_sections[cur_sec_idx + 1][0]) >= min_needed_dur):
+                log.info("乐段 %d (%.2fs - %.2fs, 时长=%.2fs) 不足容纳 %d 行歌词，跳过并移至下一乐段",
+                         cur_sec_idx, sec_s, sec_e, sec_dur, len(r_lines))
+                cur_sec_idx += 1
+                continue
+
+            should_pair = False
+            if ri + 1 < len(lang_runs) and lang_runs[ri + 1][0] != lang:
+                r_lines2 = lang_runs[ri + 1][1]
+                n1, n2 = len(r_lines), len(r_lines2)
+                if n1 <= 6 and n2 <= 6:
+                    rate_single = sec_dur / n1
+                    rate_both = sec_dur / (n1 + n2)
+                    if rate_single > 4.0 and 1.5 <= rate_both <= 6.0:
+                        should_pair = True
+                    elif (len(lang_runs) - ri) > (len(singing_sections) - cur_sec_idx) and rate_both >= 1.2:
+                        should_pair = True
+
+            if should_pair:
+                r_lines2 = lang_runs[ri + 1][1]
+                sub_hop = int(sr * 0.05)
+                s_sample, e_sample = int(sec_s * sr), int(sec_e * sr)
+                sub_wav = wav[s_sample:e_sample]
+                sub_rms = [float(np.sqrt(np.mean(sub_wav[i:i + sub_hop] ** 2))) for i in range(0, len(sub_wav) - sub_hop, sub_hop)]
+
+                base_ratio = len(r_lines) / (len(r_lines) + len(r_lines2))
+                ratio = base_ratio * (0.93 if lang == "en" else 1.07)
+                center_idx = int(len(sub_rms) * ratio)
+                search_w = int(1.5 / 0.05)
+                best_score = float("inf")
+                best_idx = center_idx
+                for k in range(max(0, center_idx - search_w), min(len(sub_rms), center_idx + search_w)):
+                    dist_sec = abs(k - center_idx) * 0.05
+                    score = sub_rms[k] + 0.05 * dist_sec
+                    if score < best_score:
+                        best_score = score
+                        best_idx = k
+                mid_t = sec_s + (best_idx * sub_hop) / sr
+
+                log.info(
+                    "乐段 %d (%.2fs - %.2fs) 智能双语切分点: %.2fs (前段 %s: %d行, 后段 %s: %d行)",
+                    cur_sec_idx, sec_s, sec_e, mid_t, lang, len(r_lines), lang_runs[ri + 1][0], len(r_lines2)
+                )
+
+                if lang == "en":
+                    _align_en(r_lines, sec_s, mid_t)
+                else:
+                    _align_zh(r_lines, sec_s, mid_t)
+                ri += 1
+
+                lang2, _ = lang_runs[ri]
+                if lang2 == "en":
+                    _align_en(r_lines2, mid_t, sec_e)
+                else:
+                    _align_zh(r_lines2, mid_t, sec_e)
+                ri += 1
+                cur_sec_idx += 1
+            else:
+                log.info("乐段 %d (%.2fs - %.2fs) 单语言对齐: %s (%d 行)", cur_sec_idx, sec_s, sec_e, lang, len(r_lines))
+                if lang == "en":
+                    _align_en(r_lines, sec_s, sec_e)
+                else:
+                    _align_zh(r_lines, sec_s, sec_e)
+                ri += 1
+                cur_sec_idx += 1
+
+        while ri < len(lang_runs):
+            lang, r_lines = lang_runs[ri]
+            last_end = singing_sections[-1][1] if singing_sections else min_start
+            rem_s = max(min_start, last_end)
+            rem_e = total_audio_sec
+            log.warning("乐段用尽兜底对齐: 语言块 %d (%s, %d 行) 分配至尾部 %.2fs ~ %.2fs", ri, lang, len(r_lines), rem_s, rem_e)
+            if lang == "en":
+                _align_en(r_lines, rem_s, rem_e)
+            else:
+                _align_zh(r_lines, rem_s, rem_e)
+            ri += 1
 
     aligned_lines = []
     for li, ly in enumerate(lyrics):
