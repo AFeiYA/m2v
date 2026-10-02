@@ -70,9 +70,14 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
     def plan_path(path):
         return path.with_name(path.stem.removesuffix('_alignment').removesuffix('_project') + '_motion_plan.json')
 
-    def previous(path):
+    def previous(path, payload=None):
         p = plan_path(path)
-        return json.loads(p.read_text(encoding='utf-8')) if p.exists() else None
+        if not p.exists(): return None
+        data = json.loads(p.read_text(encoding='utf-8'))
+        if payload is not None:
+            try: validate_plan(payload, data)
+            except ValueError: return None
+        return data
 
     def atomic_write(path, data):
         import tempfile
@@ -122,7 +127,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
     def prompt(req: ProjectRequest):
         path, payload = read(req.project_id)
         try:
-            return {'input': director_input(payload), 'prompt': llm_prompt(payload, previous(path), req.style, req.instruction)}
+            return {'input': director_input(payload), 'prompt': llm_prompt(payload, previous(path, payload), req.style, req.instruction)}
         except ValueError as exc: raise HTTPException(422, str(exc))
 
     def checked_plan(payload, data, old, from_llm):
@@ -154,7 +159,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         except DirectorAPIError as exc: raise HTTPException(503, str(exc))
         with plan_lock:
             path, payload = read(req.project_id)
-            old = previous(path)
+            old = previous(path, payload)
             try:
                 if req.line_id:
                     bundle = line_prompt_bundle(payload, req.line_id, old, req.style, req.instruction)
@@ -263,7 +268,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
     @router.post('/director/line/input')
     def line_input(req: LineInputRequest):
         path, payload = read(req.project_id)
-        try: return line_prompt_bundle(payload, req.line_id, previous(path), req.style, req.instruction)
+        try: return line_prompt_bundle(payload, req.line_id, previous(path, payload), req.style, req.instruction)
         except ValueError as exc: raise HTTPException(422, str(exc))
 
     def prepare_line(req, apply=False):

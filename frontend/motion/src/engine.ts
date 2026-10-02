@@ -81,11 +81,15 @@ export class MotionEngine {
     if(line&&usePoster){let compiled=this.posterCache.get(line.id);if(!compiled){compiled=compilePoster(line,cue,W,H,canvasMeasure(c));this.posterCache.set(line.id,compiled);}paintCompiledPoster(c,compiled,t,f.kick||f.beat*.3);}
     else if(line) this.drawLine(line,t,accent,f.impact,o,cue);
     else {
-      const next=p.lines.find(l=>l.start>t);
-      c.textAlign='center';c.fillStyle='#dee8dc';c.font=`800 ${Math.min(W*.065,H*.07)}px ${FONT}`;
-      this.drawWrapped(p.title,W/2,H*.46,W*.8,Math.min(W*.065,H*.07));
-      c.fillStyle=accent;c.font=`400 ${Math.max(12,16*scale)}px ${FONT}`;
-      c.fillText('',W/2,H*.58);
+      const isIntro = !p.lines[0] || t < p.lines[0].start;
+      if (isIntro && p.title) {
+        c.textAlign='center';c.fillStyle='#dee8dc';
+        let size=Math.min(W*.065,H*.07),maxWidth=W*.8;
+        c.font=`800 ${size}px ${FONT}`;
+        const measured=c.measureText(p.title).width;
+        if(measured>maxWidth){size*=(maxWidth/measured)*.99;c.font=`800 ${size}px ${FONT}`;}
+        c.fillText(p.title,W/2,H*.48);
+      }
     }
     if(!p.motion_plan){
     c.fillStyle='#263530';c.fillRect(side,H*.89,W-side*2,2);
@@ -152,14 +156,36 @@ export class MotionEngine {
 
   private drawWrapped(text:string,x:number,y:number,maxWidth:number,size:number,outline=false) {
     const c=this.ctx;
-    // Fit long phrases by shrinking before wrapping; punctuation and spaces are preserved.
+    // Fit phrases by shrinking before wrapping; punctuation and spaces are preserved.
     let fontSize=size;
+    while(c.measureText(text).width>maxWidth && fontSize>size*.72){fontSize*=.95;c.font=`900 ${fontSize}px ${FONT}`;}
     while(c.measureText(text).width>maxWidth*2 && fontSize>size*.35){fontSize*=.92;c.font=`900 ${fontSize}px ${FONT}`;}
     const rows:string[]=[''];
-    for(const ch of Array.from(text)){const last=rows.length-1;if(c.measureText(rows[last]+ch).width>maxWidth && rows[last])rows.push(ch);else rows[last]+=ch;}
-    const fit=Math.min(1,this.H*.42/(rows.length*fontSize*1.12));
+    const NO_START=/^[，。！？、；：”’）》〉】｝〕…—~～,.!?;:)\]}"']/u;
+    for(const ch of Array.from(text)){
+      const last=rows.length-1;
+      if(c.measureText(rows[last]+ch).width>maxWidth && rows[last]){
+        if(NO_START.test(ch)){
+          const prev=Array.from(rows[last]);
+          if(prev.length>1){
+            const pulled=prev.pop()!;
+            rows[last]=prev.join('');
+            rows.push(pulled+ch);
+            continue;
+          }
+        }
+        rows.push(ch);
+      }else rows[last]+=ch;
+    }
+    const cleaned=rows.map(r=>r.trim()).filter(Boolean);
+    const finalRows:string[]=[];
+    for(const r of cleaned){
+      if(finalRows.length&&!/[\p{Script=Han}\p{Script=Latin}\p{N}]/u.test(r))finalRows[finalRows.length-1]+=r;
+      else finalRows.push(r);
+    }
+    const fit=Math.min(1,this.H*.42/(finalRows.length*fontSize*1.12));
     c.save();c.translate(x,y);c.scale(fit,fit);
-    rows.forEach((s,i)=>{const yy=(i-(rows.length-1)/2)*fontSize*1.12; if(outline)c.strokeText(s,0,yy);else c.fillText(s,0,yy);});c.restore();
+    finalRows.forEach((s,i)=>{const yy=(i-(finalRows.length-1)/2)*fontSize*1.12; if(outline)c.strokeText(s,0,yy);else c.fillText(s,0,yy);});c.restore();
   }
 
   readPixels(){const bytes=new Uint8Array(this.W*this.H*4);this.renderer.readRenderTargetPixels(this.output,0,0,this.W,this.H,bytes);return bytes;}

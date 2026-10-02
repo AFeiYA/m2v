@@ -323,3 +323,28 @@ def test_fractional_mp3_clip_preserves_all_remotion_frames(tmp_path):
     assert int(video['nb_frames'])==120
     assert float(video['duration'])==pytest.approx(4,abs=.001)
     assert float(audio['duration'])==pytest.approx(4,abs=.05)
+
+
+def test_director_input_and_generation_gracefully_ignore_obsolete_plan_when_lyrics_change(song, monkeypatch):
+    path, id = song
+    mock_director_config(monkeypatch)
+    with TestClient(app) as client:
+        # Save an initial plan for original lyrics
+        old = client.post('/api/motion/director/rules', json={'project_id': id}).json()
+        assert old['cues']
+        # Modify the lyrics (e.g. insert or change line text)
+        data = json.loads(path.read_text(encoding='utf-8'))
+        data['lines'][0]['text'] = '全新修改后的第一句歌词'
+        s = data['lines'][0]['start']
+        data['lines'][0]['words'] = [{'word': '全新', 'start': s, 'end': s + 0.5}]
+        path.write_text(json.dumps(data, ensure_ascii=False))
+
+        # Downloading prompt for full song or single line should NOT fail with 422
+        resp = client.post('/api/motion/director/input', json={'project_id': id})
+        assert resp.status_code == 200
+        assert '全新修改后的第一句歌词' in resp.json()['prompt']
+
+        line_resp = client.post('/api/motion/director/line/input', json={'project_id': id, 'line_id': 'line_0001'})
+        assert line_resp.status_code == 200
+        assert '全新修改后的第一句歌词' in line_resp.json()['prompt']
+

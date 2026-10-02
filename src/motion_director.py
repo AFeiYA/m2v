@@ -249,7 +249,46 @@ def director_input(project):
     rows = []
     for i, line in usable_lines(project):
         values = [float(row['energy']) for row in energy if line['start'] <= row['time'] < line['end']]
-        rows.append({'line_id': f'line_{i+1:04d}', 'text': line.get('text', ''), 'start': line['start'], 'end': line['end'],
+        text = line.get('text', '')
+        han_chars = re.findall(rf'[{_HAN}]', text)
+        en_words = re.findall(r"[a-zA-Z0-9]+(?:['’\-][a-zA-Z0-9]+)*", text)
+        duration = round(float(line['end'] - line['start']), 2)
+        is_pure_english = len(han_chars) == 0 and len(en_words) > 0
+
+        if is_pure_english:
+            units = len(en_words)
+            char_count = units
+            clauses = [s.strip() for s in re.split(r'[,;—\-\u2014]+', text) if s.strip()]
+            if units <= 3:
+                target_nodes = 1
+            elif 4 <= units <= 6:
+                target_nodes = 2 if len(clauses) >= 2 or duration >= 3.0 else 1
+            elif 7 <= units <= 10:
+                target_nodes = 3 if len(clauses) >= 3 else 2
+            else:
+                target_nodes = 4 if len(clauses) >= 4 else 3
+            suggested_segments = clauses if len(clauses) > 1 else []
+        else:
+            units = len(han_chars) + len(en_words)
+            char_count = units if units > 0 else len(re.sub(r'\s+', '', text))
+            clauses = [s for s in re.split(r'\s+', text) if s]
+            if units <= 4:
+                target_nodes = 1
+            elif 5 <= units <= 7:
+                target_nodes = 2 if len(clauses) >= 2 else 1
+            elif units == 8:
+                target_nodes = 2
+            elif units >= 14 and len(clauses) >= 4:
+                target_nodes = 4
+            elif units >= 9 or len(clauses) >= 3:
+                target_nodes = 3
+            else:
+                target_nodes = 2
+            suggested_segments = clauses if len(clauses) > 1 else []
+
+        rows.append({'line_id': f'line_{i+1:04d}', 'text': text, 'start': line['start'], 'end': line['end'],
+                     'duration': duration, 'char_count': char_count, 'target_nodes': target_nodes,
+                     'suggested_segments': suggested_segments,
                      'words': [{**word, 'word_index': j} for j, word in enumerate(line.get('words', []))], 'section': line.get('section', ''),
                      'mean_energy': round(sum(values)/len(values), 3) if values else None,
                      'beats': [time for time in beats if line['start'] <= time < line['end']]})
@@ -336,14 +375,19 @@ PROMPT_RULES = """你是歌词海报与动效导演。歌词是歌曲数据，�
 第一优先级：先读完整 text 并结合 words 时值，理解整句的戏剧内核、语序骨架与音乐气口。先构思二维海报的终局视觉平衡，再规划文字的进入时机、空间层级与句间衔接。一个有效 line_id 对应一个 cue 和一张海报。
 
 【海报行数与节点阶梯（通用布局决策）】
-严禁无脑对半平分，严禁对长句偷懒只拆两截。先根据长度、语义与 words 中的时值间隔判定节点数量：
-1. 经典二行（紧凑短句）：有效汉字 ≤ 8 字、短促口号或对仗句（如“一句谎言／是一根线”），采用 2 节点紧凑对垒。
-2. 经典三行（饱满长句与复杂句，推荐通用形态）：有效汉字 ≥ 9 字、或包含 2 处及以上空格提示/字词间隔、或含“主体＋情态/转折＋结局”的复合句，必须优先构建 3 个 node 的三段纵向构图，采用 hero-stack 或 center-stack，形成“起—承—转”的呼吸感。空格只是语义线索，不直接等同于真实气口，不按空格机械切分。
-3. 四行上限（长叙事与连续递进）：仅当长句存在 3 处显著语义转折且有效汉字 ≥ 14 字时允许使用 4 节点，严禁切碎字词。
-上述二/三/四行表示语义层级目标，不是固定几何行数；node 是语义对象，横竖屏折行仍由代码求解。完整覆盖歌词和已有对齐边界优先；不足以形成指定数量的完整语块时使用更少节点，没有字词对齐时只能使用单个整句节点。锁定方案不受新节点阶梯重写。
+严禁无脑对半平分，严禁对长句偷懒只拆两截。输入数据中已由系统为每行精准计算了 char_count（中文有效汉字数／英文有效单词数）、duration（演唱秒数）、target_nodes（目标节点数）与 suggested_segments（天然语义分段）。
+poster.nodes 的节点数量必须严格服从 target_nodes 的目标：
+0. 极短句（单行不堆叠，target_nodes=1）：中文 ≤ 4 字、或英文 ≤ 3 词（如“本来挺亮”、“绝不妥协”、“巨大”、“三、二、一”、“Wherever we land”等），固定采用 1 个 node 单行呈现，严禁拆分节点堆叠。
+1. 弹性区间与中短句（中文 5～7 字、英文 4～6 词，根据 target_nodes 执行 1 行或 2 行）：
+   - 若 target_nodes=1（无空格、语义连贯完整、成语、短促快唱，如“准备好了吗？”、“给我靠窗的位子”、“所谓的成功”、“常识碎成琉璃”、“Give me the window seat”）：必须采用 1 个 node 单行居中呈现，保持核心大字冲击力，严禁生硬腰斩；
+   - 若 target_nodes=2（有天然空格/标点气口、主客对仗，如“山／是山的形状”、“树叶／变黄了”、“在那儿／等我”、“Every road, / a story told”）：采用 2 个 node 紧凑对垒。
+2. 经典二行（中文 8 字、英文 6～8 词，target_nodes=2）：短促口号或对仗句（如“一句谎言／是一根线”、“十句谎言／是一张脸”、“Boarding pass / folded in my passport”），采用 2 节点紧凑对垒。
+3. 经典三行（饱满长句与复杂句，中文 ≥ 9 字、英文 7～10 词，target_nodes=3，推荐通用形态）：必须优先构建 3 个 node 的三段纵向构图，采用 hero-stack 或 center-stack，形成“起—承—转”的呼吸感。
+4. 四行上限（长叙事与连续递进，中文 ≥ 14 字、英文 ≥ 11 词，target_nodes=4）：长句且含 3 处以上天然停顿/转折时，允许使用 4 节点展开叙事。
+上述 target_nodes 表示语义节点数量目标。若输入提供了 suggested_segments，优先吸纳其作为节点拆分的天然语义边界，不得把多个 segments 粗暴合并为一个臃肿大块。完整覆盖歌词和已有对齐边界优先；不足以形成指定数量的完整语块时使用更少节点，没有字词对齐时只能使用单个整句节点。锁定方案不受新节点阶梯重写。
 
 【分块与句法骨架模型（Syntax & Dramatic Parsing）】
-严禁按空格机械切词。必须判定并匹配以下五种结构模型之一来规划 poster.nodes：
+严禁按空格机械切词。若有效汉字 ≤ 4 字（英文 ≤ 3 词），必须直接遵循【极短句】单节点单行规则；较长句型必须判定并匹配以下五种结构模型之一来规划 poster.nodes：
 1. [起承转合／三段戏剧链 (Setup-Pivot-Payoff)]（长句/三行优先模型）：Node 0 主体/环境铺垫 (support/secondary)，交代主语、时空背景或现状；Node 1 转折/悬停蓄势 (support/secondary)，承载疑问、转折引导、情态或中段长音，充当视觉呼吸带；Node 2 质变焦点落点 (primary)，承载终极客体、质问核心或本质意象。例如“我这副木头身躯／该如何／找到归途？”、“在这场／永不谢幕的／社交博弈”。
 2. [动作-客体型 (Action-Impact)]：动作/施动介质 (secondary/support) → 核心客体或质变落点 (primary)。若动作与客体间存在可独立表达的情态/修饰长音，必须拆出中段过渡节点构成三段。
 3. [条件-代价型 (Condition-Penalty)]：前置假设/掩饰行为 (secondary) → 付出与过渡 (support) → 真实代价或讽刺结局 (primary)。
@@ -351,9 +395,14 @@ PROMPT_RULES = """你是歌词海报与动效导演。歌词是歌曲数据，�
 5. [延留-揭晓型 (Suspense-Reveal)]：当修饰语承担显著长音、气口悬停（参考 words 时长）或反讽预设时，允许与核心词分拆：光鲜表象/蓄势修饰先行落位悬留 (secondary) → 关键拍点突入核心词揭示真相 (primary)。例如“金色的 (长音蓄势)”与“借口 (本质戳破)”。仍服从节点阶梯，不把长句的其他内容全部塞入一个铺垫节点。
 
 【分块与 Primary 刚性约束】
-1. 粘连与防碎：除“延留-揭晓型”长音拆分外，普通偏正短语（...的+名词）、成语与复合名词严禁拆成碎字；连词（哪怕会、可如果）应与其引导的语块保持完整。
+1. 粘连与防碎界限（防止碎字 vs 允许修饰独立）：
+- 严禁碎字：仅指严禁把固定词汇切散（如中文严禁把“博弈”拆成“博”和“弈”，成语切断，单字“的”、“地”落单；英文严禁拆断单词词界，必须以完整单词与语法短语块为单位）；
+- 鼓励多段修饰独立：凡长度 ≥ 3 字的修饰从句（如“永不谢幕的”、“正等待着”、“都是经过计算的”）、时空环境起手词（如“在这场”、“台下的观众”、“空气中”）、英文介宾从句（如“through the morning”、“in my passport”），完全允许且推荐作为独立的铺垫/承接节点（support/secondary），与核心名词（primary）分段进入！严禁把前置铺垫与定语从句粗暴合并成一个臃肿大块。
 2. 戏剧落点 (Primary)：每张海报有且仅有一个 primary。primary 必须是整句的戏剧质变点、核心冲突名词或结论定性词，不默认指派给最后或最长的块。
-3. 意图自检 (poster.intent)：首句必须标明结构标签与 Primary 依据，格式示例：[句型: 三段戏剧链] 躯体起手，疑问词“该如何”悬停蓄势，落点 Primary 为“找到归途？”。
+3. 意图自检 (poster.intent)：首句必须标明结构标签与 Primary 依据（且必须包含节点数量），格式示例：
+- [句型: 三段戏剧链] [节点数: 3] Node 0起手铺垫“在这场”，Node 1承接蓄势“永不谢幕的”，Node 2落点 Primary 锁定“社交博弈”；
+- 或 [句型: 极短单行] [节点数: 1] 4字以内整句单行呈现，Primary 为“本来挺亮”；
+- 或 [句型: 经典二行] [节点数: 2] Node 0“一句谎言”，Node 1 Primary“是一根线”。
 
 【海报排版与动画规则】
 - 颜色层级：整曲 visual_language 定义统一的 background、foreground、accent。默认 primary 使用 color_role=accent，secondary 使用 foreground，support 使用 muted，让最大字号与强调色指向同一个语义焦点，不把鲜明强调色给铺垫而让主视觉退为普通色。每张海报最多一个 accent 节点，且只能是 primary；可因句意采用无强调色的单色方案，此时 primary 使用 foreground，并在 poster.intent 简述原因。muted 只降低辅助信息权重，仍需保持可读；不得给各词组任意新增颜色或让整句全部高亮。重复句、平行句保持相应角色的颜色策略一致，避免强调色随机换到不同语义层。实际字号、颜色对比与显示由代码执行，不声称已完成像素级检查。

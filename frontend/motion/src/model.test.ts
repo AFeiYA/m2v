@@ -48,7 +48,7 @@ test('phrase motion boundaries come only from alignment',async()=>{
 });
 
 import {compilePoster,automaticPoster,posterNodeState,posterOpacity} from './poster-layout.ts';
-const measure=(text:string,size:number)=>({width:Array.from(text).length*size,ascent:size*.85,descent:size*.15});
+const measure=(text:string,size:number,weight:number=400)=>({width:Array.from(text).length*size,ascent:size*.85,descent:size*.15});
 test('poster layout fits long Chinese text and many blocks in both aspect ratios',()=>{
   const line={id:'line_1',text:'甲'.repeat(120),start:0,end:12,words:Array.from({length:12},(_,i)=>({word:'甲'.repeat(10),start:i,end:i+1}))};
   const poster=automaticPoster(line);poster.nodes=line.words.map((w,i)=>({text:w.word,word_indices:[i],role:i===3?'primary':'secondary',emphasis:'',color_role:'foreground',entrance:'slide-up',settle_fraction:.25}));
@@ -238,6 +238,21 @@ test('the saved water lyric never leaves a lone final character in either aspect
  }
 });
 
+test('phrases with punctuation fit single lines in landscape and never orphan trailing punctuation',()=>{
+ const line={id:'punc',text:'还没有变成声音。',start:0,end:4,words:[{word:'还没有变成声音。',start:0,end:4}]};
+ const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.6,emphasis:'',locked:false,poster:{
+  version:'motion-poster-direction-v1' as const,status:'draft' as const,layout:'center-stack' as const,intent:'测试',background:'#121316',accent:'#F5C518',motif:'none' as const,visibility:'cumulative' as const,final_hold:'available-tail' as const,transition_out:'fade' as const,transition_note:'',nodes:[{
+   text:'还没有变成声音。',word_indices:[0],role:'primary' as const,emphasis:'',color_role:'accent' as const,entrance:'fade' as const,settle_fraction:.25
+  }]
+ }};
+ const landscape=compilePoster(line,cue,1280,720,measure);
+ assert.deepEqual(landscape.nodes[0].rows.map(r=>r.text),['还没有变成声音。']);
+ const portrait=compilePoster(line,cue,720,1280,measure);
+ assert.ok(portrait.nodes[0].rows.length<=2);
+ assert.ok(portrait.nodes[0].rows.every(r=>!/^[，。！？、；：”’）》〉】｝〕…—~～,.!?;:)\]}"']/u.test(r.text)));
+ assert.ok(portrait.nodes[0].rows.every(r=>/[\p{Script=Han}\p{Script=Latin}\p{N}]/u.test(r.text)));
+});
+
 test('visual tiers fit both formats, preserve anchors and respect known sections',()=>{
  const line={id:'tier',text:'幻梦',section:'Verse',start:1,end:7,words:[{word:'幻梦',start:1,end:7}]},poster=automaticPoster(line);
  poster.nodes[0].entrance='slide-up';
@@ -265,4 +280,61 @@ test('legacy breathing is disabled in compiled and old nodes at every frame',asy
   assert.equal(posterHoldState(n,complete-.1,complete,W,H).drift,0);assert.equal(posterHoldState(n,complete,complete,W,H).drift,0);
   for(let i=0;i<600;i++){const t=complete+i/60,state=posterHoldState(n,t,complete,W,H);assert.equal(state.drift,0);assert.deepEqual(posterHoldState(n,t,complete,W,H),state);assert.equal(state.pulse,1);}
  }
+});
+
+test('short lines with four or fewer characters stay on one line without stacking',()=>{
+ for(const W of [1280, 720]){
+  const H = W === 1280 ? 720 : 1280;
+  for(const text of ['本来挺亮', '绝不妥协', '巨大', '一']){
+   const line={id:'short',text,start:1,end:4,words:[{word:text,start:1,end:4}]};
+   const poster=automaticPoster(line);
+   assert.equal(poster.nodes.length, 1);
+   const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
+   const p=compilePoster(line,cue,W,H,measure);
+   assert.equal(p.nodes.length, 1);
+   assert.equal(p.nodes[0].rows.length, 1);
+   assert.equal(p.nodes[0].rows[0].text, text);
+   assert.ok(measure(p.nodes[0].rows[0].text, p.nodes[0].fontSize).width <= p.nodes[0].width + 1e-6);
+  }
+ }
+});
+
+test('intro title compiles to a single line and animates smoothly during intro gap',async()=>{
+ const {compileIntroTitle, introTitleState}=await import('./poster-layout.ts');
+ const project=normalizeProject({
+  title:'观察者效应',
+  lines:[{text:'第一句歌词',start:5.0,end:8.0,words:[{word:'第一句歌词',start:5.0,end:8.0}]}],
+  duration:60
+ });
+ for(const [W,H] of [[1280,720],[720,1280]]){
+  const intro=compileIntroTitle(project, W, H, measure);
+  assert.ok(intro !== null);
+  assert.equal(intro.text, '观察者效应');
+  assert.equal(intro.start, 0);
+  assert.equal(intro.end, 5.0);
+  assert.ok(intro.settled > 0 && intro.settled < intro.exitStart);
+  assert.ok(intro.exitStart < intro.end);
+  const textWidth=measure(intro.text, intro.fontSize, intro.weight).width;
+  assert.ok(textWidth <= W * 0.82 + 1e-6);
+
+  const atStart = introTitleState(intro, 0, H);
+  assert.equal(atStart.alpha, 0);
+
+  const atMid = introTitleState(intro, 2.5, H);
+  assert.equal(atMid.alpha, 1);
+  assert.equal(atMid.scale, 1);
+
+  const atExit = introTitleState(intro, 4.9, H);
+  assert.ok(atExit.alpha > 0 && atExit.alpha < 1);
+
+  const atAfter = introTitleState(intro, 5.0, H);
+  assert.equal(atAfter.alpha, 0);
+ }
+
+ const immediateProject=normalizeProject({
+  title:'测试歌曲',
+  lines:[{text:'第一句歌词',start:0.1,end:3.0,words:[{word:'第一句歌词',start:0.1,end:3.0}]}],
+  duration:60
+ });
+ assert.equal(compileIntroTitle(immediateProject, 1280, 720, measure), null);
 });

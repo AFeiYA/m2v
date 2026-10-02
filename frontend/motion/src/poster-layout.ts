@@ -19,21 +19,56 @@ export function automaticPoster(line:Line,palette='impact'):PosterDirection {
 export function displayText(text:string){
   return text.replace(/\s+/gu,' ').trim().replace(/(?<=\p{Script=Han}) (?=\p{Script=Han})/gu,'');
 }
+const NO_LINE_START=/^[，。！？、；：”’）》〉】｝〕…—~～,.!?;:)\]}"']/u;
+const NO_LINE_END=/^[“‘（《〈【｛〔([<{]/u;
+
 function rowsFor(text:string,size:number,weight:number,maxWidth:number,measure:Measure){
-  // Keep English words intact; Chinese may wrap at glyph boundaries.
+  // Keep English words intact; Chinese may wrap at glyph boundaries while respecting Kinsoku Shori (行首禁则与标点防孤立).
   const tokens=text.match(/[\p{Script=Latin}\p{N}]+(?:['’\-][\p{Script=Latin}\p{N}]+)*|[^\p{Script=Latin}\p{N}]/gu)||[];
   const rows:string[]=[''];
-  for(const token of tokens){const i=rows.length-1;if(rows[i]&&measure(rows[i]+token,size,weight).width>maxWidth&&token.trim()){rows.push(token.trimStart());}else rows[i]+=token;}
-  return rows.map(row=>row.trim()).filter(Boolean);
+  for(const token of tokens){
+    const i=rows.length-1,current=rows[i];
+    if(current&&measure(current+token,size,weight).width>maxWidth&&token.trim()){
+      if(NO_LINE_START.test(token)){
+        const prevTokens=current.match(/[\p{Script=Latin}\p{N}]+(?:['’\-][\p{Script=Latin}\p{N}]+)*|[^\p{Script=Latin}\p{N}]/gu)||[];
+        if(prevTokens.length>1){
+          const pulled=prevTokens.pop()!;
+          rows[i]=prevTokens.join('').trimEnd();
+          rows.push(pulled+token);
+          continue;
+        }
+        rows[i]+=token;
+      }else{
+        if(NO_LINE_END.test(current.slice(-1))){
+          const prevTokens=current.match(/[\p{Script=Latin}\p{N}]+(?:['’\-][\p{Script=Latin}\p{N}]+)*|[^\p{Script=Latin}\p{N}]/gu)||[];
+          if(prevTokens.length>1){
+            const pulled=prevTokens.pop()!;
+            rows[i]=prevTokens.join('').trimEnd();
+            rows.push(pulled+token.trimStart());
+            continue;
+          }
+        }
+        rows.push(token.trimStart());
+      }
+    }else rows[i]+=token;
+  }
+  const cleaned=rows.map(row=>row.trim()).filter(Boolean);
+  const result:string[]=[];
+  for(const row of cleaned){
+    if(result.length&&!/[\p{Script=Han}\p{Script=Latin}\p{N}]/u.test(row)){
+      result[result.length-1]+=row;
+    }else result.push(row);
+  }
+  return result;
 }
 function fitTitle(text:string,size:number,weight:number,maxWidth:number,W:number,measure:Measure,emphasis:string,portrait:boolean){
-  if(!/^[\p{Script=Han}]+$/u.test(text))return null;
   const chars=Array.from(text),count=chars.length;
   const fit=(rows:string[])=>Math.min(size,...rows.map(row=>size*maxWidth/Math.max(1,measure(row,size,weight).width)))*.99;
-  // Four/five-character titles should not acquire an orphan merely because the default size is large.
+  // Short phrases should not acquire an orphan merely because the default size is large.
   const single=fit([text]);
+  if(count<=4)return {size:single,rows:[text]};
   if(portrait?(count<=5||count<=6&&single>=W*.135):single>=size*.72)return {size:single,rows:[text]};
-  if(count>12)return null;
+  if(count>12||!/\p{Script=Han}/u.test(text))return null;
   const boundaries=new Set<number>();
   const segmenter=new Intl.Segmenter('zh',{granularity:'word'});
   for(const segment of segmenter.segment(text))boundaries.add(Array.from(text.slice(0,segment.index+segment.segment.length)).length);
@@ -42,7 +77,9 @@ function fitTitle(text:string,size:number,weight:number,maxWidth:number,W:number
   let best:{size:number;rows:string[];score:number}|null=null;
   // Compare balanced alternatives using measured widths and soft lexical boundaries.
   for(let i=2;i<=count-2;i++){
-    const rows=[chars.slice(0,i).join(''),chars.slice(i).join('')],candidate=fit(rows);
+    const row0=chars.slice(0,i).join(''),row1=chars.slice(i).join('');
+    if(NO_LINE_START.test(row1)||NO_LINE_END.test(row0.slice(-1)))continue;
+    const rows=[row0,row1],candidate=fit(rows);
     const score=(size-candidate)/size+Math.abs(i-(count-i))/count*.35+(boundaries.has(i)?0:1.2)+(i>focusStart&&i<focusEnd?2:0);
     if(!best||score<best.score)best={size:candidate,rows,score};
   }
@@ -113,11 +150,19 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     const title=n.role==='primary'?fitTitle(text,size,weight,maxWidth,W,measure,focus,portrait):null;
     if(title)size=title.size;
     let rows=title?.rows||rowsFor(text,size,weight,maxWidth,measure);
+    if(Array.from(text.replace(/\s/gu,'')).length<=4){
+      rows=[text.trim()];
+      const w=measure(rows[0],size,weight).width;
+      if(w>maxWidth)size*=(maxWidth/w)*.99;
+    }
     for(let attempt=0;attempt<100&&rows.length>3;attempt++){size*=.92;rows=rowsFor(text,size,weight,maxWidth,measure);}
     return {n,text,weight,size,rows,maxWidth};
   });
   const primarySize=fitted.find(f=>f.n.role==='primary')!.size;
-  for(const f of fitted)if(f.n.role!=='primary'&&f.size>primarySize*.55){f.size=primarySize*.55;f.rows=rowsFor(f.text,f.size,f.weight,f.maxWidth,measure);}
+  for(const f of fitted)if(f.n.role!=='primary'&&f.size>primarySize*.55){
+    f.size=primarySize*.55;
+    f.rows=Array.from(f.text.replace(/\s/gu,'')).length<=4?[f.text.trim()]:rowsFor(f.text,f.size,f.weight,f.maxWidth,measure);
+  }
   const ink=(f:typeof fitted[number])=>measure(f.rows[0],f.size,f.weight).ascent+measure(f.rows.at(-1)!,f.size,f.weight).descent+(f.rows.length-1)*f.size*1.04;
   const content=fitted.reduce((sum,f)=>sum+ink(f),0);
   const scale=Math.min(1,Math.max(H*.1,maxHeight-padding*2*fitted.length-gap*(fitted.length-1))/content);
@@ -229,3 +274,59 @@ export function paintCompiledPoster(c:CanvasRenderingContext2D,plan:CompiledPost
   }c.restore();
 }
 export function canvasMeasure(c:CanvasRenderingContext2D):Measure{return (text,size,weight)=>{c.font=`${weight} ${size}px ${POSTER_FONT}`;const m=c.measureText(text);return {width:Math.max(m.width,(m.actualBoundingBoxLeft||0)+(m.actualBoundingBoxRight||m.width)),ascent:m.actualBoundingBoxAscent||size*.85,descent:m.actualBoundingBoxDescent||size*.15};};}
+
+export type CompiledIntroTitle={text:string;fontSize:number;weight:number;color:string;x:number;y:number;cx:number;cy:number;start:number;settled:number;exitStart:number;end:number};
+
+export function compileIntroTitle(project:Project,W:number,H:number,measure:Measure):CompiledIntroTitle|null{
+  const rawTitle=(project.title||'').trim();
+  const text=displayText(rawTitle);
+  const firstStart=project.lines?.[0]?.start??0;
+  if(!text||firstStart<.35)return null;
+
+  const firstCue=project.motion_plan?.cues.find(c=>c.poster)?.poster;
+  const visual=project.motion_plan?.visual_language;
+  const background=visual?.background||firstCue?.background||'#eeeee6';
+  const rgb=background.slice(1).match(/../g)!.map(v=>parseInt(v,16)/255);
+  const dark=.2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]<.45;
+  const color=dark?'#f3f7e9':'#20261e';
+
+  const portrait=H>W;
+  const weight=800;
+  const maxWidth=W*.82;
+  // Fixed single line layout
+  let size=portrait?W*.11:H*.12;
+  const m=measure(text,size,weight).width;
+  if(m>maxWidth)size*=(maxWidth/m)*.99;
+  const textWidth=measure(text,size,weight).width;
+  const ascent=measure(text,size,weight).ascent;
+  const descent=measure(text,size,weight).descent;
+
+  const cx=W/2;
+  const cy=H*(portrait?.46:.48);
+  const x=cx-textWidth/2;
+  const y=cy+(ascent-descent)/2;
+
+  const enterDuration=Math.min(.8,Math.max(.2,firstStart*.2));
+  const exitDuration=Math.min(.5,Math.max(.2,firstStart*.15));
+  const settled=enterDuration;
+  const exitStart=Math.max(settled,firstStart-exitDuration);
+
+  return {text,fontSize:size,weight,color,x,y,cx,cy,start:0,settled,exitStart,end:firstStart};
+}
+
+export function introTitleState(intro:CompiledIntroTitle,t:number,H:number){
+  if(t<intro.start||t>=intro.end)return {alpha:0,scale:1,dy:0};
+  let enterAlpha=1,enterScale=1,dy=0;
+  if(t<intro.settled){
+    const p=intro.settled>intro.start?clamp((t-intro.start)/(intro.settled-intro.start)):1;
+    const ease=1-Math.pow(1-p,3);
+    enterAlpha=ease;enterScale=.94+.06*ease;dy=(1-ease)*H*.02;
+  }
+  let exitAlpha=1;
+  if(t>=intro.exitStart){
+    const p=intro.end>intro.exitStart?clamp((intro.end-t)/(intro.end-intro.exitStart)):0;
+    exitAlpha=p;
+  }
+  return {alpha:enterAlpha*exitAlpha,scale:enterScale,dy};
+}
+
