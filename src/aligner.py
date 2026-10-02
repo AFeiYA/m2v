@@ -222,6 +222,15 @@ def alignment_quality_issue(lines: list[AlignedLine]) -> str | None:
     return None
 
 
+def _trim_word_over_silence(start: float, end: float, singing_sections: list[tuple[float, float]]) -> float:
+    """A word must not absorb a long silent intro before its acoustic match."""
+    if end - start > 4.0:
+        for before, after in zip(singing_sections, singing_sections[1:]):
+            if start < before[1] and end > after[0] and after[0] - before[1] >= 3.5 and end - after[0] <= 4.0:
+                start = after[0]
+    return start
+
+
 def _audit_alignment(aligned: list[AlignedLine]) -> list[AlignedLine]:
     """审计对齐时间戳单调性与合理性"""
     out: list[AlignedLine] = []
@@ -429,6 +438,7 @@ def align_lyrics_ctc(
                 curr_s_idx += len(tok_clean) + 1
                 w_s = s_sec + w_spans[0].start * frame_dur
                 w_e = s_sec + w_spans[-1].end * frame_dur
+                w_s = _trim_word_over_silence(w_s, w_e, singing_sections)
                 words.append(WordTimestamp(word=tok, start=round(w_s, 3), end=round(max(w_e, w_s + 0.05), 3)))
 
             aligned_line_map[orig_idx] = AlignedLine(
@@ -482,6 +492,7 @@ def align_lyrics_ctc(
                 curr_s_idx += len(tok_clean)
                 w_s = s_sec + w_spans[0].start * frame_dur
                 w_e = s_sec + w_spans[-1].end * frame_dur
+                w_s = _trim_word_over_silence(w_s, w_e, singing_sections)
                 if curr_s_idx < len(l_spans):
                     w_e = min(s_sec + l_spans[curr_s_idx].start * frame_dur, w_e + 0.15)
                 else:
@@ -786,8 +797,8 @@ def _self_heal_alignment(
     tail_lag = last_vocal_end - last_line_end
 
     for k, (orig_i, line) in enumerate(indexed_lines):
-        clean_chars = [c for c in line.text if not c.isspace() and c not in '.,!?:;...~—"\'()[]（）【】']
-        char_count = len(clean_chars)
+        # 英文词整体为一个发音单元；按字母计数会误判正常英文快唱导致反复错误触发自愈
+        char_count = len(re.findall(r"[\u4e00-\u9fff]|[a-zA-Z0-9]+(?:['’\-][a-zA-Z0-9]+)*", line.text))
         dur = max(0.0, line.end - line.start)
         rate = dur / max(1, char_count)
 

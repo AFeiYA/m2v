@@ -373,34 +373,40 @@ async function handleSunoImport() {
       let previewLyricsShown = false;
       while (true) {
         await new Promise((r) => setTimeout(r, 1200));
+        let task;
         try {
           const pollRes = await fetch(`/api/suno/task_status?task_id=${encodeURIComponent(taskId)}`);
+          if (pollRes.status === 404) {
+            throw Object.assign(new Error("导入任务不存在或服务已重启，请重新导入"), {terminal: true});
+          }
           if (!pollRes.ok) continue;
-          const task = await pollRes.json();
-          if (progText && task.message) {
-            progText.textContent = `${task.message} (已耗时 ${importSec}s)`;
-          }
-
-          // 步骤 1 拿到歌词后，提前在左侧列表渲染歌词预览，避免用户干等
-          if (task.title && task.lyrics && !previewLyricsShown) {
-            previewLyricsShown = true;
-            status(`📝 已提前获取《${task.title}》歌词，后台正在进行时间轴对齐...`);
-            const listEl = document.getElementById("lyrics-list");
-            if (listEl) {
-              const rawLines = task.lyrics.split("\n").filter(Boolean);
-              listEl.innerHTML = `<div style="padding: 10px 14px; font-size: 11px; color: #10b981; background: rgba(16,185,129,0.08); border-bottom: 1px solid var(--border); border-radius: 4px 4px 0 0;">✨ 已提前解析《${escHtml(task.title)}》(${rawLines.length} 行歌词)，后台正在进行字级时间轴对齐：</div>` +
-                rawLines.map((l, i) => `<div class="lyric-line-item" style="opacity: 0.85;"><span class="line-index">${i+1}</span><span class="line-text">${escHtml(l)}</span></div>`).join("");
-            }
-          }
-
-          if (task.status === "done") {
-            finalResult = task.result;
-            break;
-          } else if (task.status === "error") {
-            throw new Error(task.error || "处理失败");
-          }
+          task = await pollRes.json();
         } catch (pollErr) {
+          if (pollErr.terminal) throw pollErr;
           console.warn("轮询状态重试中...", pollErr);
+          continue;
+        }
+        if (progText && task.message) {
+          progText.textContent = `${task.message} (已耗时 ${importSec}s)`;
+        }
+
+        // 步骤 1 拿到歌词后，提前在左侧列表渲染歌词预览，避免用户干等
+        if (task.title && task.lyrics && !previewLyricsShown) {
+          previewLyricsShown = true;
+          status(`📝 已提前获取《${task.title}》歌词，后台正在进行时间轴对齐...`);
+          const listEl = document.getElementById("lyrics-list");
+          if (listEl) {
+            const rawLines = task.lyrics.split("\n").filter(Boolean);
+            listEl.innerHTML = `<div style="padding: 10px 14px; font-size: 11px; color: #10b981; background: rgba(16,185,129,0.08); border-bottom: 1px solid var(--border); border-radius: 4px 4px 0 0;">✨ 已提前解析《${escHtml(task.title)}》(${rawLines.length} 行歌词)，后台正在进行字级时间轴对齐：</div>` +
+              rawLines.map((l, i) => `<div class="lyric-line-item" style="opacity: 0.85;"><span class="line-index">${i+1}</span><span class="line-text">${escHtml(l)}</span></div>`).join("");
+          }
+        }
+
+        if (task.status === "done") {
+          finalResult = task.result;
+          break;
+        } else if (task.status === "error") {
+          throw new Error(task.error || "处理失败");
         }
       }
       data = finalResult || data;
