@@ -14,7 +14,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from src.motion_director import validate_plan, rule_plan, llm_prompt, director_input, line_prompt_bundle, line_response, cue_signature
+from src.motion_director import validate_plan, rule_plan, llm_prompt, director_input, line_prompt_bundle, line_response, cue_signature, source_signature
 
 from src.motion_llm import configuration, generate_json, DirectorAPIError, DirectorQuotaError
 
@@ -138,7 +138,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         return result
 
     def snapshot(payload, old):
-        return hashlib.sha256(json.dumps([payload, old], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        return hashlib.sha256(json.dumps([source_signature(payload), old], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
     @router.get('/director/config')
     def director_config():

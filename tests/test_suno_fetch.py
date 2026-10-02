@@ -177,3 +177,10 @@ def test_fetch_song_raises_for_unpublished():
 
 
 
+
+
+def test_clean_lyrics_removes_full_width_arrangement_and_keeps_sung_english():
+    from src.suno_fetch import _clean_lyrics
+    raw = "（Fast Kick + 电流噪声渐入）\nYo，Check it out\n左手在右手的左边\n（Bass Drop 前停顿）\n那里正在跳动\nLet’s go!（Drop）\n（Funky Bass + Groove Beat）"
+    assert _clean_lyrics(raw).splitlines() == ["Yo，Check it out", "左手在右手的左边", "那里正在跳动", "Let’s go!"]
+    assert _clean_lyrics("(Bass Drop)\n[Verse]\nHello world (Drop)\n[Vocal grit] 你好") == "Hello world\n你好"

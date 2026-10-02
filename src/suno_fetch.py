@@ -469,10 +469,13 @@ def _clean_lyrics(prompt: str) -> str:
             continue
 
         # 过滤圆括号说明，如 (Warm analog synth pads swell...), (Ambient wind...)
-        if stripped.startswith('(') and stripped.endswith(')'):
+        if re.fullmatch(r'[（(].*[）)]', stripped):
             continue
 
-        result.append(stripped)
+        # Match preprocessing: inline arrangement cues are not sung words.
+        stripped = re.sub(r'\[[^\[\]]*\]|[（(][^（）()]*[）)]', '', stripped).strip()
+        if stripped:
+            result.append(stripped)
 
     while result and result[0] == '':
         result.pop(0)
@@ -542,7 +545,7 @@ def parse_suno_prompt_sections(prompt: str) -> list[dict]:
                 'lyric_texts': []
             }
             sections_raw.append(current_sec)
-        elif line.startswith('(') and line.endswith(')'):
+        elif re.fullmatch(r'[（(].*[）)]', line):
             sound_style = line[1:-1].strip()
             if current_sec:
                 if current_sec['style']:

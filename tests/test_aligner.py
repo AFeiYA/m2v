@@ -97,3 +97,41 @@ class TestSelfHealAlignment:
         assert out[1].end == 17.0
 
 
+
+
+def test_quality_rejects_dense_floor_timestamps():
+    from src.aligner import alignment_quality_issue
+    words=[WordTimestamp(word="字",start=i*.02,end=(i+1)*.02) for i in range(20)]
+    line=AlignedLine(text="字"*20,start=0,end=.4,words=words)
+    assert "大面积时间挤压" in alignment_quality_issue([line])
+
+
+def test_quality_preserves_fast_but_plausible_rap():
+    from src.aligner import alignment_quality_issue
+    words=[WordTimestamp(word="字",start=i*.1,end=(i+1)*.1) for i in range(20)]
+    line=AlignedLine(text="字"*20,start=0,end=2,words=words)
+    assert alignment_quality_issue([line]) is None
+
+
+def test_quality_rejects_word_spanning_long_instrumental_gap():
+    from src.aligner import alignment_quality_issue
+    line=AlignedLine(text="而",start=1,end=36,words=[WordTimestamp(word="而",start=1,end=36)])
+    assert "超过 20 秒" in alignment_quality_issue([line])
+
+
+def test_onset_keeps_opening_voice_before_a_long_pause(tmp_path):
+    import numpy as np
+    import soundfile as sf
+    from src.aligner import detect_vocal_onset
+    rate=16000
+    audio=np.zeros(rate*12,dtype=np.float32)
+    audio[rate:rate*2]=.3
+    audio[rate*8:rate*10]=.3
+    path=tmp_path/"opening-shout.wav";sf.write(path,audio,rate)
+    assert abs(detect_vocal_onset(path)-1)<.11
+
+
+def test_quality_ignores_long_arrangement_annotation():
+    from src.aligner import alignment_quality_issue
+    line=AlignedLine(text="（Instrumental）",start=0,end=30,words=[WordTimestamp(word="（Instrumental）",start=0,end=30)])
+    assert alignment_quality_issue([line]) is None

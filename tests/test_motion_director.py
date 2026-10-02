@@ -38,13 +38,36 @@ def test_invalid_llm_output_rejected(project,change):
     with pytest.raises(ValueError): validate_plan(project,data)
 
 
-def test_alignment_edit_invalidates_plan_and_locks_survive_regeneration(project):
+def test_timing_edit_preserves_plan_and_locks_survive_regeneration(project):
     old=rule_plan(project).model_dump();old['seed']=123;old['cues'][0].update(locked=True,palette='neon',intensity=.1)
     regenerated=rule_plan(project,old).model_dump()
     assert regenerated['cues'][0]==old['cues'][0]
     assert regenerated['seed']==123
     project['lines'][1]['words'][0]['start']=1.1
-    with pytest.raises(ValueError,match='已经变化'): validate_plan(project,old)
+    assert validate_plan(project,old).model_dump()==old
+    project['lines'][1]['words'][0]['word']='听见我'
+    with pytest.raises(ValueError,match='不匹配'): validate_plan(project,old)
+
+
+def test_legacy_plan_migrates_without_changing_design(project):
+    from src.motion_director import legacy_source_signature, source_signature
+    old=rule_plan(project).model_dump()
+    old['source_signature']=legacy_source_signature(project)
+    result=validate_plan(project,old)
+    assert result.source_signature==source_signature(project)
+    assert result.cues==rule_plan(project).cues
+
+
+def test_legacy_text_plan_rebinds_timing_but_rejects_lyric_changes(project):
+    from src.motion_director import legacy_source_signature, line_prompt_bundle
+    old=rule_plan(project).model_dump()
+    for cue in old['cues']:
+        cue['poster']=line_prompt_bundle(project,cue['line_id'],old)['response_example']['cue']['poster']
+    old['source_signature']=legacy_source_signature(project)
+    project['lines'][1]['words'][0]['start']=1.1
+    validate_plan(project,old)
+    project['lines'][1]['words'][0]['word']='听见我'
+    with pytest.raises(ValueError): validate_plan(project,old)
 
 
 def test_single_line_prompt_uses_only_target_words_and_neighbors(project):
@@ -53,7 +76,7 @@ def test_single_line_prompt_uses_only_target_words_and_neighbors(project):
     assert bundle['input']['target']['text']=='放大这一刻'
     assert [w['word_index'] for w in bundle['input']['target']['words']]==[0,1]
     assert len(bundle['input']['neighbors'])==2
-    assert '最终海报' in bundle['prompt'] and '没有真正的三维' in bundle['prompt']
+    assert '终局视觉平衡' in bundle['prompt'] and '没有真正的三维' in bundle['prompt']
     response,groups=line_response(project,bundle['response_example'],'line_0003')
     assert groups[0]['start']==5 and groups[0]['end']==8
     assert response.cue.whole_line_visible
@@ -239,9 +262,9 @@ def test_poster_emphasis_accepts_chinese_spaces_without_rewriting_source():
         line_response(project,data,'line_0001')
 
 
-def test_parallel_lyric_subjects_share_an_explicit_focus_strategy(project):
-    assert '平行句共享主题即可' in llm_prompt(project)
-    assert '不要求 primary 属于同一种句法角色' in llm_prompt(project)
+def test_experimental_prompt_requires_structure_and_focus_basis(project):
+    assert '必须判定并匹配以下五种结构模型之一' in llm_prompt(project)
+    assert '首句必须标明结构标签与 Primary 依据' in llm_prompt(project)
 
 
 def test_single_line_parallel_context_reaches_past_an_explanation_line():
@@ -261,7 +284,7 @@ def test_single_line_parallel_context_reaches_past_an_explanation_line():
     assert 'words' not in mountain and 'start' not in mountain
     assert previous==before
     assert '邻句仅作上下文' in bundle['prompt']
-    assert '不要求 primary 属于同一种句法角色' in bundle['prompt']
+    assert '首句必须标明结构标签与 Primary 依据' in bundle['prompt']
     assert 'hold 必须 none' in bundle['prompt']
     assert 'schema 外字段' in bundle['prompt']
 

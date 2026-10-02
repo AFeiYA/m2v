@@ -251,7 +251,8 @@ def test_gemini_invalid_result_fails_twice_and_locked_target_never_calls_api(son
         assert len(calls)==2
 
 
-def test_gemini_full_song_generation_and_changed_alignment_conflict(song,monkeypatch):
+@pytest.mark.parametrize('change',['timing','lyrics'])
+def test_gemini_generation_rebinds_timing_but_conflicts_on_lyrics(song,monkeypatch,change):
     from src.motion_director import example_poster,director_input
     path,id=song;mock_director_config(monkeypatch)
     with TestClient(app) as client:
@@ -260,8 +261,12 @@ def test_gemini_full_song_generation_and_changed_alignment_conflict(song,monkeyp
         monkeypatch.setattr('src.motion_api.generate_json',lambda *args:plan)
         job=wait_director(client,client.post('/api/motion/director/generate',json={'project_id':id}).json()['id'])
         assert job['status']=='ready'
-        data=json.loads(path.read_text());data['lines'][0]['start']=.25;path.write_text(json.dumps(data))
-        assert client.post('/api/motion/director/jobs/'+job['id']+'/apply').status_code==409
+        data=json.loads(path.read_text())
+        if change=='timing': data['lines'][0]['words'][0]['start']=.3
+        else: data['lines'][0]['text']='听见我'
+        path.write_text(json.dumps(data))
+        response=client.post('/api/motion/director/jobs/'+job['id']+'/apply')
+        assert response.status_code==(200 if change=='timing' else 409)
 
 
 def test_unconfigured_gemini_is_clear_and_does_not_start_job(song,monkeypatch):

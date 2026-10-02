@@ -5,7 +5,7 @@ Auto-Karaoke MV Generator — 词级对齐模块
 核心架构与职责分工:
 1. 有歌词场景 (自带 TXT/LRC 或 Suno 导入, 占比 95%+):
    - 100% 走纯 Wav2Vec2 CTC Forced Alignment 引擎;
-   - 彻底告别 Whisper 转写依赖，零幻听、零吞字、零 Solo 漂移;
+   - 使用原歌词做强制对齐，并检测异常压缩与跨间奏错误;
    - 中英文双语分流声学模型 (WAV2VEC2_ASR_BASE_960H + XLSR-53 Chinese);
    - 毫秒级字级/音素级时间轴打点。
 2. 无歌词场景 (纯音频导入):
@@ -110,15 +110,8 @@ def detect_vocal_onset(
         if not voiced_blocks:
             return 0.0
 
-        for idx in range(1, len(voiced_blocks)):
-            prev_end = voiced_blocks[idx - 1][1]
-            b_start = voiced_blocks[idx][0]
-            gap = b_start - prev_end
-            if gap >= 3.5 and b_start <= total_dur * 0.6:
-                log.info("VAD/开唱检测: 发现 %.2fs ~ %.2fs 之间存在 %.2fs 的前奏静音，锁定真实开唱点为 %.2fs",
-                         prev_end, b_start, gap, b_start)
-                return b_start
-
+        # A later pause may be an interlude after an opening vocal shout.
+        # Never discard earlier voiced blocks solely because a long gap follows.
         return voiced_blocks[0][0]
 
     except Exception as e:
@@ -213,6 +206,22 @@ def _fill_annotation_times(aligned_lines: list[AlignedLine]) -> None:
             line.words = [WordTimestamp(word=line.text, start=line.start, end=line.end)]
 
 
+def alignment_quality_issue(lines: list[AlignedLine]) -> str | None:
+    """Reject widespread CTC collapse; monotonic timestamps alone are not quality."""
+    words = [word for line in lines
+             if not re.fullmatch(r'\[.*\]|[（(].*[）)]', line.text.strip())
+             for word in line.words
+             if re.search(r"[\w\u4e00-\u9fff]", word.word)]
+    if len(words) >= 12:
+        collapsed = sum(word.end - word.start <= 0.035 for word in words)
+        if collapsed / len(words) >= 0.4:
+            return f"{collapsed}/{len(words)} 个字词不足 35 毫秒，存在大面积时间挤压"
+    stretched = [word for word in words if word.end - word.start > 20]
+    if stretched:
+        return "单个字词占用超过 20 秒，可能错误跨越间奏或匹配错区间"
+    return None
+
+
 def _audit_alignment(aligned: list[AlignedLine]) -> list[AlignedLine]:
     """审计对齐时间戳单调性与合理性"""
     out: list[AlignedLine] = []
@@ -265,7 +274,7 @@ def align_lyrics_ctc(
 ) -> AlignmentResult:
     """
     方案二: 纯 Wav2Vec2 CTC Forced Alignment 词级对齐引擎:
-    - 100% 摆脱 Whisper 转写依赖，绝无跨语言幻听与词句丢失
+    - 使用原歌词的 CTC 强制对齐，失败时明确报告，不能保证任意唱法均匹配
     - 英文声学模型: torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
     - 中文声学模型: jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn
     - 结合开唱点检测 (Vocal Onset) 与 RMS 能量间奏隔离机制，乐句级强约束精确打点
@@ -385,7 +394,9 @@ def align_lyrics_ctc(
             return
 
         with torch.inference_mode():
-            emissions = model_en(wav_slice)[0].log_softmax(dim=-1)
+            emissions = torch.cat([model_en(chunk)[0].log_softmax(dim=-1)
+                                   for chunk in wav_slice.split(20 * 16000, dim=1)
+                                   if chunk.size(1) >= 400], dim=1)
 
         clean_lines = []
         for _, ly in lines_with_idx:
@@ -435,7 +446,9 @@ def align_lyrics_ctc(
             return
 
         with torch.inference_mode():
-            emissions = model_zh(wav_slice).logits.log_softmax(dim=-1)
+            emissions = torch.cat([model_zh(chunk).logits.log_softmax(dim=-1)
+                                   for chunk in wav_slice.split(20 * 16000, dim=1)
+                                   if chunk.size(1) >= 400], dim=1)
 
         clean_lines = []
         for _, ly in lines_with_idx:
@@ -468,10 +481,11 @@ def align_lyrics_ctc(
                 w_spans = l_spans[curr_s_idx: curr_s_idx + len(tok_clean)]
                 curr_s_idx += len(tok_clean)
                 w_s = s_sec + w_spans[0].start * frame_dur
+                w_e = s_sec + w_spans[-1].end * frame_dur
                 if curr_s_idx < len(l_spans):
-                    w_e = s_sec + l_spans[curr_s_idx].start * frame_dur
+                    w_e = min(s_sec + l_spans[curr_s_idx].start * frame_dur, w_e + 0.15)
                 else:
-                    w_e = s_sec + w_spans[-1].end * frame_dur + 0.25
+                    w_e = min(e_sec, w_e + 0.15)
                 words.append(WordTimestamp(word=tok, start=round(w_s, 3), end=round(max(w_e, w_s + 0.05), 3)))
 
             aligned_line_map[orig_idx] = AlignedLine(
@@ -481,98 +495,37 @@ def align_lyrics_ctc(
                 words=words,
             )
 
-    # 6. 乐段与语言块智能映射
-    if len(lang_runs) == 1:
-        # 单语言歌曲 (占 95%+): 纵跨全曲所有歌唱乐段，允许中间穿插任意时长的纯音乐间奏/笛子二胡 Solo
-        lang, r_lines = lang_runs[0]
-        sec_s = min_start
-        sec_e = max(singing_sections[-1][1] if singing_sections else total_audio_sec, total_audio_sec - 1.0)
-        log.info("单语言全曲对齐: 纵跨所有乐段 (%.2fs - %.2fs), 共 %d 行", sec_s, sec_e, len(r_lines))
-        if lang == "en":
-            _align_en(r_lines, sec_s, sec_e)
+    # Language switches are lyric boundaries, not RMS-section boundaries.
+    # Align the dominant language across the song, then locate short switches
+    # inside the gaps between its neighboring lyric anchors.
+    dominant = max(("zh", "en"), key=lambda lang: sum(len(re.sub(r"\W", "", ly.text))
+                    for block_lang, items in lang_runs if block_lang == lang for _, ly in items))
+    dominant_lines = [item for lang, items in lang_runs if lang == dominant for item in items]
+    align_dominant = _align_zh if dominant == "zh" else _align_en
+    align_dominant(dominant_lines, min_start, total_audio_sec)
+    for lang, items in lang_runs:
+        if lang == dominant:
+            continue
+        first, last = items[0][0], items[-1][0]
+        before = [idx for idx, _ in dominant_lines if idx < first]
+        after = [idx for idx, _ in dominant_lines if idx > last]
+        sec_s = aligned_line_map[before[-1]].end if before else min_start
+        sec_e = aligned_line_map[after[0]].start if after else total_audio_sec
+        # CTC can let neighboring dominant-language tokens touch across a short
+        # foreign-language shout. Allow bounded context, never whole sections.
+        if sec_e < sec_s - 0.5:
+            raise ValueError("跨语言歌词定位失败：相邻歌词没有有效声学区间，请检查歌词顺序或手动定位")
+        interior = [(start, end) for start, end in singing_sections
+                    if start >= sec_s and end <= sec_e]
+        if len(interior) == 1:
+            # A unique isolated vocal block inside lyric anchors is stronger
+            # evidence than letting a short English shout span an interlude.
+            sec_s, sec_e = interior[0]
         else:
-            _align_zh(r_lines, sec_s, sec_e)
-    elif len(lang_runs) == len(singing_sections):
-        for ri, (lang, r_lines) in enumerate(lang_runs):
-            sec_s, sec_e = singing_sections[ri]
-            if ri == len(lang_runs) - 1:
-                sec_e = max(sec_e, total_audio_sec - 1.0)
-            if lang == "en":
-                _align_en(r_lines, sec_s, sec_e)
-            else:
-                _align_zh(r_lines, sec_s, sec_e)
-    else:
-        cur_sec_idx = 0
-        ri = 0
-        while ri < len(lang_runs) and cur_sec_idx < len(singing_sections):
-            sec_s, sec_e = singing_sections[cur_sec_idx]
-            # 若是最后一个语言块，必须延展至全曲最后一个乐段结束，避免遗漏间奏后的尾段歌词
-            if ri == len(lang_runs) - 1:
-                sec_e = max(sec_e, singing_sections[-1][1], total_audio_sec - 1.0)
-            sec_dur = sec_e - sec_s
-            lang, r_lines = lang_runs[ri]
-
-            # 检查当前乐段是否包含跨语言交替混唱 (如双语 Bridge / Finale)
-            should_pair = False
-            if ri + 1 < len(lang_runs) and lang_runs[ri + 1][0] != lang:
-                r_lines2 = lang_runs[ri + 1][1]
-                n1, n2 = len(r_lines), len(r_lines2)
-                if n1 <= 6 and n2 <= 6:
-                    rate_single = sec_dur / n1
-                    rate_both = sec_dur / (n1 + n2)
-                    if rate_single > 4.0 and 1.5 <= rate_both <= 6.0:
-                        should_pair = True
-                    elif (len(lang_runs) - ri) > (len(singing_sections) - cur_sec_idx) and rate_both >= 1.2:
-                        should_pair = True
-
-            if should_pair:
-                r_lines2 = lang_runs[ri + 1][1]
-                sub_hop = int(sr * 0.05)
-                s_sample, e_sample = int(sec_s * sr), int(sec_e * sr)
-                sub_wav = wav[s_sample:e_sample]
-                sub_rms = [float(np.sqrt(np.mean(sub_wav[i:i + sub_hop] ** 2))) for i in range(0, len(sub_wav) - sub_hop, sub_hop)]
-
-                # 基于行数与语速特征估算语言切分比例 (英文唱速略快，尾音拖音少，中文常有长拖音)
-                base_ratio = len(r_lines) / (len(r_lines) + len(r_lines2))
-                ratio = base_ratio * (0.93 if lang == "en" else 1.07)
-                center_idx = int(len(sub_rms) * ratio)
-                search_w = int(1.5 / 0.05)  # 搜索窗口限制在 +-1.5s 内
-                best_score = float("inf")
-                best_idx = center_idx
-                for k in range(max(0, center_idx - search_w), min(len(sub_rms), center_idx + search_w)):
-                    dist_sec = abs(k - center_idx) * 0.05
-                    score = sub_rms[k] + 0.05 * dist_sec
-                    if score < best_score:
-                        best_score = score
-                        best_idx = k
-                mid_t = sec_s + (best_idx * sub_hop) / sr
-
-                log.info(
-                    "乐段 %d (%.2fs - %.2fs) 智能双语切分点: %.2fs (前段 %s: %d行, 后段 %s: %d行)",
-                    cur_sec_idx, sec_s, sec_e, mid_t, lang, len(r_lines), lang_runs[ri + 1][0], len(r_lines2)
-                )
-
-                if lang == "en":
-                    _align_en(r_lines, sec_s, mid_t)
-                else:
-                    _align_zh(r_lines, sec_s, mid_t)
-                ri += 1
-
-                lang2, _ = lang_runs[ri]
-                if lang2 == "en":
-                    _align_en(r_lines2, mid_t, sec_e)
-                else:
-                    _align_zh(r_lines2, mid_t, sec_e)
-                ri += 1
-                cur_sec_idx += 1
-            else:
-                log.info("乐段 %d (%.2fs - %.2fs) 单语言对齐: %s (%d 行)", cur_sec_idx, sec_s, sec_e, lang, len(r_lines))
-                if lang == "en":
-                    _align_en(r_lines, sec_s, sec_e)
-                else:
-                    _align_zh(r_lines, sec_s, sec_e)
-                ri += 1
-                cur_sec_idx += 1
+            sec_s = max(min_start, sec_s - 1.0)
+            sec_e = min(total_audio_sec, sec_e + 1.0)
+        log.info("跨语言锚点定位: %s %d 行，区间 %.2fs ~ %.2fs", lang, len(items), sec_s, sec_e)
+        (_align_en if lang == "en" else _align_zh)(items, sec_s, sec_e)
 
     aligned_lines = []
     for li, ly in enumerate(lyrics):
@@ -585,6 +538,9 @@ def align_lyrics_ctc(
             ))
         elif li in aligned_line_map:
             aligned_lines.append(aligned_line_map[li])
+
+    if len(aligned_line_map) != len(singing_lyrics):
+        raise ValueError("声学对齐未覆盖全部演唱歌词，请检查字词与音频区间")
 
     # 回填编曲说明行的时间
     _fill_annotation_times(aligned_lines)
@@ -603,6 +559,9 @@ def align_lyrics_ctc(
         )
         aligned_lines = _audit_alignment(aligned_lines)
 
+    issue = alignment_quality_issue(aligned_lines)
+    if issue:
+        raise ValueError("声学对齐失败，未将异常时间轴视为成功结果：" + issue)
     result = AlignmentResult(lines=aligned_lines)
     log.info("【方案二: CTC Forced Alignment】对齐完成: %d 行, %d 个词",
              len(result.lines), sum(len(line.words) for line in result.lines))
@@ -823,7 +782,7 @@ def _self_heal_alignment(
                 new_end = repaired[-1].end
 
                 # 自愈有效性仲裁: 新时长显著伸展，或者结尾延展到真实人声结束点
-                if new_dur > old_dur * 1.2 or (new_end > old_end + 2.0):
+                if not alignment_quality_issue(repaired) and (new_dur > old_dur * 1.2 or new_end > old_end + 2.0):
                     for item_idx, r_line in enumerate(repaired):
                         orig_idx = target_items[item_idx][0]
                         orig_line = target_items[item_idx][1]

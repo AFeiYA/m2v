@@ -386,7 +386,7 @@ async def plugin_direct_export_video(
             log.warning("下载封面失败: %s", e)
 
     # 4. 准备歌词
-    clean_lyr = lyrics.strip()
+    clean_lyr = _clean_lyrics(lyrics)
     if not clean_lyr and prompt:
         clean_lyr = _clean_lyrics(prompt)
     lyrics_path = input_dir / f"{clean_title}.txt"
@@ -598,7 +598,7 @@ async def plugin_direct_import(
     temp_upload.unlink(missing_ok=True)
 
     # 3. 保存歌词与元数据
-    clean_lyr = lyrics.strip()
+    clean_lyr = _clean_lyrics(lyrics)
     if not clean_lyr and prompt:
         clean_lyr = _clean_lyrics(prompt)
     lyrics_path = input_dir / f"{clean_title}.txt"
