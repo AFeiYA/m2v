@@ -173,3 +173,17 @@ def test_healthy_english_phrase_does_not_trigger_self_heal(monkeypatch):
            AlignedLine(text='Coffee going cold on the tray', start=23, end=26, words=[WordTimestamp(word='Coffee going cold on the tray', start=23, end=26)])]
     assert a._self_heal_alignment(Path('unused.wav'), lines, [(19.3, 26)], 26) == lines
     assert calls == []
+
+
+def test_self_heal_cannot_steal_time_from_next_line(monkeypatch):
+    import src.aligner as a
+    first=AlignedLine(text='Yo Check it out',start=1.5,end=2,words=[WordTimestamp(word='Yo Check it out',start=1.5,end=2)])
+    following=AlignedLine(text='左手在右手的左边',start=3.9,end=5.7,words=[WordTimestamp(word='左手在右手的左边',start=3.9,end=5.7)])
+    repair=AlignedLine(text=first.text,start=1.5,end=5.2,words=[WordTimestamp(word=first.text,start=1.5,end=5.2)])
+    calls=[]
+    def fake(*args,**kwargs): calls.append(1);return [repair]
+    monkeypatch.setattr(a,'realign_lines',fake)
+    result=a._self_heal_alignment(Path('unused.wav'),[first,following],[(1.5,5.7)],5.7)
+    assert calls == [1]
+    assert result[0].end == 2
+    assert result[1].start == 3.9

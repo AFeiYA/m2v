@@ -881,8 +881,15 @@ def _self_heal_alignment(
                 old_end = target_items[-1][1].end
                 new_end = repaired[-1].end
 
-                # 自愈有效性仲裁: 新时长显著伸展，或者结尾延展到真实人声结束点
-                if not alignment_quality_issue(repaired) and (new_dur > old_dur * 1.2 or new_end > old_end + 2.0):
+                # A repair must not steal the unchanged neighboring line's time.
+                before = indexed_lines[k_anchor_start-1][1] if k_anchor_start > 0 else None
+                after = indexed_lines[k_last+1][1] if k_last+1 < len(indexed_lines) else None
+                crosses_neighbor = ((before is not None and repaired[0].start < before.end-.05)
+                                    or (after is not None and repaired[-1].end > after.start+.05))
+                if crosses_neighbor:
+                    log.warning("局部重对齐跨越相邻歌词边界，保留原对齐：第 %d~%d 行", target_items[0][0]+1, target_items[-1][0]+1)
+                # Duration growth alone does not prove an acoustic match.
+                if not crosses_neighbor and not alignment_quality_issue(repaired) and (new_dur > old_dur * 1.2 or new_end > old_end + 2.0):
                     for item_idx, r_line in enumerate(repaired):
                         orig_idx = target_items[item_idx][0]
                         orig_line = target_items[item_idx][1]
