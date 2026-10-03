@@ -77,7 +77,7 @@ class CuePlan(BaseModel):
     line_id: str
     template: Literal['word-impact', 'phrase-rise', 'quiet-hold'] = 'phrase-rise'
     layout: Literal['center', 'left'] = 'center'
-    palette: Literal['impact', 'neon'] = 'impact'
+    palette: str = 'impact'
     intensity: float = Field(default=.6, ge=0, le=1)
     emphasis: str = ''
     locked: bool = False

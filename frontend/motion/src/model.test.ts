@@ -413,3 +413,53 @@ test('automaticPoster generates 5 default non-LLM layout presets with anti-orpha
   };
   assert.equal(automaticPoster(zhLong, 'impact', 'smart').nodes.length, 3);
 });
+
+test('theme palettes provide distinct colors and dark/light tones', () => {
+  const line = {
+    id: 'test_theme',
+    text: '秋日市集',
+    start: 0,
+    end: 2,
+    words: [{ word: '秋日', start: 0, end: 1 }, { word: '市集', start: 1, end: 2 }]
+  };
+
+  const sunset = automaticPoster(line, 'sunset', 'smart');
+  assert.equal(sunset.accent, '#ff5722');
+  assert.equal(sunset.background, '#181210');
+
+  const amberLight = automaticPoster(line, 'amber', 'smart', 'light');
+  assert.equal(amberLight.accent, '#ffb800');
+  assert.equal(amberLight.background, '#f8f5ec');
+
+  const violetDark = automaticPoster(line, 'violet', 'smart', 'dark');
+  assert.equal(violetDark.accent, '#b388ff');
+  assert.equal(violetDark.background, '#15101a');
+
+  const sakura = automaticPoster(line, 'sakura', 'smart');
+  assert.equal(sakura.accent, '#ff6584');
+
+  const mono = automaticPoster(line, 'monochrome', 'smart');
+  assert.equal(mono.accent, '#ffffff');
+
+  const randomPoster = automaticPoster(line, 'random', 'smart');
+  assert.ok(/^#[0-9a-fA-F]{6}$/.test(randomPoster.accent));
+  assert.ok(/^#[0-9a-fA-F]{6}$/.test(randomPoster.background));
+});
+
+test('random layout preset produces valid posters with complete coverage', () => {
+  const line = {
+    id: 'rand_line',
+    text: 'Every road a story told',
+    start: 0,
+    end: 3,
+    words: ['Every ', 'road ', 'a ', 'story ', 'told'].map((w, i) => ({ word: w, start: i * 0.6, end: (i + 1) * 0.6 }))
+  };
+
+  for (let i = 0; i < 20; i++) {
+    const poster = automaticPoster(line, 'impact', 'random');
+    assert.ok(poster.nodes.length >= 1 && poster.nodes.length <= 5);
+    assert.equal(poster.nodes.filter(n => n.role === 'primary').length, 1);
+    const covered = poster.nodes.flatMap(n => n.word_indices);
+    assert.deepEqual(covered, [0, 1, 2, 3, 4]);
+  }
+});

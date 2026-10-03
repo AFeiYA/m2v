@@ -1,5 +1,5 @@
 import {checkImportScope} from './import-scope';
-import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,type CompiledPoster,type DefaultLayoutPreset} from './poster-layout';
+import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,resolvePaletteColors,type CompiledPoster,type DefaultLayoutPreset} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
 import { defaults, normalizeProject, renderSize, type Project, type Options, type MotionPlan } from './model';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -28,6 +28,11 @@ function showCue(seek=true){const cue=plan?.cues.find(c=>c.line_id===currentCue)
   else if(cue.poster?.intent?.includes('逐词'))$<HTMLSelectElement>('cue-layout-preset').value='word-by-word';
   else $<HTMLSelectElement>('cue-layout-preset').value='smart';
  }
+ if($('cue-palette')){
+  $<HTMLSelectElement>('cue-palette').disabled=cue.locked;
+  $<HTMLSelectElement>('cue-palette').value=cue.palette||'impact';
+  if($('apply-palette'))$<HTMLButtonElement>('apply-palette').disabled=cue.locked;
+ }
  $<HTMLSelectElement>('visual-intensity').value=cue.poster?.visual_intensity||'auto';$<HTMLSelectElement>('visual-intensity').disabled=cue.locked;
  $<HTMLSelectElement>('semantic-mode').value=cue.poster?.semantic_mode||'auto';$<HTMLSelectElement>('semantic-mode').disabled=cue.locked;
  $<HTMLSelectElement>('cue-exit').value=cue.poster?.transition_out||'cut';$<HTMLSelectElement>('cue-exit').disabled=cue.locked;
@@ -43,13 +48,20 @@ async function load(id:string){if(!id)return;if(dirty)await savePlan();audio.pau
 async function rules(onlyCurrent=false){
  if(!selected)throw new Error('请先选择歌曲');if(dirty)await savePlan();
  const preset=($<HTMLSelectElement>('default-layout-preset')?.value as DefaultLayoutPreset)||'smart';
- plan=await api('director/rules','POST',{project_id:selected,style:$<HTMLSelectElement>('preset').value,line_id:onlyCurrent?currentCue:null});
+ const palette=$<HTMLSelectElement>('preset')?.value || 'impact';
+ const bgTone=($<HTMLSelectElement>('theme-bg')?.value as 'auto'|'light'|'dark')||'auto';
+ plan=await api('director/rules','POST',{project_id:selected,style:palette,line_id:onlyCurrent?currentCue:null});
  if(plan?.cues){
   for(const cue of plan.cues){
    if(onlyCurrent&&cue.line_id!==currentCue)continue;
    if(cue.locked)continue;
    const line=project?.lines.find(l=>l.id===cue.line_id);
-   if(line)cue.poster=automaticPoster(line,cue.palette,onlyCurrent?(($<HTMLSelectElement>('cue-layout-preset')?.value as DefaultLayoutPreset)||preset):preset);
+   if(line){
+    const cuePreset=onlyCurrent?(($<HTMLSelectElement>('cue-layout-preset')?.value as DefaultLayoutPreset)||preset):preset;
+    const cuePalette=onlyCurrent?(($<HTMLSelectElement>('cue-palette')?.value)||palette):palette;
+    cue.palette=cuePalette;
+    cue.poster=automaticPoster(line,cuePalette,cuePreset,bgTone);
+   }
   }
   await savePlan();
  }
@@ -161,8 +173,28 @@ if($('apply-layout-preset')){
   if(!cue||!line)return;
   if(cue.locked)throw new Error('当前句已锁定，请先解锁');
   const preset=($<HTMLSelectElement>('cue-layout-preset')?.value as DefaultLayoutPreset)||'smart';
-  cue.poster=automaticPoster(line,cue.palette,preset);
+  const bgTone=($<HTMLSelectElement>('theme-bg')?.value as 'auto'|'light'|'dark')||'auto';
+  cue.poster=automaticPoster(line,cue.palette,preset,bgTone);
   dirty=true;refresh();showCue(false);status(`已应用「${preset}」排版预设，请保存方案`);
+ });
+}
+if($('apply-palette')){
+ $('apply-palette').onclick=action(async()=>{
+  const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);
+  if(!cue||!line)return;
+  if(cue.locked)throw new Error('当前句已锁定，请先解锁');
+  const palette=$<HTMLSelectElement>('cue-palette')?.value || 'impact';
+  const bgTone=($<HTMLSelectElement>('theme-bg')?.value as 'auto'|'light'|'dark')||'auto';
+  cue.palette=palette;
+  const colors=resolvePaletteColors(palette,bgTone);
+  if(cue.poster){
+    cue.poster.background=colors.background;
+    cue.poster.accent=colors.accent;
+  }else{
+    const preset=($<HTMLSelectElement>('cue-layout-preset')?.value as DefaultLayoutPreset)||'smart';
+    cue.poster=automaticPoster(line,palette,preset,bgTone);
+  }
+  dirty=true;refresh();showCue(false);status(`已应用「${palette}」配色，请保存方案`);
  });
 }
 async function playCue(handover=false){

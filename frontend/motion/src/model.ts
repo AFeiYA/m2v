@@ -2,7 +2,7 @@ export type Word = { word: string; start: number; end: number };
 export type PhrasePlan = {text:string;word_indices:number[];action:'reveal'|'push'|'settle'|'hold';emphasis:string;intensity:number};
 export type PosterRelation = {kind:'guidance'|'contrast'|'negation'|'repetition'|'spatial';node_indices:number[];intent:string};
 export type PosterDirection = {version:'motion-poster-direction-v1';status:'draft';layout:'hero-stack'|'center-stack'|'staggered';intent:string;background:string;accent:string;motif:'none'|'rings';visibility:'cumulative';final_hold:'available-tail';transition_out:'cut'|'fade';transition_note:string;visual_intensity?:'auto'|'restrained'|'expanded'|'peak';semantic_mode?:'auto'|'off';relations?:PosterRelation[];nodes:{text:string;word_indices:number[];role:'primary'|'secondary'|'support';emphasis:string;color_role:'foreground'|'accent'|'muted';hold?:'none'|'drift';beat_reaction?:'none'|'pulse';entrance:'none'|'fade'|'slide-up'|'slide-left'|'scale-in';settle_fraction:number}[]};
-export type CuePlan = {poster?:PosterDirection|null;whole_line_visible?:true;intent?:string;groups?:PhrasePlan[];line_id:string; template:'word-impact'|'phrase-rise'|'quiet-hold'; layout:'center'|'left'; palette:'impact'|'neon'; intensity:number; emphasis:string; locked:boolean};
+export type CuePlan = {poster?:PosterDirection|null;whole_line_visible?:true;intent?:string;groups?:PhrasePlan[];line_id:string; template:'word-impact'|'phrase-rise'|'quiet-hold'; layout:'center'|'left'; palette:string; intensity:number; emphasis:string; locked:boolean};
 export type MotionPlan = {version:'motion-plan-v1'; source_signature:string; seed:number; visual_language?:{direction:string;background:string;foreground:string;accent:string;rhythm:string}|null; cues:CuePlan[]};
 export type Line = { id:string; text: string; start: number; end: number; words: Word[]; section?: string };
 export type Project = {
@@ -10,7 +10,7 @@ export type Project = {
   analysis: { bpm: number; beats: number[]; drum_hits: {time: number; type: string}[]; energy_curve: {time: number; energy: number}[] };
 };
 export type Options = {
-  aspect: '16:9' | '9:16'; preset: 'impact' | 'neon'; mode: 'slam' | 'phrase';
+  aspect: '16:9' | '9:16'; preset: string; mode: 'slam' | 'phrase';
   height?:360|720; bloom: number; grain: number; shake: number; punch: number; post: boolean;
 };
 export const defaults: Options = { aspect: '16:9', preset: 'impact', mode: 'slam', bloom: 0.7, grain: 0.035, shake: 0.65, punch: 0.7, post: true };

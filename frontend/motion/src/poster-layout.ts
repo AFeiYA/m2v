@@ -5,7 +5,110 @@ export type Measure=(text:string,size:number,weight:number)=>Metrics;
 export type CompiledNode={motion_strength?:number;text:string;word_indices:number[];role:'primary'|'secondary'|'support';x:number;y:number;width:number;height:number;fontSize:number;weight:number;color:string;rows:{text:string;x:number;y:number}[];start:number;settled:number;hold:'none'|'drift';beat_reaction:'none'|'pulse';entrance:PosterDirection['nodes'][number]['entrance']};
 export type CompiledPoster={visual_intensity:'restrained'|'expanded'|'peak';version:'motion-poster-layout-v1';line_id:string;source:'director'|'automatic';width:number;height:number;background:string;accent:string;motif:'none'|'rings';layout:PosterDirection['layout'];transition_out:'cut'|'fade';relations:NonNullable<PosterDirection['relations']>;semantic_arrangement:SemanticApplication[];start:number;end:number;handover?:{mode:'cut'|'fade'|'layered-fade';visible_end:number;exit_start:number;primary_exit_start:number;next_start:number|null};nodes:CompiledNode[]};
 
-export type DefaultLayoutPreset = 'smart' | 'single' | 'two-stack' | 'three-stack' | 'word-by-word';
+export type DefaultLayoutPreset = 'smart' | 'single' | 'two-stack' | 'three-stack' | 'word-by-word' | 'random';
+
+export type ThemePalette = {
+  id: string;
+  name: string;
+  accent: string;
+  backgroundLight: string;
+  backgroundDark: string;
+  defaultBackground: 'light' | 'dark';
+};
+
+export const THEME_PALETTES: Record<string, ThemePalette> = {
+  impact: {
+    id: 'impact',
+    name: '荧绿 · 高对比',
+    accent: '#c1ee47',
+    backgroundLight: '#eeeee6',
+    backgroundDark: '#121610',
+    defaultBackground: 'light'
+  },
+  neon: {
+    id: 'neon',
+    name: '霓虹 · 赛博蓝',
+    accent: '#63d9ed',
+    backgroundLight: '#eef6f8',
+    backgroundDark: '#0e141b',
+    defaultBackground: 'dark'
+  },
+  sunset: {
+    id: 'sunset',
+    name: '落日 · 烈焰橙红',
+    accent: '#ff5722',
+    backgroundLight: '#f8eee8',
+    backgroundDark: '#181210',
+    defaultBackground: 'dark'
+  },
+  amber: {
+    id: 'amber',
+    name: '琥珀 · 暖金流光',
+    accent: '#ffb800',
+    backgroundLight: '#f8f5ec',
+    backgroundDark: '#18160e',
+    defaultBackground: 'dark'
+  },
+  violet: {
+    id: 'violet',
+    name: '幻紫 · 极光电子',
+    accent: '#b388ff',
+    backgroundLight: '#f3eff8',
+    backgroundDark: '#15101a',
+    defaultBackground: 'dark'
+  },
+  sakura: {
+    id: 'sakura',
+    name: '蔷薇 · 抒情粉黛',
+    accent: '#ff6584',
+    backgroundLight: '#f8edf0',
+    backgroundDark: '#191114',
+    defaultBackground: 'light'
+  },
+  monochrome: {
+    id: 'monochrome',
+    name: '极简 · 黑白高对比',
+    accent: '#ffffff',
+    backgroundLight: '#f0f0f0',
+    backgroundDark: '#121212',
+    defaultBackground: 'dark'
+  }
+};
+
+export function resolvePaletteColors(palette = 'impact', backgroundTone: 'light' | 'dark' | 'auto' = 'auto'): { background: string; accent: string } {
+  let p = palette;
+  if (p === 'random') {
+    const keys = Object.keys(THEME_PALETTES);
+    p = keys[Math.floor(Math.random() * keys.length)];
+  }
+  const theme = THEME_PALETTES[p] || THEME_PALETTES.impact;
+  const isDark = backgroundTone === 'dark' ? true : backgroundTone === 'light' ? false : theme.defaultBackground === 'dark';
+  return {
+    background: isDark ? theme.backgroundDark : theme.backgroundLight,
+    accent: theme.accent
+  };
+}
+
+export function pickRandomPreset(line: Line): 'smart' | 'single' | 'two-stack' | 'three-stack' | 'word-by-word' {
+  const words = line.words?.length || 0;
+  const hasHan = /[\p{Script=Han}]/u.test(line.text);
+  const units = hasHan ? line.text.replace(/\s+/gu, '').length : words;
+
+  if (units <= 3) {
+    const pool: ('single' | 'smart')[] = ['single', 'single', 'smart'];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  if (units <= 7) {
+    const pool: ('two-stack' | 'smart' | 'single' | 'word-by-word')[] = [
+      'two-stack', 'two-stack', 'smart', 'single', 'word-by-word'
+    ];
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  const pool: ('three-stack' | 'two-stack' | 'smart')[] = [
+    'three-stack', 'three-stack', 'two-stack', 'smart'
+  ];
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 
 const WESTERN_PREPOSITIONS_ARTICLES = new Set([
   'a', 'an', 'the',
@@ -29,11 +132,12 @@ function range(start: number, end: number): number[] {
   return r;
 }
 
-export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutPreset='smart'):PosterDirection {
+export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutPreset='smart',backgroundTone:'light'|'dark'|'auto'='auto'):PosterDirection {
+  const {background,accent}=resolvePaletteColors(palette,backgroundTone);
   if(!line.words.length){
     return {
       version:'motion-poster-direction-v1',status:'draft',layout:'center-stack',intent:'整句单行居中海报',
-      background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
+      background,accent,motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
       nodes:[{text:line.text,word_indices:[],role:'primary',emphasis:'',color_role:'accent',entrance:'slide-up',settle_fraction:.25}]
     };
   }
@@ -43,10 +147,10 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
     word_indices:indices
   });
 
-  let effectivePreset:DefaultLayoutPreset=preset;
+  let effectivePreset:DefaultLayoutPreset=preset==='random'?pickRandomPreset(line):preset;
   let customBlocks:{text:string;word_indices:number[]}[]|null=null;
 
-  if(preset==='smart'){
+  if(effectivePreset==='smart'){
     const hasHan=/[\p{Script=Han}]/u.test(line.text);
     if(hasHan){
       const parts=line.text.split(/\s+/u).filter(Boolean);
@@ -79,8 +183,8 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
   if(customBlocks){
     const primary=customBlocks.length-1;
     return {
-      version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:'智能短语分行海报',
-      background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
+      version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:preset==='random'?'随机短语分行海报':'智能短语分行海报',
+      background,accent,motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
       nodes:customBlocks.map((b,i)=>({
         ...b,
         role:i===primary?'primary':i===0?'secondary':'support',
@@ -95,8 +199,8 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
   if(effectivePreset==='single'||N<=1){
     const blocks=[sliceWords(range(0,N))];
     return {
-      version:'motion-poster-direction-v1',status:'draft',layout:'center-stack',intent:'整句单行居中海报',
-      background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
+      version:'motion-poster-direction-v1',status:'draft',layout:'center-stack',intent:preset==='random'?'随机单行居中海报':'整句单行居中海报',
+      background,accent,motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
       nodes:[{...blocks[0],role:'primary',emphasis:'',color_role:'accent',entrance:'slide-up',settle_fraction:.25}]
     };
   }
@@ -116,8 +220,8 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
     }
     const blocks=[sliceWords(range(0,bestCut)),sliceWords(range(bestCut,N))];
     return {
-      version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:'双行对垒海报',
-      background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
+      version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:preset==='random'?'随机双行对垒海报':'双行对垒海报',
+      background,accent,motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
       nodes:[
         {...blocks[0],role:'secondary',emphasis:'',color_role:'foreground',entrance:'slide-up',settle_fraction:.25},
         {...blocks[1],role:'primary',emphasis:'',color_role:'accent',entrance:'slide-up',settle_fraction:.25}
@@ -147,8 +251,8 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
     }
     const blocks=[sliceWords(range(0,bestC1)),sliceWords(range(bestC1,bestC2)),sliceWords(range(bestC2,N))];
     return {
-      version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:'三段阶梯海报',
-      background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
+      version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:preset==='random'?'随机三段阶梯海报':'三段阶梯海报',
+      background,accent,motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
       nodes:[
         {...blocks[0],role:'secondary',emphasis:'',color_role:'foreground',entrance:'slide-up',settle_fraction:.25},
         {...blocks[1],role:'support',emphasis:'',color_role:'muted',entrance:'slide-up',settle_fraction:.25},
@@ -171,8 +275,8 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
   if(!blocks.length)blocks=[{text:line.text,word_indices:[]}];
   const primary=blocks.reduce((best,b,i)=>b.text.length>blocks[best].text.length?i:best,0);
   return {
-    version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:'逐词击打海报，最长词组为主视觉',
-    background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
+    version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:preset==='random'?'随机逐词击打海报':'逐词击打海报，最长词组为主视觉',
+    background,accent,motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
     nodes:blocks.map((b,i)=>({
       ...b,role:i===primary?'primary':'secondary',emphasis:'',color_role:i===primary?'accent':'foreground',entrance:'slide-up',settle_fraction:.25
     }))
@@ -366,7 +470,7 @@ export function compileSongPosters(project:Project,W:number,H:number,measure:Mea
     if(previous&&!cue?.locked&&previous.nodes.length===design.nodes.length&&previous.nodes.every((n,i)=>n.text===design.nodes[i].text)){
       design={...design,layout:previous.layout,nodes:design.nodes.map((n,i)=>({...n,role:previous.nodes[i].role,color_role:previous.nodes[i].color_role}))};
     }else if(!previous)recurring.set(key,design);
-    const result=compilePoster(line,{...cue,poster:{...design,background,accent,motif}} as CuePlan,W,H,measure);
+    const result=compilePoster(line,{...cue,poster:{...design,background,accent:cue?.poster?.accent||design.accent||accent,motif}} as CuePlan,W,H,measure);
     result.source=cue?.poster?'director':'automatic';return result;
   });
   for(let i=0;i<layouts.length;i++)bindHandover(layouts[i],layouts[i+1]?.start??null,project.duration);

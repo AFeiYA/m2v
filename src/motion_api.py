@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class ProjectRequest(BaseModel):
     project_id: str
-    style: Literal['impact', 'neon'] = 'impact'
+    style: str = 'impact'
     line_id: str | None = None
     instruction: str = Field(default='', max_length=2000)
 
