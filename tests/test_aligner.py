@@ -158,3 +158,42 @@ def test_healthy_english_phrase_does_not_trigger_self_heal(monkeypatch):
     ]
     assert a._self_heal_alignment(Path('unused.wav'), lines, [(19.3, 26.0)], 26.0) == lines
     assert calls == []
+
+
+def test_detect_line_lang():
+    from src.aligner import detect_line_lang
+
+    # 中文
+    assert detect_line_lang("旧书摊的老板打着盹") == "zh"
+    assert detect_line_lang("靠窗的位子") == "zh"
+
+    # 英文
+    assert detect_line_lang("Meet me at the autumn market") == "en"
+    assert detect_line_lang("Coffee going cold on the tray") == "en"
+
+    # 法语 (含变音符)
+    assert detect_line_lang("Les feuilles tombent sur le marché") == "other"
+    assert detect_line_lang("Un café, des croissants, et toi") == "other"
+
+    # 法语 (无重音符纯字母句子，由欧系高频特征词捕获)
+    assert detect_line_lang("Reste encore un peu avec moi") == "other"
+
+    # 日语
+    assert detect_line_lang("桜の花びらが舞い散る") == "ja"
+
+    # 韩语
+    assert detect_line_lang("가을 바람이 불어오네") == "ko"
+
+
+def test_whisper_anchor_models():
+    from src.aligner import WhisperWordAnchor, WhisperSegmentAnchor
+
+    w = WhisperWordAnchor(word="bonjour", start=1.2, end=1.8, probability=0.98)
+    assert w.word == "bonjour"
+    assert w.start == 1.2
+    assert w.end == 1.8
+
+    s = WhisperSegmentAnchor(id=0, text="Bonjour tout le monde", start=1.0, end=3.5, language="fr", words=[w])
+    assert s.language == "fr"
+    assert len(s.words) == 1
+

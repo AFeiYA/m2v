@@ -15,10 +15,13 @@ Auto-Karaoke MV Generator — 词级对齐模块
 
 from __future__ import annotations
 
+import difflib
 import re
 import sys
 from pathlib import Path
 from typing import Any
+
+from pydantic import BaseModel, Field
 
 import numpy as np
 import soundfile as sf
@@ -30,6 +33,28 @@ from transformers import AutoModelForCTC, AutoProcessor
 from src.config import AlignerConfig
 from src.preprocessor import LyricLine
 from src.utils import log
+
+_whisper_cache: dict[tuple[str, str, str], Any] = {}
+
+
+def _get_whisper(config: AlignerConfig | None = None) -> Any:
+    from faster_whisper import WhisperModel
+
+    if config is None:
+        config = AlignerConfig()
+    device = config.device
+    if device == "cuda" and not torch.cuda.is_available():
+        device = "cpu"
+    compute_type = "int8" if device == "cpu" else "float16"
+    model_size = config.whisper_model or "base"
+    if device == "cpu" and model_size.startswith("large"):
+        # CPU 运行环境下优先采用轻量且已缓存的 base 模型，避免大模型转写延迟过大
+        model_size = "base"
+    key = (model_size, device, compute_type)
+    if key not in _whisper_cache:
+        log.info("【多语言 Whisper 引擎】加载 Whisper: %s (device=%s, compute=%s)", model_size, device, compute_type)
+        _whisper_cache[key] = WhisperModel(model_size, device=device, compute_type=compute_type)
+    return _whisper_cache[key]
 
 # ---------------------------------------------------------------------------
 # 数据结构 (统一由 Pydantic v2 强类型体系提供)
@@ -117,6 +142,64 @@ def detect_vocal_onset(
     except Exception as e:
         log.warning("自动开唱检测异常 (不影响后续流程): %s", e)
         return 0.0
+
+
+# ---------------------------------------------------------------------------
+# 歌词语言与时间锚点数据契约
+# ---------------------------------------------------------------------------
+
+class WhisperWordAnchor(BaseModel):
+    """Whisper 转写词级时间戳锚点"""
+    word: str
+    start: float
+    end: float
+    probability: float = 1.0
+
+
+class WhisperSegmentAnchor(BaseModel):
+    """Whisper 转写片段级时间戳锚点"""
+    id: int = 0
+    text: str
+    start: float
+    end: float
+    language: str = "en"
+    words: list[WhisperWordAnchor] = Field(default_factory=list)
+
+
+def detect_line_lang(text: str) -> str:
+    """
+    检测歌词行的语言类型:
+    - zh: 中文 (汉字为主)
+    - ja: 日语 (含假名)
+    - ko: 韩语 (含谚文)
+    - other: 其它语言 (法语/德语/西语/意语等含变音符拉丁字母或特定特征词)
+    - en: 英文 (标准英文字母为主)
+    """
+    if re.search(r"[\u3040-\u309f\u30a0-\u30ff]", text):
+        return "ja"
+    if re.search(r"[\uac00-\ud7af]", text):
+        return "ko"
+    zh = len(_CHINESE_CHAR_RE.findall(text))
+    latin = len(re.findall(r"[a-zA-Z\u00C0-\u024F]", text))
+    if zh > latin:
+        return "zh"
+    if latin == 0:
+        return "zh" if zh > 0 else "en"
+    accented = len(re.findall(r"[\u00C0-\u024F]", text))
+    if accented > 0:
+        return "other"
+    tokens = set(re.findall(r"[a-zA-Z]+", text.lower()))
+    if tokens & {
+        "les", "des", "sur", "avec", "dans", "pour", "une", "croissants",
+        "moi", "toi", "doux", "quand", "est", "sont", "nous", "vous",
+        "el", "la", "los", "las", "del", "por", "para", "con", "una",
+        "und", "der", "die", "das", "mit", "nicht", "eine", "einer"
+    }:
+        return "other"
+    return "en"
+
+
+_detect_line_lang = detect_line_lang
 
 
 # ---------------------------------------------------------------------------
@@ -347,11 +430,6 @@ def align_lyrics_ctc(
     log.info("人声检测发现 %d 个主要歌唱乐段: %s", len(singing_sections), singing_sections)
 
     # 4. 歌词按语言分流
-    def _detect_line_lang(text: str) -> str:
-        zh = len(_CHINESE_CHAR_RE.findall(text))
-        en = len(re.findall(r"[a-zA-Z]", text))
-        return "zh" if zh >= en else "en"
-
     singing_lyrics: list[tuple[int, LyricLine]] = [(idx, ly) for idx, ly in enumerate(lyrics) if not ly.is_annotation]
 
     lang_runs: list[tuple[str, list[tuple[int, LyricLine]]]] = []
@@ -359,7 +437,7 @@ def align_lyrics_ctc(
     cur_lang = None
     for item in singing_lyrics:
         idx, ly = item
-        lang = _detect_line_lang(ly.text)
+        lang = detect_line_lang(ly.text)
         if cur_lang is None or lang == cur_lang:
             cur_run.append(item)
             cur_lang = lang
@@ -506,115 +584,209 @@ def align_lyrics_ctc(
                 words=words,
             )
 
-    # 6. 乐段与语言块智能映射
+    def _align_other(lines_with_idx: list[tuple[int, LyricLine]], s_sec: float, e_sec: float):
+        sub_slice = wav[int(s_sec * sr): int(e_sec * sr)]
+        all_w: list[tuple[float, float, str]] = []
+        if len(sub_slice) > int(sr * 0.5):
+            try:
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+                    tmp_path = tf.name
+                sf.write(tmp_path, sub_slice, sr)
+                wm = _get_whisper(config)
+                # 局部切片转写 (支持小切片的多语言自动识别)
+                segments, _ = wm.transcribe(tmp_path, word_timestamps=True)
+                for s in segments:
+                    if s.words:
+                        for w in s.words:
+                            w_str = w.word.strip()
+                            if w_str:
+                                all_w.append((s_sec + w.start, s_sec + w.end, w_str))
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception as e:
+                log.warning("多语言 Whisper 局部转写异常，转为平滑插值: %s", e)
+
+        # 整理原歌词待对齐 tokens (以原歌词为不可篡改的 Ground Truth)
+        all_line_toks: list[tuple[int, str, str]] = []  # (orig_idx, tok, clean)
+        for orig_idx, ly in lines_with_idx:
+            for tok in tokenize_lyric_line(ly.text):
+                clean = "".join(c.lower() for c in tok if c.isalnum())
+                all_line_toks.append((orig_idx, tok, clean))
+
+        token_times: list[tuple[float, float] | None] = [None] * len(all_line_toks)
+        match_sim = 0.0
+
+        if all_w:
+            w_cleans = ["".join(c.lower() for c in w[2] if c.isalnum()) for w in all_w]
+            ly_cleans = [item[2] for item in all_line_toks]
+
+            matcher = difflib.SequenceMatcher(None, ly_cleans, w_cleans)
+            match_sim = matcher.ratio()
+            for tag, alo, ahi, blo, bhi in matcher.get_opcodes():
+                if tag == "equal":
+                    for offset in range(ahi - alo):
+                        wi = blo + offset
+                        token_times[alo + offset] = (all_w[wi][0], all_w[wi][1])
+                elif tag == "replace":
+                    if blo < bhi:
+                        ws = all_w[blo][0]
+                        we = all_w[bhi - 1][1]
+                        n_toks = ahi - alo
+                        span = max(0.05, (we - ws) / max(1, n_toks))
+                        for offset in range(n_toks):
+                            token_times[alo + offset] = (ws + offset * span, ws + (offset + 1) * span)
+
+        # 兜底插值未匹配的 token
+        prev_t = s_sec
+        unmatched_count = 0
+        for i, (orig_idx, tok, clean) in enumerate(all_line_toks):
+            if token_times[i] is None:
+                unmatched_count += 1
+                next_t = e_sec
+                for j in range(i + 1, len(token_times)):
+                    if token_times[j] is not None:
+                        next_t = token_times[j][0]
+                        break
+                span_t = max(0.05, (next_t - prev_t) / max(1, sum(1 for k in range(i, len(token_times)) if token_times[k] is None)))
+                token_times[i] = (prev_t, min(next_t, prev_t + span_t))
+            prev_t = token_times[i][1]
+
+        # 聚合为各行 AlignedLine 并检查置信度
+        cur_tok_idx = 0
+        total_l = len(lines_with_idx)
+        l_dur = (e_sec - s_sec) / max(1, total_l)
+        for li, (orig_idx, ly) in enumerate(lines_with_idx):
+            tokens = tokenize_lyric_line(ly.text)
+            words: list[WordTimestamp] = []
+            for tok in tokens:
+                if cur_tok_idx < len(all_line_toks):
+                    ws, we = token_times[cur_tok_idx]
+                    ws = _trim_word_over_silence(ws, we, singing_sections)
+                    words.append(WordTimestamp(word=tok, start=round(ws, 3), end=round(max(we, ws + 0.05), 3)))
+                    cur_tok_idx += 1
+
+            exp_s = s_sec + li * l_dur
+            exp_e = exp_s + l_dur
+            is_low_conf = (match_sim < 0.4 or unmatched_count > len(all_line_toks) * 0.5)
+            if is_low_conf:
+                log.warning("第 %d 行歌词 (非中英语言) 识别匹配度偏低 (sim=%.2f)，建议在编辑器中复核时间轴: %s",
+                            orig_idx + 1, match_sim, ly.text)
+
+            aligned_line_map[orig_idx] = AlignedLine(
+                text=ly.text,
+                start=words[0].start if words else exp_s,
+                end=words[-1].end if words else exp_e,
+                words=words,
+                style_overrides={"confidence": "low" if is_low_conf else "normal"},
+            )
+
+    def _dispatch_align(lang: str, lines: list[tuple[int, LyricLine]], s_sec: float, e_sec: float):
+        if lang == "zh":
+            _align_zh(lines, s_sec, e_sec)
+        elif lang == "en":
+            _align_en(lines, s_sec, e_sec)
+        else:
+            _align_other(lines, s_sec, e_sec)
+
+    # 6. 乐段与语言块智能动态规划映射 (Rate-Deviation Dynamic Section Planner)
     if len(lang_runs) == 1:
         lang, r_lines = lang_runs[0]
         sec_s = min_start
-        sec_e = max(singing_sections[-1][1] if singing_sections else total_audio_sec, total_audio_sec - 1.0)
+        sec_e = min(total_audio_sec, (singing_sections[-1][1] + 1.2) if singing_sections else total_audio_sec)
         log.info("单语言全曲对齐: 纵跨所有乐段 (%.2fs - %.2fs), 共 %d 行", sec_s, sec_e, len(r_lines))
-        if lang == "en":
-            _align_en(r_lines, sec_s, sec_e)
-        else:
-            _align_zh(r_lines, sec_s, sec_e)
-    elif len(lang_runs) == len(singing_sections):
-        for ri, (lang, r_lines) in enumerate(lang_runs):
-            sec_s, sec_e = singing_sections[ri]
-            if ri == len(lang_runs) - 1:
-                sec_e = max(sec_e, total_audio_sec - 1.0)
-            if lang == "en":
-                _align_en(r_lines, sec_s, sec_e)
-            else:
-                _align_zh(r_lines, sec_s, sec_e)
+        _dispatch_align(lang, r_lines, sec_s, sec_e)
     else:
         cur_sec_idx = 0
         ri = 0
         while ri < len(lang_runs) and cur_sec_idx < len(singing_sections):
             sec_s, sec_e = singing_sections[cur_sec_idx]
-            if ri == len(lang_runs) - 1:
-                sec_e = max(sec_e, singing_sections[-1][1], total_audio_sec - 1.0)
+            if cur_sec_idx == len(singing_sections) - 1:
+                sec_e = min(total_audio_sec, sec_e + 1.2)
             sec_dur = sec_e - sec_s
-            lang, r_lines = lang_runs[ri]
 
             # 容量检查：若当前乐段时长严重不足以容纳当前语言块（如开场杂音仅1-2s，而歌词有十多行），
             # 且后续乐段具有充足容量，则跳过此虚假乐段
-            min_needed_dur = max(2.0, len(r_lines) * 1.0)
+            min_needed_dur = max(2.0, len(lang_runs[ri][1]) * 1.0)
             if (sec_dur < min_needed_dur and cur_sec_idx + 1 < len(singing_sections)
                     and (singing_sections[cur_sec_idx + 1][1] - singing_sections[cur_sec_idx + 1][0]) >= min_needed_dur):
                 log.info("乐段 %d (%.2fs - %.2fs, 时长=%.2fs) 不足容纳 %d 行歌词，跳过并移至下一乐段",
-                         cur_sec_idx, sec_s, sec_e, sec_dur, len(r_lines))
+                         cur_sec_idx, sec_s, sec_e, sec_dur, len(lang_runs[ri][1]))
                 cur_sec_idx += 1
                 continue
 
-            should_pair = False
-            if ri + 1 < len(lang_runs) and lang_runs[ri + 1][0] != lang:
-                r_lines2 = lang_runs[ri + 1][1]
-                n1, n2 = len(r_lines), len(r_lines2)
-                if n1 <= 6 and n2 <= 6:
-                    rate_single = sec_dur / n1
-                    rate_both = sec_dur / (n1 + n2)
-                    if rate_single > 4.0 and 1.5 <= rate_both <= 6.0:
-                        should_pair = True
-                    elif (len(lang_runs) - ri) > (len(singing_sections) - cur_sec_idx) and rate_both >= 1.2:
-                        should_pair = True
+            rem_time = sum(s[1] - s[0] for s in singing_sections[cur_sec_idx:])
+            rem_lines = sum(len(r[1]) for r in lang_runs[ri:])
+            target_rate = max(1.5, min(5.0, rem_time / max(1, rem_lines)))
 
-            if should_pair:
-                r_lines2 = lang_runs[ri + 1][1]
+            best_m = 1
+            best_score = float("inf")
+            tot_lines = 0
+            for m in range(1, len(lang_runs) - ri + 1):
+                tot_lines += len(lang_runs[ri + m - 1][1])
+                cand_rate = sec_dur / tot_lines
+                rem_secs = len(singing_sections) - (cur_sec_idx + 1)
+                rem_runs_after = len(lang_runs) - (ri + m)
+                if cand_rate < 1.4:
+                    break
+                if rem_secs > 0 and rem_runs_after < rem_secs:
+                    break
+                score = abs(cand_rate - target_rate)
+                if score < best_score:
+                    best_score = score
+                    best_m = m
+
+            chosen_runs = lang_runs[ri: ri + best_m]
+            tot_chosen_lines = sum(len(r[1]) for r in chosen_runs)
+
+            if len(chosen_runs) == 1:
+                r_lang, r_lines = chosen_runs[0]
+                log.info("乐段 %d (%.2fs - %.2fs) 单语言块对齐: %s (%d 行)", cur_sec_idx, sec_s, sec_e, r_lang, len(r_lines))
+                _dispatch_align(r_lang, r_lines, sec_s, sec_e)
+                ri += 1
+                cur_sec_idx += 1
+            else:
+                log.info(
+                    "乐段 %d (%.2fs - %.2fs) 智能多语言切分: 包含 %d 个语言块 (共 %d 行)",
+                    cur_sec_idx, sec_s, sec_e, len(chosen_runs), tot_chosen_lines
+                )
                 sub_hop = int(sr * 0.05)
                 s_sample, e_sample = int(sec_s * sr), int(sec_e * sr)
                 sub_wav = wav[s_sample:e_sample]
                 sub_rms = [float(np.sqrt(np.mean(sub_wav[i:i + sub_hop] ** 2))) for i in range(0, len(sub_wav) - sub_hop, sub_hop)]
 
-                base_ratio = len(r_lines) / (len(r_lines) + len(r_lines2))
-                ratio = base_ratio * (0.93 if lang == "en" else 1.07)
-                center_idx = int(len(sub_rms) * ratio)
-                search_w = int(1.5 / 0.05)
-                best_score = float("inf")
-                best_idx = center_idx
-                for k in range(max(0, center_idx - search_w), min(len(sub_rms), center_idx + search_w)):
-                    dist_sec = abs(k - center_idx) * 0.05
-                    score = sub_rms[k] + 0.05 * dist_sec
-                    if score < best_score:
-                        best_score = score
-                        best_idx = k
-                mid_t = sec_s + (best_idx * sub_hop) / sr
+                cut_times = [sec_s]
+                accum = 0
+                for r_idx in range(len(chosen_runs) - 1):
+                    accum += len(chosen_runs[r_idx][1])
+                    ratio = accum / tot_chosen_lines
+                    center_idx = int(len(sub_rms) * ratio)
+                    search_w = int(2.5 / 0.05)
+                    best_s = float("inf")
+                    best_k = center_idx
+                    for k in range(max(0, center_idx - search_w), min(len(sub_rms), center_idx + search_w)):
+                        dist_sec = abs(k - center_idx) * 0.05
+                        sc = sub_rms[k] + 0.05 * dist_sec
+                        if sc < best_s:
+                            best_s = sc
+                            best_k = k
+                    cut_t = sec_s + (best_k * sub_hop) / sr
+                    cut_times.append(cut_t)
+                cut_times.append(sec_e)
 
-                log.info(
-                    "乐段 %d (%.2fs - %.2fs) 智能双语切分点: %.2fs (前段 %s: %d行, 后段 %s: %d行)",
-                    cur_sec_idx, sec_s, sec_e, mid_t, lang, len(r_lines), lang_runs[ri + 1][0], len(r_lines2)
-                )
-
-                if lang == "en":
-                    _align_en(r_lines, sec_s, mid_t)
-                else:
-                    _align_zh(r_lines, sec_s, mid_t)
-                ri += 1
-
-                lang2, _ = lang_runs[ri]
-                if lang2 == "en":
-                    _align_en(r_lines2, mid_t, sec_e)
-                else:
-                    _align_zh(r_lines2, mid_t, sec_e)
-                ri += 1
-                cur_sec_idx += 1
-            else:
-                log.info("乐段 %d (%.2fs - %.2fs) 单语言对齐: %s (%d 行)", cur_sec_idx, sec_s, sec_e, lang, len(r_lines))
-                if lang == "en":
-                    _align_en(r_lines, sec_s, sec_e)
-                else:
-                    _align_zh(r_lines, sec_s, sec_e)
-                ri += 1
+                for r_idx, (r_lang, r_lines) in enumerate(chosen_runs):
+                    ps, pe = cut_times[r_idx], cut_times[r_idx + 1]
+                    log.info("  子块 %d: %s (%d 行) -> %.2fs ~ %.2fs", r_idx, r_lang, len(r_lines), ps, pe)
+                    _dispatch_align(r_lang, r_lines, ps, pe)
+                    ri += 1
                 cur_sec_idx += 1
 
         while ri < len(lang_runs):
             lang, r_lines = lang_runs[ri]
             last_end = singing_sections[-1][1] if singing_sections else min_start
             rem_s = max(min_start, last_end)
-            rem_e = total_audio_sec
+            rem_e = min(total_audio_sec, rem_s + len(r_lines) * 3.5)
             log.warning("乐段用尽兜底对齐: 语言块 %d (%s, %d 行) 分配至尾部 %.2fs ~ %.2fs", ri, lang, len(r_lines), rem_s, rem_e)
-            if lang == "en":
-                _align_en(r_lines, rem_s, rem_e)
-            else:
-                _align_zh(r_lines, rem_s, rem_e)
+            _dispatch_align(lang, r_lines, rem_s, rem_e)
             ri += 1
 
     aligned_lines = []
@@ -662,6 +834,46 @@ def align_lyrics_ctc(
 # 无歌词场景: Whisper 纯文本听写 (ASR)
 # ---------------------------------------------------------------------------
 
+def transcribe_audio_with_anchors(
+    vocals_path: Path,
+    config: AlignerConfig | None = None,
+) -> tuple[list[WhisperSegmentAnchor], str]:
+    """
+    使用 Whisper 提取带分段和词级时间戳的音频转写锚点 (ASR Anchors)。
+    """
+    if config is None:
+        config = AlignerConfig()
+
+    model = _get_whisper(config)
+    lang = config.language if config.language and config.language != "auto" else None
+    segments, info = model.transcribe(str(vocals_path), language=lang, beam_size=5, word_timestamps=True)
+
+    detected_lang = info.language or "zh"
+    anchors: list[WhisperSegmentAnchor] = []
+    for idx, s in enumerate(segments):
+        words = [
+            WhisperWordAnchor(
+                word=w.word.strip(),
+                start=round(w.start, 3),
+                end=round(w.end, 3),
+                probability=getattr(w, "probability", 1.0),
+            )
+            for w in (s.words or [])
+            if w.word.strip()
+        ]
+        anchors.append(WhisperSegmentAnchor(
+            id=idx,
+            text=s.text.strip(),
+            start=round(s.start, 3),
+            end=round(s.end, 3),
+            language=detected_lang,
+            words=words,
+        ))
+
+    log.info("Whisper 转写完成: %d 个时间锚点片段 (检测语言: %s)", len(anchors), detected_lang)
+    return anchors, detected_lang
+
+
 def transcribe_audio(
     vocals_path: Path,
     config: AlignerConfig | None = None,
@@ -670,31 +882,8 @@ def transcribe_audio(
     无歌词场景: 使用轻量 faster-whisper 仅转写音频文本 (ASR)，返回 (歌词行列表, 检测到的语言代码)。
     后续统一交给 align_lyrics (CTC Forced Alignment) 进行声学高精度时间戳打点。
     """
-    from faster_whisper import WhisperModel
-
-    if config is None:
-        config = AlignerConfig()
-
-    device = config.device
-    if device == "cuda" and not torch.cuda.is_available():
-        device = "cpu"
-    compute_type = "int8" if device == "cpu" else "float16"
-
-    model_size = config.whisper_model or "base"
-    log.info("【无歌词 ASR 文本听写】加载 Whisper: %s (device=%s, compute=%s)", model_size, device, compute_type)
-    model = WhisperModel(model_size, device=device, compute_type=compute_type)
-
-    lang = config.language if config.language and config.language != "auto" else None
-    segments, info = model.transcribe(str(vocals_path), language=lang, beam_size=5)
-
-    detected_lang = info.language or "zh"
-    lines: list[LyricLine] = []
-    for s in segments:
-        text = s.text.strip()
-        if text:
-            lines.append(LyricLine(text=text))
-
-    log.info("Whisper 文本听写完成: %d 行有效歌词 (检测语言: %s)", len(lines), detected_lang)
+    anchors, detected_lang = transcribe_audio_with_anchors(vocals_path, config)
+    lines = [LyricLine(text=a.text) for a in anchors if a.text.strip()]
     return lines, detected_lang
 
 
@@ -797,8 +986,8 @@ def _self_heal_alignment(
     tail_lag = last_vocal_end - last_line_end
 
     for k, (orig_i, line) in enumerate(indexed_lines):
-        # 英文词整体为一个发音单元；按字母计数会误判正常英文快唱导致反复错误触发自愈
-        char_count = len(re.findall(r"[\u4e00-\u9fff]|[a-zA-Z0-9]+(?:['’\-][a-zA-Z0-9]+)*", line.text))
+        # 英文与欧系多语言词整体为一个发音单元；中日韩字符按单字计数
+        char_count = len(re.findall(r"[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]|[a-zA-Z0-9\u00C0-\u024F]+(?:['’\-][a-zA-Z0-9\u00C0-\u024F]+)*", line.text))
         dur = max(0.0, line.end - line.start)
         rate = dur / max(1, char_count)
 
