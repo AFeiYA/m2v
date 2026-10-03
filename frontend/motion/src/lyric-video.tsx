@@ -19,7 +19,7 @@ export const LyricVideo:React.FC<VideoProps>=({project,timeOffset=0})=>{
  const plan=layouts?visiblePosterAt(layouts,t):undefined;
  const stage=layouts?stageAt(layouts,t):undefined;
  const feature=useMemo(()=>featuresAt(project,t),[project,t]);
- if(!stage)return <AbsoluteFill style={{background:'#eeeee6'}}/>;
+ if(!stage)return <AbsoluteFill style={{background:'#0d120a'}}/>;
  const complete=plan?Math.max(...plan.nodes.map(n=>n.settled)):Infinity;
  const introState=intro?introTitleState(intro,t,height):null;
  const pulse=1+(feature.kick||feature.beat*.3)*.012;

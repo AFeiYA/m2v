@@ -48,7 +48,7 @@ class PosterDirection(BaseModel):
     model_config = ConfigDict(extra='forbid')
     version: Literal['motion-poster-direction-v1'] = 'motion-poster-direction-v1'
     status: Literal['draft'] = 'draft'
-    layout: Literal['hero-stack', 'center-stack', 'staggered'] = 'hero-stack'
+    layout: Literal['hero-stack', 'center-stack', 'staggered', 'right-stack'] = 'hero-stack'
     intent: str = Field(min_length=1, max_length=300)
     background: str = Field(pattern=r'^#[0-9a-fA-F]{6}$')
     accent: str = Field(pattern=r'^#[0-9a-fA-F]{6}$')
@@ -327,12 +327,12 @@ def rule_plan(project, previous=None, style='impact'):
 
 def director_capabilities():
     return {'executable': ['word-impact', 'phrase-rise', 'quiet-hold', 'phrase-actions', 'pdoom-post'],
-            'poster_runtime': ['hero-stack', 'center-stack', 'staggered', 'cumulative-entrances', 'primary-pulse', 'cut', 'fade', 'bounded-handover', 'portrait-layout'],
+            'poster_runtime': ['hero-stack', 'center-stack', 'staggered', 'right-stack', 'cumulative-entrances', 'primary-pulse', 'cut', 'fade', 'bounded-handover', 'portrait-layout'],
             'semantic_relations': {'kinds': ['guidance', 'contrast', 'negation', 'repetition', 'spatial'], 'references': 'zero-based poster.nodes indices', 'runtime': 'bounded semantic arrangement using existing entrances, hierarchy and offsets; timing and one primary preserved; semantic_mode off disables it'},
             'design_only': [],
             'not_supported': ['3d-glyphs', 'tunnel', 'depth-of-field'],
             'unavailable_audio_features': ['vocal-pitch', 'vocal-timbre', 'reverb-tail', 'delay-tail'],
-            'layout_templates': {'hero-stack': '主标题和引导/收尾层级', 'center-stack': '居中层叠', 'staggered': '左右错落'},
+            'layout_templates': {'hero-stack': '主标题居左', 'center-stack': '居中层叠', 'staggered': '左右错落', 'right-stack': '靠右冲击'},
             'geometry_owner': 'layout compiler; LLM must not return coordinates, font sizes or absolute times',
             'poster_scope': {'unit': 'alignment-line', 'count': 'one-poster-per-line',
                              'spaces': 'semantic pauses within the same line', 'nodes': 'blocks in one shared composition'}}
@@ -415,7 +415,7 @@ poster.nodes 的节点数量必须严格服从 target_nodes 的目标：
 
 【海报排版与动画规则】
 - 颜色层级：整曲 visual_language 定义统一的 background、foreground、accent。默认 primary 使用 color_role=accent，secondary 使用 foreground，support 使用 muted，让最大字号与强调色指向同一个语义焦点，不把鲜明强调色给铺垫而让主视觉退为普通色。每张海报最多一个 accent 节点，且只能是 primary；可因句意采用无强调色的单色方案，此时 primary 使用 foreground，并在 poster.intent 简述原因。muted 只降低辅助信息权重，仍需保持可读；不得给各词组任意新增颜色或让整句全部高亮。重复句、平行句保持相应角色的颜色策略一致，避免强调色随机换到不同语义层。实际字号、颜色对比与显示由代码执行，不声称已完成像素级检查。
-- 海报构图：合理运用 hero-stack、center-stack、staggered。节点随演唱 cumulative 累积落位，最终拼合为完整画面，不返回坐标/字号。
+- 海报构图：合理运用 hero-stack、center-stack、right-stack、staggered。节点随演唱 cumulative 累积落位，最终拼合为完整画面，不返回坐标/字号。
 - 动效节制：entrance 限 none/fade/slide-up/slide-left/scale-in；hold 必须 none；beat_reaction 仅 primary 允许 pulse，短促快唱选用简洁淡入或滑入。
 - 句间衔接：final_hold 必为 available-tail，transition_out 仅 cut/fade，transition_note 阐述意象传承，末句收束。
 - 完整性：完全覆盖给定 line_id，word_indices 原序完整不漏，保留 locked 节点与既有 seed。

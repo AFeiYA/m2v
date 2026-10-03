@@ -6,76 +6,130 @@ export type CompiledNode={motion_strength?:number;text:string;word_indices:numbe
 export type CompiledPoster={visual_intensity:'restrained'|'expanded'|'peak';version:'motion-poster-layout-v1';line_id:string;source:'director'|'automatic';width:number;height:number;background:string;accent:string;motif:'none'|'rings';layout:PosterDirection['layout'];transition_out:'cut'|'fade';relations:NonNullable<PosterDirection['relations']>;semantic_arrangement:SemanticApplication[];start:number;end:number;handover?:{mode:'cut'|'fade'|'layered-fade';visible_end:number;exit_start:number;primary_exit_start:number;next_start:number|null};nodes:CompiledNode[]};
 
 export type DefaultLayoutPreset = 'smart' | 'single' | 'two-stack' | 'three-stack' | 'word-by-word' | 'random';
+export type StackLayout = 'hero-stack' | 'center-stack' | 'staggered' | 'right-stack';
 
 export type ThemePalette = {
   id: string;
   name: string;
   accent: string;
+  accentDark: string;
+  accentLight: string;
   backgroundLight: string;
   backgroundDark: string;
+  foregroundDark: string;
+  foregroundLight: string;
+  mutedDark: string;
+  mutedLight: string;
   defaultBackground: 'light' | 'dark';
 };
 
 export const THEME_PALETTES: Record<string, ThemePalette> = {
   impact: {
     id: 'impact',
-    name: '荧绿 · 高对比',
-    accent: '#c1ee47',
-    backgroundLight: '#eeeee6',
-    backgroundDark: '#121610',
-    defaultBackground: 'light'
+    name: '荧绿 · 极速光效',
+    accent: '#c8ff00',
+    accentDark: '#c8ff00',
+    accentLight: '#2a6100',
+    backgroundLight: '#f3f6ee',
+    backgroundDark: '#0d120a',
+    foregroundDark: '#f4f9ed',
+    foregroundLight: '#182214',
+    mutedDark: '#76876e',
+    mutedLight: '#63735e',
+    defaultBackground: 'dark'
   },
   neon: {
     id: 'neon',
-    name: '霓虹 · 赛博蓝',
-    accent: '#63d9ed',
-    backgroundLight: '#eef6f8',
-    backgroundDark: '#0e141b',
+    name: '霓虹 · 赛博冷蓝',
+    accent: '#00f0ff',
+    accentDark: '#00f0ff',
+    accentLight: '#006080',
+    backgroundLight: '#edf5f8',
+    backgroundDark: '#070e17',
+    foregroundDark: '#eef8fc',
+    foregroundLight: '#101c24',
+    mutedDark: '#628299',
+    mutedLight: '#557082',
     defaultBackground: 'dark'
   },
   sunset: {
     id: 'sunset',
-    name: '落日 · 烈焰橙红',
-    accent: '#ff5722',
-    backgroundLight: '#f8eee8',
-    backgroundDark: '#181210',
+    name: '落日 · 烈焰赤金',
+    accent: '#ff5028',
+    accentDark: '#ff5028',
+    accentLight: '#b82400',
+    backgroundLight: '#fcf0ec',
+    backgroundDark: '#140907',
+    foregroundDark: '#fdf2f0',
+    foregroundLight: '#24120e',
+    mutedDark: '#946b64',
+    mutedLight: '#7a5852',
     defaultBackground: 'dark'
   },
   amber: {
     id: 'amber',
     name: '琥珀 · 暖金流光',
-    accent: '#ffb800',
-    backgroundLight: '#f8f5ec',
-    backgroundDark: '#18160e',
+    accent: '#ffbe1a',
+    accentDark: '#ffbe1a',
+    accentLight: '#8a5500',
+    backgroundLight: '#faf5ea',
+    backgroundDark: '#141108',
+    foregroundDark: '#faf7ed',
+    foregroundLight: '#221c10',
+    mutedDark: '#91876b',
+    mutedLight: '#756a52',
     defaultBackground: 'dark'
   },
   violet: {
     id: 'violet',
     name: '幻紫 · 极光电子',
-    accent: '#b388ff',
-    backgroundLight: '#f3eff8',
-    backgroundDark: '#15101a',
+    accent: '#c084fc',
+    accentDark: '#c084fc',
+    accentLight: '#611fa1',
+    backgroundLight: '#f5effa',
+    backgroundDark: '#100818',
+    foregroundDark: '#f7f1fc',
+    foregroundLight: '#1c1026',
+    mutedDark: '#847199',
+    mutedLight: '#6b5880',
     defaultBackground: 'dark'
   },
   sakura: {
     id: 'sakura',
     name: '蔷薇 · 抒情粉黛',
-    accent: '#ff6584',
-    backgroundLight: '#f8edf0',
-    backgroundDark: '#191114',
-    defaultBackground: 'light'
+    accent: '#ff5c8a',
+    accentDark: '#ff5c8a',
+    accentLight: '#b01248',
+    backgroundLight: '#fbf0f4',
+    backgroundDark: '#160810',
+    foregroundDark: '#fef1f5',
+    foregroundLight: '#26101a',
+    mutedDark: '#966c7d',
+    mutedLight: '#7d5364',
+    defaultBackground: 'dark'
   },
   monochrome: {
     id: 'monochrome',
     name: '极简 · 黑白高对比',
     accent: '#ffffff',
-    backgroundLight: '#f0f0f0',
-    backgroundDark: '#121212',
+    accentDark: '#ffffff',
+    accentLight: '#0a0a0a',
+    backgroundLight: '#f4f4f4',
+    backgroundDark: '#0d0d0d',
+    foregroundDark: '#dcdcdc',
+    foregroundLight: '#2a2a2a',
+    mutedDark: '#727272',
+    mutedLight: '#787878',
     defaultBackground: 'dark'
   }
 };
 
-export function resolvePaletteColors(palette = 'impact', backgroundTone: 'light' | 'dark' | 'auto' = 'auto'): { background: string; accent: string } {
+export function resolvePaletteColors(palette = 'impact', backgroundTone: 'light' | 'dark' | 'auto' = 'auto'): {
+  background: string;
+  accent: string;
+  foreground: string;
+  muted: string;
+} {
   let p = palette;
   if (p === 'random') {
     const keys = Object.keys(THEME_PALETTES);
@@ -85,8 +139,29 @@ export function resolvePaletteColors(palette = 'impact', backgroundTone: 'light'
   const isDark = backgroundTone === 'dark' ? true : backgroundTone === 'light' ? false : theme.defaultBackground === 'dark';
   return {
     background: isDark ? theme.backgroundDark : theme.backgroundLight,
-    accent: theme.accent
+    accent: isDark ? theme.accentDark : theme.accentLight,
+    foreground: isDark ? theme.foregroundDark : theme.foregroundLight,
+    muted: isDark ? theme.mutedDark : theme.mutedLight
   };
+}
+
+export function pickRandomStackLayout(line?: Line, exclude?: StackLayout): StackLayout {
+  const pool: StackLayout[] = [
+    'center-stack', 'center-stack', 'center-stack',
+    'hero-stack', 'hero-stack',
+    'staggered', 'staggered',
+    'right-stack'
+  ];
+  const candidates = exclude ? pool.filter(l => l !== exclude) : pool;
+  const finalPool = candidates.length ? candidates : pool;
+  if (line) {
+    let hash = 0;
+    const str = (line.id || '') + ':' + (line.text || '');
+    for (let i = 0; i < str.length; i++) hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+    const idx = Math.abs(hash) % finalPool.length;
+    return finalPool[idx];
+  }
+  return finalPool[Math.floor(Math.random() * finalPool.length)];
 }
 
 export function pickRandomPreset(line: Line): 'smart' | 'single' | 'two-stack' | 'three-stack' | 'word-by-word' {
@@ -132,7 +207,7 @@ function range(start: number, end: number): number[] {
   return r;
 }
 
-export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutPreset='smart',backgroundTone:'light'|'dark'|'auto'='auto'):PosterDirection {
+export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutPreset='smart',backgroundTone:'light'|'dark'|'auto'='auto',layoutOverride?:StackLayout):PosterDirection {
   const {background,accent}=resolvePaletteColors(palette,backgroundTone);
   if(!line.words.length){
     return {
@@ -180,10 +255,13 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
     }
   }
 
+  const stackLayout:StackLayout=layoutOverride||pickRandomStackLayout(preset==='random'?undefined:line);
+  const layoutLabel={'hero-stack':'居左','center-stack':'居中','right-stack':'靠右','staggered':'错落'}[stackLayout];
+
   if(customBlocks){
     const primary=customBlocks.length-1;
     return {
-      version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:preset==='random'?'随机短语分行海报':'智能短语分行海报',
+      version:'motion-poster-direction-v1',status:'draft',layout:stackLayout,intent:(preset==='random'?'随机短语分行海报':'智能短语分行海报')+`（${layoutLabel}）`,
       background,accent,motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
       nodes:customBlocks.map((b,i)=>({
         ...b,
@@ -220,7 +298,7 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
     }
     const blocks=[sliceWords(range(0,bestCut)),sliceWords(range(bestCut,N))];
     return {
-      version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:preset==='random'?'随机双行对垒海报':'双行对垒海报',
+      version:'motion-poster-direction-v1',status:'draft',layout:stackLayout,intent:(preset==='random'?'随机双行对垒海报':'双行对垒海报')+`（${layoutLabel}）`,
       background,accent,motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
       nodes:[
         {...blocks[0],role:'secondary',emphasis:'',color_role:'foreground',entrance:'slide-up',settle_fraction:.25},
@@ -251,7 +329,7 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
     }
     const blocks=[sliceWords(range(0,bestC1)),sliceWords(range(bestC1,bestC2)),sliceWords(range(bestC2,N))];
     return {
-      version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:preset==='random'?'随机三段阶梯海报':'三段阶梯海报',
+      version:'motion-poster-direction-v1',status:'draft',layout:stackLayout,intent:(preset==='random'?'随机三段阶梯海报':'三段阶梯海报')+`（${layoutLabel}）`,
       background,accent,motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
       nodes:[
         {...blocks[0],role:'secondary',emphasis:'',color_role:'foreground',entrance:'slide-up',settle_fraction:.25},
@@ -275,7 +353,7 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
   if(!blocks.length)blocks=[{text:line.text,word_indices:[]}];
   const primary=blocks.reduce((best,b,i)=>b.text.length>blocks[best].text.length?i:best,0);
   return {
-    version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:preset==='random'?'随机逐词击打海报':'逐词击打海报，最长词组为主视觉',
+    version:'motion-poster-direction-v1',status:'draft',layout:stackLayout,intent:(preset==='random'?'随机逐词击打海报':'逐词击打海报')+`（${layoutLabel}）`,
     background,accent,motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
     nodes:blocks.map((b,i)=>({
       ...b,role:i===primary?'primary':'secondary',emphasis:'',color_role:i===primary?'accent':'foreground',entrance:'slide-up',settle_fraction:.25
@@ -393,7 +471,14 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
   const semantic=resolveSemanticDirection(cue?.poster||automaticPoster(line,cue?.palette)),{design,hints}=semantic;
   const rgb=design.background.slice(1).match(/../g)!.map(v=>parseInt(v,16)/255);
   const dark=.2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]<.45;
-  const foreground=dark?'#f3f7e9':'#20261e',muted=dark?'#adbba8':'#697263';
+  const themeMatch = Object.values(THEME_PALETTES).find(t =>
+    t.backgroundDark.toLowerCase() === design.background.toLowerCase() ||
+    t.backgroundLight.toLowerCase() === design.background.toLowerCase() ||
+    t.accentDark.toLowerCase() === design.accent.toLowerCase() ||
+    t.accentLight.toLowerCase() === design.accent.toLowerCase()
+  );
+  const foreground = themeMatch ? (dark ? themeMatch.foregroundDark : themeMatch.foregroundLight) : (dark ? '#f4f9ed' : '#182214');
+  const muted = themeMatch ? (dark ? themeMatch.mutedDark : themeMatch.mutedLight) : (dark ? '#76876e' : '#63735e');
   const dense=Array.from(line.text.replace(/\s/g,'')).length/Math.max(.001,line.end-line.start)>6;
   const nodes:CompiledNode[]=[];
   const short=Array.from(line.text.replace(/\s/g,'')).length<=6;
@@ -442,10 +527,46 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
   let y=Math.max(H*(portrait?.16:.12),Math.min(H*(portrait?.74:.88)-totalHeight,H*(portrait?.42:.5)-before-heights[primaryIndex]/2));
   for(let i=0;i<fitted.length;i++){
     const {n,weight,size,rows}=fitted[i],height=heights[i];
-    const shift=(design.layout==='staggered'?(i%2?W*.025:-W*.025):0)+W*hints[i].offset;
+    const shift=W*hints[i].offset;
     const x=(W-width)/2+shift;
     const baseline=y+padding+measure(rows[0],size,weight).ascent;
-    const resolved=rows.map((text,j)=>({text,x:design.layout==='hero-stack'?leftAxis+W*hints[i].offset:x+(width-measure(text,size,weight).width)/2,y:baseline+j*size*1.04}));
+
+    let nodeAlign: 'left' | 'center' | 'right' = 'left';
+    let stagShift = 0;
+    if(design.layout === 'center-stack'){
+      nodeAlign = 'center';
+    } else if(design.layout === 'right-stack'){
+      nodeAlign = 'right';
+    } else if(design.layout === 'staggered'){
+      if(fitted.length <= 1) {
+        nodeAlign = 'center';
+      } else if(fitted.length === 2) {
+        nodeAlign = i === 0 ? 'left' : 'right';
+        stagShift = i === 0 ? -W * 0.025 : W * 0.025;
+      } else if(fitted.length === 3) {
+        nodeAlign = i === 0 ? 'left' : i === 1 ? 'right' : 'center';
+        stagShift = i === 0 ? -W * 0.025 : i === 1 ? W * 0.025 : 0;
+      } else {
+        nodeAlign = i % 2 === 0 ? 'left' : 'right';
+        stagShift = i % 2 === 0 ? -W * 0.025 : W * 0.025;
+      }
+    } else {
+      nodeAlign = 'left';
+    }
+
+    const resolved = rows.map((text, j) => {
+      const rw = measure(text, size, weight).width;
+      let rx = leftAxis;
+      if(nodeAlign === 'center'){
+        rx = leftAxis + (blockWidth - rw) / 2;
+      } else if(nodeAlign === 'right'){
+        rx = leftAxis + (blockWidth - rw);
+      } else {
+        rx = leftAxis;
+      }
+      return { text, x: rx + stagShift + shift, y: baseline + j * size * 1.04 };
+    });
+
     const a=line.words[n.word_indices[0]],b=line.words[n.word_indices.at(-1)!];
     const start=Math.max(line.start,a?.start??line.start),end=Math.min(line.end,b?.end??line.end);
     const entrance=n.entrance!=='none'&&(dense||end-start<.16)?'fade':n.entrance;
@@ -459,8 +580,8 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
 export function compileSongPosters(project:Project,W:number,H:number,measure:Measure):CompiledPoster[]{
   const first=project.motion_plan?.cues.find(c=>c.poster)?.poster;
   const visual=project.motion_plan?.visual_language;
-  const background=visual?.background||first?.background||'#eeeee6';
-  const accent=visual?.accent||first?.accent||'#c1ee47';
+  const background=visual?.background||first?.background||THEME_PALETTES.impact.backgroundDark;
+  const accent=visual?.accent||first?.accent||THEME_PALETTES.impact.accentDark;
   const motif=first?.motif||'none';
   const recurring=new Map<string,PosterDirection>();
   const layouts=project.lines.map(line=>{
@@ -551,10 +672,10 @@ export function compileIntroTitle(project:Project,W:number,H:number,measure:Meas
 
   const firstCue=project.motion_plan?.cues.find(c=>c.poster)?.poster;
   const visual=project.motion_plan?.visual_language;
-  const background=visual?.background||firstCue?.background||'#eeeee6';
+  const background=visual?.background||firstCue?.background||THEME_PALETTES.impact.backgroundDark;
   const rgb=background.slice(1).match(/../g)!.map(v=>parseInt(v,16)/255);
   const dark=.2126*rgb[0]+.7152*rgb[1]+.0722*rgb[2]<.45;
-  const color=dark?'#f3f7e9':'#20261e';
+  const color=dark?'#f4f9ed':'#182214';
 
   const portrait=H>W;
   const weight=800;

@@ -424,19 +424,19 @@ test('theme palettes provide distinct colors and dark/light tones', () => {
   };
 
   const sunset = automaticPoster(line, 'sunset', 'smart');
-  assert.equal(sunset.accent, '#ff5722');
-  assert.equal(sunset.background, '#181210');
+  assert.equal(sunset.accent, '#ff5028');
+  assert.equal(sunset.background, '#140907');
 
   const amberLight = automaticPoster(line, 'amber', 'smart', 'light');
-  assert.equal(amberLight.accent, '#ffb800');
-  assert.equal(amberLight.background, '#f8f5ec');
+  assert.equal(amberLight.accent, '#8a5500');
+  assert.equal(amberLight.background, '#faf5ea');
 
   const violetDark = automaticPoster(line, 'violet', 'smart', 'dark');
-  assert.equal(violetDark.accent, '#b388ff');
-  assert.equal(violetDark.background, '#15101a');
+  assert.equal(violetDark.accent, '#c084fc');
+  assert.equal(violetDark.background, '#100818');
 
   const sakura = automaticPoster(line, 'sakura', 'smart');
-  assert.equal(sakura.accent, '#ff6584');
+  assert.equal(sakura.accent, '#ff5c8a');
 
   const mono = automaticPoster(line, 'monochrome', 'smart');
   assert.equal(mono.accent, '#ffffff');
@@ -446,7 +446,7 @@ test('theme palettes provide distinct colors and dark/light tones', () => {
   assert.ok(/^#[0-9a-fA-F]{6}$/.test(randomPoster.background));
 });
 
-test('random layout preset produces valid posters with complete coverage', () => {
+test('random layout preset produces valid posters with complete coverage and varied alignments', () => {
   const line = {
     id: 'rand_line',
     text: 'Every road a story told',
@@ -455,11 +455,59 @@ test('random layout preset produces valid posters with complete coverage', () =>
     words: ['Every ', 'road ', 'a ', 'story ', 'told'].map((w, i) => ({ word: w, start: i * 0.6, end: (i + 1) * 0.6 }))
   };
 
-  for (let i = 0; i < 20; i++) {
+  const seenLayouts = new Set<string>();
+  for (let i = 0; i < 30; i++) {
     const poster = automaticPoster(line, 'impact', 'random');
     assert.ok(poster.nodes.length >= 1 && poster.nodes.length <= 5);
     assert.equal(poster.nodes.filter(n => n.role === 'primary').length, 1);
     const covered = poster.nodes.flatMap(n => n.word_indices);
     assert.deepEqual(covered, [0, 1, 2, 3, 4]);
+    seenLayouts.add(poster.layout);
   }
+  // Across 30 random generations, multiple alignments must be sampled
+  assert.ok(seenLayouts.size >= 2, `Expected at least 2 distinct layout alignments, saw ${Array.from(seenLayouts).join(', ')}`);
+});
+
+test('stack layouts correctly position rows across center, left, right, and staggered alignments', () => {
+  const line = {
+    id: 'align_test',
+    text: 'Night call',
+    start: 0,
+    end: 2,
+    words: [{ word: 'Night ', start: 0, end: 1 }, { word: 'call', start: 1, end: 2 }]
+  };
+  const mockMeasure = (text: string, size: number) => ({
+    width: text.trim().length * size * 0.6,
+    ascent: size * 0.8,
+    descent: size * 0.2
+  });
+
+  // 1. Hero stack (left-aligned)
+  const leftPoster = compilePoster(line, {
+    line_id: line.id, template: 'phrase-rise', layout: 'left', palette: 'impact', intensity: 0.5, emphasis: '', locked: false,
+    poster: { ...automaticPoster(line, 'impact', 'two-stack', 'dark', 'hero-stack'), layout: 'hero-stack' }
+  }, 1280, 720, mockMeasure);
+  assert.equal(leftPoster.layout, 'hero-stack');
+  // In hero-stack, all rows start at the same left coordinate
+  assert.equal(leftPoster.nodes[0].rows[0].x, leftPoster.nodes[1].rows[0].x);
+
+  // 2. Right stack (right-aligned)
+  const rightPoster = compilePoster(line, {
+    line_id: line.id, template: 'phrase-rise', layout: 'left', palette: 'impact', intensity: 0.5, emphasis: '', locked: false,
+    poster: { ...automaticPoster(line, 'impact', 'two-stack', 'dark', 'right-stack'), layout: 'right-stack' }
+  }, 1280, 720, mockMeasure);
+  assert.equal(rightPoster.layout, 'right-stack');
+  // In right-stack, the right edges of the rows must align
+  const r0Right = rightPoster.nodes[0].rows[0].x + mockMeasure(rightPoster.nodes[0].rows[0].text, rightPoster.nodes[0].fontSize).width;
+  const r1Right = rightPoster.nodes[1].rows[0].x + mockMeasure(rightPoster.nodes[1].rows[0].text, rightPoster.nodes[1].fontSize).width;
+  assert.ok(Math.abs(r0Right - r1Right) < 1, `Expected aligned right edges: ${r0Right} vs ${r1Right}`);
+
+  // 3. Staggered
+  const stagPoster = compilePoster(line, {
+    line_id: line.id, template: 'phrase-rise', layout: 'left', palette: 'impact', intensity: 0.5, emphasis: '', locked: false,
+    poster: { ...automaticPoster(line, 'impact', 'two-stack', 'dark', 'staggered'), layout: 'staggered' }
+  }, 1280, 720, mockMeasure);
+  assert.equal(stagPoster.layout, 'staggered');
+  // Node 0 should be left-aligned and Node 1 should be right-aligned
+  assert.ok(stagPoster.nodes[0].rows[0].x !== stagPoster.nodes[1].rows[0].x);
 });

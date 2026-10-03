@@ -1,5 +1,5 @@
 import {checkImportScope} from './import-scope';
-import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,resolvePaletteColors,type CompiledPoster,type DefaultLayoutPreset} from './poster-layout';
+import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,resolvePaletteColors,pickRandomStackLayout,type CompiledPoster,type DefaultLayoutPreset,type StackLayout} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
 import { defaults, normalizeProject, renderSize, type Project, type Options, type MotionPlan } from './model';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -52,6 +52,7 @@ async function rules(onlyCurrent=false){
  const bgTone=($<HTMLSelectElement>('theme-bg')?.value as 'auto'|'light'|'dark')||'auto';
  plan=await api('director/rules','POST',{project_id:selected,style:palette,line_id:onlyCurrent?currentCue:null});
  if(plan?.cues){
+  let lastLayout:StackLayout|undefined=undefined;
   for(const cue of plan.cues){
    if(onlyCurrent&&cue.line_id!==currentCue)continue;
    if(cue.locked)continue;
@@ -60,7 +61,12 @@ async function rules(onlyCurrent=false){
     const cuePreset=onlyCurrent?(($<HTMLSelectElement>('cue-layout-preset')?.value as DefaultLayoutPreset)||preset):preset;
     const cuePalette=onlyCurrent?(($<HTMLSelectElement>('cue-palette')?.value)||palette):palette;
     cue.palette=cuePalette;
-    cue.poster=automaticPoster(line,cuePalette,cuePreset,bgTone);
+    const generated=automaticPoster(line,cuePalette,cuePreset,bgTone);
+    if(generated.nodes.length>1&&generated.layout===lastLayout){
+      generated.layout=pickRandomStackLayout(lastLayout);
+    }
+    lastLayout=generated.layout as StackLayout;
+    cue.poster=generated;
    }
   }
   await savePlan();
@@ -165,8 +171,22 @@ $('poster-layout').onchange=action(()=>{
  const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);if(!cue||!line)return;
  if(cue.locked)throw new Error('当前句已锁定，请先解锁');
  cue.poster=cue.poster||automaticPoster(line,cue.palette);cue.poster.layout=$<HTMLSelectElement>('poster-layout').value as typeof cue.poster.layout;
- dirty=true;refresh();status('海报布局已更新，请保存方案');
+ dirty=true;refresh();showCue(false);status('海报布局已更新，请保存方案');
 });
+if($('random-layout-cue')){
+ $('random-layout-cue').onclick=action(()=>{
+  const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);if(!cue||!line)return;
+  if(cue.locked)throw new Error('当前句已锁定，请先解锁');
+  cue.poster=cue.poster||automaticPoster(line,cue.palette);
+  const currentLayout=(cue.poster.layout as StackLayout)||'hero-stack';
+  const nextLayout=pickRandomStackLayout(currentLayout);
+  cue.poster.layout=nextLayout;
+  $<HTMLSelectElement>('poster-layout').value=nextLayout;
+  dirty=true;refresh();showCue(false);
+  const names:Record<string,string>={'hero-stack':'居左','center-stack':'居中','right-stack':'靠右','staggered':'错落'};
+  status(`海报对齐已切换为「${names[nextLayout]||nextLayout}」，请保存方案`);
+ });
+}
 if($('apply-layout-preset')){
  $('apply-layout-preset').onclick=action(async()=>{
   const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);
