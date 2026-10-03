@@ -1,5 +1,5 @@
 import {checkImportScope} from './import-scope';
-import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,type CompiledPoster} from './poster-layout';
+import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,type CompiledPoster,type DefaultLayoutPreset} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
 import { defaults, normalizeProject, renderSize, type Project, type Options, type MotionPlan } from './model';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -19,6 +19,15 @@ function listCues(){const select=$<HTMLSelectElement>('cue-select');select.repla
 function showCue(seek=true){const cue=plan?.cues.find(c=>c.line_id===currentCue);if(!cue)return;
  const line=project?.lines.find(l=>l.id===currentCue);
  $<HTMLSelectElement>('poster-layout').value=cue.poster?.layout||'hero-stack';$('poster-design-status').textContent=cue.poster?'使用已保存的导演海报设计':'使用自动基础排版，可导入 LLM 海报设计';
+ if($('cue-layout-preset')){
+  $<HTMLSelectElement>('cue-layout-preset').disabled=cue.locked;
+  $<HTMLButtonElement>('apply-layout-preset').disabled=cue.locked;
+  if(cue.poster?.intent?.includes('单行'))$<HTMLSelectElement>('cue-layout-preset').value='single';
+  else if(cue.poster?.intent?.includes('双行'))$<HTMLSelectElement>('cue-layout-preset').value='two-stack';
+  else if(cue.poster?.intent?.includes('三段'))$<HTMLSelectElement>('cue-layout-preset').value='three-stack';
+  else if(cue.poster?.intent?.includes('逐词'))$<HTMLSelectElement>('cue-layout-preset').value='word-by-word';
+  else $<HTMLSelectElement>('cue-layout-preset').value='smart';
+ }
  $<HTMLSelectElement>('visual-intensity').value=cue.poster?.visual_intensity||'auto';$<HTMLSelectElement>('visual-intensity').disabled=cue.locked;
  $<HTMLSelectElement>('semantic-mode').value=cue.poster?.semantic_mode||'auto';$<HTMLSelectElement>('semantic-mode').disabled=cue.locked;
  $<HTMLSelectElement>('cue-exit').value=cue.poster?.transition_out||'cut';$<HTMLSelectElement>('cue-exit').disabled=cue.locked;
@@ -33,8 +42,18 @@ async function savePlan(){if(!plan||!selected)return;plan=await api('plan','PUT'
 async function load(id:string){if(!id)return;if(dirty)await savePlan();audio.pause();playing=false;$('play').textContent='▶';const result=await api('project?project_id='+encodeURIComponent(id));project=normalizeProject(result.project);plan=result.plan;selected=id;dirty=false;audio.src=result.audio_url||'';audio.currentTime=0;audio.load();$('track-name').textContent=project.title||$<HTMLSelectElement>('project-select').selectedOptions[0].text;$<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';$('analysis-status').textContent=project.analysis.energy_curve.length?`音乐数据已就绪 · ${project.analysis.beats.length} 拍点 · 估算 ${project.analysis.bpm} BPM`:'尚无音频分析，可先到歌词编辑器补做';refresh();listCues();await loadExports();status(result.plan_error||(plan?'已加载保存的导演方案':'请选择风格并生成导演方案'));}
 async function rules(onlyCurrent=false){
  if(!selected)throw new Error('请先选择歌曲');if(dirty)await savePlan();
+ const preset=($<HTMLSelectElement>('default-layout-preset')?.value as DefaultLayoutPreset)||'smart';
  plan=await api('director/rules','POST',{project_id:selected,style:$<HTMLSelectElement>('preset').value,line_id:onlyCurrent?currentCue:null});
- refresh();listCues();status('导演方案已生成并保存，可逐句调整');
+ if(plan?.cues){
+  for(const cue of plan.cues){
+   if(onlyCurrent&&cue.line_id!==currentCue)continue;
+   if(cue.locked)continue;
+   const line=project?.lines.find(l=>l.id===cue.line_id);
+   if(line)cue.poster=automaticPoster(line,cue.palette,onlyCurrent?(($<HTMLSelectElement>('cue-layout-preset')?.value as DefaultLayoutPreset)||preset):preset);
+  }
+  await savePlan();
+ }
+ refresh();listCues();status(onlyCurrent?'当前句排版已重新生成并保存':'导演方案已生成并保存，可逐句调整');
 }
 async function exportVideo(){if(!selected||!plan)throw new Error('请先生成导演方案');if(dirty)await savePlan();const full=$<HTMLSelectElement>('export-range').value==='full';const result=await api('render','POST',{project_id:selected,aspect:options.aspect,height:options.height,bloom:options.bloom,shake:options.shake,post:options.post,start:full?0:Number($<HTMLInputElement>('clip-start').value),length:full?null:Number($<HTMLInputElement>('clip-length').value)});jobId=result.id;$<HTMLButtonElement>('export').disabled=true;$('download').hidden=true;$('cancel').hidden=false;
  try{for(;;){const job=await api('render/'+jobId);$('export-status').textContent=job.status==='running'?`渲染 ${job.frames}/${job.total} 帧 (${Math.round(job.frames/job.total*100)}%)`:job.status==='queued'?'等待渲染…':job.status==='done'?'成片已完成':job.status==='cancelled'?'导出已取消':'导出失败：'+job.error;
@@ -136,6 +155,16 @@ $('poster-layout').onchange=action(()=>{
  cue.poster=cue.poster||automaticPoster(line,cue.palette);cue.poster.layout=$<HTMLSelectElement>('poster-layout').value as typeof cue.poster.layout;
  dirty=true;refresh();status('海报布局已更新，请保存方案');
 });
+if($('apply-layout-preset')){
+ $('apply-layout-preset').onclick=action(async()=>{
+  const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);
+  if(!cue||!line)return;
+  if(cue.locked)throw new Error('当前句已锁定，请先解锁');
+  const preset=($<HTMLSelectElement>('cue-layout-preset')?.value as DefaultLayoutPreset)||'smart';
+  cue.poster=automaticPoster(line,cue.palette,preset);
+  dirty=true;refresh();showCue(false);status(`已应用「${preset}」排版预设，请保存方案`);
+ });
+}
 async function playCue(handover=false){
  const line=project?.lines.find(l=>l.id===currentCue);if(!line)throw new Error('请先选择一句歌词');
  $<HTMLDialogElement>('poster-dialog').close();const size=renderSize(options),context=document.createElement('canvas').getContext('2d')!;

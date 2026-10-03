@@ -5,16 +5,178 @@ export type Measure=(text:string,size:number,weight:number)=>Metrics;
 export type CompiledNode={motion_strength?:number;text:string;word_indices:number[];role:'primary'|'secondary'|'support';x:number;y:number;width:number;height:number;fontSize:number;weight:number;color:string;rows:{text:string;x:number;y:number}[];start:number;settled:number;hold:'none'|'drift';beat_reaction:'none'|'pulse';entrance:PosterDirection['nodes'][number]['entrance']};
 export type CompiledPoster={visual_intensity:'restrained'|'expanded'|'peak';version:'motion-poster-layout-v1';line_id:string;source:'director'|'automatic';width:number;height:number;background:string;accent:string;motif:'none'|'rings';layout:PosterDirection['layout'];transition_out:'cut'|'fade';relations:NonNullable<PosterDirection['relations']>;semantic_arrangement:SemanticApplication[];start:number;end:number;handover?:{mode:'cut'|'fade'|'layered-fade';visible_end:number;exit_start:number;primary_exit_start:number;next_start:number|null};nodes:CompiledNode[]};
 
-export function automaticPoster(line:Line,palette='impact'):PosterDirection {
+export type DefaultLayoutPreset = 'smart' | 'single' | 'two-stack' | 'three-stack' | 'word-by-word';
+
+const WESTERN_PREPOSITIONS_ARTICLES = new Set([
+  'a', 'an', 'the',
+  'in', 'on', 'at', 'to', 'of', 'for', 'with', 'by', 'from', 'as', 'into', 'through', 'after', 'over', 'between', 'out', 'against', 'during', 'without', 'before', 'under', 'around', 'among',
+  'and', 'but', 'or', 'so', 'yet', 'nor',
+  'de', 'des', 'du', 'le', 'la', 'les', 'un', 'une', 'et', 'ou', 'dans', 'en', 'sur', 'pour', 'avec', 'par', 'ce', 'cette', 'ces', 'mon', 'ton', 'son', 'notre', 'votre', 'leur'
+]);
+
+function isPrepositionOrArticle(word: string): boolean {
+  const clean = word.toLowerCase().replace(/[^\p{Script=Latin}]/gu, '');
+  return WESTERN_PREPOSITIONS_ARTICLES.has(clean);
+}
+
+function hasPunctuationEnd(word: string): boolean {
+  return /[,;—\-\u2014，。！？、；：!\?]$/u.test(word.trim());
+}
+
+function range(start: number, end: number): number[] {
+  const r: number[] = [];
+  for (let i = start; i < end; i++) r.push(i);
+  return r;
+}
+
+export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutPreset='smart'):PosterDirection {
+  if(!line.words.length){
+    return {
+      version:'motion-poster-direction-v1',status:'draft',layout:'center-stack',intent:'整句单行居中海报',
+      background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
+      nodes:[{text:line.text,word_indices:[],role:'primary',emphasis:'',color_role:'accent',entrance:'slide-up',settle_fraction:.25}]
+    };
+  }
+  const N=line.words.length;
+  const sliceWords=(indices:number[])=>({
+    text:indices.map(i=>line.words[i].word).join(''),
+    word_indices:indices
+  });
+
+  let effectivePreset:DefaultLayoutPreset=preset;
+  let customBlocks:{text:string;word_indices:number[]}[]|null=null;
+
+  if(preset==='smart'){
+    const hasHan=/[\p{Script=Han}]/u.test(line.text);
+    if(hasHan){
+      const parts=line.text.split(/\s+/u).filter(Boolean);
+      if(parts.length>=2&&parts.length<=4){
+        let offset=0;
+        const b:{text:string;word_indices:number[]}[]=[];
+        for(const part of parts){
+          const indices:number[]=[];let text='';
+          while(offset<line.words.length&&text.length<part.length){
+            indices.push(offset);text+=line.words[offset++].word;
+          }
+          if(indices.length)b.push({text,word_indices:indices});
+        }
+        if(offset===line.words.length&&b.length>=2)customBlocks=b;
+      }
+      if(!customBlocks){
+        const charCount=line.text.replace(/\s+/gu,'').length;
+        if(charCount<=4)effectivePreset='single';
+        else if(charCount<=8)effectivePreset='two-stack';
+        else effectivePreset='three-stack';
+      }
+    }else{
+      const wordCount=line.words.length;
+      if(wordCount<=3)effectivePreset='single';
+      else if(wordCount<=7)effectivePreset='two-stack';
+      else effectivePreset='three-stack';
+    }
+  }
+
+  if(customBlocks){
+    const primary=customBlocks.length-1;
+    return {
+      version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:'智能短语分行海报',
+      background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
+      nodes:customBlocks.map((b,i)=>({
+        ...b,
+        role:i===primary?'primary':i===0?'secondary':'support',
+        emphasis:'',
+        color_role:i===primary?'accent':i===0?'foreground':'muted',
+        entrance:'slide-up',
+        settle_fraction:.25
+      }))
+    };
+  }
+
+  if(effectivePreset==='single'||N<=1){
+    const blocks=[sliceWords(range(0,N))];
+    return {
+      version:'motion-poster-direction-v1',status:'draft',layout:'center-stack',intent:'整句单行居中海报',
+      background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
+      nodes:[{...blocks[0],role:'primary',emphasis:'',color_role:'accent',entrance:'slide-up',settle_fraction:.25}]
+    };
+  }
+
+  if(effectivePreset==='two-stack'||(effectivePreset==='three-stack'&&N===2)){
+    let bestCut=1,bestScore=Infinity;
+    const totalLen=line.words.reduce((sum,w)=>sum+w.word.trim().length,0);
+    for(let c=1;c<N;c++){
+      const len1=line.words.slice(0,c).reduce((sum,w)=>sum+w.word.trim().length,0);
+      const len2=totalLen-len1;
+      let score=Math.abs(len1-len2);
+      if(hasPunctuationEnd(line.words[c-1].word))score-=15;
+      if(isPrepositionOrArticle(line.words[c-1].word))score+=14;
+      if(c===1&&isPrepositionOrArticle(line.words[0].word))score+=15;
+      if(c===N-1&&line.words[N-1].word.trim().length<=3)score+=12;
+      if(score<bestScore){bestScore=score;bestCut=c;}
+    }
+    const blocks=[sliceWords(range(0,bestCut)),sliceWords(range(bestCut,N))];
+    return {
+      version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:'双行对垒海报',
+      background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
+      nodes:[
+        {...blocks[0],role:'secondary',emphasis:'',color_role:'foreground',entrance:'slide-up',settle_fraction:.25},
+        {...blocks[1],role:'primary',emphasis:'',color_role:'accent',entrance:'slide-up',settle_fraction:.25}
+      ]
+    };
+  }
+
+  if(effectivePreset==='three-stack'){
+    let bestC1=1,bestC2=2,bestScore=Infinity;
+    const totalLen=line.words.reduce((sum,w)=>sum+w.word.trim().length,0);
+    const targetLen=totalLen/3;
+    for(let c1=1;c1<N-1;c1++){
+      for(let c2=c1+1;c2<N;c2++){
+        const len1=line.words.slice(0,c1).reduce((sum,w)=>sum+w.word.trim().length,0);
+        const len2=line.words.slice(c1,c2).reduce((sum,w)=>sum+w.word.trim().length,0);
+        const len3=line.words.slice(c2).reduce((sum,w)=>sum+w.word.trim().length,0);
+        let score=Math.abs(len1-targetLen)+Math.abs(len2-targetLen)+Math.abs(len3-targetLen);
+        if(hasPunctuationEnd(line.words[c1-1].word))score-=12;
+        if(hasPunctuationEnd(line.words[c2-1].word))score-=12;
+        if(isPrepositionOrArticle(line.words[c1-1].word))score+=10;
+        if(isPrepositionOrArticle(line.words[c2-1].word))score+=10;
+        if(c1===1&&isPrepositionOrArticle(line.words[0].word))score+=12;
+        if(c2===c1+1&&isPrepositionOrArticle(line.words[c1].word))score+=12;
+        if(c2===N-1&&line.words[N-1].word.trim().length<=3)score+=12;
+        if(score<bestScore){bestScore=score;bestC1=c1;bestC2=c2;}
+      }
+    }
+    const blocks=[sliceWords(range(0,bestC1)),sliceWords(range(bestC1,bestC2)),sliceWords(range(bestC2,N))];
+    return {
+      version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:'三段阶梯海报',
+      background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
+      nodes:[
+        {...blocks[0],role:'secondary',emphasis:'',color_role:'foreground',entrance:'slide-up',settle_fraction:.25},
+        {...blocks[1],role:'support',emphasis:'',color_role:'muted',entrance:'slide-up',settle_fraction:.25},
+        {...blocks[2],role:'primary',emphasis:'',color_role:'accent',entrance:'slide-up',settle_fraction:.25}
+      ]
+    };
+  }
+
+  // Preset: 'word-by-word' (legacy)
+  const parts=line.text.split(/\s+/u).filter(Boolean);let offset=0;
   let blocks:{text:string;word_indices:number[]}[]=[];
-  if(line.words.length){
-    const parts=line.text.split(/\s+/u).filter(Boolean);let offset=0;
-    for(const part of parts){const indices:number[]=[];let text='';while(offset<line.words.length&&text.length<part.length){indices.push(offset);text+=line.words[offset++].word;}if(indices.length)blocks.push({text,word_indices:indices});}
-    if(offset!==line.words.length||blocks.length>12)blocks=[{text:line.words.map(w=>w.word).join(''),word_indices:line.words.map((_,i)=>i)}];
-  }else blocks=[{text:line.text,word_indices:[]}];
+  for(const part of parts){
+    const indices:number[]=[];let text='';
+    while(offset<line.words.length&&text.length<part.length){
+      indices.push(offset);text+=line.words[offset++].word;
+    }
+    if(indices.length)blocks.push({text,word_indices:indices});
+  }
+  if(offset!==line.words.length||blocks.length>12)blocks=[{text:line.words.map(w=>w.word).join(''),word_indices:line.words.map((_,i)=>i)}];
   if(!blocks.length)blocks=[{text:line.text,word_indices:[]}];
   const primary=blocks.reduce((best,b,i)=>b.text.length>blocks[best].text.length?i:best,0);
-  return {version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:'自动基础排版，最长词组为主视觉',background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',nodes:blocks.map((b,i)=>({...b,role:i===primary?'primary':'secondary',emphasis:'',color_role:'foreground',entrance:'slide-up',settle_fraction:.25}))};
+  return {
+    version:'motion-poster-direction-v1',status:'draft',layout:'hero-stack',intent:'逐词击打海报，最长词组为主视觉',
+    background:'#eeeee6',accent:palette==='neon'?'#63d9ed':'#c1ee47',motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
+    nodes:blocks.map((b,i)=>({
+      ...b,role:i===primary?'primary':'secondary',emphasis:'',color_role:i===primary?'accent':'foreground',entrance:'slide-up',settle_fraction:.25
+    }))
+  };
 }
 export function displayText(text:string){
   return text.replace(/\s+/gu,' ').trim().replace(/(?<=\p{Script=Han}) (?=\p{Script=Han})/gu,'');

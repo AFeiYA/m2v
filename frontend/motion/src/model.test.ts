@@ -338,3 +338,78 @@ test('intro title compiles to a single line and animates smoothly during intro g
  });
  assert.equal(compileIntroTitle(immediateProject, 1280, 720, measure), null);
 });
+
+test('automaticPoster generates 5 default non-LLM layout presets with anti-orphan phrasing', () => {
+  const frenchLine = {
+    id: 'line_fr',
+    text: 'Reste encore un peu avec moi',
+    start: 1,
+    end: 4,
+    words: ['Reste ', 'encore ', 'un ', 'peu ', 'avec ', 'moi'].map((w, i) => ({ word: w, start: 1 + i * 0.5, end: 1.5 + i * 0.5 }))
+  };
+
+  // 1. smart preset for French
+  const smartFr = automaticPoster(frenchLine, 'impact', 'smart');
+  assert.equal(smartFr.nodes.length, 2);
+  assert.equal(smartFr.nodes[0].text, 'Reste encore ');
+  assert.equal(smartFr.nodes[1].text, 'un peu avec moi');
+  assert.equal(smartFr.nodes[0].role, 'secondary');
+  assert.equal(smartFr.nodes[1].role, 'primary');
+  assert.equal(smartFr.nodes[1].color_role, 'accent');
+
+  // 2. single preset
+  const singleFr = automaticPoster(frenchLine, 'impact', 'single');
+  assert.equal(singleFr.nodes.length, 1);
+  assert.equal(singleFr.nodes[0].text, 'Reste encore un peu avec moi');
+  assert.equal(singleFr.nodes[0].role, 'primary');
+  assert.equal(singleFr.layout, 'center-stack');
+
+  // 3. two-stack preset
+  const twoStackFr = automaticPoster(frenchLine, 'impact', 'two-stack');
+  assert.equal(twoStackFr.nodes.length, 2);
+  assert.equal(twoStackFr.nodes.map(n => n.text).join(''), 'Reste encore un peu avec moi');
+  assert.equal(twoStackFr.nodes[1].role, 'primary');
+
+  // 4. three-stack preset
+  const threeStackFr = automaticPoster(frenchLine, 'impact', 'three-stack');
+  assert.equal(threeStackFr.nodes.length, 3);
+  assert.equal(threeStackFr.nodes.map(n => n.text).join(''), 'Reste encore un peu avec moi');
+  assert.equal(threeStackFr.nodes[2].role, 'primary');
+  assert.equal(threeStackFr.nodes[1].role, 'support');
+
+  // 5. word-by-word preset
+  const wordByWordFr = automaticPoster(frenchLine, 'impact', 'word-by-word');
+  assert.equal(wordByWordFr.nodes.length, 6);
+  assert.equal(wordByWordFr.nodes.filter(n => n.role === 'primary').length, 1);
+
+  // Short English line: 3 words -> single line
+  const shortEnLine = {
+    id: 'line_en_short',
+    text: 'Wherever we land',
+    start: 0,
+    end: 2,
+    words: ['Wherever ', 'we ', 'land'].map((w, i) => ({ word: w, start: i * 0.6, end: (i + 1) * 0.6 }))
+  };
+  const smartEnShort = automaticPoster(shortEnLine, 'impact', 'smart');
+  assert.equal(smartEnShort.nodes.length, 1);
+  assert.equal(smartEnShort.nodes[0].text, 'Wherever we land');
+
+  // Chinese lines: short, long
+  const zhShort = {
+    id: 'zh_1',
+    text: '本来挺亮',
+    start: 0,
+    end: 2,
+    words: ['本来挺亮'].map(w => ({ word: w, start: 0, end: 2 }))
+  };
+  assert.equal(automaticPoster(zhShort, 'impact', 'smart').nodes.length, 1);
+
+  const zhLong = {
+    id: 'zh_2',
+    text: '在这场永不谢幕的社交博弈',
+    start: 0,
+    end: 4,
+    words: ['在这场', '永不谢幕的', '社交博弈'].map((w, i) => ({ word: w, start: i, end: i + 1 }))
+  };
+  assert.equal(automaticPoster(zhLong, 'impact', 'smart').nodes.length, 3);
+});
