@@ -309,7 +309,7 @@ async function handleSunoImport() {
   const url = input ? input.value.trim() : "";
 
   if (!url) {
-    alert("请输入有效的 Suno 歌曲链接（例如 https://suno.com/s/LScMFeOajPYsjwCB）");
+    alert("请输入有效的 Suno / 网易云歌曲链接、iframe 代码或歌曲 ID");
     return;
   }
   if (btn) btn.disabled = true;
@@ -325,11 +325,12 @@ async function handleSunoImport() {
     localStorage.setItem("suno_chk_gpu", useGpu ? "1" : "0");
   } catch (e) {}
 
+  const isNetEase = url.includes("163.com") || url.includes("163cn.tv") || url.includes("<iframe") || /^\d{5,}$/.test(url);
   let importSec = 0;
   const updateProgressMessage = () => {
-    let stage = "正在从 Suno 提取歌曲信息与歌词...";
+    let stage = isNetEase ? "正在从网易云音乐提取歌曲、LRC 歌词与音频..." : "正在从 Suno 提取歌曲信息与歌词...";
     if (importSec > 5) {
-      stage = separateVocals ? "正在进行人声与伴奏分离及时间轴对齐..." : "正在进行原曲词级时间轴对齐 (WhisperX)...";
+      stage = separateVocals ? "正在进行人声与伴奏分离及时间轴对齐..." : "正在进行原曲词级时间轴对齐 (CTC / WhisperX)...";
     }
     if (progText) {
       progText.textContent = `${stage} (已耗时 ${importSec}s)`;
@@ -433,9 +434,20 @@ async function downloadOriginalAudio() {
   const sunoInput = document.getElementById("suno-url-input");
   const rawUrl = sunoInput ? sunoInput.value.trim() : "";
 
-  // 模式 1: 用户在输入框贴入了 Suno 链接 -> 走第一步从 Suno 提取并下载原曲 MP3
-  if (rawUrl && (rawUrl.startsWith("http://") || rawUrl.startsWith("https://") || rawUrl.includes("suno.com"))) {
-    status("⏳ [1/2] 正在连接 Suno 解析歌曲信息与歌词...");
+  // 模式 1: 用户在输入框贴入了 Suno / 网易云链接、iframe 或 ID -> 提取并下载原曲 MP3
+  const isImportUrl = rawUrl && (
+    rawUrl.startsWith("http://") ||
+    rawUrl.startsWith("https://") ||
+    rawUrl.includes("suno.com") ||
+    rawUrl.includes("163.com") ||
+    rawUrl.includes("163cn.tv") ||
+    rawUrl.includes("<iframe") ||
+    /^\d{5,}$/.test(rawUrl)
+  );
+
+  if (isImportUrl) {
+    const isNetEase = rawUrl.includes("163.com") || rawUrl.includes("163cn.tv") || rawUrl.includes("<iframe") || /^\d{5,}$/.test(rawUrl);
+    status(isNetEase ? "⏳ [1/2] 正在连接网易云音乐解析歌曲音频..." : "⏳ [1/2] 正在连接 Suno 解析歌曲信息与歌词...");
     const dlUrl = `/api/suno/download_mp3?url=${encodeURIComponent(rawUrl)}`;
     const a = document.createElement("a");
     a.href = dlUrl;

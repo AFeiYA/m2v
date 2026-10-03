@@ -117,3 +117,31 @@ class TestPreprocessLyrics:
         assert len(lines) == 2
         assert lines[0].text == "你好"
         assert lines[0].timestamp is not None
+
+    def test_filter_credits_metadata(self):
+        """测试自动过滤作词、作曲、编曲、制作人等非歌词元信息"""
+        content = (
+            "[00:00.00][Intro]\n"
+            "[00:12.00]作词：Luca\n"
+            "[00:20.00]作曲：Luca With Suno\n"
+            "[00:22.00]编曲：Studio X\n"
+            "[00:23.00]Lyrics by: John Doe\n"
+            "[00:25.62]石拱桥 弯成旧时光\n"
+            "[00:32.79]水面 映着天的晴朗\n"
+            "[03:40.00]混音/母带：Mastering Lab\n"
+        )
+        path = _write_temp(content, suffix=".lrc")
+        config = PreprocessorConfig(convert_numbers=False, convert_traditional=False)
+        lines = preprocess_lyrics(path, config)
+        # [Intro] 是 annotation，石拱桥和水面是正常歌词，所有作词/作曲/编曲/混音均应被过滤
+        texts = [l.text for l in lines]
+        assert "[Intro]" in texts
+        assert "石拱桥 弯成旧时光" in texts
+        assert "水面 映着天的晴朗" in texts
+        assert "作词：Luca" not in texts
+        assert "作曲：Luca With Suno" not in texts
+        assert "编曲：Studio X" not in texts
+        assert "Lyrics by: John Doe" not in texts
+        assert "混音/母带：Mastering Lab" not in texts
+        singing_lines = [l for l in lines if not l.is_annotation]
+        assert len(singing_lines) == 2

@@ -514,6 +514,10 @@ def align_lyrics_ctc(
                     continue
                 w_spans = l_spans[curr_s_idx: curr_s_idx + len(tok_clean)]
                 curr_s_idx += len(tok_clean) + 1
+                if not w_spans:
+                    prev_end = words[-1].end if words else s_sec
+                    words.append(WordTimestamp(word=tok, start=round(prev_end, 3), end=round(prev_end + 0.1, 3)))
+                    continue
                 w_s = s_sec + w_spans[0].start * frame_dur
                 w_e = s_sec + w_spans[-1].end * frame_dur
                 w_s = _trim_word_over_silence(w_s, w_e, singing_sections)
@@ -568,6 +572,10 @@ def align_lyrics_ctc(
                     continue
                 w_spans = l_spans[curr_s_idx: curr_s_idx + len(tok_clean)]
                 curr_s_idx += len(tok_clean)
+                if not w_spans:
+                    prev_end = words[-1].end if words else s_sec
+                    words.append(WordTimestamp(word=tok, start=round(prev_end, 3), end=round(prev_end + 0.1, 3)))
+                    continue
                 w_s = s_sec + w_spans[0].start * frame_dur
                 w_e = s_sec + w_spans[-1].end * frame_dur
                 w_s = _trim_word_over_silence(w_s, w_e, singing_sections)

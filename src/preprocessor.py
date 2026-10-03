@@ -39,6 +39,18 @@ class LyricLine:
 _LRC_TAG_RE = re.compile(r"\[(\d{1,2}):(\d{2})(?:\.(\d{2,3}))?\]")
 # 匹配元数据标签: [ti:xxx] [ar:xxx] 等
 _LRC_META_RE = re.compile(r"^\[(?:ti|ar|al|by|offset|re|ve):", re.IGNORECASE)
+# 匹配制作人、词曲署名、非演唱歌词元信息: 作词：Luca / Composer: ... 等
+_CREDIT_META_RE = re.compile(
+    r"^(?:"
+    r"(?:作词|作曲|编曲|制作人?|词曲|词|曲|演唱|原唱|翻唱|歌手|合唱|和声|和音|伴唱|伴奏|录音(?:室|师)?|混音(?:室|师)?|母带(?:工程|师)?|企划|监制|总监制|发行(?:人|公司)?|出品(?:人)?|统筹|文案|宣发|吉他|贝斯|鼓手?|打击乐|键盘|钢琴|弦乐|大提琴|小提琴|二胡|古筝|琵琶|笛子|OP|SP)"
+    r"(?:\s*[/&、+]\s*(?:作词|作曲|编曲|制作人?|词曲|词|曲|演唱|原唱|歌手|录音|混音|母带))*?"
+    r"\s*[:：/\-]\s*"
+    r"|(?:Lyrics|Lyricist|Composer|Composed|Music|Written|Produced|Producer|Arranger|Arranged|Mixed|Mixer|Mastered|Recorded|Vocals?|Featuring|Feat\.?|Singer|Artist)"
+    r"(?:\s*[/&]\s*(?:Lyrics|Composer|Music|Producer|Arranger))*?"
+    r"\s*(?:by)?\s*[:：/\-]\s*"
+    r")",
+    re.IGNORECASE,
+)
 # 不可发音符号（保留中文、字母、数字、基本标点、空格）
 _UNPRINTABLE_RE = re.compile(r"[^\u4e00-\u9fff\u3400-\u4dbf\w\s，。、！？；：""''…—\-,\.!?;:'\"]")
 # 章节标题: [Intro] / [Verse 1] / [Pre-Chorus] 等 (整行)
@@ -80,6 +92,11 @@ def preprocess_lyrics(
     for line in lines:
         text = line.text.strip()
         if not text:
+            continue
+
+        # 过滤整行制作人、词曲作者等非演唱歌词元信息 (e.g. 作词：Luca / 作曲：... / Lyrics by: ...)
+        if _CREDIT_META_RE.match(text):
+            log.info("过滤非歌词署名元信息行: %s", text)
             continue
 
         # 标记章节标题 [Intro] / [Verse 1] 等

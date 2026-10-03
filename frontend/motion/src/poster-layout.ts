@@ -145,14 +145,16 @@ export function resolvePaletteColors(palette = 'impact', backgroundTone: 'light'
   };
 }
 
-export function pickRandomStackLayout(line?: Line, exclude?: StackLayout): StackLayout {
+export function pickRandomStackLayout(lineOrExclude?: Line | StackLayout, exclude?: StackLayout): StackLayout {
+  const line = typeof lineOrExclude === 'object' && lineOrExclude !== null && 'text' in lineOrExclude ? lineOrExclude : undefined;
+  const excl = typeof lineOrExclude === 'string' ? lineOrExclude : exclude;
   const pool: StackLayout[] = [
     'center-stack', 'center-stack', 'center-stack',
     'hero-stack', 'hero-stack',
     'staggered', 'staggered',
     'right-stack'
   ];
-  const candidates = exclude ? pool.filter(l => l !== exclude) : pool;
+  const candidates = excl ? pool.filter(l => l !== excl) : pool;
   const finalPool = candidates.length ? candidates : pool;
   if (line) {
     let hash = 0;
@@ -205,6 +207,96 @@ function range(start: number, end: number): number[] {
   const r: number[] = [];
   for (let i = start; i < end; i++) r.push(i);
   return r;
+}
+
+export function segmentWordByWord(line: Line, maxBlocks = 8): { text: string; word_indices: number[] }[] {
+  const hasHan = /[\p{Script=Han}]/u.test(line.text);
+  let rawSegments: string[] = [];
+
+  if (hasHan) {
+    if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+      const seg = new Intl.Segmenter('zh-CN', { granularity: 'word' });
+      rawSegments = Array.from(seg.segment(line.text))
+        .map(s => s.segment.trim())
+        .filter(s => s && !/^[\s\p{P}]+$/u.test(s));
+    } else {
+      rawSegments = line.text.split(/[\s\p{P}]+/u).filter(Boolean);
+    }
+    if (rawSegments.length <= 1 && line.words.length > 2) {
+      rawSegments = [];
+      const cleanChars = line.text.replace(/[\s\p{P}]+/gu, '');
+      const chunkSize = cleanChars.length <= 6 ? 2 : cleanChars.length <= 10 ? 3 : 4;
+      for (let i = 0; i < cleanChars.length; i += chunkSize) {
+        rawSegments.push(cleanChars.slice(i, i + chunkSize));
+      }
+    }
+  } else {
+    rawSegments = line.text.split(/\s+/u).filter(Boolean);
+  }
+
+  let wordIdx = 0;
+  const blocks: { text: string; word_indices: number[] }[] = [];
+  for (const seg of rawSegments) {
+    const cleanSeg = seg.replace(/[\s\p{P}]+/gu, '');
+    if (!cleanSeg) continue;
+    const indices: number[] = [];
+    let accumulated = '';
+    while (wordIdx < line.words.length && accumulated.length < cleanSeg.length) {
+      indices.push(wordIdx);
+      accumulated += line.words[wordIdx].word.replace(/[\s\p{P}]+/gu, '');
+      wordIdx++;
+    }
+    if (indices.length) {
+      blocks.push({
+        text: indices.map(i => line.words[i].word).join(''),
+        word_indices: indices
+      });
+    }
+  }
+
+  if (wordIdx < line.words.length) {
+    if (blocks.length > 0) {
+      while (wordIdx < line.words.length) {
+        blocks[blocks.length - 1].word_indices.push(wordIdx);
+        blocks[blocks.length - 1].text += line.words[wordIdx].word;
+        wordIdx++;
+      }
+    } else {
+      blocks.push({
+        text: line.words.map(w => w.word).join(''),
+        word_indices: line.words.map((_, i) => i)
+      });
+    }
+  }
+
+  let merged = blocks;
+  while (merged.length > maxBlocks) {
+    let bestIdx = -1;
+    let minLen = Infinity;
+    for (let i = 0; i < merged.length; i++) {
+      const len = merged[i].text.trim().length;
+      if (len < minLen) {
+        minLen = len;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx < 0) break;
+    if (bestIdx < merged.length - 1) {
+      const cur = merged[bestIdx], nxt = merged[bestIdx + 1];
+      merged.splice(bestIdx, 2, {
+        text: cur.text + nxt.text,
+        word_indices: [...cur.word_indices, ...nxt.word_indices]
+      });
+    } else {
+      const prv = merged[bestIdx - 1], cur = merged[bestIdx];
+      merged.splice(bestIdx - 1, 2, {
+        text: prv.text + cur.text,
+        word_indices: [...prv.word_indices, ...cur.word_indices]
+      });
+    }
+  }
+
+  return merged.length ? merged : [{ text: line.text, word_indices: line.words.map((_, i) => i) }];
 }
 
 export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutPreset='smart',backgroundTone:'light'|'dark'|'auto'='auto',layoutOverride?:StackLayout):PosterDirection {
@@ -339,24 +431,15 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
     };
   }
 
-  // Preset: 'word-by-word' (legacy)
-  const parts=line.text.split(/\s+/u).filter(Boolean);let offset=0;
-  let blocks:{text:string;word_indices:number[]}[]=[];
-  for(const part of parts){
-    const indices:number[]=[];let text='';
-    while(offset<line.words.length&&text.length<part.length){
-      indices.push(offset);text+=line.words[offset++].word;
-    }
-    if(indices.length)blocks.push({text,word_indices:indices});
-  }
-  if(offset!==line.words.length||blocks.length>12)blocks=[{text:line.words.map(w=>w.word).join(''),word_indices:line.words.map((_,i)=>i)}];
-  if(!blocks.length)blocks=[{text:line.text,word_indices:[]}];
-  const primary=blocks.reduce((best,b,i)=>b.text.length>blocks[best].text.length?i:best,0);
+  // Preset: 'word-by-word'
+  const blocks = segmentWordByWord(line, 8);
+  const primary = blocks.reduce((best, b, i) => b.text.length > blocks[best].text.length ? i : best, 0);
   return {
-    version:'motion-poster-direction-v1',status:'draft',layout:stackLayout,intent:(preset==='random'?'随机逐词击打海报':'逐词击打海报')+`（${layoutLabel}）`,
-    background,accent,motif:'none',visibility:'cumulative',final_hold:'available-tail',transition_out:'cut',transition_note:'',
-    nodes:blocks.map((b,i)=>({
-      ...b,role:i===primary?'primary':'secondary',emphasis:'',color_role:i===primary?'accent':'foreground',entrance:'slide-up',settle_fraction:.25
+    version: 'motion-poster-direction-v1', status: 'draft', layout: stackLayout,
+    intent: (preset === 'random' ? '随机逐词击打海报' : '逐词击打海报') + `（${layoutLabel}）`,
+    background, accent, motif: 'none', visibility: 'cumulative', final_hold: 'available-tail', transition_out: 'cut', transition_note: '',
+    nodes: blocks.map((b, i) => ({
+      ...b, role: i === primary ? 'primary' : 'secondary', emphasis: '', color_role: i === primary ? 'accent' : 'foreground', entrance: 'slide-up', settle_fraction: .25
     }))
   };
 }

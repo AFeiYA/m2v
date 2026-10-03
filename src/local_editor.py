@@ -121,40 +121,59 @@ _suno_import_tasks: dict[str, dict[str, Any]] = {}
 @app.post("/api/suno/import")
 def import_suno_song(req: SunoImportRequest):
     """
-    从 Suno 网址一键导入、自动分轨并完成词级时间轴对齐。
+    从 Suno / 网易云音乐 网址或 iframe 一键导入、自动分轨并完成词级时间轴对齐。
     默认启用异步任务模式 (async_mode=True)，彻底避免 Vercel/云端代理的 120 秒超时中断。
     """
     url = req.url.strip()
     if not url:
-        raise HTTPException(400, "Suno URL 不能为空")
+        raise HTTPException(400, "请输入 Suno URL 或网易云歌曲链接/ID")
 
     scan_dir = _get_scan_dir()
     input_dir = scan_dir.parent / "input"
     output_dir = scan_dir
 
+    is_netease = (
+        "163.com" in url.lower()
+        or "163cn.tv" in url.lower()
+        or "<iframe" in url.lower()
+        or "music.163" in url.lower()
+        or (url.isdigit() and len(url) >= 5)
+    )
+
     if not req.async_mode:
         try:
-            from src.suno_fetch import auto_process_suno
-            result = auto_process_suno(
-                url=url,
-                input_dir=input_dir,
-                output_dir=output_dir,
-                launch_editor=False,
-                cookie=req.cookie,
-                token=req.token,
-                skip_separation=req.skip_separation,
-                use_gpu=req.use_gpu,
-            )
+            if is_netease:
+                from src.netease_fetch import auto_process_netease
+                result = auto_process_netease(
+                    url_or_id=url,
+                    input_dir=input_dir,
+                    output_dir=output_dir,
+                    launch_editor=False,
+                    skip_separation=req.skip_separation,
+                    use_gpu=req.use_gpu,
+                )
+            else:
+                from src.suno_fetch import auto_process_suno
+                result = auto_process_suno(
+                    url=url,
+                    input_dir=input_dir,
+                    output_dir=output_dir,
+                    launch_editor=False,
+                    cookie=req.cookie,
+                    token=req.token,
+                    skip_separation=req.skip_separation,
+                    use_gpu=req.use_gpu,
+                )
             return result
         except Exception as e:
-            log.error("Suno 导入失败: %s", e, exc_info=True)
+            log.error("歌曲导入失败: %s", e, exc_info=True)
             raise HTTPException(500, f"处理失败: {e}")
 
-    task_id = f"suno_{uuid.uuid4().hex[:8]}"
+    task_id = f"netease_{uuid.uuid4().hex[:8]}" if is_netease else f"suno_{uuid.uuid4().hex[:8]}"
     _suno_import_tasks[task_id] = {
         "status": "pending",
         "progress": 5,
-        "message": "任务已提交，准备解析 Suno 歌曲...",
+        "message": "任务已提交，准备解析网易云音乐歌曲..." if is_netease else "任务已提交，准备解析 Suno 歌曲...",
         "task_id": task_id,
         "result": None,
         "error": None,
@@ -162,7 +181,6 @@ def import_suno_song(req: SunoImportRequest):
 
     def _worker():
         try:
-            from src.suno_fetch import auto_process_suno
             def _cb(prog: int, msg: str, extra: dict | None = None):
                 if task_id in _suno_import_tasks:
                     _suno_import_tasks[task_id]["progress"] = prog
@@ -171,23 +189,36 @@ def import_suno_song(req: SunoImportRequest):
                     if extra:
                         _suno_import_tasks[task_id].update(extra)
 
-            res = auto_process_suno(
-                url=url,
-                input_dir=input_dir,
-                output_dir=output_dir,
-                launch_editor=False,
-                cookie=req.cookie,
-                token=req.token,
-                progress_callback=_cb,
-                skip_separation=req.skip_separation,
-                use_gpu=req.use_gpu,
-            )
+            if is_netease:
+                from src.netease_fetch import auto_process_netease
+                res = auto_process_netease(
+                    url_or_id=url,
+                    input_dir=input_dir,
+                    output_dir=output_dir,
+                    launch_editor=False,
+                    progress_callback=_cb,
+                    skip_separation=req.skip_separation,
+                    use_gpu=req.use_gpu,
+                )
+            else:
+                from src.suno_fetch import auto_process_suno
+                res = auto_process_suno(
+                    url=url,
+                    input_dir=input_dir,
+                    output_dir=output_dir,
+                    launch_editor=False,
+                    cookie=req.cookie,
+                    token=req.token,
+                    progress_callback=_cb,
+                    skip_separation=req.skip_separation,
+                    use_gpu=req.use_gpu,
+                )
             _suno_import_tasks[task_id]["status"] = "done"
             _suno_import_tasks[task_id]["progress"] = 100
             _suno_import_tasks[task_id]["message"] = "全部处理完成！"
             _suno_import_tasks[task_id]["result"] = res
         except Exception as e:
-            log.error("异步 Suno 导入异常: %s", e, exc_info=True)
+            log.error("异步导入歌曲异常: %s", e, exc_info=True)
             _suno_import_tasks[task_id]["status"] = "error"
             _suno_import_tasks[task_id]["error"] = str(e)
 
@@ -195,7 +226,7 @@ def import_suno_song(req: SunoImportRequest):
     return {
         "status": "pending",
         "task_id": task_id,
-        "message": "Suno 任务已提交...",
+        "message": "网易云导入任务已提交..." if is_netease else "Suno 任务已提交...",
     }
 
 
@@ -1315,19 +1346,41 @@ def api_suno_download_mp3(url: str):
     input_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        from src.suno_fetch import fetch_song, download_song, _sanitize_filename
-        log.info(">>> [仅下 MP3] 开始从 Suno 提取歌曲: %s", url)
-        song = fetch_song(url)
-        song_name = _sanitize_filename(song.title) or song.id
-        song_input_dir = input_dir / song_name
-        song_input_dir.mkdir(parents=True, exist_ok=True)
-
-        audio_path, lyrics_path, json_path, song = download_song(
-            url, song_input_dir, song_name=song_name, save_json=True
+        is_netease = (
+            "163.com" in url.lower()
+            or "163cn.tv" in url.lower()
+            or "<iframe" in url.lower()
+            or "music.163" in url.lower()
+            or (url.isdigit() and len(url) >= 5)
         )
+        if is_netease:
+            from src.netease_fetch import download_netease_song, fetch_netease_song, _sanitize_filename
+            log.info(">>> [仅下 MP3] 开始从网易云音乐提取歌曲: %s", url)
+            song = fetch_netease_song(url)
+            song_name = _sanitize_filename(song.title) or f"netease_{song.id}"
+            song_input_dir = input_dir / song_name
+            song_input_dir.mkdir(parents=True, exist_ok=True)
 
-        if not audio_path or not audio_path.exists():
-            raise HTTPException(404, "未能从 Suno 提取音频，可能该歌曲未设置为 Public")
+            audio_path, lyrics_path, json_path, song = download_netease_song(
+                song, song_input_dir, song_name=song_name, save_json=True
+            )
+
+            if not audio_path or not audio_path.exists():
+                raise HTTPException(404, f"未能自动下载《{song.title}》音频流，该歌曲可能受平台版权保护。已保存歌词至 {song_input_dir}")
+        else:
+            from src.suno_fetch import fetch_song, download_song, _sanitize_filename
+            log.info(">>> [仅下 MP3] 开始从 Suno 提取歌曲: %s", url)
+            song = fetch_song(url)
+            song_name = _sanitize_filename(song.title) or song.id
+            song_input_dir = input_dir / song_name
+            song_input_dir.mkdir(parents=True, exist_ok=True)
+
+            audio_path, lyrics_path, json_path, song = download_song(
+                url, song_input_dir, song_name=song_name, save_json=True
+            )
+
+            if not audio_path or not audio_path.exists():
+                raise HTTPException(404, "未能从 Suno 提取音频，可能该歌曲未设置为 Public")
 
         # 确保输出为标准 MP3
         target_mp3 = audio_path

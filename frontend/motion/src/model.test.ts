@@ -412,6 +412,31 @@ test('automaticPoster generates 5 default non-LLM layout presets with anti-orpha
     words: ['在这场', '永不谢幕的', '社交博弈'].map((w, i) => ({ word: w, start: i, end: i + 1 }))
   };
   assert.equal(automaticPoster(zhLong, 'impact', 'smart').nodes.length, 3);
+
+  // Chinese word-by-word strike: never single sentence, correctly segments into rhythmic words
+  const zhMoonLine = {
+    id: 'zh_moon',
+    text: '月亮在云层里像一枚褪色的银币',
+    start: 0,
+    end: 4,
+    words: '月亮在云层里像一枚褪色的银币'.split('').map((ch, i) => ({ word: ch, start: i * 0.25, end: (i + 1) * 0.25 }))
+  };
+  const wordByWordZh = automaticPoster(zhMoonLine, 'impact', 'word-by-word');
+  assert.ok(wordByWordZh.nodes.length >= 4 && wordByWordZh.nodes.length <= 8, `Expected 4-8 blocks for Chinese word-by-word, got ${wordByWordZh.nodes.length}`);
+  assert.equal(wordByWordZh.nodes.map(n => n.text).join(''), '月亮在云层里像一枚褪色的银币');
+  assert.deepEqual(wordByWordZh.nodes.flatMap(n => n.word_indices), Array.from({ length: 14 }, (_, i) => i));
+  assert.equal(wordByWordZh.nodes.filter(n => n.role === 'primary').length, 1);
+
+  const zhIfLine = {
+    id: 'zh_if',
+    text: '因为如果你没在听',
+    start: 0,
+    end: 3,
+    words: '因为如果你没在听'.split('').map((ch, i) => ({ word: ch, start: i * 0.3, end: (i + 1) * 0.3 }))
+  };
+  const wordByWordIf = automaticPoster(zhIfLine, 'impact', 'word-by-word');
+  assert.ok(wordByWordIf.nodes.length >= 4 && wordByWordIf.nodes.length <= 8);
+  assert.equal(wordByWordIf.nodes.map(n => n.text).join(''), '因为如果你没在听');
 });
 
 test('theme palettes provide distinct colors and dark/light tones', () => {
