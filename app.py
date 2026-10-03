@@ -59,10 +59,19 @@ with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
 demo.queue()
 
 def mount_fastapi_routes(demo_instance):
-    """Gradio 在 launch() 期间会生成全新的运行期 server_app，必须在 launch() 之后注入 FastAPI 全部路由！"""
-    demo_instance.app.include_router(fastapi_app.router)
+    """Gradio 在 launch() 期间会生成运行期 server_app，注入 FastAPI 全部路由（带防重复校验）。"""
+    targets = []
+    if hasattr(demo_instance, "app") and demo_instance.app is not None:
+        targets.append(demo_instance.app)
     if hasattr(demo_instance, "server_app") and demo_instance.server_app is not None:
-        demo_instance.server_app.include_router(fastapi_app.router)
+        if demo_instance.server_app not in targets:
+            targets.append(demo_instance.server_app)
+
+    for target in targets:
+        existing_paths = {getattr(r, "path", "") for r in getattr(target, "routes", [])}
+        if "/api/files" in existing_paths:
+            continue
+        target.include_router(fastapi_app.router)
 
 if __name__ == "__main__":
     from src.hf_motion_runtime import prepare_motion_runtime

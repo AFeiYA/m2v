@@ -690,7 +690,8 @@ def list_assets():
     return result
 
 
-@app.api_route("/api/asset_file", methods=["GET", "HEAD"])
+@app.get("/api/asset_file", operation_id="get_asset_file_get")
+@app.head("/api/asset_file", operation_id="get_asset_file_head", include_in_schema=False)
 def get_asset_file(path: str, json_path: str = "", download: bool = False, filename: str | None = None):
     """提供素材文件流（支持视频 Range 拖拽播放与 HEAD 嗅探，以及附件直接下载）"""
     p = Path(path)
@@ -1218,7 +1219,8 @@ async def upload_asset(file: UploadFile = File(...)):
     }
 
 
-@app.api_route("/api/audio", methods=["GET", "HEAD"])
+@app.get("/api/audio", operation_id="stream_audio_get")
+@app.head("/api/audio", operation_id="stream_audio_head", include_in_schema=False)
 def stream_audio(path: str, download: bool = False, filename: str | None = None):
     """提供音频文件流（支持 Range 请求与附件下载）"""
     p = _validate_path(Path(path))
@@ -1296,7 +1298,8 @@ def download_original_mp3(song: str | None = None, json_path: str | None = None)
     return FileResponse(target_mp3, media_type=media_type, headers=headers)
 
 
-@app.api_route("/api/suno/download_mp3", methods=["GET", "POST"])
+@app.get("/api/suno/download_mp3", operation_id="api_suno_download_mp3_get")
+@app.post("/api/suno/download_mp3", operation_id="api_suno_download_mp3_post")
 def api_suno_download_mp3(url: str):
     """
     Suno 仅下载原曲 MP3（第一步）：
