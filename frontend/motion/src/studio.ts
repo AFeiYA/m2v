@@ -1,3 +1,5 @@
+import {compileSongLayout,paintSongLayout} from './song-layout';
+import {POSTER_FONT} from './poster-layout';
 import {checkImportScope} from './import-scope';
 import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,resolvePaletteColors,pickRandomStackLayout,type CompiledPoster,type DefaultLayoutPreset,type StackLayout} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
@@ -5,6 +7,7 @@ import { defaults, normalizeProject, renderSize, type Project, type Options, typ
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const audio=new Audio();
 let project:Project|null=null,plan:MotionPlan|null=null,engine:RemotionPreview|null=null,selected='',currentCue='',dirty=false,jobId='',playing=false;
+let identityDirty=false;
 let scrubbing=false,resumeAfterScrub=false;
 let posterPreview:CompiledPoster|null=null,clipEnd:number|null=null,clipReviewTime=0,reviewHandover=false;
 const options:Options={...defaults,height:720};
@@ -44,7 +47,7 @@ function showCue(seek=true){const cue=plan?.cues.find(c=>c.line_id===currentCue)
  $<HTMLSelectElement>('cue-template').value=cue.template;$<HTMLSelectElement>('cue-layout').value=cue.layout;$<HTMLSelectElement>('cue-palette').value=cue.palette;$<HTMLInputElement>('cue-intensity').value=String(cue.intensity);$<HTMLInputElement>('cue-emphasis').value=cue.emphasis;$<HTMLInputElement>('cue-locked').checked=cue.locked;
  if(seek){clipEnd=null;audio.pause();playing=false;$('play').textContent='▶';const line=project?.lines.find(l=>l.id===currentCue);audio.currentTime=line?Math.min(line.end-.001,line.start+.15):0;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';}}
 async function savePlan(){if(!plan||!selected)return;plan=await api('plan','PUT',{project_id:selected,plan,from_llm:false});dirty=false;status('导演方案已保存');}
-async function load(id:string){if(!id)return;if(dirty)await savePlan();audio.pause();playing=false;$('play').textContent='▶';const result=await api('project?project_id='+encodeURIComponent(id));project=normalizeProject(result.project);plan=result.plan;selected=id;dirty=false;audio.src=result.audio_url||'';audio.currentTime=0;audio.load();$('track-name').textContent=project.title||$<HTMLSelectElement>('project-select').selectedOptions[0].text;$<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';$('analysis-status').textContent=project.analysis.energy_curve.length?`音乐数据已就绪 · ${project.analysis.beats.length} 拍点 · 估算 ${project.analysis.bpm} BPM`:'尚无音频分析，可先到歌词编辑器补做';refresh();listCues();await loadExports();status(result.plan_error||(plan?'已加载保存的导演方案':'请选择风格并生成导演方案'));}
+async function load(id:string){if(!id)return;if(dirty)await savePlan();if(identityDirty)await saveIdentity();audio.pause();playing=false;$('play').textContent='▶';const result=await api('project?project_id='+encodeURIComponent(id));project=normalizeProject(result.project);plan=result.plan;selected=id;dirty=false;identityDirty=false;showIdentity();audio.src=result.audio_url||'';audio.currentTime=0;audio.load();$('track-name').textContent=project.title||$<HTMLSelectElement>('project-select').selectedOptions[0].text;$<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';$('analysis-status').textContent=project.analysis.energy_curve.length?`音乐数据已就绪 · ${project.analysis.beats.length} 拍点 · 估算 ${project.analysis.bpm} BPM`:'尚无音频分析，可先到歌词编辑器补做';refresh();listCues();await loadExports();status(result.plan_error||(plan?'已加载保存的导演方案':'请选择风格并生成导演方案'));}
 async function rules(onlyCurrent=false){
  if(!selected)throw new Error('请先选择歌曲');if(dirty)await savePlan();
  const preset=($<HTMLSelectElement>('default-layout-preset')?.value as DefaultLayoutPreset)||'smart';
@@ -73,7 +76,7 @@ async function rules(onlyCurrent=false){
  }
  refresh();listCues();status(onlyCurrent?'当前句排版已重新生成并保存':'导演方案已生成并保存，可逐句调整');
 }
-async function exportVideo(){if(!selected||!plan)throw new Error('请先生成导演方案');if(dirty)await savePlan();const full=$<HTMLSelectElement>('export-range').value==='full';const result=await api('render','POST',{project_id:selected,aspect:options.aspect,height:options.height,bloom:options.bloom,shake:options.shake,post:options.post,start:full?0:Number($<HTMLInputElement>('clip-start').value),length:full?null:Number($<HTMLInputElement>('clip-length').value)});jobId=result.id;$<HTMLButtonElement>('export').disabled=true;$('download').hidden=true;$('cancel').hidden=false;
+async function exportVideo(){if(!selected||!plan)throw new Error('请先生成导演方案');if(dirty)await savePlan();if(identityDirty)await saveIdentity();const full=$<HTMLSelectElement>('export-range').value==='full';const result=await api('render','POST',{project_id:selected,aspect:options.aspect,height:options.height,bloom:options.bloom,shake:options.shake,post:options.post,start:full?0:Number($<HTMLInputElement>('clip-start').value),length:full?null:Number($<HTMLInputElement>('clip-length').value)});jobId=result.id;$<HTMLButtonElement>('export').disabled=true;$('download').hidden=true;$('cancel').hidden=false;
  try{for(;;){const job=await api('render/'+jobId);$('export-status').textContent=job.status==='running'?`渲染 ${job.frames}/${job.total} 帧 (${Math.round(job.frames/job.total*100)}%)`:job.status==='queued'?'等待渲染…':job.status==='done'?'成片已完成':job.status==='cancelled'?'导出已取消':'导出失败：'+job.error;
  if(['done','failed','cancelled'].includes(job.status)){if(job.status==='done'){const link=$<HTMLAnchorElement>('download');link.href='/api/motion/render/'+jobId+'/download';link.hidden=false;}break;}await new Promise(resolve=>setTimeout(resolve,1000));}}
  finally{$<HTMLButtonElement>('export').disabled=false;$('cancel').hidden=true;}}
@@ -135,7 +138,7 @@ window.addEventListener('pointercancel',()=>{resumeAfterScrub=false;void finishS
 $('export').onclick=action(exportVideo);$('cancel').onclick=action(()=>api('render/'+jobId+'/cancel','POST'));
 function tick(){if(engine&&playing){if(clipEnd!==null&&audio.currentTime>=clipEnd){audio.pause();audio.currentTime=clipReviewTime;clipEnd=null;playing=false;$('play').textContent='▶';status(reviewHandover?'交接预览完成':'当前句播放完成，停留在最终海报');}engine.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';if(audio.ended){playing=false;$('play').textContent='▶';}}requestAnimationFrame(tick);}requestAnimationFrame(tick);
 audio.addEventListener('seeked',()=>{if(scrubbing)return;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';});
-window.addEventListener('beforeunload',event=>{if(dirty){event.preventDefault();event.returnValue='';}});
+window.addEventListener('beforeunload',event=>{if(dirty||identityDirty){event.preventDefault();event.returnValue='';}});
 (async()=>{try{const rows=await api('projects'),select=$<HTMLSelectElement>('project-select');for(const row of rows){const item=document.createElement('option');item.value=row.id;item.textContent=row.name;select.append(item);}const wanted=new URLSearchParams(location.search).get('song');const chosen=rows.find((row:{id:string;name:string})=>row.name===wanted)||(rows.length===1?rows[0]:null);if(chosen){select.value=chosen.id;await load(chosen.id);}}catch(error){status(String(error));}})();
 
 async function loadExports(){
@@ -154,6 +157,7 @@ $('poster-sample').onclick=action(async()=>{
  audio.pause();clipEnd=null;playing=false;$('play').textContent='▶';await document.fonts.ready;
  const canvas=$<HTMLCanvasElement>('poster-canvas'),size=renderSize(options);canvas.width=size.width;canvas.height=size.height;canvas.style.aspectRatio=`${size.width}/${size.height}`;
  const c=canvas.getContext('2d')!;posterPreview=compileSongPosters(project!,size.width,size.height,canvasMeasure(c)).find(p=>p.line_id===currentCue)!;paintCompiledPoster(c,posterPreview);
+ paintSongLayout(c,compileSongLayout(project!,size.width,size.height,canvasMeasure(c)),line.start,posterPreview.background,posterPreview.accent,POSTER_FONT);
  $('poster-title').textContent='当前句 · 最终海报';$('poster-lyric').textContent=line.text;
  const hold=Math.max(0,(posterPreview.handover?.exit_start??line.end)-Math.max(...posterPreview.nodes.map(n=>n.settled)));
  $('poster-description').textContent=`${posterPreview.source==='director'?'导演设计':'自动基础排版'} · ${options.aspect} · ${posterPreview.nodes.length} 个文字块 · 完成后可停留 ${hold.toFixed(2)} 秒。与动画和 MP4 使用同一排版。`;
@@ -259,3 +263,20 @@ function renderPosterNodes(line:import('./model').Line,cue:import('./model').Cue
   }host.append(card);
  });
 }
+
+function showIdentity(){const v=project?.song_identity;if(!v)return;
+ $<HTMLInputElement>('song-title').value=v.title;$<HTMLInputElement>('song-artist').value=v.artist;$<HTMLSelectElement>('song-style').value=v.style;
+ for(const [id,key] of [['intro','show_intro'],['signature','show_signature'],['section','show_section'],['outro','show_outro']] as const)$<HTMLInputElement>('song-'+id).checked=v[key];
+ $('identity-source').textContent=v.source==='suno-cache'?'默认信息来自 Suno 导入缓存，可自由修改。':'来自现有工程；未找到 Suno 作者信息，可手动填写。';
+}
+function editIdentity(){if(!project?.song_identity)return;
+ Object.assign(project.song_identity,{title:$<HTMLInputElement>('song-title').value.trim(),artist:$<HTMLInputElement>('song-artist').value.trim(),style:$<HTMLSelectElement>('song-style').value,show_intro:$<HTMLInputElement>('song-intro').checked,show_signature:$<HTMLInputElement>('song-signature').checked,show_section:$<HTMLInputElement>('song-section').checked,show_outro:$<HTMLInputElement>('song-outro').checked});
+ project.title=project.song_identity.title;project.artist=project.song_identity.artist;identityDirty=true;$('track-name').textContent=project.title;refresh();status('歌曲版式预览已更新，保存后用于导出');
+}
+async function saveIdentity(){if(!project?.song_identity||!selected)return;if(!project.song_identity.title.trim())throw new Error('请填写歌名');
+ const {source,source_title,source_artist,...identity}=project.song_identity;
+ const result=await api('identity','PUT',{project_id:selected,identity});project.song_identity=result.identity;identityDirty=false;showIdentity();status('歌曲版式已保存，预览与 MP4 使用同一设计');
+}
+for(const id of ['song-title','song-artist','song-style','song-intro','song-signature','song-section','song-outro'])$(id).onchange=editIdentity;
+$('save-identity').onclick=action(saveIdentity);
+$('reset-identity').onclick=()=>{const v=project?.song_identity;if(!v)return;$<HTMLInputElement>('song-title').value=v.source_title||v.title;$<HTMLInputElement>('song-artist').value=v.source_artist||'';editIdentity();};

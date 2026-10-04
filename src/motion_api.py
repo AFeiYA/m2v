@@ -16,6 +16,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from src.motion_director import validate_plan, rule_plan, llm_prompt, director_input, line_prompt_bundle, line_response, cue_signature, source_signature
 
+from src.song_identity import SongIdentity, identity_path, resolve_identity
+
 from src.motion_llm import configuration, generate_json, DirectorAPIError, DirectorQuotaError
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -25,6 +27,10 @@ class ProjectRequest(BaseModel):
     style: str = 'impact'
     line_id: str | None = None
     instruction: str = Field(default='', max_length=2000)
+
+class IdentityRequest(BaseModel):
+    project_id: str
+    identity: SongIdentity
 
 class LineInputRequest(ProjectRequest):
     line_id: str
@@ -65,6 +71,9 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         path = project_path(project_id)
         payload = json.loads(path.read_text(encoding='utf-8'))
         payload['title'] = payload.get('title') or path.parent.name
+        audio = find_audio(path.stem.removesuffix('_alignment').removesuffix('_project'), song_output_dir=path.parent)
+        identity = resolve_identity(path, payload, ROOT / 'input', Path(audio) if audio else None)
+        payload.update(title=identity['title'], artist=identity['artist'], song_identity=identity)
         return path, payload
 
     def plan_path(path):
@@ -103,6 +112,14 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
             except ValueError as exc: saved, error = None, str(exc)
         return {'project': payload, 'plan': saved, 'plan_error': error,
                 'audio_url': '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(audio)) if audio else None}
+
+    @router.put('/identity')
+    def save_identity(req: IdentityRequest):
+        with plan_lock:
+            path, _ = read(req.project_id)
+            atomic_write(identity_path(path), req.identity.model_dump())
+            _, payload = read(req.project_id)
+        return {'identity': payload['song_identity']}
 
     @router.post('/director/rules')
     def rules(req: ProjectRequest):

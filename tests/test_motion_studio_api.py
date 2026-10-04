@@ -348,3 +348,28 @@ def test_director_input_and_generation_gracefully_ignore_obsolete_plan_when_lyri
         assert line_resp.status_code == 200
         assert '全新修改后的第一句歌词' in line_resp.json()['prompt']
 
+
+
+def test_song_identity_defaults_edits_and_does_not_change_alignment(song):
+    path, project_id = song
+    cache = path.with_name('test_suno.json')
+    cache.write_text(json.dumps({'title': '兔子洞', 'display_name': 'Luca'}))
+    original = path.read_bytes()
+    with TestClient(app) as client:
+        identity = client.get('/api/motion/project', params={'project_id': project_id}).json()['project']['song_identity']
+        assert (identity['title'], identity['artist']) == ('兔子洞', 'Luca')
+        assert identity['source'] == 'suno-cache'
+        editable = {k: v for k, v in identity.items() if not k.startswith('source')}
+        editable.update(title='自己的歌名', artist='', style='minimal', show_intro=False)
+        response = client.put('/api/motion/identity', json={'project_id': project_id, 'identity': editable})
+        assert response.status_code == 200, response.text
+        project = client.get('/api/motion/project', params={'project_id': project_id}).json()['project']
+        assert project['title'] == '自己的歌名'
+        assert project['artist'] == ''
+        assert project['song_identity']['source_title'] == '兔子洞'
+        assert project['song_identity']['show_intro'] is False
+        assert path.read_bytes() == original
+        editable['title'] = '  '
+        assert client.put('/api/motion/identity', json={'project_id': project_id, 'identity': editable}).status_code == 422
+        editable['title'] = '有效歌名'
+        assert client.put('/api/motion/identity', json={'project_id': '../test_alignment.json', 'identity': editable}).status_code == 400

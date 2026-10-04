@@ -536,3 +536,39 @@ test('stack layouts correctly position rows across center, left, right, and stag
   // Node 0 should be left-aligned and Node 1 should be right-aligned
   assert.ok(stagPoster.nodes[0].rows[0].x !== stagPoster.nodes[1].rows[0].x);
 });
+
+test('song identity uses measured cover and respects original lyric timeline',async()=>{
+ const {compileSongLayout,songLayoutAt}=await import('./song-layout.ts');
+ const project=normalizeProject({title:'旧名',duration:15,song_identity:{version:'motion-song-identity-v1',title:'兔子洞',artist:'Luca',style:'editorial',show_intro:true,show_signature:true,show_section:true,show_outro:true},lines:[{text:'欢迎来到',start:3,end:10,words:[],section:'VERSE'}]});
+ assert.equal(project.title,'兔子洞');
+ const measure=(text:string,size:number)=>({width:Array.from(text).length*size,ascent:size*.8,descent:size*.2});
+ for(const [W,H] of [[1280,720],[720,1280]]){
+  const layout=compileSongLayout(project,W,H,measure)!;
+  assert.equal(songLayoutAt(layout,1).cover,true);
+  assert.equal(songLayoutAt(layout,3).cover,false);
+  assert.equal(songLayoutAt(layout,3).section,'VERSE');
+  assert.equal(songLayoutAt(layout,12).cover,true);
+  assert.equal(songLayoutAt(layout,15).cover,false);
+  for(const text of [...layout.cover,...layout.header]){
+   const w=measure(text.text,text.fontSize).width;
+   const left=text.anchor==='middle'?text.x-w/2:text.anchor==='end'?text.x-w:text.x;
+   assert.ok(left>=W*.06&&left+w<=W*.94);
+  }
+ }
+ project.song_identity!.style='none';assert.equal(compileSongLayout(project,720,1280,measure),null);
+ project.song_identity!.style='minimal';project.lines[0].start=0;project.lines[0].end=15;
+ const short=compileSongLayout(project,720,1280,measure)!;
+ assert.equal(short.introEnd,0);assert.equal(short.outroStart,15);
+});
+
+test('long multilingual song credits fit both formats without fabricated author',async()=>{
+ const {compileSongLayout}=await import('./song-layout.ts');
+ const measure=(text:string,size:number)=>({width:Array.from(text).length*size,ascent:size*.8,descent:size*.2});
+ for(const title of ['所有的真理都被漆成了金色的借口','Welcome to my rabbit hole and a world beyond reality'])for(const [W,H] of [[1280,720],[720,1280]]){
+  const p=normalizeProject({title,duration:15,song_identity:{version:'motion-song-identity-v1',title,artist:'',style:'editorial',show_intro:true,show_signature:true,show_section:false,show_outro:true},lines:[{text:'test',start:3,end:12,words:[]}]});
+  const layout=compileSongLayout(p,W,H,measure)!;
+  assert.ok(layout.cover.length<=2);
+  assert.equal(layout.header.length,1);
+  for(const row of layout.cover)assert.ok(measure(row.text,row.fontSize).width<=W*.82+.01);
+ }
+});

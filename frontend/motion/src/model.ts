@@ -5,8 +5,9 @@ export type PosterDirection = {version:'motion-poster-direction-v1';status:'draf
 export type CuePlan = {poster?:PosterDirection|null;whole_line_visible?:true;intent?:string;groups?:PhrasePlan[];line_id:string; template:'word-impact'|'phrase-rise'|'quiet-hold'; layout:'center'|'left'; palette:string; intensity:number; emphasis:string; locked:boolean};
 export type MotionPlan = {version:'motion-plan-v1'; source_signature:string; seed:number; visual_language?:{direction:string;background:string;foreground:string;accent:string;rhythm:string}|null; cues:CuePlan[]};
 export type Line = { id:string; text: string; start: number; end: number; words: Word[]; section?: string };
+export type SongIdentity = {version:'motion-song-identity-v1';title:string;artist:string;style:'editorial'|'minimal'|'none';show_intro:boolean;show_signature:boolean;show_section:boolean;show_outro:boolean;source_title?:string;source_artist?:string;source?:string};
 export type Project = {
-  title: string; duration: number; lines: Line[]; motion_plan?:MotionPlan;
+  title: string; artist?:string; song_identity?:SongIdentity; duration: number; lines: Line[]; motion_plan?:MotionPlan;
   analysis: { bpm: number; beats: number[]; drum_hits: {time: number; type: string}[]; energy_curve: {time: number; energy: number}[] };
 };
 export type Options = {
@@ -36,7 +37,7 @@ export function normalizeProject(input: any): Project {
   const a = input.analysis || input.meta || {};
   const beats = Array.from(new Set<number>((a.beats || []).filter((n: any) => finite(n) && n >= 0))).sort((a,b) => a-b);
   return {
-    motion_plan: input.motion_plan, title: String(input.title || input.meta?.title || '未命名歌曲'),
+    motion_plan: input.motion_plan, artist: String(input.song_identity?.artist ?? input.artist ?? ''), song_identity: input.song_identity ? {...input.song_identity, title:String(input.song_identity.title||input.title||'未命名歌曲'), artist:String(input.song_identity.artist||'')} : undefined, title: String(input.song_identity?.title || input.title || input.meta?.title || '未命名歌曲'),
     duration: Math.max(finite(input.duration) ? input.duration : 0, ...lines.map(l => l.end)), lines,
     analysis: {
       bpm: finite(a.bpm) && a.bpm > 0 ? a.bpm : 0, beats,
