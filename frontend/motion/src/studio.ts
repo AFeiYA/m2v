@@ -267,20 +267,20 @@ function renderPosterNodes(line:import('./model').Line,cue:import('./model').Cue
 }
 
 function showIdentity(){const v=project?.song_identity;if(!v)return;
- $<HTMLInputElement>('song-title').value=v.title;$<HTMLInputElement>('song-artist').value=v.artist;$<HTMLSelectElement>('song-style').value=v.style;
+ $<HTMLInputElement>('song-title').value=v.title;$<HTMLInputElement>('song-artist').value=v.artist;$<HTMLSelectElement>('song-style').value=v.style;$<HTMLSelectElement>('song-theme').value=v.visual_theme||'director';
  $<HTMLSelectElement>('cover-mode').value=v.cover_mode||'background';$<HTMLInputElement>('cover-x').value=String(v.cover_x??50);$<HTMLInputElement>('cover-y').value=String(v.cover_y??50);$<HTMLInputElement>('cover-zoom').value=String(v.cover_zoom??1);
  for(const [id,key] of [['intro','show_intro'],['signature','show_signature'],['section','show_section'],['outro','show_outro']] as const)$<HTMLInputElement>('song-'+id).checked=v[key];
  $('identity-source').textContent=v.source==='suno-cache'?'默认信息来自 Suno 导入缓存，可自由修改。':'来自现有工程；未找到 Suno 作者信息，可手动填写。';
 }
 function editIdentity(){if(!project?.song_identity)return;
- Object.assign(project.song_identity,{cover_mode:$<HTMLSelectElement>('cover-mode').value,cover_x:Number($<HTMLInputElement>('cover-x').value),cover_y:Number($<HTMLInputElement>('cover-y').value),cover_zoom:Number($<HTMLInputElement>('cover-zoom').value),title:$<HTMLInputElement>('song-title').value.trim(),artist:$<HTMLInputElement>('song-artist').value.trim(),style:$<HTMLSelectElement>('song-style').value,show_intro:$<HTMLInputElement>('song-intro').checked,show_signature:$<HTMLInputElement>('song-signature').checked,show_section:$<HTMLInputElement>('song-section').checked,show_outro:$<HTMLInputElement>('song-outro').checked});
+ Object.assign(project.song_identity,{visual_theme:$<HTMLSelectElement>('song-theme').value,cover_mode:$<HTMLSelectElement>('cover-mode').value,cover_x:Number($<HTMLInputElement>('cover-x').value),cover_y:Number($<HTMLInputElement>('cover-y').value),cover_zoom:Number($<HTMLInputElement>('cover-zoom').value),title:$<HTMLInputElement>('song-title').value.trim(),artist:$<HTMLInputElement>('song-artist').value.trim(),style:$<HTMLSelectElement>('song-style').value,show_intro:$<HTMLInputElement>('song-intro').checked,show_signature:$<HTMLInputElement>('song-signature').checked,show_section:$<HTMLInputElement>('song-section').checked,show_outro:$<HTMLInputElement>('song-outro').checked});
  project.title=project.song_identity.title;project.artist=project.song_identity.artist;identityDirty=true;$('track-name').textContent=project.title;refresh();status('歌曲版式预览已更新，保存后用于导出');
 }
 async function saveIdentity(){if(!project?.song_identity||!selected)return;if(!project.song_identity.title.trim())throw new Error('请填写歌名');
  const {source,source_title,source_artist,...identity}=project.song_identity;
  const result=await api('identity','PUT',{project_id:selected,identity});project.song_identity=result.identity;identityDirty=false;showIdentity();status('歌曲版式已保存，预览与 MP4 使用同一设计');
 }
-for(const id of ['song-title','song-artist','song-style','song-intro','song-signature','song-section','song-outro','cover-mode','cover-x','cover-y','cover-zoom'])$(id).onchange=editIdentity;
+for(const id of ['song-title','song-artist','song-theme','song-style','song-intro','song-signature','song-section','song-outro','cover-mode','cover-x','cover-y','cover-zoom'])$(id).onchange=editIdentity;
 $('save-identity').onclick=action(saveIdentity);
 $('reset-identity').onclick=()=>{const v=project?.song_identity;if(!v)return;$<HTMLInputElement>('song-title').value=v.source_title||v.title;$<HTMLInputElement>('song-artist').value=v.source_artist||'';editIdentity();};
 

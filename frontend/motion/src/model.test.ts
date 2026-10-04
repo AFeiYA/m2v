@@ -592,3 +592,21 @@ test('artwork crop covers each frame and cover composition leaves room for title
  p.song_identity!.cover_mode='none';assert.equal(coverPlacement(p,{x:0,y:0,width:720,height:1280}),null);
  assert.equal(compileSongLayout(p,720,1280,measure)!.artwork,undefined);
 });
+
+test('song themes unify stages without mutating lyrics or saved director choices',async()=>{
+ const {compileSongPosters}=await import('./poster-layout.ts');
+ const {SONG_THEMES}=await import('./song-theme.ts');
+ const p=normalizeProject({title:'主题测试',duration:10,lines:[{text:'欢迎来到兔子洞',start:1,end:8,words:[]}]});
+ const measure=(text:string,size:number)=>({width:text.length*size,ascent:size*.8,descent:size*.2});
+ const before=JSON.stringify(p.lines);
+ for(const key of ['editorial','neon','paper'] as const){
+  p.song_identity={version:'motion-song-identity-v1',title:p.title,artist:'',style:'editorial',show_intro:true,show_signature:true,show_section:true,show_outro:true,visual_theme:key};
+  const compiled=compileSongPosters(p,720,1280,measure)[0];
+  assert.equal(compiled.background,SONG_THEMES[key].background);
+  assert.equal(compiled.accent,SONG_THEMES[key].accent);
+  assert.equal(compiled.motif,SONG_THEMES[key].motif);
+  assert.equal(JSON.stringify(p.lines),before);
+  assert.equal(compiled.start,1);assert.equal(compiled.end,8);
+  if(key!=='neon')assert.ok(compiled.nodes.every(n=>n.beat_reaction==='none'));
+ }
+});

@@ -16,6 +16,7 @@ class SongIdentity(BaseModel):
     show_signature: bool = True
     show_section: bool = True
     show_outro: bool = True
+    visual_theme: Literal["director", "editorial", "neon", "paper"] = "director"
     cover_mode: Literal["background", "none"] = "background"
     cover_x: float = Field(default=50, ge=0, le=100)
     cover_y: float = Field(default=50, ge=0, le=100)

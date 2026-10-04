@@ -1,3 +1,4 @@
+import {SONG_THEMES} from './song-theme.ts';
 import type {Line, CuePlan, PosterDirection, Project} from './model';
 export const POSTER_FONT='"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
 export type Metrics={width:number;ascent:number;descent:number};
@@ -661,11 +662,13 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
 }
 // Song stage remains continuous; saved direction and alignment are not mutated.
 export function compileSongPosters(project:Project,W:number,H:number,measure:Measure):CompiledPoster[]{
+  const choice=project.song_identity?.visual_theme;
+  const theme=choice&&choice!=='director'?SONG_THEMES[choice]:undefined;
   const first=project.motion_plan?.cues.find(c=>c.poster)?.poster;
   const visual=project.motion_plan?.visual_language;
-  const background=visual?.background||first?.background||THEME_PALETTES.impact.backgroundDark;
-  const accent=visual?.accent||first?.accent||THEME_PALETTES.impact.accentDark;
-  const motif=first?.motif||'none';
+  const background=theme?.background||visual?.background||first?.background||THEME_PALETTES.impact.backgroundDark;
+  const accent=theme?.accent||visual?.accent||first?.accent||THEME_PALETTES.impact.accentDark;
+  const motif=theme?.motif||first?.motif||'none';
   const recurring=new Map<string,PosterDirection>();
   const layouts=project.lines.map(line=>{
     const cue=project.motion_plan?.cues.find(c=>c.line_id===line.id);
@@ -674,7 +677,8 @@ export function compileSongPosters(project:Project,W:number,H:number,measure:Mea
     if(previous&&!cue?.locked&&previous.nodes.length===design.nodes.length&&previous.nodes.every((n,i)=>n.text===design.nodes[i].text)){
       design={...design,layout:previous.layout,nodes:design.nodes.map((n,i)=>({...n,role:previous.nodes[i].role,color_role:previous.nodes[i].color_role}))};
     }else if(!previous)recurring.set(key,design);
-    const result=compilePoster(line,{...cue,poster:{...design,background,accent:cue?.poster?.accent||design.accent||accent,motif}} as CuePlan,W,H,measure);
+    const result=compilePoster(line,{...cue,palette:theme?.palette||cue?.palette,poster:{...design,background,accent:theme?.accent||cue?.poster?.accent||design.accent||accent,motif}} as CuePlan,W,H,measure);
+    if(theme)for(const node of result.nodes){node.motion_strength=Math.min(node.motion_strength??1,theme.motion);if(theme!==SONG_THEMES.neon)node.beat_reaction='none';}
     result.source=cue?.poster?'director':'automatic';return result;
   });
   for(let i=0;i<layouts.length;i++)bindHandover(layouts[i],layouts[i+1]?.start??null,project.duration);
