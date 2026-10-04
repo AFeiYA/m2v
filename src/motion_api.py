@@ -11,11 +11,12 @@ import threading
 import time
 import uuid
 from typing import Literal
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from src.motion_director import validate_plan, rule_plan, llm_prompt, director_input, line_prompt_bundle, line_response, cue_signature, source_signature
 
+from src.song_cover import resolve_cover, prepare_cover, cover_path, MAX_BYTES
 from src.song_identity import SongIdentity, identity_path, resolve_identity
 
 from src.motion_llm import configuration, generate_json, DirectorAPIError, DirectorQuotaError
@@ -27,6 +28,9 @@ class ProjectRequest(BaseModel):
     style: str = 'impact'
     line_id: str | None = None
     instruction: str = Field(default='', max_length=2000)
+
+class CoverRequest(ProjectRequest):
+    restore: bool = False
 
 class IdentityRequest(BaseModel):
     project_id: str
@@ -73,7 +77,8 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         payload['title'] = payload.get('title') or path.parent.name
         audio = find_audio(path.stem.removesuffix('_alignment').removesuffix('_project'), song_output_dir=path.parent)
         identity = resolve_identity(path, payload, ROOT / 'input', Path(audio) if audio else None)
-        payload.update(title=identity['title'], artist=identity['artist'], song_identity=identity)
+        payload.update(title=identity['title'], artist=identity['artist'], song_identity=identity,
+                       song_cover=resolve_cover(path, payload, ROOT / 'input', Path(audio) if audio else None))
         return path, payload
 
     def plan_path(path):
@@ -120,6 +125,60 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
             atomic_write(identity_path(path), req.identity.model_dump())
             _, payload = read(req.project_id)
         return {'identity': payload['song_identity']}
+
+    def store_cover(path, content, custom=True):
+        try:
+            image, _, _ = prepare_cover(content)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        dest = cover_path(path, custom)
+        temporary = dest.with_name(dest.name + '.' + uuid.uuid4().hex + '.tmp')
+        try:
+            temporary.write_bytes(image)
+            os.replace(temporary, dest)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    @router.post('/cover')
+    async def upload_cover(project_id: str = Form(...), file: UploadFile = File(...)):
+        path = project_path(project_id)
+        content = await file.read(MAX_BYTES + 1)
+        with plan_lock:
+            store_cover(path, content)
+            _, payload = read(project_id)
+        return {'cover': payload['song_cover']}
+
+    @router.post('/cover/suno')
+    def import_suno_cover(req: CoverRequest):
+        import requests
+        from urllib.parse import urlparse
+        path, payload = read(req.project_id)
+        if cover_path(path, False).is_file():
+            with plan_lock:
+                if req.restore:
+                    cover_path(path).unlink(missing_ok=True)
+                _, payload = read(req.project_id)
+            return {'cover': payload['song_cover']}
+        url = payload['song_cover']['source_url']
+        host = urlparse(url).hostname or ''
+        if urlparse(url).scheme != 'https' or not (host.endswith('.suno.ai') or host.endswith('.suno.com')):
+            raise HTTPException(422, '未找到可读取的 Suno 封面，请上传图片')
+        try:
+            with requests.get(url, timeout=(3, 10), stream=True, allow_redirects=False) as response:
+                response.raise_for_status()
+                content = bytearray()
+                for chunk in response.iter_content(65536):
+                    content.extend(chunk)
+                    if len(content) > MAX_BYTES:
+                        raise HTTPException(422, 'Suno 封面超过 10 MB')
+            with plan_lock:
+                store_cover(path, bytes(content), custom=False)
+                if req.restore:
+                    cover_path(path).unlink(missing_ok=True)
+                _, payload = read(req.project_id)
+        except requests.RequestException as exc:
+            raise HTTPException(502, 'Suno 封面下载失败，可重试或上传图片') from exc
+        return {'cover': payload['song_cover']}
 
     @router.post('/director/rules')
     def rules(req: ProjectRequest):

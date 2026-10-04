@@ -572,3 +572,23 @@ test('long multilingual song credits fit both formats without fabricated author'
   for(const row of layout.cover)assert.ok(measure(row.text,row.fontSize).width<=W*.82+.01);
  }
 });
+
+test('artwork crop covers each frame and cover composition leaves room for title',async()=>{
+ const {compileSongLayout,coverPlacement,coverOpacityAt}=await import('./song-layout.ts');
+ const p=normalizeProject({duration:20,song_identity:{title:'兔子洞',artist:'Luca',style:'editorial',show_intro:true,show_signature:true,show_section:true,show_outro:true,cover_mode:'background',cover_x:0,cover_y:100,cover_zoom:1.5},song_cover:{data_url:'data:image/jpeg;base64,test',width:500,height:1000,source:'suno'},lines:[{text:'欢迎',start:4,end:12,words:[]}]});
+ const measure=(text:string,size:number)=>({width:text.length*size,ascent:size*.8,descent:size*.2});
+ for(const [W,H] of [[1280,720],[720,1280]]){
+  const layout=compileSongLayout(p,W,H,measure)!;
+  assert.ok(layout.artwork);
+  const image=coverPlacement(p,{x:0,y:0,width:W,height:H})!;
+  assert.ok(image.x<=0&&image.y<=0&&image.x+image.width>=W&&image.y+image.height>=H);
+  const card=layout.artwork!;
+  assert.ok(card.x>=0&&card.y>=0&&card.x+card.width<=W&&card.y+card.height<=H);
+  if(H>W)assert.ok(layout.cover[0].y-layout.cover[0].fontSize>card.y+card.height);
+  else assert.ok(layout.cover[0].x-measure(layout.cover[0].text,layout.cover[0].fontSize).width/2>card.x+card.width);
+  assert.ok(coverOpacityAt(layout,2)>coverOpacityAt(layout,7));
+  assert.equal(coverOpacityAt(layout,7),.14);
+ }
+ p.song_identity!.cover_mode='none';assert.equal(coverPlacement(p,{x:0,y:0,width:720,height:1280}),null);
+ assert.equal(compileSongLayout(p,720,1280,measure)!.artwork,undefined);
+});

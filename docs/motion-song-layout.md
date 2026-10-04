@@ -7,7 +7,7 @@ Motion Studio 的“歌曲署名与版式”可编辑歌名和作者。默认读
 - 仅歌词：关闭歌曲装饰，包括歌名封面。
 - 开场：有至少 1 秒前奏时显示，最长 5 秒。
 - 尾页：原曲有至少 1.5 秒尾奏时显示，歌词结束后至少留出 0.3 秒，最长 5 秒。
-- 封面只显示真实歌名和已填写的作者。作者留空时隐藏。
+- 封面页显示歌曲图片、真实歌名和已填写的作者。作者留空时隐藏。横屏采用左图右字，竖屏采用上图下字。
 - 横竖屏按实际字体测量；长歌名平衡分成最多两行，并适配字号。
 
 署名保持静止，只在封面与尾页淡入淡出，不加入呼吸、震动或拍点缩放。没有明确段落标签时不生成章节。现有歌词海报节点与对齐不变。
@@ -15,3 +15,13 @@ Motion Studio 的“歌曲署名与版式”可编辑歌名和作者。默认读
 设置独立保存于输出目录的 `<song>_motion_identity.json`，不重写 alignment 和导演方案；预览、海报 PNG 与 Remotion MP4 使用相同歌曲版式计算。
 
 API：`PUT /api/motion/identity`，body 为 `project_id` 与 `identity`；可编辑字段为 version、title、artist、style、show_intro、show_signature、show_section、show_outro。源歌名与作者为服务端只读字段。
+
+## 歌曲封面
+
+默认查找导入目录中的 `<song>_cover.png/jpg/jpeg/webp`。只有 Suno 元数据中有图片链接但没有本地图片时，页面会自动请求后端缓存；页面加载不等待远程图片。下载失败可重试或上传图片，歌词预览仍然可用。
+
+支持上传 JPG、PNG、WebP，最大 10 MB / 2400 万像素。后端纠正图片方向，压缩至最长边 1600 像素的 JPEG，并保存在歌曲输出目录的 `<song>_motion_cover.jpg`。默认 Suno 缓存另存为 `<song>_motion_suno_cover.jpg`，恢复时无需重复下载。图片上传立即保存，裁切焦点和 1–2 倍放大随歌曲版式保存，不改动原始封面或对齐。
+
+演唱时封面以 14% 不透明度作为背景，开场和尾页提高到 32%，并增加清晰的封面图卡；开场图卡和尾页使用同一构图。关闭封面或选择“仅歌词”时不显示图片。没有图片时自动退回文字封面。图片没有漂移或音频震动。
+
+`POST /api/motion/cover` 上传 multipart 的 project_id 和 file；`POST /api/motion/cover/suno` 使用 project_id，restore=true 时恢复默认。只读取缓存中 Suno 域名下的 HTTPS 图片地址。工程响应及渲染快照包含已处理图片的 data URL，使导出不依赖外部网址，也不会因后续换封面影响已排队任务。

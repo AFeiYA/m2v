@@ -729,8 +729,8 @@ export function posterRings(W:number,H:number){
   const portrait=H>W;
   return [0,1,2].map(i=>({cx:W*(portrait?.96:.81),cy:H*(portrait?.14:.20),rx:W*(portrait?(.20+i*.022):(.08+i*.012)),ry:portrait?W*(.20+i*.022):H*(.12+i*.017),opacity:portrait?.24:1}));
 }
-export function paintCompiledPoster(c:CanvasRenderingContext2D,plan:CompiledPoster,t?:number,beat=0){
-  const W=plan.width,H=plan.height;c.save();c.clearRect(0,0,W,H);c.fillStyle=plan.background;c.fillRect(0,0,W,H);
+export function paintCompiledPoster(c:CanvasRenderingContext2D,plan:CompiledPoster,t?:number,beat=0,paintBackground=true){
+  const W=plan.width,H=plan.height;c.save();if(paintBackground){c.clearRect(0,0,W,H);c.fillStyle=plan.background;c.fillRect(0,0,W,H);}
   c.globalAlpha=1;
   if(plan.motif==='rings'){c.strokeStyle=plan.accent;c.lineWidth=Math.min(W,H)*.003;for(const ring of posterRings(W,H)){c.globalAlpha=ring.opacity;c.beginPath();c.ellipse(ring.cx,ring.cy,ring.rx,ring.ry,0,0,Math.PI*2);c.stroke();}c.globalAlpha=1;}
   const complete=Math.max(...plan.nodes.map(n=>n.settled));

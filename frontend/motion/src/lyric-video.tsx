@@ -1,8 +1,8 @@
 import React, {useEffect,useMemo,useState} from 'react';
-import {AbsoluteFill,useCurrentFrame,useVideoConfig,useDelayRender} from 'remotion';
+import {AbsoluteFill,Img,useCurrentFrame,useVideoConfig,useDelayRender} from 'remotion';
 import {featuresAt,type Project,type Options} from './model';
 import {compileSongPosters,stageAt,visiblePosterAt,canvasMeasure,POSTER_FONT,posterNodeState,posterHoldState,posterExitOpacity,posterRings,compileIntroTitle,introTitleState,type CompiledPoster,type CompiledIntroTitle} from './poster-layout';
-import {compileSongLayout,songLayoutAt,songTextColor,type SongLayout} from './song-layout';
+import {compileSongLayout,songLayoutAt,songTextColor,coverPlacement,coverOpacityAt,type SongLayout} from './song-layout';
 export type VideoProps={project:Project;options:Options;timeOffset?:number;renderLength?:number};
 export const LyricVideo:React.FC<VideoProps>=({project,timeOffset=0})=>{
  const frame=useCurrentFrame(),{fps,width,height}=useVideoConfig(),t=timeOffset+frame/fps;
@@ -26,10 +26,15 @@ export const LyricVideo:React.FC<VideoProps>=({project,timeOffset=0})=>{
  const complete=plan?Math.max(...plan.nodes.map(n=>n.settled)):Infinity;
  const introState=intro?introTitleState(intro,t,height):null;
  const songFrame=songLayoutAt(songLayout,t);
+ const backgroundImage=coverPlacement(project,{x:0,y:0,width,height});
+ const artworkImage=songLayout?.artwork?coverPlacement(project,songLayout.artwork):null;
  const pulse=1+(feature.kick||feature.beat*.3)*.012;
- return <AbsoluteFill style={{background:stage.background}}><svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{overflow:'hidden'}} aria-label="歌词海报动画">
+ return <AbsoluteFill style={{background:stage.background,overflow:'hidden'}}>
+  {backgroundImage&&<Img src={project.song_cover!.data_url} style={{position:'absolute',left:backgroundImage.x,top:backgroundImage.y,width:backgroundImage.width,height:backgroundImage.height,opacity:coverOpacityAt(songLayout,t)}}/>}
+  {songFrame.cover&&songLayout?.artwork&&artworkImage&&<div style={{position:'absolute',left:songLayout.artwork.x,top:songLayout.artwork.y,width:songLayout.artwork.width,height:songLayout.artwork.height,overflow:'hidden',opacity:songFrame.alpha,border:'1px solid #ffffff25'}}><Img src={project.song_cover!.data_url} style={{position:'absolute',left:artworkImage.x-songLayout.artwork.x,top:artworkImage.y-songLayout.artwork.y,width:artworkImage.width,height:artworkImage.height}}/></div>}
+  <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{overflow:'hidden',position:'absolute'}} aria-label="歌词海报动画">
   <g>
-   {stage.motif==='rings'&&posterRings(width,height).map((ring,i)=><ellipse key={i} cx={ring.cx} cy={ring.cy} rx={ring.rx} ry={ring.ry} opacity={ring.opacity} stroke={stage.accent} strokeWidth={Math.min(width,height)*.003} fill="none"/>)}
+   {(!songFrame.cover||!songLayout?.artwork)&&stage.motif==='rings'&&posterRings(width,height).map((ring,i)=><ellipse key={i} cx={ring.cx} cy={ring.cy} rx={ring.rx} ry={ring.ry} opacity={ring.opacity} stroke={stage.accent} strokeWidth={Math.min(width,height)*.003} fill="none"/>)}
    {introState&&introState.alpha>0&&intro&&<g opacity={introState.alpha} transform={`translate(${intro.cx} ${intro.cy+introState.dy}) scale(${introState.scale*pulse}) translate(${-intro.cx} ${-intro.cy})`}>
     <text x={intro.x} y={intro.y} fill={intro.color} fontSize={intro.fontSize} fontWeight={intro.weight} fontFamily={POSTER_FONT} style={{whiteSpace:'pre'}}>{intro.text}</text>
    </g>}
@@ -42,7 +47,7 @@ export const LyricVideo:React.FC<VideoProps>=({project,timeOffset=0})=>{
    })}
   </g>
    <g opacity={songFrame.alpha}>
-    {songFrame.rule&&<line x1={width*.07} x2={width*.93} y1={height*(songFrame.cover?.3:.125)} y2={height*(songFrame.cover?.3:.125)} stroke={stage.accent} strokeWidth={Math.max(1,Math.min(width,height)*.0015)} opacity={.5}/>}
+    {songFrame.rule&&<line x1={width*.07} x2={width*.93} y1={height*(songFrame.cover?(songLayout?.artwork?.82:.3):.125)} y2={height*(songFrame.cover?(songLayout?.artwork?.82:.3):.125)} stroke={stage.accent} strokeWidth={Math.max(1,Math.min(width,height)*.0015)} opacity={.5}/>}
     {songFrame.texts.map((item,i)=><text key={i} x={item.x} y={item.y} fill={songTextColor(stage.background)} fontSize={item.fontSize} fontWeight={item.weight} textAnchor={item.anchor} fontFamily={POSTER_FONT}>{item.text}</text>)}
     {songFrame.section&&<text x={width*.07} y={height*.94} fill={stage.accent} fontSize={Math.min(width,height)*.022} fontFamily={POSTER_FONT}>{songFrame.section}</text>}
    </g></g>

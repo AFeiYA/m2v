@@ -16,6 +16,10 @@ class SongIdentity(BaseModel):
     show_signature: bool = True
     show_section: bool = True
     show_outro: bool = True
+    cover_mode: Literal["background", "none"] = "background"
+    cover_x: float = Field(default=50, ge=0, le=100)
+    cover_y: float = Field(default=50, ge=0, le=100)
+    cover_zoom: float = Field(default=1, ge=1, le=2)
 
     @field_validator('title', 'artist', mode='before')
     @classmethod
@@ -51,7 +55,7 @@ def source_identity(project_path: Path, payload: dict, input_root: Path, audio_p
         if str(artist).strip().lower() == 'unknown':
             artist = ''
         return {'title': str(meta.get('title') or payload.get('title') or name)[:120],
-                'artist': str(artist)[:80], 'source': 'suno-cache'}
+                'artist': str(artist)[:80], 'source': 'suno-cache', 'cover_url': meta.get('image_large_url') or meta.get('image_url') or ''}
     artist = payload.get('artist') or payload.get('author') or ''
     if str(artist).strip().lower() == 'unknown':
         artist = ''

@@ -373,3 +373,37 @@ def test_song_identity_defaults_edits_and_does_not_change_alignment(song):
         assert client.put('/api/motion/identity', json={'project_id': project_id, 'identity': editable}).status_code == 422
         editable['title'] = '有效歌名'
         assert client.put('/api/motion/identity', json={'project_id': '../test_alignment.json', 'identity': editable}).status_code == 400
+
+
+def test_cover_upload_is_portable_validated_and_restorable(song):
+    from io import BytesIO
+    from PIL import Image
+    from src.song_cover import cover_path
+    path, project_id = song
+    image = BytesIO()
+    Image.new('RGB', (640, 320), '#a02b4b').save(image, 'PNG')
+    original = path.read_bytes()
+    with TestClient(app) as client:
+        response = client.post('/api/motion/cover', data={'project_id': project_id}, files={'file': ('cover.png', image.getvalue(), 'image/png')})
+        assert response.status_code == 200, response.text
+        cover = response.json()['cover']
+        assert cover['source'] == 'custom'
+        assert (cover['width'], cover['height']) == (640, 320)
+        assert cover['data_url'].startswith('data:image/jpeg;base64,')
+        assert path.read_bytes() == original
+        assert client.get('/api/motion/project', params={'project_id': project_id}).json()['project']['song_cover'] == cover
+        assert client.post('/api/motion/cover', data={'project_id': project_id}, files={'file': ('cover.png', b'not an image', 'image/png')}).status_code == 422
+        assert client.post('/api/motion/cover', data={'project_id': '../escape_alignment.json'}, files={'file': ('cover.png', image.getvalue(), 'image/png')}).status_code == 400
+        cover_path(path, False).write_bytes(cover_path(path).read_bytes())
+        assert client.post('/api/motion/cover/suno', json={'project_id': project_id}).json()['cover']['source'] == 'custom'
+        restored = client.post('/api/motion/cover/suno', json={'project_id': project_id, 'restore': True})
+        assert restored.status_code == 200
+        assert restored.json()['cover']['source'] == 'suno'
+        assert not cover_path(path).exists()
+
+
+def test_cover_rejects_external_suno_source(song):
+    path, project_id = song
+    path.with_name('test_suno.json').write_text(json.dumps({'title': 'Song', 'image_url': 'http://127.0.0.1/private'}))
+    with TestClient(app) as client:
+        assert client.post('/api/motion/cover/suno', json={'project_id': project_id}).status_code == 422
