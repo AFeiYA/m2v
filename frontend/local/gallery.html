@@ -1,0 +1,906 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>作品展厅 · 导出的动效 MV 视频库 · m2v</title>
+  <link rel="stylesheet" href="/motion-lab.css">
+  <style>
+    :root {
+      --bg-dark: #080d07;
+      --card-bg: #111710;
+      --card-border: #233020;
+      --accent: #c8ff00;
+      --accent-cyan: #00f0ff;
+      --accent-purple: #c084fc;
+      --text-main: #f4f9ed;
+      --text-muted: #82947d;
+    }
+
+    body {
+      background: var(--bg-dark);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── 顶部导航栏 ── */
+    .gallery-header {
+      height: 54px;
+      background: #0f150d;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-mark {
+      background: var(--accent);
+      color: #0d120a;
+      font-weight: 900;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .brand-title {
+      font-weight: 800;
+      font-size: 16px;
+      letter-spacing: 0.02em;
+      color: #fff;
+    }
+
+    .brand-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-left: 8px;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .nav-btn {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--card-border);
+      background: #141b12;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .nav-btn:hover {
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    .r2-badge {
+      font-size: 12px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      background: rgba(200, 255, 0, 0.1);
+      border: 1px solid rgba(200, 255, 0, 0.3);
+      color: var(--accent);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+    }
+
+    .r2-badge.local {
+      background: rgba(130, 148, 125, 0.15);
+      border-color: rgba(130, 148, 125, 0.4);
+      color: #b0c4ab;
+    }
+
+    /* ── 页面主体 ── */
+    .gallery-main {
+      flex: 1;
+      max-width: 1400px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 32px 24px;
+      box-sizing: border-box;
+    }
+
+    .hero-section {
+      margin-bottom: 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      gap: 16px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 20px;
+    }
+
+    .hero-title h1 {
+      margin: 0 0 6px 0;
+      font-size: 26px;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .hero-title p {
+      margin: 0;
+      font-size: 14px;
+      color: var(--text-muted);
+    }
+
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .filter-btn {
+      background: #151d13;
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .filter-btn:hover, .filter-btn.active {
+      background: var(--accent);
+      color: #0d120a;
+      border-color: var(--accent);
+      font-weight: 700;
+    }
+
+    .refresh-btn {
+      background: #172115;
+      border: 1px solid var(--card-border);
+      color: #e2edd9;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .refresh-btn:hover {
+      border-color: var(--accent);
+    }
+
+    /* ── 视频网格 ── */
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 22px;
+      margin-top: 10px;
+    }
+
+    .video-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .video-card:hover {
+      transform: translateY(-3px);
+      border-color: #3b4e36;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
+    }
+
+    .thumb-wrap {
+      width: 100%;
+      background: #000;
+      position: relative;
+      cursor: pointer;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .thumb-wrap.portrait {
+      aspect-ratio: 9 / 16;
+      max-height: 380px;
+    }
+
+    .thumb-wrap.landscape {
+      aspect-ratio: 16 / 9;
+    }
+
+    .thumb-wrap video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      pointer-events: none;
+    }
+
+    .play-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+
+    .thumb-wrap:hover .play-overlay {
+      background: rgba(0, 0, 0, 0.15);
+    }
+
+    .play-icon-circle {
+      width: 52px;
+      height: 52px;
+      background: rgba(13, 18, 10, 0.85);
+      border: 2px solid var(--accent);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-size: 20px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+      transition: transform 0.15s, background 0.15s;
+    }
+
+    .thumb-wrap:hover .play-icon-circle {
+      transform: scale(1.1);
+      background: var(--accent);
+      color: #0d120a;
+    }
+
+    .badge-bar {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      display: flex;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+
+    .tag-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+    }
+
+    .tag-badge.portrait {
+      color: var(--accent-purple);
+      border: 1px solid rgba(192, 132, 252, 0.4);
+    }
+
+    .tag-badge.landscape {
+      color: var(--accent-cyan);
+      border: 1px solid rgba(0, 240, 255, 0.4);
+    }
+
+    .tag-badge.r2 {
+      color: var(--accent);
+      border: 1px solid rgba(200, 255, 0, 0.4);
+    }
+
+    .tag-badge.local {
+      color: #b0c4ab;
+      border: 1px solid #41553c;
+    }
+
+    .card-body {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .card-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: auto;
+      padding-top: 8px;
+      border-top: 1px solid #1a2418;
+    }
+
+    .btn-action {
+      flex: 1;
+      padding: 7px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--card-border);
+      background: #172115;
+      color: #e4efe0;
+      font-size: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      text-decoration: none;
+      transition: all 0.15s;
+    }
+
+    .btn-action:hover {
+      background: #202d1d;
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .btn-action.primary {
+      background: var(--accent);
+      color: #0d120a;
+      border-color: var(--accent);
+      font-weight: 700;
+    }
+
+    .btn-action.primary:hover {
+      background: #d6ff33;
+    }
+
+    /* ── 剧院级全屏播放器弹窗 ── */
+    .player-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.88);
+      backdrop-filter: blur(12px);
+      z-index: 1000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+
+    .player-modal.active {
+      display: flex;
+    }
+
+    .modal-box {
+      background: #0f150d;
+      border: 1px solid #2f402c;
+      border-radius: 16px;
+      max-width: 1000px;
+      width: 100%;
+      max-height: 92vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+    }
+
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #233020;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-header h3 {
+      margin: 0;
+      font-size: 17px;
+      color: #fff;
+    }
+
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 22px;
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+
+    .modal-close:hover {
+      color: #fff;
+    }
+
+    .modal-video-wrap {
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      max-height: 65vh;
+      min-height: 300px;
+      position: relative;
+    }
+
+    .modal-video-wrap video {
+      max-width: 100%;
+      max-height: 65vh;
+      outline: none;
+    }
+
+    .modal-footer {
+      padding: 16px 20px;
+      background: #121910;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .url-display {
+      flex: 1;
+      background: #090e08;
+      border: 1px solid #233020;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: #a4bca0;
+      font-family: monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── 二维码扫码弹窗 ── */
+    .qr-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 1100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .qr-modal.active {
+      display: flex;
+    }
+
+    .qr-box {
+      background: #111710;
+      border: 1px solid #2f402c;
+      border-radius: 16px;
+      padding: 28px;
+      text-align: center;
+      max-width: 340px;
+      width: 90%;
+    }
+
+    .qr-box img {
+      width: 200px;
+      height: 200px;
+      background: #fff;
+      padding: 8px;
+      border-radius: 8px;
+      margin: 16px 0;
+    }
+
+    /* ── 空状态 ── */
+    .empty-state {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--text-muted);
+    }
+
+    .empty-state h3 {
+      color: #fff;
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    /* ── Toast 提示 ── */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--accent);
+      color: #0d120a;
+      font-weight: 700;
+      padding: 10px 20px;
+      border-radius: 30px;
+      font-size: 13px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+      transition: transform 0.25s ease, opacity 0.25s;
+      opacity: 0;
+      z-index: 2000;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 顶部导航 -->
+  <header class="gallery-header">
+    <div class="brand-group">
+      <div class="brand-mark">M</div>
+      <div>
+        <span class="brand-title">Motion Gallery</span>
+        <span class="brand-sub">导出的动态歌词 MV 作品库</span>
+      </div>
+    </div>
+    <div class="nav-actions">
+      <div id="r2-status-badge" class="r2-badge local" title="点击查看存储配置说明">
+        <span>💾</span> <span id="r2-status-text">检查存储状态…</span>
+      </div>
+      <a href="/motion" class="nav-btn">← 动效演播室</a>
+      <a href="/" class="nav-btn">歌词编辑器</a>
+      <a href="https://mv.fovea.si" target="_blank" class="nav-btn" style="color:var(--accent);border-color:rgba(200,255,0,0.3)">mv.fovea.si ↗</a>
+    </div>
+  </header>
+
+  <!-- 主体展示区 -->
+  <main class="gallery-main">
+    <div class="hero-section">
+      <div class="hero-title">
+        <h1>已渲染的动效视频</h1>
+        <p>支持 9:16 手机短视频与 16:9 横屏全曲 · 随时在线流式播放、直链分享与下载</p>
+      </div>
+      <div class="filter-bar">
+        <button class="filter-btn active" data-filter="all">全部视频 (<span id="count-all">0</span>)</button>
+        <button class="filter-btn" data-filter="9:16">📱 9:16 竖屏 (<span id="count-portrait">0</span>)</button>
+        <button class="filter-btn" data-filter="16:9">💻 16:9 横屏 (<span id="count-landscape">0</span>)</button>
+        <button id="refresh-btn" class="refresh-btn">🔄 刷新列表</button>
+      </div>
+    </div>
+
+    <!-- 视频网格容器 -->
+    <div id="video-grid" class="video-grid">
+      <!-- 动态填充 -->
+    </div>
+
+    <!-- 空状态提示 -->
+    <div id="empty-state" class="empty-state" hidden>
+      <div style="font-size:48px;margin-bottom:12px">🎬</div>
+      <h3>暂无导出的动效视频</h3>
+      <p>前往动效演播室选择歌曲，点击“导出 MP4”即可在这里自动收录并播放！</p>
+      <a href="/motion" class="btn-action primary" style="display:inline-flex;margin-top:14px;padding:8px 18px">前往动效演播室 →</a>
+    </div>
+  </main>
+
+  <!-- 剧院全屏播放弹窗 -->
+  <div id="player-modal" class="player-modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modal-title">视频播放</h3>
+        <button id="modal-close" class="modal-close" title="按 ESC 键也可关闭">✕</button>
+      </div>
+      <div class="modal-video-wrap">
+        <video id="modal-video" controls autoplay playsinline preload="auto"></video>
+      </div>
+      <div class="modal-footer">
+        <div id="modal-url" class="url-display"></div>
+        <div style="display:flex;gap:8px">
+          <button id="btn-copy-url" class="btn-action">🔗 复制直链</button>
+          <a id="btn-download-modal" class="btn-action primary" download>⬇ 下载视频</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 手机扫码弹窗 -->
+  <div id="qr-modal" class="qr-modal">
+    <div class="qr-box">
+      <h3 style="margin:0 0 6px 0;color:#fff;font-size:16px">📱 手机扫码全屏观看</h3>
+      <p style="margin:0;color:var(--text-muted);font-size:12px">用微信或系统相机扫码，直接在手机上全屏体验 9:16 动效短视频</p>
+      <img id="qr-img" src="" alt="播放链接二维码">
+      <div>
+        <button id="qr-close" class="btn-action" style="width:100%">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- R2 配置说明弹窗 -->
+  <div id="r2-modal" class="qr-modal">
+    <div class="qr-box" style="max-width:480px;text-align:left">
+      <h3 style="margin:0 0 8px 0;color:#fff;font-size:16px">☁️ Cloudflare R2 存储配置说明</h3>
+      <p style="margin:0 0 12px 0;color:var(--text-muted);font-size:12px">
+        Cloudflare R2 提供<b>每月 10GB 永久免费存储且完全 0 流量费用</b>。配置后导出视频会自动上传到 R2 并生成全球极速 CDN 外链。
+      </p>
+      <div style="background:#090d08;border:1px solid #233020;border-radius:6px;padding:10px;font-size:12px;color:#c8ff00;font-family:monospace;white-space:pre-wrap;user-select:all" id="r2-env-snippet"># 在项目根目录的 .env 文件中配置：
+R2_ACCOUNT_ID=你的Cloudflare_Account_ID
+R2_ACCESS_KEY_ID=你的R2_Access_Key_ID
+R2_SECRET_ACCESS_KEY=你的R2_Secret_Access_Key
+R2_BUCKET_NAME=suno2mv-videos
+R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
+      <p style="margin:12px 0 14px 0;color:var(--text-muted);font-size:11px">
+        未配置时系统会自动平滑降级为后端本地磁盘存储，依然可正常预览和下载。
+      </p>
+      <button id="r2-close" class="btn-action primary" style="width:100%">我知道了</button>
+    </div>
+  </div>
+
+  <!-- Toast 提示 -->
+  <div id="toast" class="toast">已复制到剪贴板</div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let allVideos = [];
+    let currentFilter = 'all';
+    let r2Configured = false;
+
+    function showToast(text) {
+      const toast = $('toast');
+      toast.textContent = text;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
+    function formatTime(timestamp) {
+      if (!timestamp) return '未知时间';
+      const d = new Date(timestamp * 1000);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes) return '未知大小';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    async function checkR2Status() {
+      try {
+        const res = await fetch('/api/motion/r2/status');
+        const data = await res.json();
+        r2Configured = !!data.configured;
+        const badge = $('r2-status-badge');
+        const text = $('r2-status-text');
+        if (data.configured) {
+          badge.className = 'r2-badge';
+          badge.innerHTML = `<span>☁️</span> <span>R2 已连接 ${data.public_domain ? `(${data.public_domain.replace(/^https?:\/\//, '')})` : ''}</span>`;
+        } else {
+          badge.className = 'r2-badge local';
+          badge.innerHTML = `<span>💾</span> <span>本地存储模式 (点击配置 R2)</span>`;
+        }
+      } catch (err) {
+        $('r2-status-text').textContent = '本地存储模式';
+      }
+    }
+
+    async function syncToR2(jobId, btn) {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ 上传中...';
+      }
+      try {
+        const res = await fetch(`/api/motion/render/${jobId}/sync_r2`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '上传失败');
+        showToast('✅ 成功同步至 Cloudflare R2!');
+        await loadGallery();
+      } catch (err) {
+        alert('上传失败: ' + err.message);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '☁️ 重试 R2';
+        }
+      }
+    }
+
+    async function loadGallery() {
+      try {
+        await checkR2Status();
+        const res = await fetch('/api/motion/gallery');
+        allVideos = await res.json();
+        renderGrid();
+      } catch (err) {
+        console.error('加载作品库失败:', err);
+      }
+    }
+
+    function renderGrid() {
+      const grid = $('video-grid');
+      const empty = $('empty-state');
+      grid.innerHTML = '';
+
+      const portraitCount = allVideos.filter(v => v.aspect === '9:16').length;
+      const landscapeCount = allVideos.filter(v => v.aspect === '16:9').length;
+      $('count-all').textContent = allVideos.length;
+      $('count-portrait').textContent = portraitCount;
+      $('count-landscape').textContent = landscapeCount;
+
+      const filtered = allVideos.filter(v => {
+        if (currentFilter === '9:16') return v.aspect === '9:16';
+        if (currentFilter === '16:9') return v.aspect === '16:9';
+        return true;
+      });
+
+      if (!filtered.length) {
+        empty.hidden = false;
+        return;
+      }
+      empty.hidden = true;
+
+      for (const item of filtered) {
+        const isPortrait = item.aspect === '9:16';
+        const card = document.createElement('div');
+        card.className = 'video-card';
+
+        // 优先使用 R2 CDN 直链，其次使用流媒体直链
+        const videoPlayUrl = item.cdn_url || item.stream_url;
+        const downloadUrl = item.local_url;
+
+        card.innerHTML = `
+          <div class="thumb-wrap ${isPortrait ? 'portrait' : 'landscape'}" onclick="openPlayer('${item.id}')">
+            <video src="${videoPlayUrl}#t=0.5" preload="metadata" muted playsinline></video>
+            <div class="play-overlay">
+              <div class="play-icon-circle">▶</div>
+            </div>
+            <div class="badge-bar">
+              <span class="tag-badge ${isPortrait ? 'portrait' : 'landscape'}">${item.aspect} · ${item.width}×${item.height}</span>
+              <span class="tag-badge ${item.cdn_url ? 'r2' : 'local'}">${item.cdn_url ? '☁️ R2 CDN' : '💾 本地'}</span>
+            </div>
+          </div>
+          <div class="card-body">
+            <h4 class="card-title" title="${item.song_title}">${item.song_title}</h4>
+            <div class="card-meta">
+              <span>⏱ ${item.duration}s (${item.total} 帧)</span>
+              <span>📦 ${formatBytes(item.file_size)}</span>
+              <span>📅 ${formatTime(item.created_at)}</span>
+            </div>
+            <div class="card-actions">
+              <button class="btn-action primary" onclick="openPlayer('${item.id}')">▶ 播放</button>
+              <button class="btn-action" onclick="copyShareUrl('${item.id}')" title="复制在线直链">🔗 分享</button>
+              <button class="btn-action" onclick="openQR('${item.id}')" title="手机扫码在手机全屏看">📱 扫码</button>
+              ${r2Configured && !item.cdn_url && item.exists_locally ? `<button class="btn-action" onclick="syncToR2('${item.id}', this)" title="一键同步至 Cloudflare R2">☁️ 同步 R2</button>` : ''}
+              <a href="${downloadUrl}" class="btn-action" download title="下载 MP4 文件">⬇ 下载</a>
+            </div>
+          </div>
+        `;
+
+        // 鼠标悬停自动微试播
+        const videoEl = card.querySelector('video');
+        card.querySelector('.thumb-wrap').onmouseenter = () => {
+          videoEl.play().catch(() => {});
+        };
+        card.querySelector('.thumb-wrap').onmouseleave = () => {
+          videoEl.pause();
+          videoEl.currentTime = 0.5;
+        };
+
+        grid.appendChild(card);
+      }
+    }
+
+    function openPlayer(jobId) {
+      const item = allVideos.find(v => v.id === jobId);
+      if (!item) return;
+
+      const modal = $('player-modal');
+      const video = $('modal-video');
+      const title = $('modal-title');
+      const urlDisplay = $('modal-url');
+      const downloadBtn = $('btn-download-modal');
+
+      const playUrl = item.cdn_url || (window.location.origin + item.stream_url);
+
+      title.textContent = `${item.song_title} · ${item.aspect} (${item.width}×${item.height})`;
+      video.src = playUrl;
+      urlDisplay.textContent = playUrl;
+      downloadBtn.href = item.local_url;
+
+      $('btn-copy-url').onclick = () => {
+        navigator.clipboard.writeText(playUrl).then(() => {
+          showToast('已复制视频播放直链！');
+        });
+      };
+
+      modal.classList.add('active');
+      video.play().catch(() => {});
+    }
+
+    function closePlayer() {
+      const modal = $('player-modal');
+      const video = $('modal-video');
+      video.pause();
+      video.src = '';
+      modal.classList.remove('active');
+    }
+
+    function copyShareUrl(jobId) {
+      const item = allVideos.find(v => v.id === jobId);
+      if (!item) return;
+      const url = item.cdn_url || (window.location.origin + item.stream_url);
+      navigator.clipboard.writeText(url).then(() => {
+        showToast('已复制视频直链，可直接发给朋友打开播放！');
+      });
+    }
+
+    function openQR(jobId) {
+      const item = allVideos.find(v => v.id === jobId);
+      if (!item) return;
+      const url = item.cdn_url || (window.location.origin + item.stream_url);
+      const qrApi = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(url)}`;
+      $('qr-img').src = qrApi;
+      $('qr-modal').classList.add('active');
+    }
+
+    // 绑定筛选事件
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentFilter = btn.dataset.filter;
+        renderGrid();
+      };
+    });
+
+    $('refresh-btn').onclick = loadGallery;
+    $('modal-close').onclick = closePlayer;
+    $('player-modal').onclick = (e) => {
+      if (e.target === $('player-modal')) closePlayer();
+    };
+
+    $('qr-close').onclick = () => $('qr-modal').classList.remove('active');
+    $('qr-modal').onclick = (e) => {
+      if (e.target === $('qr-modal')) $('qr-modal').classList.remove('active');
+    };
+
+    $('r2-status-badge').onclick = () => $('r2-modal').classList.add('active');
+    $('r2-close').onclick = () => $('r2-modal').classList.remove('active');
+    $('r2-modal').onclick = (e) => {
+      if (e.target === $('r2-modal')) $('r2-modal').classList.remove('active');
+    };
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closePlayer();
+        $('qr-modal').classList.remove('active');
+        $('r2-modal').classList.remove('active');
+      }
+    });
+
+    // 页面初始化
+    checkR2Status();
+    loadGallery();
+  </script>
+</body>
+</html>

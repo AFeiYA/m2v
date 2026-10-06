@@ -466,8 +466,20 @@ def align_lyrics_ctc(
     if has_zh:
         log.info("加载中文 Wav2Vec2 声学模型 (jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn)…")
         model_zh_name = "jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn"
-        proc_zh = AutoProcessor.from_pretrained(model_zh_name)
-        model_zh = AutoModelForCTC.from_pretrained(model_zh_name)
+        hub_dir = Path.home() / ".cache/huggingface/hub/models--jonatasgrosman--wav2vec2-large-xlsr-53-chinese-zh-cn/snapshots"
+        local_target = None
+        if hub_dir.exists():
+            for snap in hub_dir.iterdir():
+                if snap.is_dir() and (snap / "preprocessor_config.json").exists() and (snap / "vocab.json").exists():
+                    local_target = str(snap)
+                    break
+        load_source = local_target or model_zh_name
+        try:
+            proc_zh = AutoProcessor.from_pretrained(load_source, local_files_only=True)
+            model_zh = AutoModelForCTC.from_pretrained(load_source, local_files_only=True)
+        except Exception:
+            proc_zh = AutoProcessor.from_pretrained(load_source)
+            model_zh = AutoModelForCTC.from_pretrained(load_source)
         model_zh.eval()
         blank_zh = proc_zh.tokenizer.pad_token_id or 0
 
@@ -696,106 +708,308 @@ def align_lyrics_ctc(
         else:
             _align_other(lines, s_sec, e_sec)
 
-    # 6. 乐段与语言块智能动态规划映射 (Rate-Deviation Dynamic Section Planner)
-    if len(lang_runs) == 1:
-        lang, r_lines = lang_runs[0]
-        sec_s = min_start
-        sec_e = min(total_audio_sec, (singing_sections[-1][1] + 1.2) if singing_sections else total_audio_sec)
-        log.info("单语言全曲对齐: 纵跨所有乐段 (%.2fs - %.2fs), 共 %d 行", sec_s, sec_e, len(r_lines))
-        _dispatch_align(lang, r_lines, sec_s, sec_e)
-    else:
-        cur_sec_idx = 0
-        ri = 0
-        while ri < len(lang_runs) and cur_sec_idx < len(singing_sections):
-            sec_s, sec_e = singing_sections[cur_sec_idx]
-            if cur_sec_idx == len(singing_sections) - 1:
-                sec_e = min(total_audio_sec, sec_e + 1.2)
-            sec_dur = sec_e - sec_s
+    # 6. 整曲顺序 + 上下文锚点 + 声学遗漏审计 (Context-Bounded Global Anchor & Voicing Audit)
+    # 6.1 提取自然歌词段落 (Stanzas)
+    # 优先遵循歌词空行 (line.paragraph)。若未划分段落，则按语言切换或每 4 行形成自然段
+    stanzas: list[list[tuple[int, LyricLine]]] = []
+    has_explicit_paragraphs = any(ly.paragraph > 0 for _, ly in singing_lyrics)
 
-            # 容量检查：若当前乐段时长严重不足以容纳当前语言块（如开场杂音仅1-2s，而歌词有十多行），
-            # 且后续乐段具有充足容量，则跳过此虚假乐段
-            min_needed_dur = max(2.0, len(lang_runs[ri][1]) * 1.0)
-            if (sec_dur < min_needed_dur and cur_sec_idx + 1 < len(singing_sections)
-                    and (singing_sections[cur_sec_idx + 1][1] - singing_sections[cur_sec_idx + 1][0]) >= min_needed_dur):
-                log.info("乐段 %d (%.2fs - %.2fs, 时长=%.2fs) 不足容纳 %d 行歌词，跳过并移至下一乐段",
-                         cur_sec_idx, sec_s, sec_e, sec_dur, len(lang_runs[ri][1]))
-                cur_sec_idx += 1
-                continue
-
-            rem_time = sum(s[1] - s[0] for s in singing_sections[cur_sec_idx:])
-            rem_lines = sum(len(r[1]) for r in lang_runs[ri:])
-            target_rate = max(1.5, min(5.0, rem_time / max(1, rem_lines)))
-
-            best_m = 1
-            best_score = float("inf")
-            tot_lines = 0
-            for m in range(1, len(lang_runs) - ri + 1):
-                tot_lines += len(lang_runs[ri + m - 1][1])
-                cand_rate = sec_dur / tot_lines
-                rem_secs = len(singing_sections) - (cur_sec_idx + 1)
-                rem_runs_after = len(lang_runs) - (ri + m)
-                if cand_rate < 1.4:
-                    break
-                if rem_secs > 0 and rem_runs_after < rem_secs:
-                    break
-                score = abs(cand_rate - target_rate)
-                if score < best_score:
-                    best_score = score
-                    best_m = m
-
-            chosen_runs = lang_runs[ri: ri + best_m]
-            tot_chosen_lines = sum(len(r[1]) for r in chosen_runs)
-
-            if len(chosen_runs) == 1:
-                r_lang, r_lines = chosen_runs[0]
-                log.info("乐段 %d (%.2fs - %.2fs) 单语言块对齐: %s (%d 行)", cur_sec_idx, sec_s, sec_e, r_lang, len(r_lines))
-                _dispatch_align(r_lang, r_lines, sec_s, sec_e)
-                ri += 1
-                cur_sec_idx += 1
+    if has_explicit_paragraphs:
+        cur_p = None
+        cur_stanza: list[tuple[int, LyricLine]] = []
+        for orig_idx, ly in singing_lyrics:
+            if cur_p is None or ly.paragraph == cur_p:
+                cur_stanza.append((orig_idx, ly))
+                cur_p = ly.paragraph
             else:
-                log.info(
-                    "乐段 %d (%.2fs - %.2fs) 智能多语言切分: 包含 %d 个语言块 (共 %d 行)",
-                    cur_sec_idx, sec_s, sec_e, len(chosen_runs), tot_chosen_lines
-                )
-                sub_hop = int(sr * 0.05)
-                s_sample, e_sample = int(sec_s * sr), int(sec_e * sr)
-                sub_wav = wav[s_sample:e_sample]
-                sub_rms = [float(np.sqrt(np.mean(sub_wav[i:i + sub_hop] ** 2))) for i in range(0, len(sub_wav) - sub_hop, sub_hop)]
+                stanzas.append(cur_stanza)
+                cur_stanza = [(orig_idx, ly)]
+                cur_p = ly.paragraph
+        if cur_stanza:
+            stanzas.append(cur_stanza)
+    else:
+        # 无显式空行段落：按语言突变或每 4 行聚合
+        cur_lang = None
+        cur_stanza = []
+        for orig_idx, ly in singing_lyrics:
+            line_lang = detect_line_lang(ly.text)
+            if cur_lang is None or (line_lang == cur_lang and len(cur_stanza) < 4):
+                cur_stanza.append((orig_idx, ly))
+                cur_lang = line_lang
+            else:
+                stanzas.append(cur_stanza)
+                cur_stanza = [(orig_idx, ly)]
+                cur_lang = line_lang
+        if cur_stanza:
+            stanzas.append(cur_stanza)
 
-                cut_times = [sec_s]
-                accum = 0
-                for r_idx in range(len(chosen_runs) - 1):
-                    accum += len(chosen_runs[r_idx][1])
-                    ratio = accum / tot_chosen_lines
-                    center_idx = int(len(sub_rms) * ratio)
-                    search_w = int(2.5 / 0.05)
-                    best_s = float("inf")
-                    best_k = center_idx
-                    for k in range(max(0, center_idx - search_w), min(len(sub_rms), center_idx + search_w)):
-                        dist_sec = abs(k - center_idx) * 0.05
-                        sc = sub_rms[k] + 0.05 * dist_sec
-                        if sc < best_s:
-                            best_s = sc
-                            best_k = k
-                    cut_t = sec_s + (best_k * sub_hop) / sr
-                    cut_times.append(cut_t)
-                cut_times.append(sec_e)
+    log.info("歌词结构分析完成: 组织为 %d 个自然段落", len(stanzas))
 
-                for r_idx, (r_lang, r_lines) in enumerate(chosen_runs):
-                    ps, pe = cut_times[r_idx], cut_times[r_idx + 1]
-                    log.info("  子块 %d: %s (%d 行) -> %.2fs ~ %.2fs", r_idx, r_lang, len(r_lines), ps, pe)
-                    _dispatch_align(r_lang, r_lines, ps, pe)
-                    ri += 1
-                cur_sec_idx += 1
+    # 6.2 文本签名与上下文锚点标记 (Context Anchors)
+    stanza_sigs = []
+    sig_counts: dict[str, int] = {}
+    for st in stanzas:
+        sig = "".join(c.lower() for _, ly in st for c in ly.text if c.isalnum() or _CHINESE_CHAR_RE.match(c))
+        stanza_sigs.append(sig)
+        sig_counts[sig] = sig_counts.get(sig, 0) + 1
 
-        while ri < len(lang_runs):
-            lang, r_lines = lang_runs[ri]
-            last_end = singing_sections[-1][1] if singing_sections else min_start
-            rem_s = max(min_start, last_end)
-            rem_e = min(total_audio_sec, rem_s + len(r_lines) * 3.5)
-            log.warning("乐段用尽兜底对齐: 语言块 %d (%s, %d 行) 分配至尾部 %.2fs ~ %.2fs", ri, lang, len(r_lines), rem_s, rem_e)
-            _dispatch_align(lang, r_lines, rem_s, rem_e)
-            ri += 1
+    is_repeated_stanza = [sig_counts[sig] > 1 for sig in stanza_sigs]
+
+    # 估算每个段落的生理语速目标时长 (秒)
+    stanza_target_durs: list[float] = []
+    for st in stanzas:
+        dur_est = 0.0
+        for _, ly in st:
+            l_lang = detect_line_lang(ly.text)
+            if l_lang == "en":
+                words = [w for w in ly.text.split() if w.strip()]
+                dur_est += len(words) * 0.50 + 0.35
+            else:
+                chars = [c for c in ly.text if not c.isspace() and (c.isalnum() or _CHINESE_CHAR_RE.match(c))]
+                dur_est += len(chars) * 0.33 + 0.35
+        stanza_target_durs.append(max(1.8, dur_est))
+
+    # 6.3 细粒度声学发音块提取与 RMS 能量微切分 (Micro-Voicing & Valley Split)
+    # 步骤 A: 平滑微小声门停顿 (< 0.4s)，避免乐句断裂但保留乐句间呼吸 (>= 0.4s)
+    base_blocks: list[tuple[float, float]] = []
+    for b in raw_blocks:
+        if b[1] < min_start:
+            continue
+        if not base_blocks:
+            base_blocks.append(b)
+        else:
+            prev_s, prev_e = base_blocks[-1]
+            if b[0] - prev_e < 0.4:
+                base_blocks[-1] = (prev_s, b[1])
+            else:
+                base_blocks.append(b)
+
+    # 步骤 B: 对较长的人声块 (> 5.5s)，沿局部 RMS 能量波谷 (呼吸/轻音断点) 细分为乐句级单元
+    acoustic_sections: list[tuple[float, float]] = []
+    for b_s, b_e in base_blocks:
+        dur = b_e - b_s
+        if dur > 5.5 and len(rms_vals) > 0:
+            idx_s = max(0, int(b_s / 0.1))
+            idx_e = min(len(rms_vals), int(b_e / 0.1))
+            sub_rms = rms_vals[idx_s:idx_e]
+            sub_times = times[idx_s:idx_e]
+            num_splits = int(np.round(dur / 4.5))
+            if num_splits > 1 and len(sub_rms) > 4:
+                chunk_len = len(sub_rms) // num_splits
+                cuts = [b_s]
+                for si in range(1, num_splits):
+                    center = si * chunk_len
+                    w = int(1.2 / 0.1)
+                    search_range = range(max(0, center - w), min(len(sub_rms), center + w))
+                    best_k = min(search_range, key=lambda ki: sub_rms[ki])
+                    cuts.append(round(sub_times[best_k], 2))
+                cuts.append(b_e)
+                for ci in range(len(cuts) - 1):
+                    if cuts[ci + 1] > cuts[ci] + 0.3:
+                        acoustic_sections.append((cuts[ci], cuts[ci + 1]))
+            else:
+                acoustic_sections.append((b_s, b_e))
+        else:
+            acoustic_sections.append((b_s, b_e))
+
+    # 步骤 C: 确保声学块数量 M >= 段落数 K (若由于连唱导致 M < K，持续在最长块的能量最低点分裂)
+    K = len(stanzas)
+    while len(acoustic_sections) < K:
+        longest_idx = max(range(len(acoustic_sections)), key=lambda i: acoustic_sections[i][1] - acoustic_sections[i][0])
+        ls, le = acoustic_sections[longest_idx]
+        if le - ls < 1.0:
+            break
+        mid_idx = int(((ls + le) / 2.0) / 0.1)
+        w = max(1, int((le - ls) * 0.3 / 0.1))
+        search_range = range(max(0, mid_idx - w), min(len(rms_vals), mid_idx + w))
+        if search_range:
+            best_k = min(search_range, key=lambda ki: rms_vals[ki])
+            cut_t = round(times[best_k], 2)
+        else:
+            cut_t = round((ls + le) / 2.0, 2)
+        if ls + 0.3 < cut_t < le - 0.3:
+            acoustic_sections[longest_idx: longest_idx + 1] = [(ls, cut_t), (cut_t, le)]
+        else:
+            mid_t = round((ls + le) / 2.0, 2)
+            acoustic_sections[longest_idx: longest_idx + 1] = [(ls, mid_t), (mid_t, le)]
+
+    if not acoustic_sections:
+        acoustic_sections = [(min_start, total_audio_sec)]
+
+    log.info("提取细粒度声学发音块: %d 个 (覆盖 %.2fs ~ %.2fs, 段落数=%d)",
+             len(acoustic_sections), acoustic_sections[0][0], acoustic_sections[-1][1], K)
+
+    # 6.4 单调最优分段全局动态规划 (Monotonic Global DP)
+    M = len(acoustic_sections)
+    INF = 1e9
+
+    dp = np.full((K + 1, M + 1), INF)
+    parent = np.full((K + 1, M + 1), -1, dtype=int)
+    dp[0][0] = 0.0
+
+    for k in range(1, K + 1):
+        target = stanza_target_durs[k - 1]
+        for m in range(1, M + 1):
+            for prev_m in range(0, m):
+                if dp[k - 1][prev_m] >= INF:
+                    continue
+                s_t = acoustic_sections[prev_m][0]
+                e_t = acoustic_sections[m - 1][1]
+                dur = e_t - s_t
+
+                # 约束 A: 段内不可跨越 >= 3.0s 的纯伴奏/长间奏
+                has_interlude = False
+                for bi in range(prev_m, m - 1):
+                    if acoustic_sections[bi + 1][0] - acoustic_sections[bi][1] >= 3.0:
+                        has_interlude = True
+                        break
+                if has_interlude:
+                    continue
+
+                # 约束 B: 语速生理下限 (不可严重挤压)
+                if dur < target * 0.40:
+                    continue
+
+                # 代价函数: 语速偏差二次方惩罚
+                cost = ((dur - target) ** 2) / target
+
+                # 尾段覆盖约束: 最后一个段落如果距离末尾未分配的人声块太多，加惩罚
+                if k == K:
+                    unassigned_blocks = M - m
+                    if unassigned_blocks > 1:
+                        cost += unassigned_blocks * 6.0
+
+                total_cost = dp[k - 1][prev_m] + cost
+                if total_cost < dp[k][m]:
+                    dp[k][m] = total_cost
+                    parent[k][m] = prev_m
+
+    best_end_m = -1
+    best_total_cost = INF
+    # 终点优先落在歌曲后部发音块 (倒数 3 个块内)
+    min_search_m = max(1, M - 2)
+    for m in range(min_search_m, M + 1):
+        if dp[K][m] < best_total_cost:
+            best_total_cost = dp[K][m]
+            best_end_m = m
+
+    # 兜底：若倒数 3 个块没有合法闭合路径，扩大搜索到全部 m
+    if best_end_m == -1 or best_total_cost >= INF:
+        for m in range(1, M + 1):
+            if dp[K][m] < best_total_cost:
+                best_total_cost = dp[K][m]
+                best_end_m = m
+
+    stanza_spans: list[tuple[float, float]] = []
+    if best_end_m > 0 and best_total_cost < INF:
+        cur_m = best_end_m
+        path_segments = []
+        for k in range(K, 0, -1):
+            prev_m = parent[k][cur_m]
+            path_segments.append((k - 1, acoustic_sections[prev_m][0], acoustic_sections[cur_m - 1][1]))
+            cur_m = prev_m
+        path_segments.reverse()
+        stanza_spans = [(p[1], p[2]) for p in path_segments]
+        log.info("全局动态规划求解成功 (最优代价: %.2f)", best_total_cost)
+    else:
+        log.warning("声学块动态规划未闭合，采用基于生理语速的前向比例自适应映射")
+        tot_target = sum(stanza_target_durs)
+        cur_t = min_start
+        for k in range(K):
+            s_dur = stanza_target_durs[k] * (total_audio_sec - min_start) / max(1.0, tot_target)
+            stanza_spans.append((round(cur_t, 2), round(min(total_audio_sec, cur_t + s_dur), 2)))
+            cur_t += s_dur
+
+    # 6.5 上下文前后文夹逼检验与复核 (Context Sandwich Validation)
+    for k in range(K):
+        if is_repeated_stanza[k]:
+            prev_anchor_t = min_start
+            for j in range(k - 1, -1, -1):
+                if not is_repeated_stanza[j]:
+                    prev_anchor_t = stanza_spans[j][1]
+                    break
+            next_anchor_t = total_audio_sec
+            for j in range(k + 1, K):
+                if not is_repeated_stanza[j]:
+                    next_anchor_t = stanza_spans[j][0]
+                    break
+
+            cur_s, cur_e = stanza_spans[k]
+            if cur_s < prev_anchor_t or cur_e > next_anchor_t:
+                log.warning("🛡️ [上下文夹逼触发] 第 %d 段 (重复段落) 越界，已强制锁死在合法上下文内 [%.2fs ~ %.2fs]",
+                            k + 1, prev_anchor_t, next_anchor_t)
+                clamped_s = max(cur_s, prev_anchor_t + 0.2)
+                clamped_e = min(cur_e, next_anchor_t - 0.2)
+                if clamped_e > clamped_s:
+                    stanza_spans[k] = (clamped_s, clamped_e)
+
+    # 6.6 声学遗漏审计 (Acoustic Voicing Gap Audit)
+    for k in range(len(stanza_spans) - 1):
+        gap_s = stanza_spans[k][1]
+        gap_e = stanza_spans[k + 1][0]
+        if gap_e - gap_s >= 3.5:
+            g_start_idx = int(gap_s / 0.1)
+            g_end_idx = int(gap_e / 0.1)
+            g_rms = rms_vals[g_start_idx:g_end_idx] if g_end_idx > g_start_idx else []
+            vocal_ratio = (sum(r > 0.02 for r in g_rms) / len(g_rms)) if g_rms else 0.0
+            if vocal_ratio > 0.40:
+                log.warning("⚠️ [声学遗漏审计] 发现区间 %.2fs ~ %.2fs 存在密集人声发音 (占比 %.0f%%)，但歌词中缺少对应内容！",
+                            gap_s, gap_e, vocal_ratio * 100)
+
+    last_stanza_end = stanza_spans[-1][1] if stanza_spans else 0.0
+    if total_audio_sec - last_stanza_end >= 5.0:
+        tail_start_idx = int(last_stanza_end / 0.1)
+        tail_rms = rms_vals[tail_start_idx:]
+        tail_vocal_ratio = (sum(r > 0.02 for r in tail_rms) / len(tail_rms)) if tail_rms else 0.0
+        if tail_vocal_ratio > 0.45:
+            log.warning("⚠️ [声学遗漏审计] 歌曲尾部 %.2fs ~ %.2fs (时长=%.1fs) 存在密集演唱，原歌词可能缺少重复副歌段落！",
+                        last_stanza_end, total_audio_sec, total_audio_sec - last_stanza_end)
+
+    # 6.7 逐段执行 CTC 精确打点 (Intra-Stanza CTC Fine Alignment)
+    for k, st in enumerate(stanzas):
+        span_s, span_e = stanza_spans[k]
+        lines_with_idx = st
+        langs_in_st = [detect_line_lang(ly.text) for _, ly in lines_with_idx]
+
+        if all(l == "en" for l in langs_in_st):
+            _align_en(lines_with_idx, span_s, span_e)
+        elif all(l == "zh" for l in langs_in_st):
+            _align_zh(lines_with_idx, span_s, span_e)
+        else:
+            sub_runs = []
+            cur_r = []
+            cur_rlang = None
+            for idx_ly in lines_with_idx:
+                l_lang = detect_line_lang(idx_ly[1].text)
+                if cur_rlang is None or l_lang == cur_rlang:
+                    cur_r.append(idx_ly)
+                    cur_rlang = l_lang
+                else:
+                    sub_runs.append((cur_rlang, cur_r))
+                    cur_r = [idx_ly]
+                    cur_rlang = l_lang
+            if cur_r:
+                sub_runs.append((cur_rlang, cur_r))
+
+            tot_st_lines = len(lines_with_idx)
+            sub_dur = (span_e - span_s)
+            c_s = span_s
+            for sr_idx, (sr_lang, sr_lines) in enumerate(sub_runs):
+                ratio = len(sr_lines) / tot_st_lines
+                ideal_e = c_s + sub_dur * ratio
+                if sr_idx < len(sub_runs) - 1:
+                    idx_mid = int(ideal_e / 0.1)
+                    w = int(1.2 / 0.1)
+                    search_range = range(max(0, idx_mid - w), min(len(rms_vals), idx_mid + w))
+                    if search_range:
+                        best_k = min(search_range, key=lambda ki: rms_vals[ki])
+                        c_e = round(times[best_k], 2)
+                    else:
+                        c_e = min(span_e, ideal_e)
+                else:
+                    c_e = span_e
+                _dispatch_align(sr_lang, sr_lines, c_s, c_e)
+                c_s = c_e
 
     aligned_lines = []
     for li, ly in enumerate(lyrics):
@@ -1068,8 +1282,13 @@ def _self_heal_alignment(
                 old_end = target_items[-1][1].end
                 new_end = repaired[-1].end
 
-                # 自愈有效性仲裁: 新时长显著伸展，或者结尾延展到真实人声结束点
-                if not alignment_quality_issue(repaired) and (new_dur > old_dur * 1.2 or new_end > old_end + 2.0):
+                # 自愈有效性仲裁: 新时长显著伸展，结尾延展到真实人声结束点，或被压缩异常行显著舒展恢复
+                anom_improved = any(
+                    (repaired[it_idx].end - repaired[it_idx].start) > max(0.8, (target_items[it_idx][1].end - target_items[it_idx][1].start) * 1.5)
+                    for it_idx in range(len(target_items))
+                    if (target_items[it_idx][1].end - target_items[it_idx][1].start) < 0.6
+                )
+                if not alignment_quality_issue(repaired) and (new_dur > old_dur * 1.2 or new_end > old_end + 2.0 or anom_improved):
                     for item_idx, r_line in enumerate(repaired):
                         orig_idx = target_items[item_idx][0]
                         orig_line = target_items[item_idx][1]

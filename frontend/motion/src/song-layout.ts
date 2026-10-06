@@ -11,8 +11,10 @@ export function compileSongLayout(project:Project,W:number,H:number,measure:Meas
  const fit=(text:string,size:number,maxWidth:number,weight=600)=>Math.min(size,size*maxWidth/Math.max(1,measure(text,size,weight).width));
  const header:SongText[]=[];
  if(identity.show_signature){
-  header.push({text:title,x:margin,y:H*.065,fontSize:fit(title,base*.027,portrait?W*.86:W*.55),weight:600,anchor:'start'});
-  if(artist)header.push({text:artist,x:portrait?margin:W-margin,y:H*(portrait?.095:.065),fontSize:fit(artist,base*.022,portrait?W*.86:W*.27),weight:500,anchor:portrait?'start':'end'});
+  const titleWidth = artist ? (portrait ? W * 0.52 : W * 0.55) : W * 0.86;
+  const artistWidth = portrait ? W * 0.35 : W * 0.27;
+  header.push({text:title,x:margin,y:H*.065,fontSize:fit(title,base*.027,titleWidth),weight:600,anchor:'start'});
+  if(artist)header.push({text:artist,x:W-margin,y:H*.065,fontSize:fit(artist,base*.022,artistWidth),weight:500,anchor:'end'});
  }
  const hasCover=!!project.song_cover?.data_url&&identity.cover_mode!=='none';
  const artwork=hasCover?(portrait?{x:W*.18,y:H*.16,width:W*.64,height:W*.64}:{x:W*.09,y:H*.20,width:H*.60,height:H*.60}):undefined;

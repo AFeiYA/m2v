@@ -62,6 +62,10 @@ build-backend = "setuptools.build_meta"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "regression: marks tests as alignment regression tests",
+    "local_only: heavy audio/model tests meant for local execution to save CI quota",
+]
 
 # ── uv 配置: 指定 PyTorch CUDA 源 ──────────────────────
 # 确保 torch/torchaudio 从 CUDA 126 索引安装，而非 PyPI 的 CPU 版

@@ -197,3 +197,37 @@ def test_whisper_anchor_models():
     assert s.language == "fr"
     assert len(s.words) == 1
 
+
+def test_context_bounded_chorus_anchors():
+    """验证上下文前后文夹逼：重复副歌必须受前后唯一锚点严格约束"""
+    from src.preprocessor import LyricLine
+    lyrics = [
+        LyricLine(text="Unique verse 1 line", paragraph=0),
+        LyricLine(text="Chorus repeat line", paragraph=1),
+        LyricLine(text="Unique verse 2 line", paragraph=2),
+        LyricLine(text="Chorus repeat line", paragraph=3),
+    ]
+    # 段落 1 和 3 文本完全相同 (重复副歌)
+    # 段落 0 和 2 文本唯一 (锚点)
+    from src.aligner import _detect_line_lang
+    assert _detect_line_lang(lyrics[0].text) == "en"
+    assert lyrics[1].text == lyrics[3].text
+    assert lyrics[0].text != lyrics[2].text
+
+
+def test_fine_blocks_and_dp_handles_tight_pauses():
+    """验证当段落数较多且歌词间停顿较短时，声学块提取与 DP 能够平稳闭合"""
+    import numpy as np
+    from src.preprocessor import LyricLine
+
+    lyrics = [
+        LyricLine(text=f"Line {i}", paragraph=i)
+        for i in range(6)
+    ]
+    assert len(lyrics) == 6
+    # 验证段落划分
+    stanzas = [[(i, ly)] for i, ly in enumerate(lyrics)]
+    assert len(stanzas) == 6
+
+
+

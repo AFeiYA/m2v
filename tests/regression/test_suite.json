@@ -1,0 +1,202 @@
+{
+  "version": "1.0",
+  "description": "Lyric Alignment & Motion MV Regression Test Suite",
+  "created_at": "2026-10-06T08:35:00Z",
+  "songs": [
+    {
+      "id": "look_up",
+      "title": "Look Up·抬头看",
+      "url": "https://suno.com/s/gLAkLu9fiymSb0eV",
+      "suno_id": "848ca54e-da45-420a-8d7d-5a9e32ffb3b7",
+      "lyrics_path": "input/Look Up·抬头看/Look Up·抬头看.txt",
+      "vocals_path": "output/Look Up·抬头看/Look Up·抬头看_vocals.mp3",
+      "baseline_alignment_path": "output/Look Up·抬头看/Look Up·抬头看_alignment.json",
+      "expected_line_count": 28,
+      "tags": [
+        "bilingual_en_zh",
+        "long_interlude",
+        "whistle_solo",
+        "alternating_chorus"
+      ],
+      "critical_anchors": [
+        {
+          "line_idx": 0,
+          "expected_text": "A white wall on the corner, leaning back against the sun",
+          "min_start": 6.0,
+          "max_start": 7.2,
+          "max_end": 11.2
+        },
+        {
+          "line_idx": 3,
+          "expected_text": "And a red ship's parked on the river with nothing much to do",
+          "min_start": 25.0,
+          "max_start": 26.5,
+          "max_end": 30.5
+        },
+        {
+          "line_idx": 4,
+          "expected_text": "I didn't go far",
+          "min_start": 31.0,
+          "max_start": 32.5,
+          "max_end": 33.5
+        },
+        {
+          "line_idx": 10,
+          "expected_text": "路口那面白墙，把太阳靠在肩上",
+          "min_start": 57.5,
+          "max_start": 59.0,
+          "max_end": 62.5
+        },
+        {
+          "line_idx": 14,
+          "expected_text": "我没有走远",
+          "min_start": 85.5,
+          "max_start": 87.0,
+          "max_end": 88.0
+        },
+        {
+          "line_idx": 20,
+          "expected_text": "Third time at the wall of flowers",
+          "min_start": 130.0,
+          "max_start": 131.8,
+          "max_end": 133.5
+        },
+        {
+          "line_idx": 27,
+          "expected_text": "抬头看，抬头看，把地图放一边",
+          "min_start": 163.0,
+          "max_start": 164.5,
+          "max_end": 167.8
+        }
+      ],
+      "instrumental_interludes": [
+        {
+          "description": "Whistling solo interlude between Chinese verse/chorus and English bridge",
+          "start": 116.5,
+          "end": 130.5,
+          "min_duration": 13.0,
+          "forbidden_lyric_overlap": true
+        }
+      ],
+      "repeated_choruses": [
+        {
+          "description": "Look up choruses must occur in distinct chronological windows",
+          "first_occurrence_max_end": 65.0,
+          "second_occurrence_min_start": 92.0,
+          "third_occurrence_min_start": 144.0
+        }
+      ]
+    },
+    {
+      "id": "tailwind",
+      "title": "Tailwind",
+      "url": "https://suno.com/s/toVdvY4vNA3pRYbG",
+      "suno_id": "4f60605f-43f9-4d45-ab39-d13819a9098d",
+      "lyrics_path": "input/Tailwind/Tailwind.txt",
+      "vocals_path": "output/Tailwind/Tailwind_vocals.mp3",
+      "baseline_alignment_path": "output/Tailwind/Tailwind_alignment.json",
+      "expected_line_count": 17,
+      "tags": [
+        "bilingual_mixed_chorus",
+        "tight_pauses",
+        "guitar_solo_interlude",
+        "repeated_chorus"
+      ],
+      "critical_anchors": [
+        {
+          "line_idx": 0,
+          "expected_text": "The riverside unrolls like ribbon",
+          "min_start": 13.5,
+          "max_start": 14.5,
+          "max_end": 17.5
+        },
+        {
+          "line_idx": 3,
+          "expected_text": "Just to say that I am here",
+          "min_start": 26.0,
+          "max_start": 27.5,
+          "max_end": 31.0
+        },
+        {
+          "line_idx": 4,
+          "expected_text": "The wind pushed back the whole way out",
+          "min_start": 31.0,
+          "max_start": 32.5,
+          "max_end": 37.8
+        },
+        {
+          "line_idx": 5,
+          "expected_text": "去的时候是逆风",
+          "min_start": 39.0,
+          "max_start": 40.5,
+          "max_end": 42.5
+        },
+        {
+          "line_idx": 8,
+          "expected_text": "Waiting for you to turn around",
+          "min_start": 51.5,
+          "max_start": 53.0,
+          "max_end": 56.5
+        },
+        {
+          "line_idx": 9,
+          "expected_text": "栏杆数着我的车轮",
+          "min_start": 59.0,
+          "max_start": 60.8,
+          "max_end": 64.2
+        },
+        {
+          "line_idx": 10,
+          "expected_text": "云在江面上练习倒影",
+          "min_start": 63.2,
+          "max_start": 64.5,
+          "max_end": 69.2
+        },
+        {
+          "line_idx": 11,
+          "expected_text": "去的时候是逆风",
+          "min_start": 84.8,
+          "max_start": 86.2,
+          "max_end": 88.8
+        },
+        {
+          "line_idx": 14,
+          "expected_text": "Waiting for you to turn around",
+          "min_start": 97.2,
+          "max_start": 98.8,
+          "max_end": 101.8
+        },
+        {
+          "line_idx": 15,
+          "expected_text": "Turn around",
+          "min_start": 102.0,
+          "max_start": 103.0,
+          "max_end": 104.2
+        },
+        {
+          "line_idx": 16,
+          "expected_text": "回头看",
+          "min_start": 104.0,
+          "max_start": 105.0,
+          "max_end": 106.0
+        }
+      ],
+      "instrumental_interludes": [
+        {
+          "description": "Guitar solo / ad-lib interlude between Verse 2 and Final Chorus",
+          "start": 68.8,
+          "end": 85.0,
+          "min_duration": 15.5,
+          "forbidden_lyric_overlap": true
+        }
+      ],
+      "repeated_choruses": [
+        {
+          "description": "Chorus 1 (lines 5-8) must precede Verse 2 (lines 9-10), and Chorus 2 (lines 11-14) must follow interlude",
+          "first_occurrence_max_end": 57.0,
+          "second_occurrence_min_start": 84.5
+        }
+      ]
+    }
+  ]
+}

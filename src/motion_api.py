@@ -12,9 +12,10 @@ import time
 import uuid
 from typing import Literal
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from src.motion_director import validate_plan, rule_plan, llm_prompt, director_input, line_prompt_bundle, line_response, cue_signature, source_signature
+from src.r2_storage import r2_storage
 
 from src.song_cover import resolve_cover, prepare_cover, cover_path, MAX_BYTES
 from src.song_identity import SongIdentity, identity_path, resolve_identity
@@ -429,7 +430,16 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
                 code = child.wait()
                 with lock:
                     if jobs[job_id]['status'] != 'cancelled':
-                        jobs[job_id].update(status='done' if code == 0 and out.exists() else 'failed', error='' if code == 0 else diagnostics)
+                        is_done = code == 0 and out.exists()
+                        jobs[job_id].update(status='done' if is_done else 'failed', error='' if code == 0 else diagnostics)
+                        if is_done and r2_storage.is_configured():
+                            try:
+                                r2_res = r2_storage.upload_video(out, f"exports/{job_id}.mp4")
+                                if r2_res:
+                                    jobs[job_id]['cdn_url'] = r2_res['url']
+                                    jobs[job_id]['r2_key'] = r2_res['key']
+                            except Exception:
+                                pass
             except Exception as exc:
                 jobs[job_id].update(status='failed', error=str(exc))
             finally:
@@ -449,6 +459,80 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
             records.append(record)
         return sorted(records, key=lambda j: j['created_at'], reverse=True)
 
+    @router.get('/r2/status')
+    def r2_status():
+        return r2_storage.get_status_info()
+
+    @router.get('/gallery')
+    def gallery(project_id: str | None = None):
+        """获取所有已导出的视频作品库（供展厅与播放器使用）"""
+        records = []
+        scan = get_scan_dir()
+        pattern = f'{project_id.split("/")[0]}/motion_exports/*_status.json' if project_id else '*/motion_exports/*_status.json'
+        for p in scan.glob(pattern):
+            try:
+                data = json.loads(p.read_text(encoding='utf-8'))
+                if data.get('status') == 'done':
+                    job_id = data.get('id', p.stem.replace('_status', ''))
+                    song_dir = p.parent.parent
+                    song_title = song_dir.name.removesuffix('_project').removesuffix('_alignment')
+                    job_snapshot = p.with_name(f'{job_id}.json')
+                    if job_snapshot.exists():
+                        try:
+                            snap_data = json.loads(job_snapshot.read_text(encoding='utf-8'))
+                            song_title = snap_data.get('project', {}).get('title') or song_title
+                        except Exception:
+                            pass
+                    mp4_file = p.with_name(f'{job_id}.mp4')
+                    size = mp4_file.stat().st_size if mp4_file.exists() else data.get('size', 0)
+                    total_frames = data.get('total', 0)
+                    records.append({
+                        'id': job_id,
+                        'song_title': song_title,
+                        'created_at': data.get('created_at', p.stat().st_mtime),
+                        'width': data.get('width', 1280),
+                        'height': data.get('height', 720),
+                        'aspect': '9:16' if data.get('height', 720) > data.get('width', 1280) else '16:9',
+                        'frames': data.get('frames', total_frames),
+                        'total': total_frames,
+                        'duration': round(total_frames / 30, 2) if total_frames else 0,
+                        'cdn_url': data.get('cdn_url', ''),
+                        'local_url': f'/api/motion/render/{job_id}/download',
+                        'stream_url': f'/api/motion/render/{job_id}/stream',
+                        'file_size': size,
+                        'exists_locally': mp4_file.exists(),
+                    })
+            except Exception:
+                continue
+        return sorted(records, key=lambda x: x['created_at'], reverse=True)
+
+    @router.post('/render/{job_id}/sync_r2')
+    def sync_r2(job_id: str):
+        """将已存在的本地视频同步上传至 Cloudflare R2"""
+        if not r2_storage.is_configured():
+            raise HTTPException(400, 'Cloudflare R2 尚未配置')
+        candidates = list(get_scan_dir().glob(f'*/motion_exports/{job_id}_status.json'))
+        if not candidates:
+            raise HTTPException(404, '视频任务不存在')
+        status_path = candidates[0]
+        mp4_path = status_path.with_name(f'{job_id}.mp4')
+        if not mp4_path.exists():
+            raise HTTPException(404, '本地 MP4 文件不存在')
+
+        status_data = json.loads(status_path.read_text(encoding='utf-8'))
+        r2_key = f"exports/{job_id}.mp4"
+        upload_res = r2_storage.upload_video(mp4_path, r2_key)
+        if not upload_res or not upload_res.get('url'):
+            raise HTTPException(500, '上传到 Cloudflare R2 失败，请检查网络和存储桶权限')
+
+        status_data['cdn_url'] = upload_res['url']
+        status_data['r2_key'] = upload_res['key']
+        status_path.write_text(json.dumps(status_data, ensure_ascii=False, indent=2), encoding='utf-8')
+        if job_id in jobs:
+            jobs[job_id]['cdn_url'] = upload_res['url']
+            jobs[job_id]['r2_key'] = upload_res['key']
+        return {'success': True, 'cdn_url': upload_res['url'], 'r2_key': upload_res['key']}
+
     @router.get('/render/{job_id}')
     def status(job_id: str):
         if job_id not in jobs: raise HTTPException(404, '导出任务不存在')
@@ -466,6 +550,23 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
                     try: os.killpg(child.pid, signal.SIGTERM)
                     except ProcessLookupError: pass
         return status(job_id)
+
+    @router.get('/render/{job_id}/stream')
+    def stream_video(job_id: str):
+        """流式播放视频，若存在 R2 CDN 直链则重定向，否则本地回退"""
+        if job_id in jobs and jobs[job_id].get('cdn_url'):
+            return RedirectResponse(jobs[job_id]['cdn_url'], status_code=307)
+        candidates = list(get_scan_dir().glob(f'*/motion_exports/{job_id}_status.json'))
+        if candidates:
+            data = json.loads(candidates[0].read_text(encoding='utf-8'))
+            if data.get('cdn_url'):
+                return RedirectResponse(data['cdn_url'], status_code=307)
+            local_mp4 = candidates[0].with_name(f'{job_id}.mp4')
+            if local_mp4.exists():
+                return FileResponse(local_mp4, media_type='video/mp4')
+        if job_id in jobs and jobs[job_id].get('output') and Path(jobs[job_id]['output']).exists():
+            return FileResponse(Path(jobs[job_id]['output']), media_type='video/mp4')
+        raise HTTPException(404, '视频尚未就绪或不存在')
 
     @router.get('/render/{job_id}/download')
     def download(job_id: str):

@@ -610,3 +610,17 @@ test('song themes unify stages without mutating lyrics or saved director choices
   if(key!=='neon')assert.ok(compiled.nodes.every(n=>n.beat_reaction==='none'));
  }
 });
+
+test('portrait header places title on left and artist on right on the same line',async()=>{
+ const {compileSongLayout}=await import('./song-layout.ts');
+ const p=normalizeProject({title:'旧名',duration:15,song_identity:{version:'motion-song-identity-v1',title:'兔子洞',artist:'Luca',style:'editorial',show_intro:true,show_signature:true,show_section:true,show_outro:true},lines:[{text:'欢迎来到',start:3,end:10,words:[],section:'VERSE'}]});
+ const measure=(text:string,size:number)=>({width:Array.from(text).length*size,ascent:size*.8,descent:size*.2});
+ const portrait=compileSongLayout(p,720,1280,measure)!;
+ assert.equal(portrait.header.length,2);
+ const [title,artist]=portrait.header;
+ assert.equal(title.anchor,'start');
+ assert.equal(artist.anchor,'end');
+ assert.equal(title.y,artist.y);
+ assert.equal(title.x,720*.07);
+ assert.equal(artist.x,720*.93);
+});

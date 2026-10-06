@@ -2195,6 +2195,15 @@ def motion_studio():
     return HTMLResponse("<h1>frontend/local/motion_studio.html 不存在</h1>", status_code=500)
 
 
+@app.get("/gallery", response_class=HTMLResponse)
+@app.get("/videos", response_class=HTMLResponse)
+def gallery_view():
+    g_file = _FRONTEND_DIR / "gallery.html"
+    if g_file.exists():
+        return HTMLResponse(g_file.read_text(encoding="utf-8"), headers={"Cache-Control": "no-cache"})
+    return HTMLResponse("<h1>frontend/local/gallery.html 不存在</h1>", status_code=500)
+
+
 def _find_audio(stem: str, song_output_dir: Path | None = None) -> Path | None:
     """在 input/{song_name}/ 和 output/{song_name}/ 专属子目录中查找原音频"""
     scan_dir = _get_scan_dir()

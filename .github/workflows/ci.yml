@@ -62,7 +62,7 @@ jobs:
       - name: Run Full Test Suite
         run: |
           export CHROME_PATH=$(cd frontend/motion && node --input-type=module -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')
-          RUN_MOTION_RENDER=1 pytest tests/ -v --maxfail=1
+          RUN_MOTION_RENDER=1 pytest tests/ -v --maxfail=1 -m "not local_only"
 
       - name: Verify Gradio Motion runtime preparation
         run: |
