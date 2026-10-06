@@ -2324,6 +2324,21 @@ app.include_router(create_motion_router(_get_scan_dir, _validate_path, _find_aud
 from src.bilibili_uploader import bilibili_router
 app.include_router(bilibili_router)
 
+from src.xiaohongshu_uploader import xiaohongshu_router
+app.include_router(xiaohongshu_router)
+
+from src.wechat_uploader import wechat_router
+app.include_router(wechat_router)
+
+from src.douyin_uploader import douyin_router
+app.include_router(douyin_router)
+
+from src.youtube_uploader import youtube_router
+app.include_router(youtube_router)
+
+from src.syndication_manager import syndication_router
+app.include_router(syndication_router)
+
 @app.get("/motion_lab", response_class=HTMLResponse)
 def motion_lab():
     return HTMLResponse((_FRONTEND_DIR / "motion_lab.html").read_text(encoding="utf-8"))

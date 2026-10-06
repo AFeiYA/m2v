@@ -622,6 +622,116 @@
       width: 0%;
       transition: width 0.3s ease;
     }
+    /* ── 全网多平台分发弹窗样式 ── */
+    .syndicate-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.88);
+      backdrop-filter: blur(10px);
+      z-index: 1300;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .syndicate-modal.active {
+      display: flex;
+    }
+    .syndicate-box {
+      background: #0f150e;
+      border: 1px solid #2d3e2a;
+      border-radius: 18px;
+      padding: 24px;
+      max-width: 680px;
+      width: 100%;
+      max-height: 92vh;
+      overflow-y: auto;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.85);
+      box-sizing: border-box;
+    }
+    .platform-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .platform-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #141c12;
+      border: 1px solid #233120;
+      border-radius: 12px;
+      padding: 10px 12px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      user-select: none;
+    }
+    .platform-item:hover {
+      border-color: #3b5336;
+      background: #182216;
+    }
+    .platform-item.checked {
+      border-color: var(--accent);
+      background: rgba(200, 255, 0, 0.05);
+    }
+    .platform-icon {
+      font-size: 24px;
+      flex-shrink: 0;
+    }
+    .platform-meta {
+      flex: 1;
+      min-width: 0;
+    }
+    .platform-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .platform-status-badge {
+      font-size: 11px;
+      display: inline-block;
+      margin-top: 2px;
+      color: var(--text-muted);
+    }
+    .platform-status-badge.online {
+      color: #07C160;
+      font-weight: 500;
+    }
+    .platform-status-badge.offline {
+      color: #f59e0b;
+    }
+    .platform-qr-panel {
+      background: #090e08;
+      border: 1px solid #2b3b28;
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+      margin-top: 12px;
+      display: none;
+    }
+    .btn-gradient-syndicate {
+      background: linear-gradient(135deg, #00A1D6 0%, #FF2442 50%, #07C160 100%) !important;
+      color: #fff !important;
+      font-weight: 700 !important;
+      border: none !important;
+      box-shadow: 0 4px 15px rgba(0, 161, 214, 0.35);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .btn-gradient-syndicate:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(0, 161, 214, 0.5);
+    }
+    .platform-progress-item {
+      background: #141c12;
+      border: 1px solid #233120;
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 8px;
+    }
 
     /* ── 空状态 ── */
     .empty-state {
@@ -673,6 +783,7 @@
       </div>
     </div>
     <div class="nav-actions">
+      <button id="btn-syndicate-header" class="btn-gradient-syndicate nav-btn" style="padding:4px 12px;cursor:pointer">🚀 一键全网多发</button>
       <div id="r2-status-badge" class="r2-badge local" title="点击查看存储配置说明">
         <span>💾</span> <span id="r2-status-text">检查存储状态…</span>
       </div>
@@ -723,8 +834,9 @@
       </div>
       <div class="modal-footer">
         <div id="modal-url" class="url-display"></div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button id="btn-copy-url" class="btn-action">🔗 复制直链</button>
+          <button id="btn-syndicate-player" class="btn-action btn-gradient-syndicate">🚀 一键全网多发</button>
           <button id="btn-bili-player" class="btn-action bili-btn">📺 发布到 B站</button>
           <a id="btn-download-modal" class="btn-action primary" download>⬇ 下载视频</a>
         </div>
@@ -761,6 +873,91 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
         未配置时系统会自动平滑降级为后端本地磁盘存储，依然可正常预览和下载。
       </p>
       <button id="r2-close" class="btn-action primary" style="width:100%">我知道了</button>
+    </div>
+  </div>
+
+  <!-- 全网多平台一键分发发布弹窗 -->
+  <div id="syndicate-modal" class="syndicate-modal">
+    <div class="syndicate-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <h3 style="margin:0;color:#fff;font-size:18px;display:flex;align-items:center;gap:8px">
+            <span style="font-size:22px">🚀</span> 全网多平台一键分发中心
+          </h3>
+          <p style="margin:4px 0 0 0;font-size:12px;color:var(--text-muted)">
+            支持并发同步发布至 哔哩哔哩 · 小红书 · 微信视频号 · 抖音 · YouTube
+          </p>
+        </div>
+        <button id="syndicate-close" class="modal-close" style="font-size:16px">✕</button>
+      </div>
+
+      <!-- 平台选择与授权状态 -->
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <label class="form-label" style="margin:0">目标发布平台 (点击卡片可快速扫码登录或勾选)</label>
+          <button id="syndicate-refresh-status" class="btn-action" style="font-size:11px;padding:2px 8px">🔄 刷新账号状态</button>
+        </div>
+        <div id="syndicate-platform-grid" class="platform-grid">
+          <!-- 动态渲染各平台卡片 -->
+        </div>
+
+        <!-- 嵌入式扫码登录抽屉 -->
+        <div id="syndicate-qr-drawer" class="platform-qr-panel">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <span id="qr-drawer-title" style="font-weight:600;color:#fff;font-size:14px">平台扫码登录</span>
+            <button id="qr-drawer-close" class="modal-close" style="font-size:14px">✕</button>
+          </div>
+          <p id="qr-drawer-tip" style="margin:0 0 12px 0;color:var(--text-muted);font-size:12px">请使用对应手机 App 扫码登录</p>
+          <div style="background:#fff;display:inline-block;padding:10px;border-radius:12px;margin-bottom:10px">
+            <img id="syndicate-qr-img" src="" alt="登录二维码" style="width:170px;height:170px;display:block">
+          </div>
+          <div id="syndicate-qr-status" style="font-size:12px;color:#a4bca0;margin-bottom:10px">正在加载二维码...</div>
+          <div style="display:flex;gap:8px;justify-content:center">
+            <button id="syndicate-qr-refresh-btn" class="btn-action" style="font-size:11px">🔄 刷新二维码</button>
+            <button id="syndicate-browser-login-btn" class="btn-action" style="font-size:11px">🖥️ 打开浏览器窗口登录</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 发布表单区域 -->
+      <div id="syndicate-form-section">
+        <div class="form-group">
+          <label class="form-label">发布标题 (自动适配各平台)</label>
+          <input type="text" id="syndicate-input-title" class="form-input" maxlength="80" required placeholder="请输入视频发布标题">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">标签话题 (用逗号分隔，各平台自动匹配 #话题)</label>
+          <input type="text" id="syndicate-input-tags" class="form-input" value="Suno,AI音乐,自制MV,宝藏音乐,音乐日记,治愈系">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">动态简介 / 歌词内容</label>
+          <textarea id="syndicate-input-desc" class="form-textarea" rows="3" placeholder="填写作品简介或歌词..."></textarea>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:20px">
+          <button type="button" id="syndicate-btn-cancel" class="btn-action" style="flex:1">取消</button>
+          <button type="button" id="syndicate-btn-submit" class="btn-action btn-gradient-syndicate" style="flex:2">🚀 立即并发全网多发</button>
+        </div>
+      </div>
+
+      <!-- 进度监控区域 -->
+      <div id="syndicate-progress-section" style="display:none;padding:12px 0">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <span style="font-size:14px;color:#fff;font-weight:600">全网并发分发进度</span>
+          <span id="syndicate-overall-pct" style="font-size:13px;color:var(--accent);font-weight:700">0%</span>
+        </div>
+        <div class="progress-track" style="margin:6px 0 16px 0">
+          <div id="syndicate-overall-bar" class="progress-fill" style="background:linear-gradient(90deg,#00A1D6,#FF2442,#07C160)"></div>
+        </div>
+
+        <div id="syndicate-platform-progress-list">
+          <!-- 实时展示每个平台的发布状态 -->
+        </div>
+
+        <button type="button" id="syndicate-btn-done" class="btn-action primary" style="width:100%;margin-top:16px;display:none">完成关闭</button>
+      </div>
     </div>
   </div>
 
@@ -1017,7 +1214,9 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
             </div>
             <div class="card-actions">
               <button class="btn-action primary" onclick="openPlayer('${item.id}')">▶ 播放</button>
+              <button class="btn-action btn-gradient-syndicate" onclick="openSyndicateModal('${item.id}')" title="一键全网多平台分发发布">🚀 全网多发</button>
               <button class="btn-action bili-btn" onclick="openBiliModal('${item.id}')" title="一键发布至哔哩哔哩 (B站)">📺 B站</button>
+              <button class="btn-action" style="color:#ff2442;border-color:rgba(255,36,66,0.4)" onclick="openSyndicateModal('${item.id}', 'xiaohongshu')" title="发布至小红书">📕 小红书</button>
               <button class="btn-action" onclick="copyShareUrl('${item.id}')" title="复制在线直链">🔗 分享</button>
               <button class="btn-action" onclick="openQR('${item.id}')" title="手机扫码在手机全屏看">📱 扫码</button>
               ${r2Configured && !item.cdn_url && item.exists_locally ? `<button class="btn-action" onclick="syncToR2('${item.id}', this)" title="一键同步至 Cloudflare R2">☁️ 同步 R2</button>` : ''}
@@ -1316,10 +1515,362 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
     $('bili-btn-logout').onclick = logoutBili;
     $('bili-btn-submit').onclick = submitBiliPublish;
 
+    // ── 全网多平台一键分发协同逻辑 ──
+    let currentSyndicateVideo = null;
+    let syndicatePlatforms = {};
+    let selectedPlatforms = new Set(['bilibili', 'xiaohongshu', 'wechat', 'douyin']);
+    let syndicateQrTimer = null;
+    let syndicateTaskTimer = null;
+    let currentQrPlatform = null;
+
+    async function loadSyndicateStatus() {
+      try {
+        const res = await fetch('/api/syndicate/status');
+        const data = await res.json();
+        syndicatePlatforms = data.platforms || {};
+        renderSyndicatePlatformGrid();
+      } catch (err) {
+        console.error('加载平台状态失败:', err);
+      }
+    }
+
+    function renderSyndicatePlatformGrid() {
+      const grid = $('syndicate-platform-grid');
+      if (!grid) return;
+      grid.innerHTML = '';
+
+      for (const [pid, p] of Object.entries(syndicatePlatforms)) {
+        const isChecked = selectedPlatforms.has(pid);
+        const item = document.createElement('div');
+        item.className = `platform-item ${isChecked ? 'checked' : ''}`;
+        
+        let statusBadge = '';
+        if (p.is_logged_in) {
+          statusBadge = `<span class="platform-status-badge online">● 已登录 ${p.uname ? '(' + p.uname + ')' : ''}</span>`;
+        } else {
+          statusBadge = `<span class="platform-status-badge offline">○ 未登录</span>`;
+        }
+
+        let actionBtn = '';
+        if (!p.is_logged_in) {
+          if (pid === 'youtube') {
+            actionBtn = `<button class="btn-action" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation(); configureYouTubeToken()">⚙️ 配置</button>`;
+          } else {
+            actionBtn = `<button class="btn-action" style="font-size:11px;padding:2px 8px" onclick="event.stopPropagation(); openPlatformQr('${pid}')">📱 扫码登录</button>`;
+          }
+        } else {
+          actionBtn = `<button class="btn-action" style="font-size:11px;padding:2px 6px" onclick="event.stopPropagation(); logoutPlatform('${pid}')">退出</button>`;
+        }
+
+        item.innerHTML = `
+          <input type="checkbox" ${isChecked ? 'checked' : ''} style="cursor:pointer" onclick="event.stopPropagation(); togglePlatformSelection('${pid}')">
+          <span class="platform-icon">${p.icon}</span>
+          <div class="platform-meta">
+            <div class="platform-name">
+              <span>${p.name}</span>
+            </div>
+            ${statusBadge}
+          </div>
+          ${actionBtn}
+        `;
+
+        item.onclick = () => togglePlatformSelection(pid);
+        grid.appendChild(item);
+      }
+
+      updateSyndicateSubmitBtn();
+    }
+
+    function togglePlatformSelection(pid) {
+      if (selectedPlatforms.has(pid)) {
+        selectedPlatforms.delete(pid);
+      } else {
+        selectedPlatforms.add(pid);
+        const p = syndicatePlatforms[pid];
+        if (p && !p.is_logged_in) {
+          openPlatformQr(pid);
+        }
+      }
+      renderSyndicatePlatformGrid();
+    }
+
+    function updateSyndicateSubmitBtn() {
+      const btn = $('syndicate-btn-submit');
+      if (!btn) return;
+      const count = selectedPlatforms.size;
+      btn.textContent = `🚀 立即并发全网多发 (已选 ${count} 个平台)`;
+      btn.disabled = count === 0;
+    }
+
+    async function openPlatformQr(pid) {
+      currentQrPlatform = pid;
+      const p = syndicatePlatforms[pid];
+      if (!p) return;
+
+      $('syndicate-qr-drawer').style.display = 'block';
+      $('qr-drawer-title').textContent = `${p.icon} ${p.name} 扫码授权登录`;
+      $('qr-drawer-tip').textContent = `请打开 ${p.name} 手机客户端扫描屏幕二维码并确认登录`;
+      $('syndicate-qr-status').textContent = '正在获取登录二维码...';
+      $('syndicate-qr-img').src = '';
+
+      if (syndicateQrTimer) clearInterval(syndicateQrTimer);
+
+      try {
+        const res = await fetch(`/api/${pid}/qrcode`);
+        const data = await res.json();
+        if (!data.success) {
+          $('syndicate-qr-status').textContent = '获取二维码失败: ' + (data.message || '网络超时');
+          return;
+        }
+
+        let qrSrc = data.qrcode_image;
+        if (!qrSrc && data.url) {
+          qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.url)}`;
+        }
+        $('syndicate-qr-img').src = qrSrc;
+        $('syndicate-qr-status').textContent = '等待手机扫码确认...';
+
+        const sessionId = data.session_id || data.qrcode_key;
+        syndicateQrTimer = setInterval(async () => {
+          try {
+            const pollUrl = pid === 'bilibili' ? `/api/bilibili/qrcode/poll?key=${sessionId}` : `/api/${pid}/qrcode/poll?session_id=${sessionId}`;
+            const pRes = await fetch(pollUrl);
+            const pData = await pRes.json();
+            
+            const isSuccess = (pid === 'bilibili' && pData.code === 0) || pData.status === 'success' || pData.is_logged_in;
+            if (isSuccess) {
+              clearInterval(syndicateQrTimer);
+              $('syndicate-qr-drawer').style.display = 'none';
+              showToast(`🎉 ${p.name} 授权成功！`);
+              selectedPlatforms.add(pid);
+              await loadSyndicateStatus();
+            } else if (pData.status === 'expired' || pData.code === 86038) {
+              clearInterval(syndicateQrTimer);
+              $('syndicate-qr-status').textContent = '⌛ 二维码已过期，请点击刷新按钮';
+            } else if (pData.message) {
+              $('syndicate-qr-status').textContent = pData.message;
+            }
+          } catch (e) {}
+        }, 2000);
+      } catch (err) {
+        $('syndicate-qr-status').textContent = '网络连接失败，请重试';
+      }
+    }
+
+    async function launchBrowserLoginForCurrentPlatform() {
+      if (!currentQrPlatform) return;
+      try {
+        await fetch(`/api/${currentQrPlatform}/browser-login`, { method: 'POST' });
+        showToast('已打开系统 Chrome 窗口，请在浏览器中登录');
+      } catch (err) {
+        alert('启动浏览器失败: ' + err.message);
+      }
+    }
+
+    async function configureYouTubeToken() {
+      const token = prompt('请输入 Google YouTube OAuth2 Access Token (可在 Google Cloud Console 获取):');
+      if (!token) return;
+      try {
+        const res = await fetch('/api/youtube/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ access_token: token.trim() })
+        });
+        const data = await res.json();
+        if (data.is_logged_in) {
+          showToast(`🎉 已成功连接 YouTube 频道: ${data.uname}`);
+          selectedPlatforms.add('youtube');
+          await loadSyndicateStatus();
+        } else {
+          alert('Token 验证未通过: ' + (data.message || '未知错误'));
+        }
+      } catch (e) {
+        alert('配置异常: ' + e.message);
+      }
+    }
+
+    async function logoutPlatform(pid) {
+      const p = syndicatePlatforms[pid];
+      if (!confirm(`确定要退出 ${p ? p.name : pid} 账号登录吗？`)) return;
+      try {
+        await fetch(`/api/${pid}/logout`, { method: 'POST' });
+        showToast(`已退出 ${p ? p.name : pid} 登录`);
+        await loadSyndicateStatus();
+      } catch (err) {
+        alert('退出失败: ' + err.message);
+      }
+    }
+
+    async function openSyndicateModal(jobId, focusPlatform = null) {
+      closePlayer();
+      closeBiliModal();
+
+      const item = allVideos.find(v => v.id === jobId) || allVideos[0];
+      if (!item) {
+        showToast('请先选择一个导出的视频');
+        return;
+      }
+      currentSyndicateVideo = item;
+
+      if (focusPlatform) {
+        selectedPlatforms.clear();
+        selectedPlatforms.add(focusPlatform);
+      }
+
+      $('syndicate-input-title').value = `《${item.song_title}》| Suno AI 音乐MV (${item.aspect})`;
+      $('syndicate-input-desc').value = `🎵 歌曲：《${item.song_title}》\n✨ 词曲音频：由 Suno AI 创作\n🎬 动态视觉：由 suno2MV 自动编排生成\n时长：${item.duration}s\n\n欢迎一键三连与关注！#Suno #AI音乐 #自制MV #宝藏音乐 #音乐日记`;
+
+      $('syndicate-modal').classList.add('active');
+      $('syndicate-form-section').style.display = 'block';
+      $('syndicate-progress-section').style.display = 'none';
+      $('syndicate-qr-drawer').style.display = 'none';
+
+      await loadSyndicateStatus();
+    }
+
+    function closeSyndicateModal() {
+      if (syndicateQrTimer) clearInterval(syndicateQrTimer);
+      if (syndicateTaskTimer) clearInterval(syndicateTaskTimer);
+      $('syndicate-modal').classList.remove('active');
+    }
+
+    async function submitSyndicatePublish() {
+      if (!currentSyndicateVideo) return;
+      const title = $('syndicate-input-title').value.trim();
+      if (!title) {
+        alert('请输入发布标题！');
+        return;
+      }
+
+      const platforms = Array.from(selectedPlatforms);
+      if (platforms.length === 0) {
+        alert('请至少勾选一个发布平台！');
+        return;
+      }
+
+      const unauth = platforms.filter(p => !syndicatePlatforms[p] || !syndicatePlatforms[p].is_logged_in);
+      if (unauth.length > 0) {
+        const names = unauth.map(u => syndicatePlatforms[u] ? syndicatePlatforms[u].name : u).join('、');
+        if (!confirm(`以下平台尚未登录授权：【${names}】\n未授权的平台发布将提示需要扫码，是否继续？`)) {
+          return;
+        }
+      }
+
+      const tags = $('syndicate-input-tags').value.split(/[,，]/).map(t => t.trim()).filter(Boolean);
+      const desc = $('syndicate-input-desc').value.trim();
+      const videoSource = currentSyndicateVideo.cdn_url || (window.location.origin + currentSyndicateVideo.stream_url);
+
+      $('syndicate-form-section').style.display = 'none';
+      $('syndicate-progress-section').style.display = 'block';
+      $('syndicate-btn-done').style.display = 'none';
+      $('syndicate-overall-bar').style.width = '5%';
+      $('syndicate-overall-pct').textContent = '5%';
+
+      const progList = $('syndicate-platform-progress-list');
+      progList.innerHTML = platforms.map(pid => {
+        const p = syndicatePlatforms[pid] || { name: pid, icon: '📱' };
+        return `
+          <div id="prog-card-${pid}" class="platform-progress-item">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:13px;font-weight:600;color:#fff">${p.icon} ${p.name}</span>
+              <span id="prog-badge-${pid}" style="font-size:11px;color:var(--text-muted)">排队中...</span>
+            </div>
+            <div class="progress-track" style="height:6px;margin:4px 0">
+              <div id="prog-bar-${pid}" class="progress-fill" style="width:0%"></div>
+            </div>
+            <div id="prog-msg-${pid}" style="font-size:11px;color:var(--text-muted)">准备创建任务...</div>
+          </div>
+        `;
+      }).join('');
+
+      try {
+        const res = await fetch('/api/syndicate/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            video_source: videoSource,
+            title,
+            desc,
+            tags,
+            platforms,
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '创建全网分发任务失败');
+
+        pollSyndicateTask(data.task_id);
+      } catch (err) {
+        alert('创建多发任务异常: ' + err.message);
+        $('syndicate-form-section').style.display = 'block';
+        $('syndicate-progress-section').style.display = 'none';
+      }
+    }
+
+    function pollSyndicateTask(taskId) {
+      if (syndicateTaskTimer) clearInterval(syndicateTaskTimer);
+      syndicateTaskTimer = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/syndicate/tasks/${taskId}`);
+          const task = await res.json();
+
+          const overallPct = Math.round((task.overall_progress || 0) * 100);
+          $('syndicate-overall-bar').style.width = overallPct + '%';
+          $('syndicate-overall-pct').textContent = overallPct + '%';
+
+          const states = task.platform_states || {};
+          for (const [pid, s] of Object.entries(states)) {
+            const bar = $(`prog-bar-${pid}`);
+            const badge = $(`prog-badge-${pid}`);
+            const msg = $(`prog-msg-${pid}`);
+            if (!bar || !badge || !msg) continue;
+
+            const pPct = Math.round((s.progress || 0) * 100);
+            bar.style.width = pPct + '%';
+            msg.textContent = s.message || '';
+
+            if (s.status === 'completed') {
+              badge.textContent = '🎉 发布成功';
+              badge.style.color = '#07C160';
+              badge.style.fontWeight = '600';
+            } else if (s.status === 'error') {
+              badge.textContent = '❌ 发布失败';
+              badge.style.color = '#FF2442';
+              badge.style.fontWeight = '600';
+            } else {
+              badge.textContent = `${pPct}%`;
+              badge.style.color = 'var(--accent)';
+            }
+          }
+
+          if (task.status === 'completed' || task.status === 'error') {
+            clearInterval(syndicateTaskTimer);
+            $('syndicate-btn-done').style.display = 'block';
+            showToast('🎉 全网多发任务处理完毕！');
+          }
+        } catch (e) {}
+      }, 1500);
+    }
+
+    // 全网分发事件绑定
+    $('btn-syndicate-header').onclick = () => openSyndicateModal(allVideos[0]?.id);
+    $('btn-syndicate-player').onclick = () => openSyndicateModal(currentBiliVideo?.id || allVideos[0]?.id);
+    $('syndicate-close').onclick = closeSyndicateModal;
+    $('syndicate-btn-cancel').onclick = closeSyndicateModal;
+    $('syndicate-btn-done').onclick = closeSyndicateModal;
+    $('syndicate-modal').onclick = (e) => {
+      if (e.target === $('syndicate-modal')) closeSyndicateModal();
+    };
+    $('syndicate-refresh-status').onclick = loadSyndicateStatus;
+    $('qr-drawer-close').onclick = () => $('syndicate-qr-drawer').style.display = 'none';
+    $('syndicate-qr-refresh-btn').onclick = () => currentQrPlatform && openPlatformQr(currentQrPlatform);
+    $('syndicate-browser-login-btn').onclick = launchBrowserLoginForCurrentPlatform;
+    $('syndicate-btn-submit').onclick = submitSyndicatePublish;
+
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closePlayer();
         closeBiliModal();
+        closeSyndicateModal();
         $('qr-modal').classList.remove('active');
         $('r2-modal').classList.remove('active');
       }
