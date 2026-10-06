@@ -343,7 +343,7 @@ class XiaohongshuUploader:
                                     session_data["message"] = f"🎉 小红书账号 [{uname}] 登录成功！"
                                 break
 
-                            refresh_btn = page.locator('text="点击刷新", text="刷新二维码", text="二维码已失效", text="已失效"').first
+                            refresh_btn = page.locator(':has-text("点击刷新"), :has-text("刷新二维码"), :has-text("二维码已失效"), :has-text("已失效")').first
                             if refresh_btn.count() > 0 and refresh_btn.is_visible():
                                 with self._qr_lock:
                                     session_data["status"] = "expired"
@@ -518,6 +518,7 @@ class XiaohongshuUploader:
         tag_text = " ".join([f"#{t.strip('#')}" for t in tag_list if t.strip()])
         final_desc = f"{full_desc_header}{desc.strip()}\n\n{tag_text}".strip()
 
+        self._load_cookies()
         _notify(0.15, "正在启动浏览器并连接小红书创作服务平台...")
 
         try:
@@ -568,12 +569,27 @@ class XiaohongshuUploader:
                     except Exception:
                         pass
 
-                # 定位视频文件上传 input
-                _notify(0.35, "正在上传视频文件到小红书...")
+                # 定位视频文件上传 input (支持异步等待挂载)
+                _notify(0.35, "正在等待视频上传控件就绪...")
                 file_input = page.locator('input[type="file"]').first
+                try:
+                    file_input.wait_for(state="attached", timeout=15000)
+                except Exception:
+                    pass
+
+                if file_input.count() == 0:
+                    if video_tab.count() > 0:
+                        try:
+                            video_tab.click()
+                            page.wait_for_timeout(1500)
+                        except Exception:
+                            pass
+                    file_input = page.locator('input[type="file"]').first
+
                 if file_input.count() == 0:
                     raise RuntimeError("未能找到小红书视频上传控件，页面结构可能发生变化")
 
+                _notify(0.40, "正在上传视频文件到小红书...")
                 file_input.set_input_files(local_video_path)
                 page.wait_for_timeout(3000)
 
@@ -652,7 +668,7 @@ class XiaohongshuUploader:
                 publish_ok = False
                 wait_submit_start = time.time()
                 while time.time() - wait_submit_start < 30:
-                    if "/publish" not in page.url or page.locator('text="发布成功", text="管理笔记"').count() > 0:
+                    if "/publish" not in page.url or page.locator(':has-text("发布成功"), :has-text("管理笔记")').count() > 0:
                         publish_ok = True
                         break
                     # 检查是否有错误提示

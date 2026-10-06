@@ -197,6 +197,104 @@
           "second_occurrence_min_start": 84.5
         }
       ]
+    },
+    {
+      "id": "road_closed",
+      "title": "Road Closed, Door Open",
+      "url": "https://suno.com/s/eNqSlezWB2i53tD3",
+      "suno_id": "4a20c488-161b-413a-a780-5bcc0f4dcc2e",
+      "lyrics_path": "input/Road Closed, Door Open/Road Closed, Door Open.txt",
+      "vocals_path": "output/Road Closed, Door Open/Road Closed, Door Open_vocals.mp3",
+      "baseline_alignment_path": "output/Road Closed, Door Open/Road Closed, Door Open_alignment.json",
+      "expected_line_count": 22,
+      "tags": [
+        "bilingual_mixed_chorus",
+        "code_switching",
+        "soul_jazz_shuffle",
+        "repeated_chorus",
+        "spoken_word"
+      ],
+      "critical_anchors": [
+        {
+          "line_idx": 0,
+          "expected_text": "Harp-string bridge and a sky scrubbed clean",
+          "min_start": 16.5,
+          "max_start": 18.5,
+          "max_end": 22.0
+        },
+        {
+          "line_idx": 4,
+          "expected_text": "Then the river road said, closed today",
+          "min_start": 49.0,
+          "max_start": 51.5,
+          "max_end": 54.5
+        },
+        {
+          "line_idx": 5,
+          "expected_text": "路不通，门就开了",
+          "min_start": 57.5,
+          "max_start": 59.5,
+          "max_end": 62.0
+        },
+        {
+          "line_idx": 7,
+          "expected_text": "Road closed, door open",
+          "min_start": 70.0,
+          "max_start": 72.5,
+          "max_end": 74.5
+        },
+        {
+          "line_idx": 9,
+          "expected_text": "黄的墙，红的灯笼，蓝的天",
+          "min_start": 82.5,
+          "max_start": 85.0,
+          "max_end": 88.5
+        },
+        {
+          "line_idx": 13,
+          "expected_text": "A saffron robe walks slow across the stone",
+          "min_start": 112.5,
+          "max_start": 115.0,
+          "max_end": 118.5
+        },
+        {
+          "line_idx": 16,
+          "expected_text": "路不通，门就开了",
+          "min_start": 126.5,
+          "max_start": 129.0,
+          "max_end": 131.0
+        },
+        {
+          "line_idx": 18,
+          "expected_text": "Road closed, door open",
+          "min_start": 139.0,
+          "max_start": 141.5,
+          "max_end": 143.5
+        },
+        {
+          "line_idx": 21,
+          "expected_text": "My shadow got home first",
+          "min_start": 158.0,
+          "max_start": 160.5,
+          "max_end": 162.0
+        }
+      ],
+      "instrumental_interludes": [
+        {
+          "description": "Outro organ and guitar solo after final spoken punchline",
+          "start": 162.0,
+          "end": 185.0,
+          "min_duration": 20.0,
+          "forbidden_lyric_overlap": true
+        }
+      ],
+      "repeated_choruses": [
+        {
+          "description": "Chorus 1 (lines 5-8) must precede Chinese Verse 2 (lines 9-12), and Chorus 2 (lines 16-20) must follow Bridge",
+          "first_occurrence_max_end": 80.5,
+          "second_occurrence_min_start": 127.0
+        }
+      ]
     }
   ]
 }

@@ -14,6 +14,7 @@ import base64
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -34,6 +35,66 @@ DEFAULT_USER_AGENT = (
 )
 
 RECOMMENDED_WECHAT_TAGS = ["AI音乐", "Suno", "音乐分享", "每日一歌", "治愈系"]
+
+
+def sanitize_wechat_short_title(title: str, max_len: int = 16, min_len: int = 6) -> str:
+    """
+    微信视频号短标题清洗与格式化 (严格遵循微信视频号助手发布规则):
+    1. 长度限制: 必须在 6 ~ 16 个字符之间
+       - 超过 16 字: 禁用发表按钮并报红字“标题超过16字限制”
+       - 低于 6 字: 报错“标题至少6个字”
+    2. 符号限制: 官方仅支持 书名号《》、引号“”‘’、冒号:：、加号+、问号?？、百分号%、摄氏度℃
+    3. 逗号替换: 逗号可用空格代替
+    4. 其它符号剔除或转换:
+       - '|', '-', '–', '—', '·', '_', '~', '～', '/', '\\', '#', '@', '*', '^', '$' -> 空格
+       - '!', '！' -> 剔除
+       - 括号 '【】', '[]', '（）', '()' -> 剔除
+       - 句号与分号 -> 剔除
+       - 连续空格合并为一个空格
+    5. 长度补齐与截断:
+       - 截断至最多 16 字符 (若切在英文词中，优先在词界截断)
+       - 若清理后不足 6 字符，自动追加后缀 (如 " 音乐MV") 保证达到 6 字符
+    """
+    if not title:
+        return "AI音乐MV精选"
+
+    t = title.strip()
+    t = t.replace("，", " ").replace(",", " ")
+    t = re.sub(r"[\|\-–—·_~～/\\#@\*\^$]+", " ", t)
+    t = re.sub(r"[\[\]【】\(\)（）\{\}]", " ", t)
+    t = re.sub(r"[!！\.。;；、]", " ", t)
+
+    # 严格白名单: 汉字、字母、数字、空格 以及 允许的符号: 《》〈〉“”‘’\"\'：:\+\?？%℃
+    allowed = r"[^\u4e00-\u9fffa-zA-Z0-9\s《》〈〉“”‘’\"\'：:\+\?？%℃]"
+    t = re.sub(allowed, "", t)
+    t = re.sub(r"\s+", " ", t).strip()
+
+    # 处理过长 (截断到 16 字符以内)
+    if len(t) > max_len:
+        t_trunc = t[:max_len].strip()
+        if " " in t_trunc:
+            word_trunc = t_trunc.rsplit(" ", 1)[0].strip()
+            if len(word_trunc) >= min_len:
+                t = word_trunc
+            else:
+                t = t_trunc
+        else:
+            t = t_trunc
+
+    # 处理过短 (< 6 字符)
+    if len(t) < min_len:
+        for suffix in [" 音乐MV", " 歌曲精选", " AI音乐", " MV分享"]:
+            candidate = (t + suffix).strip()
+            if min_len <= len(candidate) <= max_len:
+                t = candidate
+                break
+        else:
+            if len(t) < min_len:
+                t = (t + " 音乐MV分享")[:max_len].strip()
+            if len(t) < min_len:
+                t = "AI音乐MV精选"
+
+    return t
 
 
 class WeChatChannelsUploader:
@@ -271,7 +332,7 @@ class WeChatChannelsUploader:
                                     session_data["message"] = f"🎉 微信视频号 [{uname}] 登录成功！"
                                 break
 
-                            refresh_btn = page.locator('text="点击刷新", .refresh-btn').first
+                            refresh_btn = page.locator(':has-text("点击刷新"), .refresh-btn').first
                             if refresh_btn.count() > 0 and refresh_btn.is_visible():
                                 with self._qr_lock:
                                     session_data["status"] = "expired"
@@ -422,6 +483,7 @@ class WeChatChannelsUploader:
         tag_text = " ".join([f"#{t.strip('#')}#" for t in tag_list if t.strip()])
         final_desc = f"{clean_title}\n\n{desc.strip()}\n\n{tag_text}".strip()
 
+        self._load_cookies()
         _notify(0.15, "正在启动浏览器并连接微信视频号助手...")
 
         try:
@@ -434,6 +496,13 @@ class WeChatChannelsUploader:
                     viewport={"width": 1280, "height": 850},
                     user_agent=DEFAULT_USER_AGENT,
                 )
+                # 注入 Hook: 强制所有 Shadow Root 以 open 模式创建，使 Playwright 能够穿透定位微前端内部元素
+                ctx.add_init_script("""(() => {
+                    const orig = Element.prototype.attachShadow;
+                    Element.prototype.attachShadow = function(init) {
+                        return orig.call(this, { ...init, mode: 'open' });
+                    };
+                })();""")
                 if self.cookies:
                     try:
                         ctx.add_cookies([
@@ -449,7 +518,8 @@ class WeChatChannelsUploader:
                 page.goto("https://channels.weixin.qq.com/platform/post/create", wait_until="domcontentloaded", timeout=25000)
                 page.wait_for_timeout(3000)
 
-                if "login.html" in page.url or page.locator('.login-panel, .qrcode-wrap, text="登录视频号助手"').count() > 0:
+                login_el = page.locator('.login-panel:visible, .qrcode-wrap:visible, :has-text("登录视频号助手"):visible')
+                if "login.html" in page.url or login_el.count() > 0:
                     raise RuntimeError("微信视频号未登录或登录已失效，请先扫码登录")
 
                 # 如果有弹出的指引或协议弹窗，自动点击“我知道了”
@@ -480,8 +550,8 @@ class WeChatChannelsUploader:
                 _notify(0.55, "正在上传并处理视频文件...")
                 upload_start = time.time()
                 while time.time() - upload_start < 180:
-                    cancel_btn = page.locator('text="取消上传"').first
-                    proc_tip = page.locator('text="正在处理文件", text="上传中"').first
+                    cancel_btn = page.locator(':has-text("取消上传")').first
+                    proc_tip = page.locator(':has-text("正在处理文件"), :has-text("上传中")').first
                     is_uploading = (cancel_btn.count() > 0 and cancel_btn.is_visible()) or (
                         proc_tip.count() > 0 and proc_tip.is_visible()
                     )
@@ -509,13 +579,18 @@ class WeChatChannelsUploader:
                     except Exception as e:
                         logger.warning(f"输入视频号描述异常: {e}")
 
-                # 填写短标题 (最多20字)
+                # 填写短标题 (微信视频号硬性限制最多16个字)
                 short_title_input = page.locator('input[placeholder*="短标题"], .form-item:has-text("短标题") input').first
                 if short_title_input.count() > 0 and short_title_input.is_visible():
                     try:
+                        short_title = sanitize_wechat_short_title(clean_title, max_len=16)
+                        logger.info(f"微信视频号短标题清洗: '{clean_title}' -> '{short_title}' (字数: {len(short_title)})")
+                        short_title_input.scroll_into_view_if_needed()
                         short_title_input.click()
                         short_title_input.fill("")
-                        short_title_input.fill(clean_title[:20])
+                        short_title_input.fill(short_title)
+                        short_title_input.dispatch_event("input")
+                        short_title_input.dispatch_event("change")
                         page.wait_for_timeout(500)
                     except Exception as e:
                         logger.warning(f"输入短标题异常: {e}")
@@ -523,7 +598,7 @@ class WeChatChannelsUploader:
                 # 设置封面 (可选)
                 if cover_source and Path(cover_source).exists():
                     try:
-                        cover_edit_btn = page.locator('.form-item:has-text("封面"), :has-text("封面预览")').locator('text="编辑", text="选择封面", button:has-text("编辑")').first
+                        cover_edit_btn = page.locator('.form-item:has-text("封面"), :has-text("封面预览")').locator('button:has-text("编辑"), :has-text("编辑"), :has-text("选择封面")').first
                         if cover_edit_btn.count() > 0 and cover_edit_btn.is_visible():
                             _notify(0.85, "正在设置视频封面...")
                             cover_edit_btn.click()
@@ -544,32 +619,98 @@ class WeChatChannelsUploader:
                 if publish_btn.count() == 0:
                     raise RuntimeError("未找到视频号【发表】按钮")
 
+                # 等待发表按钮变为可点击状态 (防止视频转码未完成或正在校验)
+                for _ in range(15):
+                    btn_cls = publish_btn.get_attribute("class") or ""
+                    if not publish_btn.is_disabled() and "disabled" not in btn_cls:
+                        break
+                    page.wait_for_timeout(1000)
+
                 publish_btn.scroll_into_view_if_needed()
                 publish_btn.click()
-                page.wait_for_timeout(3000)
+                page.wait_for_timeout(2500)
 
-                # 严密确认发布结果 (严禁假成功)
+                # 严密确认发布结果 (支持自动确认二次弹窗与权限校验)
                 _notify(0.96, "正在确认发布结果...")
                 publish_ok = False
                 confirm_start = time.time()
-                while time.time() - confirm_start < 30:
+                while time.time() - confirm_start < 35:
+                    # 1. 检查是否有弹窗/模态框出现
+                    dialogs = page.locator('.weui-desktop-dialog:visible, .weui-desktop-modal:visible, [role="dialog"]:visible').all()
+                    for dlg in dialogs:
+                        dlg_text = dlg.inner_text().strip()
+                        if not dlg_text:
+                            continue
+
+                        # 权限拦截 / 管理员拦截
+                        if "你还不能发表视频" in dlg_text or ("不是视频号" in dlg_text and "管理员" in dlg_text):
+                            raise RuntimeError("微信视频号权限不足: 当前微信号不是视频号管理员或运营者，请在视频号助手添加管理权限后继续发表")
+                        if "管理员本人验证" in dlg_text or "需管理员扫码验证" in dlg_text:
+                            raise RuntimeError("微信视频号触发安全风控: 需要管理员本人在手机微信端扫码验证后方可发表")
+                        if "实名信息核验" in dlg_text or "实名认证" in dlg_text:
+                            raise RuntimeError("微信视频号提示: 需先完成微信实名信息核验方可发表视频")
+
+                        # 成功弹窗
+                        if any(k in dlg_text for k in ["发表成功", "动态已发表", "已发表", "审核中", "已提交"]):
+                            publish_ok = True
+                            break
+
+                        # 二次声明 / 注意事项 / 协议弹窗 -> 自动勾选并确认
+                        if any(k in dlg_text for k in ["注意", "声明", "原创", "协议", "确认发表", "将此次编辑保留"]):
+                            chk = dlg.locator('input[type="checkbox"]:not(:checked), .weui-desktop-form__checkbox:not([class*="checked"])').first
+                            if chk.count() > 0:
+                                try:
+                                    chk.click()
+                                    page.wait_for_timeout(500)
+                                except Exception:
+                                    pass
+                            confirm_btn = dlg.locator('button:has-text("同意"), button:has-text("确定"), button:has-text("确认"), button:has-text("我知道了"), button:has-text("继续发表"), button:has-text("发表")').first
+                            if confirm_btn.count() > 0 and confirm_btn.is_visible():
+                                logger.info("自动确认视频号弹窗: %s", dlg_text[:60].replace("\n", " "))
+                                confirm_btn.click()
+                                page.wait_for_timeout(2000)
+
+                    if publish_ok:
+                        break
+
+                    # 2. 检查页面 URL 跳转
                     cur = page.url
                     if "create" not in cur or "/post/list" in cur:
                         publish_ok = True
                         break
-                    if page.locator('text="发表成功", text="动态已发表", text="审核中"').count() > 0:
+
+                    # 3. 检查全局成功提示
+                    if page.locator(':has-text("发表成功"), :has-text("动态已发表"), :has-text("审核中"), :has-text("内容已提交"), :has-text("提交成功")').count() > 0:
                         publish_ok = True
                         break
-                    err_box = page.locator('.weui-desktop-form__extra-error, .weui-desktop-tooltip_error, [class*="error-message"]').first
-                    if err_box.count() > 0 and err_box.is_visible():
+
+                    # 4. 检查表单错误提示
+                    err_box = page.locator('.error-title:visible, .weui-desktop-form__extra-error:visible, .weui-desktop-tooltip_error:visible, [class*="error-message"]:visible, [class*="error-title"]:visible').first
+                    if err_box.count() > 0:
                         err_msg = err_box.inner_text().strip()
                         if err_msg:
                             raise RuntimeError(f"视频号平台提示: {err_msg}")
+
                     page.wait_for_timeout(1500)
 
                 if not publish_ok:
-                    err_box = page.locator('.weui-desktop-form__extra-error, .weui-desktop-tooltip_error, [class*="error-message"]').first
-                    if err_box.count() > 0 and err_box.is_visible():
+                    # 截图保留案发现场
+                    try:
+                        err_shot = self.profile_dir.parent / "temp" / f"wechat_err_{int(time.time())}.png"
+                        err_shot.parent.mkdir(parents=True, exist_ok=True)
+                        page.screenshot(path=str(err_shot))
+                    except Exception:
+                        pass
+
+                    # 提取当前可见的提示或弹窗文本
+                    active_dialog = page.locator('.weui-desktop-dialog:visible, .weui-desktop-modal:visible, [role="dialog"]:visible').first
+                    if active_dialog.count() > 0:
+                        d_text = active_dialog.inner_text().strip().replace("\n", " ")
+                        if d_text:
+                            raise RuntimeError(f"视频号发表弹窗提示: {d_text}")
+
+                    err_box = page.locator('.error-title:visible, .weui-desktop-form__extra-error:visible, .weui-desktop-tooltip_error:visible, [class*="error-message"]:visible, [class*="error-title"]:visible').first
+                    if err_box.count() > 0:
                         err_msg = err_box.inner_text().strip()
                         if err_msg:
                             raise RuntimeError(f"视频号发表未通过: {err_msg}")

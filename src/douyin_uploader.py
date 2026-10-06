@@ -277,7 +277,7 @@ class DouyinUploader:
                                     session_data["message"] = f"🎉 抖音账号 [{uname}] 登录成功！"
                                 break
 
-                            refresh_btn = page.locator('text="点击刷新", .refresh-btn').first
+                            refresh_btn = page.locator(':has-text("点击刷新"), .refresh-btn').first
                             if refresh_btn.count() > 0 and refresh_btn.is_visible():
                                 with self._qr_lock:
                                     session_data["status"] = "expired"
@@ -427,6 +427,7 @@ class DouyinUploader:
         tag_text = " ".join([f"#{t.strip('#')}" for t in tag_list if t.strip()])
         final_desc = f"{clean_title} {desc.strip()} {tag_text}".strip()
 
+        self._load_cookies()
         _notify(0.15, "正在启动浏览器并连接抖音创作者中心...")
 
         try:

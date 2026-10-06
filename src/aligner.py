@@ -16,8 +16,10 @@ Auto-Karaoke MV Generator — 词级对齐模块
 from __future__ import annotations
 
 import difflib
+import json
 import re
 import sys
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +31,7 @@ import torch
 import torchaudio
 from torchaudio.functional import forced_align, merge_tokens
 from transformers import AutoModelForCTC, AutoProcessor
+import pypinyin
 
 from src.config import AlignerConfig
 from src.preprocessor import LyricLine
@@ -343,6 +346,335 @@ def _audit_alignment(aligned: list[AlignedLine]) -> list[AlignedLine]:
 
 
 # ---------------------------------------------------------------------------
+# 多语言语义 ASR 锚点提取与单调序列对齐模块 (ASR-Anchored Monotonic Matcher)
+# ---------------------------------------------------------------------------
+
+def tokenize_lyric_phonetic(text: str) -> list[dict]:
+    """提取歌词行的发音 token (中文转拼音，英文转小写单词)"""
+    parts = re.findall(r'[\u4e00-\u9fff]|[a-zA-Z0-9\']+', text)
+    tokens = []
+    for p in parts:
+        if '\u4e00' <= p <= '\u9fff':
+            pys = pypinyin.lazy_pinyin(p)
+            py = pys[0].lower() if pys else p.lower()
+            tokens.append({'raw': p, 'py': py})
+        else:
+            clean = re.sub(r'[^a-zA-Z0-9]', '', p).lower()
+            if clean:
+                tokens.append({'raw': clean, 'py': clean})
+    return tokens
+
+
+def extract_asr_words(
+    vocals_path: Path,
+    lyrics_prompt: str = "",
+    config: AlignerConfig | None = None,
+) -> list[dict]:
+    """
+    使用 faster-whisper 提取 ASR 词级时间戳锚点 (支持磁盘缓存)。
+    识别文字仅作为定位证据，绝不篡改原歌词。
+    """
+    cache_path = vocals_path.parent / f".{vocals_path.stem}_asr_words.json"
+    if cache_path.exists():
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if data and isinstance(data, list):
+                log.info("🎯 复用已缓存的多语言 ASR 词级时间戳: %s (%d 个词)", cache_path.name, len(data))
+                return data
+        except Exception:
+            pass
+
+    try:
+        model = _get_whisper(config)
+        segments, _ = model.transcribe(
+            str(vocals_path),
+            beam_size=5,
+            word_timestamps=True,
+            condition_on_previous_text=False,
+            vad_filter=True,
+            multilingual=True,
+            initial_prompt=lyrics_prompt[:250] if lyrics_prompt else None,
+        )
+
+        asr_words: list[dict] = []
+        for s in segments:
+            for w in (s.words or []):
+                w_text = w.word.strip()
+                if not w_text:
+                    continue
+                parts = re.findall(r'[\u4e00-\u9fff]|[a-zA-Z0-9\']+', w_text)
+                for p in parts:
+                    if '\u4e00' <= p <= '\u9fff':
+                        pys = pypinyin.lazy_pinyin(p)
+                        py = pys[0].lower() if pys else p.lower()
+                        asr_words.append({'raw': p, 'py': py, 'start': round(w.start, 3), 'end': round(w.end, 3)})
+                    else:
+                        clean = re.sub(r'[^a-zA-Z0-9]', '', p).lower()
+                        if clean:
+                            asr_words.append({'raw': clean, 'py': clean, 'start': round(w.start, 3), 'end': round(w.end, 3)})
+
+        if asr_words:
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(asr_words, f, ensure_ascii=False, indent=2)
+            log.info("多语言 ASR 锚点提取并缓存完成: %d 个词", len(asr_words))
+        return asr_words
+    except Exception as e:
+        log.warning("多语言 ASR 锚点提取异常 (将回退至声学 VAD 模式): %s", e)
+        return []
+
+
+def find_silence_snap(
+    t_ideal: float,
+    wav_np: np.ndarray | None,
+    sr: int = 16000,
+    window: float = 2.5,
+    min_t: float = 0.0,
+    max_t: float = float("inf"),
+) -> float:
+    """在给定时间附近寻找能量 (RMS) 极小值点，将段落或乐句边界吸附至声学停顿，避免切在发音中央。"""
+    if wav_np is None or len(wav_np) == 0:
+        return round(max(min_t, min(max_t, t_ideal)), 2)
+    t_min = max(min_t, t_ideal - window)
+    t_max = min(max_t, min(len(wav_np) / sr, t_ideal + window))
+    if t_max <= t_min:
+        return round(max(min_t, min(max_t, t_ideal)), 2)
+    step = 0.05
+    best_t = t_ideal
+    best_rms = float("inf")
+    for t in np.arange(t_min, t_max, step):
+        s1 = int(t * sr)
+        s2 = int((t + step) * sr)
+        if s2 > len(wav_np):
+            break
+        rms = np.sqrt(np.mean(wav_np[s1:s2] ** 2))
+        if rms < best_rms:
+            best_rms = rms
+            best_t = t + step / 2
+    return round(best_t, 2)
+
+
+def anchor_stanzas_with_asr(
+    singing_lyrics: list[tuple[int, LyricLine]],
+    asr_words: list[dict],
+    total_audio_sec: float,
+    min_start: float = 0.0,
+    wav_np: np.ndarray | None = None,
+    sr: int = 16000,
+) -> tuple[dict[int, list[tuple[int, LyricLine]]], dict[int, tuple[float, float]]]:
+    """
+    两阶段岛驱动宏观乐段定位引擎 (Two-Pass Island-Driven Stanza Anchoring)。
+    1. 提取自然歌词段落与发音指纹，过滤 ASR 乱码/零时长伪字。
+    2. 基于词级序列模糊匹配，首先确立高置信度唯一段落作为时间里程碑岛屿 (Islands)。
+    3. 在相邻岛屿之间的闭合区间内，严格约束重复副歌和未锚定乐段，消除跨段落漂移。
+    4. 结合局部人声能量检测 (RMS)，将段落边界吸附至声学静音停顿。
+    """
+    has_explicit = any(ly.paragraph > 0 for _, ly in singing_lyrics)
+    paras: dict[int, list[tuple[int, LyricLine]]] = {}
+    if has_explicit:
+        for i, ly in singing_lyrics:
+            p = ly.paragraph
+            if p not in paras:
+                paras[p] = []
+            paras[p].append((i, ly))
+    else:
+        cur_lang = None
+        cur_p = 0
+        for i, ly in singing_lyrics:
+            l_lang = detect_line_lang(ly.text)
+            if cur_p not in paras:
+                paras[cur_p] = []
+            if cur_lang is not None and (l_lang != cur_lang or len(paras[cur_p]) >= 4):
+                cur_p += 1
+                paras[cur_p] = []
+            paras[cur_p].append((i, ly))
+            cur_lang = l_lang
+
+    valid_asr = []
+    prev_key = None
+    for w in asr_words:
+        dur = w.get("end", 0.0) - w.get("start", 0.0)
+        key = (round(w.get("start", 0.0), 2), round(w.get("end", 0.0), 2), w.get("py", ""))
+        if dur >= 0.03 and key != prev_key:
+            valid_asr.append(w)
+            prev_key = key
+    K = len(valid_asr)
+
+    p_tokens: dict[int, list[str]] = {}
+    for p, lines in paras.items():
+        toks = [c["py"] for _, ly in lines for c in tokenize_lyric_phonetic(ly.text)]
+        p_tokens[p] = toks
+
+    sig_counts: dict[str, int] = {}
+    for p, toks in p_tokens.items():
+        sig = "".join(toks)
+        sig_counts[sig] = sig_counts.get(sig, 0) + 1
+
+    c_tokens = [w["py"] for w in valid_asr]
+
+    candidates = {}
+    for p in sorted(paras.keys()):
+        l_toks = p_tokens[p]
+        n = len(l_toks)
+        min_span = max(1, int(n * 0.5))
+        max_span = int(n * 1.6) + 4
+        best_sc = -1.0
+        best_match = None
+        for si in range(0, K):
+            for ei in range(si + min_span, min(K + 1, si + max_span)):
+                matcher = SequenceMatcher(None, l_toks, c_tokens[si:ei])
+                sc = matcher.ratio()
+                if sc > best_sc:
+                    best_sc = sc
+                    best_match = (si, ei, matcher.get_matching_blocks())
+        if best_match and best_sc > 0:
+            si, ei, blocks = best_match
+            valid_blocks = [b for b in blocks if b.size > 0]
+            if valid_blocks:
+                first_b = valid_blocks[0]
+                last_b = valid_blocks[-1]
+                first_cand_idx = si + first_b.b
+                last_cand_idx = si + last_b.b + last_b.size - 1
+                missed_head = first_b.a
+                missed_tail = len(l_toks) - (last_b.a + last_b.size)
+                raw_s = min_start if p == 0 else max(min_start, valid_asr[first_cand_idx]["start"] - missed_head * 0.40)
+                raw_e = min(total_audio_sec, valid_asr[last_cand_idx]["end"] + missed_tail * 0.45)
+                sig = "".join(l_toks)
+                candidates[p] = {
+                    "score": best_sc,
+                    "start": raw_s,
+                    "end": raw_e,
+                    "unique": (sig_counts[sig] == 1),
+                    "tok_len": n,
+                }
+
+    islands = {}
+    for p in sorted(candidates.keys()):
+        c = candidates[p]
+        if c["unique"] and (c["score"] >= 0.55 or (c["score"] >= 0.45 and c["tok_len"] >= 20)):
+            islands[p] = (c["start"], c["end"], c["score"])
+
+    valid_islands = {}
+    last_e = min_start
+    for p in sorted(islands.keys()):
+        s, e, sc = islands[p]
+        if s >= last_e - 1.0:
+            valid_islands[p] = (min_start if p == 0 else max(min_start, s), e)
+            last_e = e
+
+    p_keys = sorted(paras.keys())
+    para_bounds = dict(valid_islands)
+
+    gap_groups: list[list[int]] = []
+    curr_group: list[int] = []
+    for p in p_keys:
+        if p not in valid_islands:
+            curr_group.append(p)
+        else:
+            if curr_group:
+                gap_groups.append(curr_group)
+                curr_group = []
+    if curr_group:
+        gap_groups.append(curr_group)
+
+    for group in gap_groups:
+        first_p = group[0]
+        last_p = group[-1]
+        prev_e = min_start
+        for pp in range(first_p - 1, -1, -1):
+            if pp in valid_islands:
+                prev_e = valid_islands[pp][1]
+                break
+        next_s = total_audio_sec
+        for pp in range(last_p + 1, max(p_keys) + 1):
+            if pp in valid_islands:
+                next_s = valid_islands[pp][0]
+                break
+
+        cand_indices = [idx for idx, w in enumerate(valid_asr) if prev_e - 1.0 <= w["start"] <= next_s + 1.0]
+        group_anchored = {}
+        for p in group:
+            l_toks = p_tokens[p]
+            n = len(l_toks)
+            min_span = max(1, int(n * 0.5))
+            max_span = int(n * 1.6) + 4
+            best_sc = -1.0
+            best_match = None
+            if len(cand_indices) >= 3:
+                for si_idx in range(len(cand_indices)):
+                    for ei_idx in range(si_idx + min_span, min(len(cand_indices) + 1, si_idx + max_span)):
+                        si = cand_indices[si_idx]
+                        ei = cand_indices[ei_idx - 1] + 1
+                        matcher = SequenceMatcher(None, l_toks, c_tokens[si:ei])
+                        sc = matcher.ratio()
+                        if sc > best_sc:
+                            best_sc = sc
+                            best_match = (si, ei, matcher.get_matching_blocks())
+            if best_match and best_sc >= 0.40:
+                si, ei, blocks = best_match
+                valid_blocks = [b for b in blocks if b.size > 0]
+                if valid_blocks:
+                    first_b = valid_blocks[0]
+                    last_b = valid_blocks[-1]
+                    first_cand_idx = si + first_b.b
+                    last_cand_idx = si + last_b.b + last_b.size - 1
+                    missed_head = first_b.a
+                    missed_tail = len(l_toks) - (last_b.a + last_b.size)
+                    raw_s = max(prev_e, valid_asr[first_cand_idx]["start"] - missed_head * 0.40)
+                    raw_e = min(next_s, valid_asr[last_cand_idx]["end"] + missed_tail * 0.45)
+                    group_anchored[p] = (raw_s, raw_e, best_sc)
+
+        cur_anchor_t = prev_e
+        i = 0
+        while i < len(group):
+            p = group[i]
+            if p in group_anchored:
+                para_bounds[p] = (group_anchored[p][0], group_anchored[p][1])
+                cur_anchor_t = group_anchored[p][1]
+                i += 1
+            else:
+                unanchored_sub = [p]
+                j = i + 1
+                while j < len(group) and group[j] not in group_anchored:
+                    unanchored_sub.append(group[j])
+                    j += 1
+                next_anchor_t = group_anchored[group[j]][0] if j < len(group) else next_s
+                sub_gap_dur = max(1.0, next_anchor_t - cur_anchor_t)
+                sub_lens = [max(1, len(p_tokens[gp])) for gp in unanchored_sub]
+                tot_l = sum(sub_lens)
+                sub_cur = cur_anchor_t
+                for gp_idx, (gp, sl) in enumerate(zip(unanchored_sub, sub_lens)):
+                    p_dur = sub_gap_dur * (sl / tot_l)
+                    raw_end = sub_cur + p_dur
+                    if gp_idx < len(unanchored_sub) - 1:
+                        snapped_end = find_silence_snap(raw_end, wav_np, sr, 2.5, min_t=sub_cur + 1.0)
+                    else:
+                        if next_anchor_t < total_audio_sec - 1.0:
+                            snapped_end = find_silence_snap(next_anchor_t - 2.5, wav_np, sr, 2.0, min_t=sub_cur + 1.0)
+                        else:
+                            snapped_end = next_anchor_t
+                    para_bounds[gp] = (round(sub_cur, 2), round(snapped_end, 2))
+                    sub_cur = snapped_end
+                cur_anchor_t = next_anchor_t
+                i = j
+
+    for pi in range(len(p_keys) - 1):
+        p_curr = p_keys[pi]
+        p_next = p_keys[pi + 1]
+        e_curr = para_bounds[p_curr][1]
+        s_next = para_bounds[p_next][0]
+        gap = s_next - e_curr
+        if 1.5 <= gap <= 4.0:
+            mid = (e_curr + s_next) / 2
+            snap_mid = find_silence_snap(mid, wav_np, sr, window=gap / 2, min_t=e_curr, max_t=s_next)
+            snap_mid = max(e_curr, min(s_next, snap_mid))
+            para_bounds[p_curr] = (para_bounds[p_curr][0], snap_mid)
+            para_bounds[p_next] = (snap_mid, para_bounds[p_next][1])
+
+    return paras, para_bounds
+
+
+# ---------------------------------------------------------------------------
 # 方案二: 纯 Wav2Vec2 CTC Forced Alignment 核心引擎
 # ---------------------------------------------------------------------------
 
@@ -499,19 +831,35 @@ def align_lyrics_ctc(
 
         clean_lines = []
         for _, ly in lines_with_idx:
-            words = [w.strip().upper() for w in ly.text.split() if w.strip()]
+            words = [re.sub(r"[^A-Za-z0-9']", "", w).upper() for w in ly.text.split() if w.strip()]
+            words = [w for w in words if w]
             clean_lines.append("|".join(words))
 
         full_text = "|".join(clean_lines)
-        targets = torch.tensor([[dict_en.get(c, 0) for c in full_text if c in dict_en]], dtype=torch.int32)
-        aligned_tokens, scores = forced_align(emissions, targets, blank=0)
-        spans = merge_tokens(aligned_tokens[0], scores[0], blank=0)
+        target_ids = [dict_en[c] for c in full_text if c in dict_en and dict_en[c] != 0]
+        if not target_ids or wav_slice.size(1) < 400:
+            for orig_idx, ly in lines_with_idx:
+                words = _fallback_even_split(ly.text, s_sec, e_sec)
+                aligned_line_map[orig_idx] = AlignedLine(text=ly.text, start=s_sec, end=e_sec, words=words)
+            return
+
+        targets = torch.tensor([target_ids], dtype=torch.int32)
+        try:
+            aligned_tokens, scores = forced_align(emissions, targets, blank=0)
+            spans = merge_tokens(aligned_tokens[0], scores[0], blank=0)
+        except Exception as e:
+            log.warning("英文 CTC 对齐异常，回退均匀切分: %s", e)
+            for orig_idx, ly in lines_with_idx:
+                words = _fallback_even_split(ly.text, s_sec, e_sec)
+                aligned_line_map[orig_idx] = AlignedLine(text=ly.text, start=s_sec, end=e_sec, words=words)
+            return
+
         frame_dur = (wav_slice.size(1) / 16000.0) / emissions.size(1)
 
         span_idx = 0
         for li, (orig_idx, ly) in enumerate(lines_with_idx):
             line_str = clean_lines[li]
-            target_count = len([c for c in line_str if c in dict_en])
+            target_count = len([c for c in line_str if c in dict_en and dict_en[c] != 0])
             l_spans = spans[span_idx: span_idx + target_count]
             span_idx += target_count + 1
 
@@ -535,6 +883,11 @@ def align_lyrics_ctc(
                 w_s = _trim_word_over_silence(w_s, w_e, singing_sections)
                 words.append(WordTimestamp(word=tok, start=round(w_s, 3), end=round(max(w_e, w_s + 0.05), 3)))
 
+            # 校验发音词是否发生不合理坍缩 (忽略纯标点)
+            vocal_words = [w for w in words if re.search(r"[\w\u4e00-\u9fff]", w.word)]
+            if any((w.end - w.start) <= 0.035 for w in vocal_words):
+                words = _fallback_even_split(ly.text, s_sec, e_sec)
+
             aligned_line_map[orig_idx] = AlignedLine(
                 text=ly.text,
                 start=words[0].start if words else s_sec,
@@ -547,6 +900,9 @@ def align_lyrics_ctc(
         e_sec = min(total_audio_sec, e_sec + 0.3)
         wav_slice = wav_16k[:, int(s_sec * 16000): int(e_sec * 16000)]
         if wav_slice.size(1) < 400:
+            for orig_idx, ly in lines_with_idx:
+                words = _fallback_even_split(ly.text, s_sec, e_sec)
+                aligned_line_map[orig_idx] = AlignedLine(text=ly.text, start=s_sec, end=e_sec, words=words)
             return
 
         with torch.inference_mode():
@@ -561,9 +917,23 @@ def align_lyrics_ctc(
 
         full_text = "".join(clean_lines)
         target_ids = proc_zh.tokenizer.convert_tokens_to_ids(list(full_text))
+        target_ids = [tid for tid in target_ids if tid is not None and tid != blank_zh]
+        if not target_ids:
+            for orig_idx, ly in lines_with_idx:
+                words = _fallback_even_split(ly.text, s_sec, e_sec)
+                aligned_line_map[orig_idx] = AlignedLine(text=ly.text, start=s_sec, end=e_sec, words=words)
+            return
+
         targets = torch.tensor([target_ids], dtype=torch.int32)
-        aligned_tokens, scores = forced_align(emissions, targets, blank=blank_zh)
-        spans = merge_tokens(aligned_tokens[0], scores[0], blank=blank_zh)
+        try:
+            aligned_tokens, scores = forced_align(emissions, targets, blank=blank_zh)
+            spans = merge_tokens(aligned_tokens[0], scores[0], blank=blank_zh)
+        except Exception as e:
+            log.warning("中文 CTC 对齐异常，回退均匀切分: %s", e)
+            for orig_idx, ly in lines_with_idx:
+                words = _fallback_even_split(ly.text, s_sec, e_sec)
+                aligned_line_map[orig_idx] = AlignedLine(text=ly.text, start=s_sec, end=e_sec, words=words)
+            return
         frame_dur = (wav_slice.size(1) / 16000.0) / emissions.size(1)
 
         span_idx = 0
@@ -596,6 +966,11 @@ def align_lyrics_ctc(
                 else:
                     w_e = min(e_sec, w_e + 0.15)
                 words.append(WordTimestamp(word=tok, start=round(w_s, 3), end=round(max(w_e, w_s + 0.05), 3)))
+
+            # 校验发音字是否发生不合理坍缩 (忽略纯标点)
+            vocal_words = [w for w in words if re.search(r"[\w\u4e00-\u9fff]", w.word)]
+            if any((w.end - w.start) <= 0.035 for w in vocal_words):
+                words = _fallback_even_split(ly.text, s_sec, e_sec)
 
             aligned_line_map[orig_idx] = AlignedLine(
                 text=ly.text,
@@ -708,307 +1083,74 @@ def align_lyrics_ctc(
         else:
             _align_other(lines, s_sec, e_sec)
 
-    # 6. 整曲顺序 + 上下文锚点 + 声学遗漏审计 (Context-Bounded Global Anchor & Voicing Audit)
-    # 6.1 提取自然歌词段落 (Stanzas)
-    # 优先遵循歌词空行 (line.paragraph)。若未划分段落，则按语言切换或每 4 行形成自然段
-    stanzas: list[list[tuple[int, LyricLine]]] = []
-    has_explicit_paragraphs = any(ly.paragraph > 0 for _, ly in singing_lyrics)
+    # 6. 多语言语义 ASR 粗定位与可信乐段/句级音频窗口建立 (Semantic ASR Anchoring & Monotonic Matching)
+    # 步骤 A: 提取全曲 ASR 词级时间戳锚点 (单曲一次，缓存复用)
+    prompt_text = "\n".join(ly.text for _, ly in singing_lyrics)
+    asr_words = extract_asr_words(vocals_path, lyrics_prompt=prompt_text, config=config)
+    wav_np = wav_16k.squeeze(0).cpu().numpy()
 
-    if has_explicit_paragraphs:
-        cur_p = None
-        cur_stanza: list[tuple[int, LyricLine]] = []
-        for orig_idx, ly in singing_lyrics:
-            if cur_p is None or ly.paragraph == cur_p:
-                cur_stanza.append((orig_idx, ly))
-                cur_p = ly.paragraph
-            else:
-                stanzas.append(cur_stanza)
-                cur_stanza = [(orig_idx, ly)]
-                cur_p = ly.paragraph
-        if cur_stanza:
-            stanzas.append(cur_stanza)
-    else:
-        # 无显式空行段落：按语言突变或每 4 行聚合
-        cur_lang = None
-        cur_stanza = []
-        for orig_idx, ly in singing_lyrics:
-            line_lang = detect_line_lang(ly.text)
-            if cur_lang is None or (line_lang == cur_lang and len(cur_stanza) < 4):
-                cur_stanza.append((orig_idx, ly))
-                cur_lang = line_lang
-            else:
-                stanzas.append(cur_stanza)
-                cur_stanza = [(orig_idx, ly)]
-                cur_lang = line_lang
-        if cur_stanza:
-            stanzas.append(cur_stanza)
+    # 步骤 B: 两阶段岛驱动宏观乐段定位与声学停顿吸附
+    paras, para_bounds = anchor_stanzas_with_asr(
+        singing_lyrics=singing_lyrics,
+        asr_words=asr_words,
+        total_audio_sec=total_audio_sec,
+        min_start=min_start,
+        wav_np=wav_np,
+        sr=16000,
+    )
+    log.info("乐段语义窗口锚定完成: %d 个自然段均获得高置信度声学边界", len(para_bounds))
 
-    log.info("歌词结构分析完成: 组织为 %d 个自然段落", len(stanzas))
-
-    # 6.2 文本签名与上下文锚点标记 (Context Anchors)
-    stanza_sigs = []
-    sig_counts: dict[str, int] = {}
-    for st in stanzas:
-        sig = "".join(c.lower() for _, ly in st for c in ly.text if c.isalnum() or _CHINESE_CHAR_RE.match(c))
-        stanza_sigs.append(sig)
-        sig_counts[sig] = sig_counts.get(sig, 0) + 1
-
-    is_repeated_stanza = [sig_counts[sig] > 1 for sig in stanza_sigs]
-
-    # 估算每个段落的生理语速目标时长 (秒)
-    stanza_target_durs: list[float] = []
-    for st in stanzas:
-        dur_est = 0.0
-        for _, ly in st:
-            l_lang = detect_line_lang(ly.text)
-            if l_lang == "en":
-                words = [w for w in ly.text.split() if w.strip()]
-                dur_est += len(words) * 0.50 + 0.35
-            else:
-                chars = [c for c in ly.text if not c.isspace() and (c.isalnum() or _CHINESE_CHAR_RE.match(c))]
-                dur_est += len(chars) * 0.33 + 0.35
-        stanza_target_durs.append(max(1.8, dur_est))
-
-    # 6.3 细粒度声学发音块提取与 RMS 能量微切分 (Micro-Voicing & Valley Split)
-    # 步骤 A: 平滑微小声门停顿 (< 0.4s)，避免乐句断裂但保留乐句间呼吸 (>= 0.4s)
-    base_blocks: list[tuple[float, float]] = []
-    for b in raw_blocks:
-        if b[1] < min_start:
-            continue
-        if not base_blocks:
-            base_blocks.append(b)
+    # 步骤 C: 逐段执行独立中/英文 CTC 精确打点 (同语言整段联合 Viterbi 解码，混语言声学停顿切分)
+    for p in sorted(paras.keys()):
+        p_s, p_e = para_bounds[p]
+        p_lines = paras[p]
+        langs = [detect_line_lang(ly.text) for _, ly in p_lines]
+        if all(l == "en" for l in langs):
+            _dispatch_align("en", p_lines, p_s, p_e)
+        elif all(l == "zh" for l in langs):
+            _dispatch_align("zh", p_lines, p_s, p_e)
         else:
-            prev_s, prev_e = base_blocks[-1]
-            if b[0] - prev_e < 0.4:
-                base_blocks[-1] = (prev_s, b[1])
-            else:
-                base_blocks.append(b)
-
-    # 步骤 B: 对较长的人声块 (> 5.5s)，沿局部 RMS 能量波谷 (呼吸/轻音断点) 细分为乐句级单元
-    acoustic_sections: list[tuple[float, float]] = []
-    for b_s, b_e in base_blocks:
-        dur = b_e - b_s
-        if dur > 5.5 and len(rms_vals) > 0:
-            idx_s = max(0, int(b_s / 0.1))
-            idx_e = min(len(rms_vals), int(b_e / 0.1))
-            sub_rms = rms_vals[idx_s:idx_e]
-            sub_times = times[idx_s:idx_e]
-            num_splits = int(np.round(dur / 4.5))
-            if num_splits > 1 and len(sub_rms) > 4:
-                chunk_len = len(sub_rms) // num_splits
-                cuts = [b_s]
-                for si in range(1, num_splits):
-                    center = si * chunk_len
-                    w = int(1.2 / 0.1)
-                    search_range = range(max(0, center - w), min(len(sub_rms), center + w))
-                    best_k = min(search_range, key=lambda ki: sub_rms[ki])
-                    cuts.append(round(sub_times[best_k], 2))
-                cuts.append(b_e)
-                for ci in range(len(cuts) - 1):
-                    if cuts[ci + 1] > cuts[ci] + 0.3:
-                        acoustic_sections.append((cuts[ci], cuts[ci + 1]))
-            else:
-                acoustic_sections.append((b_s, b_e))
-        else:
-            acoustic_sections.append((b_s, b_e))
-
-    # 步骤 C: 确保声学块数量 M >= 段落数 K (若由于连唱导致 M < K，持续在最长块的能量最低点分裂)
-    K = len(stanzas)
-    while len(acoustic_sections) < K:
-        longest_idx = max(range(len(acoustic_sections)), key=lambda i: acoustic_sections[i][1] - acoustic_sections[i][0])
-        ls, le = acoustic_sections[longest_idx]
-        if le - ls < 1.0:
-            break
-        mid_idx = int(((ls + le) / 2.0) / 0.1)
-        w = max(1, int((le - ls) * 0.3 / 0.1))
-        search_range = range(max(0, mid_idx - w), min(len(rms_vals), mid_idx + w))
-        if search_range:
-            best_k = min(search_range, key=lambda ki: rms_vals[ki])
-            cut_t = round(times[best_k], 2)
-        else:
-            cut_t = round((ls + le) / 2.0, 2)
-        if ls + 0.3 < cut_t < le - 0.3:
-            acoustic_sections[longest_idx: longest_idx + 1] = [(ls, cut_t), (cut_t, le)]
-        else:
-            mid_t = round((ls + le) / 2.0, 2)
-            acoustic_sections[longest_idx: longest_idx + 1] = [(ls, mid_t), (mid_t, le)]
-
-    if not acoustic_sections:
-        acoustic_sections = [(min_start, total_audio_sec)]
-
-    log.info("提取细粒度声学发音块: %d 个 (覆盖 %.2fs ~ %.2fs, 段落数=%d)",
-             len(acoustic_sections), acoustic_sections[0][0], acoustic_sections[-1][1], K)
-
-    # 6.4 单调最优分段全局动态规划 (Monotonic Global DP)
-    M = len(acoustic_sections)
-    INF = 1e9
-
-    dp = np.full((K + 1, M + 1), INF)
-    parent = np.full((K + 1, M + 1), -1, dtype=int)
-    dp[0][0] = 0.0
-
-    for k in range(1, K + 1):
-        target = stanza_target_durs[k - 1]
-        for m in range(1, M + 1):
-            for prev_m in range(0, m):
-                if dp[k - 1][prev_m] >= INF:
-                    continue
-                s_t = acoustic_sections[prev_m][0]
-                e_t = acoustic_sections[m - 1][1]
-                dur = e_t - s_t
-
-                # 约束 A: 段内不可跨越 >= 3.0s 的纯伴奏/长间奏
-                has_interlude = False
-                for bi in range(prev_m, m - 1):
-                    if acoustic_sections[bi + 1][0] - acoustic_sections[bi][1] >= 3.0:
-                        has_interlude = True
-                        break
-                if has_interlude:
-                    continue
-
-                # 约束 B: 语速生理下限 (不可严重挤压)
-                if dur < target * 0.40:
-                    continue
-
-                # 代价函数: 语速偏差二次方惩罚
-                cost = ((dur - target) ** 2) / target
-
-                # 尾段覆盖约束: 最后一个段落如果距离末尾未分配的人声块太多，加惩罚
-                if k == K:
-                    unassigned_blocks = M - m
-                    if unassigned_blocks > 1:
-                        cost += unassigned_blocks * 6.0
-
-                total_cost = dp[k - 1][prev_m] + cost
-                if total_cost < dp[k][m]:
-                    dp[k][m] = total_cost
-                    parent[k][m] = prev_m
-
-    best_end_m = -1
-    best_total_cost = INF
-    # 终点优先落在歌曲后部发音块 (倒数 3 个块内)
-    min_search_m = max(1, M - 2)
-    for m in range(min_search_m, M + 1):
-        if dp[K][m] < best_total_cost:
-            best_total_cost = dp[K][m]
-            best_end_m = m
-
-    # 兜底：若倒数 3 个块没有合法闭合路径，扩大搜索到全部 m
-    if best_end_m == -1 or best_total_cost >= INF:
-        for m in range(1, M + 1):
-            if dp[K][m] < best_total_cost:
-                best_total_cost = dp[K][m]
-                best_end_m = m
-
-    stanza_spans: list[tuple[float, float]] = []
-    if best_end_m > 0 and best_total_cost < INF:
-        cur_m = best_end_m
-        path_segments = []
-        for k in range(K, 0, -1):
-            prev_m = parent[k][cur_m]
-            path_segments.append((k - 1, acoustic_sections[prev_m][0], acoustic_sections[cur_m - 1][1]))
-            cur_m = prev_m
-        path_segments.reverse()
-        stanza_spans = [(p[1], p[2]) for p in path_segments]
-        log.info("全局动态规划求解成功 (最优代价: %.2f)", best_total_cost)
-    else:
-        log.warning("声学块动态规划未闭合，采用基于生理语速的前向比例自适应映射")
-        tot_target = sum(stanza_target_durs)
-        cur_t = min_start
-        for k in range(K):
-            s_dur = stanza_target_durs[k] * (total_audio_sec - min_start) / max(1.0, tot_target)
-            stanza_spans.append((round(cur_t, 2), round(min(total_audio_sec, cur_t + s_dur), 2)))
-            cur_t += s_dur
-
-    # 6.5 上下文前后文夹逼检验与复核 (Context Sandwich Validation)
-    for k in range(K):
-        if is_repeated_stanza[k]:
-            prev_anchor_t = min_start
-            for j in range(k - 1, -1, -1):
-                if not is_repeated_stanza[j]:
-                    prev_anchor_t = stanza_spans[j][1]
-                    break
-            next_anchor_t = total_audio_sec
-            for j in range(k + 1, K):
-                if not is_repeated_stanza[j]:
-                    next_anchor_t = stanza_spans[j][0]
-                    break
-
-            cur_s, cur_e = stanza_spans[k]
-            if cur_s < prev_anchor_t or cur_e > next_anchor_t:
-                log.warning("🛡️ [上下文夹逼触发] 第 %d 段 (重复段落) 越界，已强制锁死在合法上下文内 [%.2fs ~ %.2fs]",
-                            k + 1, prev_anchor_t, next_anchor_t)
-                clamped_s = max(cur_s, prev_anchor_t + 0.2)
-                clamped_e = min(cur_e, next_anchor_t - 0.2)
-                if clamped_e > clamped_s:
-                    stanza_spans[k] = (clamped_s, clamped_e)
-
-    # 6.6 声学遗漏审计 (Acoustic Voicing Gap Audit)
-    for k in range(len(stanza_spans) - 1):
-        gap_s = stanza_spans[k][1]
-        gap_e = stanza_spans[k + 1][0]
-        if gap_e - gap_s >= 3.5:
-            g_start_idx = int(gap_s / 0.1)
-            g_end_idx = int(gap_e / 0.1)
-            g_rms = rms_vals[g_start_idx:g_end_idx] if g_end_idx > g_start_idx else []
-            vocal_ratio = (sum(r > 0.02 for r in g_rms) / len(g_rms)) if g_rms else 0.0
-            if vocal_ratio > 0.40:
-                log.warning("⚠️ [声学遗漏审计] 发现区间 %.2fs ~ %.2fs 存在密集人声发音 (占比 %.0f%%)，但歌词中缺少对应内容！",
-                            gap_s, gap_e, vocal_ratio * 100)
-
-    last_stanza_end = stanza_spans[-1][1] if stanza_spans else 0.0
-    if total_audio_sec - last_stanza_end >= 5.0:
-        tail_start_idx = int(last_stanza_end / 0.1)
-        tail_rms = rms_vals[tail_start_idx:]
-        tail_vocal_ratio = (sum(r > 0.02 for r in tail_rms) / len(tail_rms)) if tail_rms else 0.0
-        if tail_vocal_ratio > 0.45:
-            log.warning("⚠️ [声学遗漏审计] 歌曲尾部 %.2fs ~ %.2fs (时长=%.1fs) 存在密集演唱，原歌词可能缺少重复副歌段落！",
-                        last_stanza_end, total_audio_sec, total_audio_sec - last_stanza_end)
-
-    # 6.7 逐段执行 CTC 精确打点 (Intra-Stanza CTC Fine Alignment)
-    for k, st in enumerate(stanzas):
-        span_s, span_e = stanza_spans[k]
-        lines_with_idx = st
-        langs_in_st = [detect_line_lang(ly.text) for _, ly in lines_with_idx]
-
-        if all(l == "en" for l in langs_in_st):
-            _align_en(lines_with_idx, span_s, span_e)
-        elif all(l == "zh" for l in langs_in_st):
-            _align_zh(lines_with_idx, span_s, span_e)
-        else:
-            sub_runs = []
-            cur_r = []
-            cur_rlang = None
-            for idx_ly in lines_with_idx:
-                l_lang = detect_line_lang(idx_ly[1].text)
-                if cur_rlang is None or l_lang == cur_rlang:
+            # 混语言段落：拆分为连续同语言 sub_runs，由 ASR 锚点或发音单元比例吸附声学停顿切分
+            runs: list[tuple[str, list[tuple[int, LyricLine]]]] = []
+            cur_r: list[tuple[int, LyricLine]] = []
+            cur_l = None
+            for idx_ly in p_lines:
+                ll = detect_line_lang(idx_ly[1].text)
+                if cur_l is None or ll == cur_l:
                     cur_r.append(idx_ly)
-                    cur_rlang = l_lang
+                    cur_l = ll
                 else:
-                    sub_runs.append((cur_rlang, cur_r))
+                    runs.append((cur_l, cur_r))
                     cur_r = [idx_ly]
-                    cur_rlang = l_lang
+                    cur_l = ll
             if cur_r:
-                sub_runs.append((cur_rlang, cur_r))
+                runs.append((cur_l, cur_r))
 
-            tot_st_lines = len(lines_with_idx)
-            sub_dur = (span_e - span_s)
-            c_s = span_s
-            for sr_idx, (sr_lang, sr_lines) in enumerate(sub_runs):
-                ratio = len(sr_lines) / tot_st_lines
-                ideal_e = c_s + sub_dur * ratio
-                if sr_idx < len(sub_runs) - 1:
-                    idx_mid = int(ideal_e / 0.1)
-                    w = int(1.2 / 0.1)
-                    search_range = range(max(0, idx_mid - w), min(len(rms_vals), idx_mid + w))
-                    if search_range:
-                        best_k = min(search_range, key=lambda ki: rms_vals[ki])
-                        c_e = round(times[best_k], 2)
-                    else:
-                        c_e = min(span_e, ideal_e)
+            sub_dur = p_e - p_s
+            run_tok_counts = [sum(len(tokenize_lyric_phonetic(ly.text)) for _, ly in r_lines) for _, r_lines in runs]
+            tot_toks = max(1, sum(run_tok_counts))
+            c_s = p_s
+            for r_idx, (r_lang, r_lines) in enumerate(runs):
+                if r_idx == len(runs) - 1:
+                    c_e = p_e
                 else:
-                    c_e = span_e
-                _dispatch_align(sr_lang, sr_lines, c_s, c_e)
+                    r_toks = run_tok_counts[r_idx]
+                    ideal_split = c_s + sub_dur * (r_toks / tot_toks)
+                    next_run_lines = runs[r_idx + 1][1]
+                    next_run_toks = [c["py"] for _, ly in next_run_lines for c in tokenize_lyric_phonetic(ly.text)]
+                    cand_in_p = [w for w in asr_words if c_s - 0.5 <= w["start"] <= p_e + 0.5]
+                    found_next_s = None
+                    if len(cand_in_p) >= len(next_run_toks):
+                        c_in_toks = [w["py"] for w in cand_in_p]
+                        m = SequenceMatcher(None, next_run_toks, c_in_toks)
+                        if m.ratio() >= 0.40:
+                            vbs = [b for b in m.get_matching_blocks() if b.size > 0]
+                            if vbs:
+                                found_next_s = cand_in_p[vbs[0].b]["start"]
+                    target_split = found_next_s if found_next_s else ideal_split
+                    min_run_dur = max(0.8, r_toks * 0.30)
+                    c_e = find_silence_snap(target_split, wav_np, 16000, 2.0, min_t=c_s + min_run_dur)
+                _dispatch_align(r_lang, r_lines, c_s, c_e)
                 c_s = c_e
 
     aligned_lines = []
@@ -1282,13 +1424,16 @@ def _self_heal_alignment(
                 old_end = target_items[-1][1].end
                 new_end = repaired[-1].end
 
-                # 自愈有效性仲裁: 新时长显著伸展，结尾延展到真实人声结束点，或被压缩异常行显著舒展恢复
+                # 自愈有效性仲裁: 必须真正改善了异常行的坍缩，且严格受限于前后邻句边界，不能因盲目拉长时间就判定成功
                 anom_improved = any(
                     (repaired[it_idx].end - repaired[it_idx].start) > max(0.8, (target_items[it_idx][1].end - target_items[it_idx][1].start) * 1.5)
                     for it_idx in range(len(target_items))
                     if (target_items[it_idx][1].end - target_items[it_idx][1].start) < 0.6
                 )
-                if not alignment_quality_issue(repaired) and (new_dur > old_dur * 1.2 or new_end > old_end + 2.0 or anom_improved):
+                # 严格边界保护: 自愈区间不得越过邻句划定的安全范围
+                strictly_bounded = (repaired[0].start >= rough_start - 0.05 and repaired[-1].end <= rough_end + 0.05)
+
+                if not alignment_quality_issue(repaired) and strictly_bounded and anom_improved:
                     for item_idx, r_line in enumerate(repaired):
                         orig_idx = target_items[item_idx][0]
                         orig_line = target_items[item_idx][1]
@@ -1309,6 +1454,18 @@ def _self_heal_alignment(
                         old_end,
                         new_end,
                     )
+                else:
+                    # 自愈未通过严格校验时，保留由前后邻句约束的安全边界，并打上 needs_review 标记
+                    log.warning(
+                        "⚠️ [局部自愈未通过严格校验] 第 %d~%d 行保留原安全边界，标记为待人工复核",
+                        target_items[0][0] + 1,
+                        target_items[-1][0] + 1,
+                    )
+                    for item_idx in range(len(target_items)):
+                        orig_idx = target_items[item_idx][0]
+                        cur_overrides = dict(getattr(aligned_lines[orig_idx], "style_overrides", {}) or {})
+                        cur_overrides["needs_review"] = True
+                        aligned_lines[orig_idx].style_overrides = cur_overrides
         except Exception as e:
             log.warning("局部自愈执行异常 (已自动保留原对齐): %s", e)
 
