@@ -194,6 +194,23 @@ class WeChatChannelsUploader:
                 page.goto("https://channels.weixin.qq.com/login.html", wait_until="domcontentloaded", timeout=15000)
                 page.wait_for_timeout(3000)
 
+                current_url = page.url
+                if "login.html" not in current_url and "channels.weixin.qq.com" in current_url:
+                    cookies_list = ctx.cookies()
+                    cookies_dict = {c["name"]: c["value"] for c in cookies_list}
+                    self._save_cookies(cookies_dict, {"is_logged_in": True, "uname": "微信视频号创作者"})
+                    try:
+                        ctx.close()
+                        pw.stop()
+                    except Exception:
+                        pass
+                    return {
+                        "success": True,
+                        "is_logged_in": True,
+                        "uname": "微信视频号创作者",
+                        "message": "🎉 微信视频号助手已登录！",
+                    }
+
                 # 截取二维码区域
                 qr_wrap = page.locator('.login-qrcode-wrap, .qrcode-wrap, .qrcode-area').first
                 if qr_wrap.count() == 0:

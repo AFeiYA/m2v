@@ -193,6 +193,23 @@ class DouyinUploader:
                 page.goto("https://creator.douyin.com/", wait_until="domcontentloaded", timeout=15000)
                 page.wait_for_timeout(3000)
 
+                current_url = page.url
+                cookies_list = ctx.cookies()
+                cookies_dict = {c["name"]: c["value"] for c in cookies_list}
+                if ("/login" not in current_url and "creator.douyin.com" in current_url) or "sessionid" in cookies_dict:
+                    self._save_cookies(cookies_dict, {"is_logged_in": True, "uname": "抖音创作者"})
+                    try:
+                        ctx.close()
+                        pw.stop()
+                    except Exception:
+                        pass
+                    return {
+                        "success": True,
+                        "is_logged_in": True,
+                        "uname": "抖音创作者",
+                        "message": "🎉 抖音创作者平台已登录！",
+                    }
+
                 # 查找扫码区域
                 qr_wrap = page.locator('.login-panel-qrcode, [class*="qrcode-box"], [class*="qrcode"]').first
                 if qr_wrap.count() == 0:

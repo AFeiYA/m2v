@@ -87,7 +87,16 @@ class XiaohongshuUploader:
     @property
     def is_configured(self) -> bool:
         """检查是否有基本登录凭证"""
-        return bool(self.cookies.get("web_session") or (self.profile_dir / "Default").exists())
+        has_token = any(
+            k in self.cookies
+            for k in [
+                "access-token-creator.xiaohongshu.com",
+                "customer-sso-sid",
+                "galaxy_creator_session_id",
+                "web_session",
+            ]
+        )
+        return has_token or bool(self.user_info.get("is_logged_in")) or (self.profile_dir / "Default").exists()
 
     def get_account_status(self) -> dict:
         """检查当前登录状态并获取创作者账号信息"""
@@ -96,7 +105,7 @@ class XiaohongshuUploader:
         if cookie_header:
             try:
                 r = requests.get(
-                    "https://creator.xiaohongshu.com/api/galaxy/v1/auth/user/info",
+                    "https://creator.xiaohongshu.com/api/galaxy/user/info",
                     headers={
                         "User-Agent": DEFAULT_USER_AGENT,
                         "Referer": "https://creator.xiaohongshu.com/",
@@ -111,9 +120,9 @@ class XiaohongshuUploader:
                     user = {
                         "is_logged_in": True,
                         "is_login": True,
-                        "uname": d.get("nickname") or d.get("user_name", "小红书创作者"),
-                        "user_id": d.get("user_id", ""),
-                        "avatar": d.get("avatar", ""),
+                        "uname": d.get("userName") or d.get("nickname") or d.get("name", "小红书创作者"),
+                        "user_id": d.get("userId") or d.get("redId", ""),
+                        "avatar": d.get("userAvatar") or d.get("avatar", ""),
                         "message": "已连接小红书创作者中心",
                     }
                     self.user_info = user
@@ -216,15 +225,39 @@ class XiaohongshuUploader:
                 )
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
                 page.goto("https://creator.xiaohongshu.com/login", wait_until="domcontentloaded", timeout=15000)
-                page.wait_for_timeout(2000)
+                page.wait_for_timeout(2500)
+
+                # 优先检查是否已直接登录 (小红书自动跳转到 /new/home 或其它非 login 页面)
+                current_url = page.url
+                cookies_list = ctx.cookies()
+                cookies_dict = {c["name"]: c["value"] for c in cookies_list}
+                is_logged_in = ("/login" not in current_url and "creator.xiaohongshu.com" in current_url) or any(
+                    k in cookies_dict
+                    for k in [
+                        "access-token-creator.xiaohongshu.com",
+                        "customer-sso-sid",
+                        "galaxy_creator_session_id",
+                    ]
+                )
+
+                if is_logged_in:
+                    self._save_cookies(cookies_dict)
+                    try:
+                        ctx.close()
+                        pw.stop()
+                    except Exception:
+                        pass
+                    user = self.get_account_status()
+                    uname = user.get("uname") or "小红书创作者"
+                    return {
+                        "success": True,
+                        "is_logged_in": True,
+                        "uname": uname,
+                        "avatar": user.get("avatar", ""),
+                        "message": f"🎉 小红书账号 [{uname}] 已登录！",
+                    }
 
                 # 切换到二维码登录标签
-                qr_switch = page.locator('[class*="qrcode-switch"], [class*="switch-icon"], [class*="icon-box"]').first
-                if qr_switch.count() > 0:
-                    qr_switch.click()
-                    page.wait_for_timeout(1500)
-
-                # 提取真实二维码图片 (宽度大于 100px 的二维码)
                 qr_data_url = ""
                 for img in page.locator('img[src*="data:image"]').all():
                     box = img.bounding_box()
@@ -234,8 +267,43 @@ class XiaohongshuUploader:
                             qr_data_url = src
                             break
 
+                # 若尚未展示二维码，点击右上角 64x64 切换角标
                 if not qr_data_url:
-                    # 备选：直接截取二维码区域
+                    page.evaluate("""() => {
+                        const imgs = Array.from(document.querySelectorAll("img"));
+                        const corner = imgs.find(img => {
+                            const rect = img.getBoundingClientRect();
+                            return rect.width > 30 && rect.width < 90;
+                        });
+                        if (corner) corner.click();
+                    }""")
+                    page.wait_for_timeout(1500)
+
+                # 提取真实二维码图片 (宽度大于 100px 的二维码)
+                if not qr_data_url:
+                    for img in page.locator('img[src*="data:image"]').all():
+                        box = img.bounding_box()
+                        if box and box.get("width", 0) >= 100:
+                            src = img.get_attribute("src")
+                            if src and src.startswith("data:image"):
+                                qr_data_url = src
+                                break
+
+                # 如果有二维码蒙层失效按钮，点击刷新
+                refresh_btn = page.locator('text="点击刷新", text="刷新二维码", text="二维码已失效", text="已失效"').first
+                if refresh_btn.count() > 0 and refresh_btn.is_visible():
+                    refresh_btn.click()
+                    page.wait_for_timeout(1500)
+                    for img in page.locator('img[src*="data:image"]').all():
+                        box = img.bounding_box()
+                        if box and box.get("width", 0) >= 100:
+                            src = img.get_attribute("src")
+                            if src and src.startswith("data:image"):
+                                qr_data_url = src
+                                break
+
+                if not qr_data_url:
+                    # 备选：直接截取登录区域
                     card = page.locator('.login-box, .login-container, [class*="login"]').first
                     if card.count() > 0:
                         qr_bytes = card.screenshot()
@@ -244,7 +312,7 @@ class XiaohongshuUploader:
                 if not qr_data_url:
                     ctx.close()
                     pw.stop()
-                    return {"success": False, "message": "未能从小红书获取到登录二维码"}
+                    return {"success": False, "message": "未能从小红书获取到登录二维码，请点击打开浏览器登录"}
 
                 session_id = uuid.uuid4().hex[:12]
                 self._qr_session = {
@@ -271,6 +339,17 @@ class XiaohongshuUploader:
 
     def _poll_qrcode_impl(self, session_id: str) -> dict:
         with self._qr_lock:
+            # 先检查是否已经登录（例如其它方式完成鉴权）
+            st = self.get_account_status()
+            if st.get("is_logged_in"):
+                return {
+                    "status": "success",
+                    "is_logged_in": True,
+                    "uname": st.get("uname", "小红书创作者"),
+                    "avatar": st.get("avatar", ""),
+                    "message": f"🎉 小红书账号 [{st.get('uname')}] 登录成功！",
+                }
+
             if not self._qr_session or self._qr_session.get("id") != session_id:
                 return {"status": "expired", "message": "扫码会话已过期，请重新获取二维码"}
 
@@ -280,14 +359,18 @@ class XiaohongshuUploader:
 
             try:
                 current_url = page.url
-                # 检查是否跳转离开登录页 (例如进入 /creator/home 或 /creator/new)
-                is_logged_in = "/login" not in current_url and "creator.xiaohongshu.com" in current_url
-
-                # 同时检查 Cookies 中的 web_session
                 cookies_list = ctx.cookies()
                 cookies_dict = {c["name"]: c["value"] for c in cookies_list}
-                if "web_session" in cookies_dict:
-                    is_logged_in = True
+
+                # 检查是否跳转离开登录页或获得 access-token
+                is_logged_in = ("/login" not in current_url and "creator.xiaohongshu.com" in current_url) or any(
+                    k in cookies_dict
+                    for k in [
+                        "access-token-creator.xiaohongshu.com",
+                        "customer-sso-sid",
+                        "galaxy_creator_session_id",
+                    ]
+                )
 
                 if is_logged_in:
                     # 登录成功，同步 cookies
@@ -315,7 +398,7 @@ class XiaohongshuUploader:
                     }
 
                 # 检查二维码是否过期
-                refresh_btn = page.locator('text="点击刷新", text="刷新二维码", [class*="refresh"]').first
+                refresh_btn = page.locator('text="点击刷新", text="刷新二维码", text="二维码已失效", text="已失效"').first
                 if refresh_btn.count() > 0 and refresh_btn.is_visible():
                     return {"status": "expired", "message": "二维码已失效，请重新刷新"}
 
@@ -348,7 +431,16 @@ class XiaohongshuUploader:
                         if page.is_closed():
                             break
                         cookies = {c["name"]: c["value"] for c in ctx.cookies()}
-                        if "web_session" in cookies or ("/login" not in page.url and "creator.xiaohongshu.com" in page.url):
+                        has_token = any(
+                            k in cookies
+                            for k in [
+                                "access-token-creator.xiaohongshu.com",
+                                "customer-sso-sid",
+                                "galaxy_creator_session_id",
+                                "web_session",
+                            ]
+                        )
+                        if has_token or ("/login" not in page.url and "creator.xiaohongshu.com" in page.url):
                             self._save_cookies(cookies)
                             self.get_account_status()
                             logger.info("小红书前台窗口登录成功并已捕获凭据")

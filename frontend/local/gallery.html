@@ -1610,16 +1610,29 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       $('syndicate-qr-drawer').style.display = 'block';
       $('qr-drawer-title').textContent = `${p.icon} ${p.name} 扫码授权登录`;
       $('qr-drawer-tip').textContent = `请打开 ${p.name} 手机客户端扫描屏幕二维码并确认登录`;
-      $('syndicate-qr-status').textContent = '正在获取登录二维码...';
+      $('syndicate-qr-status').textContent = '正在获取最新登录二维码...';
       $('syndicate-qr-img').src = '';
 
-      if (syndicateQrTimer) clearInterval(syndicateQrTimer);
+      if (syndicateQrTimer) {
+        clearInterval(syndicateQrTimer);
+        syndicateQrTimer = null;
+      }
 
       try {
         const res = await fetch(`/api/${pid}/qrcode`);
         const data = await res.json();
+
+        // 若服务端检测到该平台已经登录
+        if (data.is_logged_in) {
+          $('syndicate-qr-drawer').style.display = 'none';
+          showToast(`🎉 ${p.name} 已经成功登录 (${data.uname || ''})！`);
+          selectedPlatforms.add(pid);
+          await loadSyndicateStatus();
+          return;
+        }
+
         if (!data.success) {
-          $('syndicate-qr-status').textContent = '获取二维码失败: ' + (data.message || '网络超时');
+          $('syndicate-qr-status').innerHTML = '⚠️ 获取二维码失败: ' + (data.message || '网络超时') + '<br><span style="color:#888;font-size:11px">若已登录或提示过期，可点击右侧【🖥️ 打开浏览器窗口登录】</span>';
           return;
         }
 
@@ -1640,13 +1653,15 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
             const isSuccess = (pid === 'bilibili' && pData.code === 0) || pData.status === 'success' || pData.is_logged_in;
             if (isSuccess) {
               clearInterval(syndicateQrTimer);
+              syndicateQrTimer = null;
               $('syndicate-qr-drawer').style.display = 'none';
               showToast(`🎉 ${p.name} 授权成功！`);
               selectedPlatforms.add(pid);
               await loadSyndicateStatus();
             } else if (pData.status === 'expired' || pData.code === 86038) {
               clearInterval(syndicateQrTimer);
-              $('syndicate-qr-status').textContent = '⌛ 二维码已过期，请点击刷新按钮';
+              syndicateQrTimer = null;
+              $('syndicate-qr-status').textContent = '⌛ 二维码已过期，请点击下方 [🔄 刷新二维码]';
             } else if (pData.message) {
               $('syndicate-qr-status').textContent = pData.message;
             }
