@@ -428,7 +428,10 @@ class BilibiliUploader:
             raise RuntimeError(f"合并视频分片失败: {r.text}")
 
         _notify(0.95, "分片合并成功！准备提交稿件...")
-        bili_filename = upos_uri.replace("upos://ugc/", "").split(".")[0]
+        # 等待 1.5 秒让 B 站存储节点完成合并索引
+        time.sleep(1.5)
+        # 提取文件名主体（例如 n261006a23inzdmbisgp4g21gk6vxyfq，去除协议和目录前缀）
+        bili_filename = upos_uri.split("/")[-1].split(".")[0]
         return bili_filename
 
     def submit_archive(
@@ -470,25 +473,31 @@ class BilibiliUploader:
         headers = self._get_headers("https://member.bilibili.com/platform/upload/video/frame")
         headers["Content-Type"] = "application/json; charset=utf-8"
 
-        r = self.session.post(
-            f"https://member.bilibili.com/x/vu/web/add/v3?csrf={self.csrf}",
-            json=payload,
-            headers=headers,
-            timeout=25,
-        )
-        data = r.json()
-        if data.get("code") == 0:
-            res_data = data.get("data", {})
-            bvid = res_data.get("bvid", "")
-            aid = res_data.get("aid", 0)
-            return {
-                "success": True,
-                "bvid": bvid,
-                "aid": aid,
-                "video_url": f"https://www.bilibili.com/video/{bvid}" if bvid else "",
-                "message": "稿件提交成功，正在审核中！",
-            }
-        raise RuntimeError(f"稿件提交失败: {data.get('message', data)}")
+        for retry in range(3):
+            r = self.session.post(
+                f"https://member.bilibili.com/x/vu/web/add/v3?csrf={self.csrf}",
+                json=payload,
+                headers=headers,
+                timeout=25,
+            )
+            data = r.json()
+            if data.get("code") == 0:
+                res_data = data.get("data", {})
+                bvid = res_data.get("bvid", "")
+                aid = res_data.get("aid", 0)
+                return {
+                    "success": True,
+                    "bvid": bvid,
+                    "aid": aid,
+                    "video_url": f"https://www.bilibili.com/video/{bvid}" if bvid else "",
+                    "message": "稿件提交成功，正在审核中！",
+                }
+            msg = data.get("message", "")
+            if retry < 2 and ("上传过程出现问题" in msg or "稍后再试" in msg or "未就绪" in msg):
+                logger.info(f"B站稿件提交稍候重试 ({retry+1}/3): {msg}")
+                time.sleep(2.5)
+                continue
+            raise RuntimeError(f"稿件提交失败: {data.get('message', data)}")
 
     def publish_video(
         self,
@@ -507,6 +516,7 @@ class BilibiliUploader:
                 progress_callback(pct, msg)
 
         temp_video_file = None
+        temp_cover_file = None
         local_video_path = video_source
 
         if video_source.startswith("http://") or video_source.startswith("https://"):
@@ -524,6 +534,29 @@ class BilibiliUploader:
             local_video_path = temp_video_file
 
         try:
+            # 自动提取视频高清封面（第 1 秒画面）
+            if not cover_source and local_video_path and Path(local_video_path).exists():
+                try:
+                    import subprocess
+                    temp_dir = self.cookies_path.parent / "temp"
+                    temp_dir.mkdir(parents=True, exist_ok=True)
+                    temp_cover_file = temp_dir / f"cover_{int(time.time()*1000)}.jpg"
+                    subprocess.run(
+                        [
+                            "ffmpeg", "-y", "-ss", "00:00:01",
+                            "-i", str(local_video_path),
+                            "-vframes", "1", "-q:v", "2",
+                            str(temp_cover_file)
+                        ],
+                        check=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    if temp_cover_file.exists():
+                        cover_source = str(temp_cover_file)
+                except Exception as e:
+                    logger.warning(f"自动提取视频封面帧失败: {e}")
+
             bili_cover_url = ""
             if cover_source:
                 try:
@@ -550,6 +583,11 @@ class BilibiliUploader:
             if temp_video_file and temp_video_file.exists():
                 try:
                     temp_video_file.unlink()
+                except Exception:
+                    pass
+            if temp_cover_file and temp_cover_file.exists():
+                try:
+                    temp_cover_file.unlink()
                 except Exception:
                     pass
 
