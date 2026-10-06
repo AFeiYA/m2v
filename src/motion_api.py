@@ -531,6 +531,22 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         if job_id in jobs:
             jobs[job_id]['cdn_url'] = upload_res['url']
             jobs[job_id]['r2_key'] = upload_res['key']
+
+        # 自动同步 R2 全量作品索引 gallery.json
+        try:
+            client = r2_storage.get_client()
+            if client:
+                items = gallery()
+                client.put_object(
+                    Bucket=r2_storage.bucket,
+                    Key="gallery.json",
+                    Body=json.dumps(items, ensure_ascii=False, indent=2).encode("utf-8"),
+                    ContentType="application/json; charset=utf-8",
+                    CacheControl="public, max-age=60",
+                )
+        except Exception:
+            pass
+
         return {'success': True, 'cdn_url': upload_res['url'], 'r2_key': upload_res['key']}
 
     @router.get('/render/{job_id}')

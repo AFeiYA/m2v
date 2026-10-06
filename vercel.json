@@ -18,6 +18,14 @@
       "destination": "/motion_lab.html"
     },
     {
+      "source": "/gallery",
+      "destination": "/gallery.html"
+    },
+    {
+      "source": "/videos",
+      "destination": "/gallery.html"
+    },
+    {
       "source": "/storyboard",
       "destination": "/storyboard.html"
     },

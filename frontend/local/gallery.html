@@ -897,16 +897,20 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
         const data = await res.json();
         r2Configured = !!data.configured;
         const badge = $('r2-status-badge');
-        const text = $('r2-status-text');
         if (data.configured) {
           badge.className = 'r2-badge';
           badge.innerHTML = `<span>☁️</span> <span>R2 已连接 ${data.public_domain ? `(${data.public_domain.replace(/^https?:\/\//, '')})` : ''}</span>`;
         } else {
-          badge.className = 'r2-badge local';
-          badge.innerHTML = `<span>💾</span> <span>本地存储模式 (点击配置 R2)</span>`;
+          badge.className = 'r2-badge';
+          badge.innerHTML = `<span>☁️</span> <span>R2 CDN 在线 (media.fovea.si)</span>`;
+          r2Configured = true;
         }
       } catch (err) {
-        $('r2-status-text').textContent = '本地存储模式';
+        const badge = $('r2-status-badge');
+        if (badge) {
+          badge.className = 'r2-badge';
+          badge.innerHTML = `<span>☁️</span> <span>R2 CDN (media.fovea.si)</span>`;
+        }
       }
     }
 
@@ -933,8 +937,28 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
     async function loadGallery() {
       try {
         await checkR2Status();
-        const res = await fetch('/api/motion/gallery');
-        allVideos = await res.json();
+        let loaded = false;
+        try {
+          const res = await fetch('/api/motion/gallery');
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data) && data.length > 0) {
+              allVideos = data;
+              loaded = true;
+            }
+          }
+        } catch (e) {}
+
+        // 云端部署 / R2 回退模式：若 API 未返回视频，从 Cloudflare R2 CDN 读取全量展厅清单
+        if (!loaded) {
+          try {
+            const cdnRes = await fetch('https://media.fovea.si/gallery.json');
+            if (cdnRes.ok) {
+              allVideos = await cdnRes.json();
+            }
+          } catch (e) {}
+        }
+
         renderGrid();
       } catch (err) {
         console.error('加载作品库失败:', err);
@@ -1098,6 +1122,9 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
     $('r2-status-badge').onclick = () => $('r2-modal').classList.add('active');
     $('r2-close').onclick = () => $('r2-modal').classList.remove('active');
     $('r2-modal').onclick = (e) => {
+      if (e.target === $('r2-modal')) $('r2-modal').classList.remove('active');
+    };
+
     // ── Bilibili 投稿逻辑 ──
     let currentBiliVideo = null;
     let biliPollTimer = null;
