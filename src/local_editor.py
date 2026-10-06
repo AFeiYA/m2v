@@ -2196,7 +2196,9 @@ def motion_studio():
 
 
 @app.get("/gallery", response_class=HTMLResponse)
+@app.get("/gallery.html", response_class=HTMLResponse)
 @app.get("/videos", response_class=HTMLResponse)
+@app.get("/videos.html", response_class=HTMLResponse)
 def gallery_view():
     g_file = _FRONTEND_DIR / "gallery.html"
     if g_file.exists():
