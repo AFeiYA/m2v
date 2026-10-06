@@ -2319,6 +2319,9 @@ def main() -> None:
 from src.motion_api import create_motion_router
 app.include_router(create_motion_router(_get_scan_dir, _validate_path, _find_audio))
 
+from src.bilibili_uploader import bilibili_router
+app.include_router(bilibili_router)
+
 @app.get("/motion_lab", response_class=HTMLResponse)
 def motion_lab():
     return HTMLResponse((_FRONTEND_DIR / "motion_lab.html").read_text(encoding="utf-8"))

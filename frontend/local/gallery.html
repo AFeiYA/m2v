@@ -517,6 +517,112 @@
       margin: 16px 0;
     }
 
+    /* ── B站投稿弹窗样式 ── */
+    .bili-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(8px);
+      z-index: 1200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .bili-modal.active {
+      display: flex;
+    }
+    .bili-box {
+      background: #111710;
+      border: 1px solid #2f402c;
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 520px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+      box-sizing: border-box;
+    }
+    .bili-btn {
+      color: #00aeec !important;
+      border-color: rgba(0, 174, 236, 0.4) !important;
+    }
+    .bili-btn:hover {
+      background: rgba(0, 174, 236, 0.15) !important;
+      border-color: #00aeec !important;
+    }
+    .bili-primary {
+      background: #00aeec !important;
+      color: #fff !important;
+      border-color: #00aeec !important;
+      font-weight: 600;
+    }
+    .bili-primary:hover {
+      background: #009cd3 !important;
+    }
+    .bili-user-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: #162015;
+      border: 1px solid #293826;
+      border-radius: 10px;
+      padding: 10px 14px;
+      margin-bottom: 16px;
+    }
+    .bili-avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid #00aeec;
+    }
+    .form-group {
+      margin-bottom: 14px;
+      text-align: left;
+    }
+    .form-label {
+      display: block;
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      background: #090e08;
+      border: 1px solid #243422;
+      border-radius: 8px;
+      color: #e8f5e5;
+      padding: 8px 12px;
+      font-size: 13px;
+      box-sizing: border-box;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      border-color: #00aeec;
+    }
+    .form-textarea {
+      resize: vertical;
+      min-height: 70px;
+    }
+    .progress-track {
+      background: #1a2418;
+      border-radius: 8px;
+      height: 10px;
+      overflow: hidden;
+      margin: 16px 0;
+    }
+    .progress-fill {
+      background: linear-gradient(90deg, #00aeec, #c8ff00);
+      height: 100%;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
     /* ── 空状态 ── */
     .empty-state {
       text-align: center;
@@ -619,6 +725,7 @@
         <div id="modal-url" class="url-display"></div>
         <div style="display:flex;gap:8px">
           <button id="btn-copy-url" class="btn-action">🔗 复制直链</button>
+          <button id="btn-bili-player" class="btn-action bili-btn">📺 发布到 B站</button>
           <a id="btn-download-modal" class="btn-action primary" download>⬇ 下载视频</a>
         </div>
       </div>
@@ -654,6 +761,104 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
         未配置时系统会自动平滑降级为后端本地磁盘存储，依然可正常预览和下载。
       </p>
       <button id="r2-close" class="btn-action primary" style="width:100%">我知道了</button>
+    </div>
+  </div>
+
+  <!-- B站一键发布投稿弹窗 -->
+  <div id="bili-modal" class="bili-modal">
+    <div class="bili-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h3 style="margin:0;color:#fff;font-size:17px;display:flex;align-items:center;gap:8px">
+          <span style="color:#00aeec;font-size:20px">📺</span> 哔哩哔哩 · 一键发布视频
+        </h3>
+        <button id="bili-close" class="modal-close" style="font-size:16px">✕</button>
+      </div>
+
+      <!-- 登录区 (未登录时显示) -->
+      <div id="bili-login-section" style="display:none;text-align:center;padding:16px 0">
+        <p style="margin:0 0 14px 0;color:var(--text-muted);font-size:13px">请打开 <b>哔哩哔哩 手机客户端</b> 扫码登录授权</p>
+        <div style="background:#fff;display:inline-block;padding:12px;border-radius:12px;margin-bottom:12px">
+          <img id="bili-qr-img" src="" alt="B站登录二维码" style="width:180px;height:180px;display:block">
+        </div>
+        <div id="bili-qr-status" style="font-size:13px;color:#a4bca0;margin-bottom:14px">正在加载登录二维码...</div>
+        <button id="bili-qr-refresh" class="btn-action" style="font-size:12px">🔄 刷新二维码</button>
+      </div>
+
+      <!-- 投稿表单区 (已登录时显示) -->
+      <div id="bili-form-section" style="display:none">
+        <!-- UP主信息卡片 -->
+        <div class="bili-user-card">
+          <img id="bili-user-avatar" class="bili-avatar" src="" alt="头像">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span id="bili-user-name" style="font-weight:600;color:#fff;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+              <span id="bili-user-level" style="font-size:10px;background:#00aeec;color:#fff;padding:1px 5px;border-radius:3px">LV-</span>
+            </div>
+            <div id="bili-user-mid" style="font-size:11px;color:var(--text-muted);margin-top:2px">UID: -</div>
+          </div>
+          <button id="bili-btn-logout" class="btn-action" style="font-size:11px;padding:4px 8px">退出登录</button>
+        </div>
+
+        <form id="bili-publish-form" onsubmit="return false">
+          <div class="form-group">
+            <label class="form-label">稿件标题 (最大 80 字)</label>
+            <input type="text" id="bili-input-title" class="form-input" maxlength="80" required placeholder="请输入视频标题">
+          </div>
+
+          <div style="display:flex;gap:12px">
+            <div class="form-group" style="flex:1">
+              <label class="form-label">投稿分区 (TID)</label>
+              <select id="bili-select-tid" class="form-select"></select>
+            </div>
+            <div class="form-group" style="flex:1">
+              <label class="form-label">发布来源</label>
+              <div id="bili-video-source-label" style="font-size:12px;color:#a4bca0;padding:8px 12px;background:#090e08;border:1px solid #243422;border-radius:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">标签话题 (用逗号分隔)</label>
+            <input type="text" id="bili-input-tags" class="form-input" value="Suno,AI音乐,音乐MV,原创音乐,音乐日记,华语流行">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">稿件简介 (Description)</label>
+            <textarea id="bili-input-desc" class="form-textarea" rows="3" placeholder="填写视频简介..."></textarea>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:20px">
+            <button type="button" id="bili-btn-cancel" class="btn-action" style="flex:1">取消</button>
+            <button type="button" id="bili-btn-submit" class="btn-action bili-primary" style="flex:2">🚀 立即发布到 B站</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- 任务进度区 -->
+      <div id="bili-progress-section" style="display:none;text-align:center;padding:28px 10px">
+        <div style="font-size:32px;margin-bottom:12px">⏳</div>
+        <h4 id="bili-progress-msg" style="margin:0 0 12px 0;color:#fff;font-size:15px">正在准备投稿数据...</h4>
+        <div class="progress-track">
+          <div id="bili-progress-bar" class="progress-fill"></div>
+        </div>
+        <div id="bili-progress-pct" style="font-size:12px;color:var(--text-muted)">0%</div>
+      </div>
+
+      <!-- 成功结果区 -->
+      <div id="bili-success-section" style="display:none;text-align:center;padding:24px 10px">
+        <div style="font-size:46px;margin-bottom:10px">🎉</div>
+        <h4 style="margin:0 0 6px 0;color:#fff;font-size:17px">投稿成功！已提交 B 站审核</h4>
+        <p style="margin:0 0 18px 0;color:var(--text-muted);font-size:13px">视频已正式上传并进入哔哩哔哩创作者中心</p>
+        
+        <div style="background:#162015;border:1px solid #293826;border-radius:10px;padding:12px;margin-bottom:20px">
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">稿件 BV 号</div>
+          <div id="bili-result-bvid" style="font-size:20px;font-weight:700;color:#00aeec;font-family:monospace"></div>
+        </div>
+
+        <div style="display:flex;gap:10px">
+          <button id="bili-btn-done" class="btn-action" style="flex:1">完成</button>
+          <a id="bili-btn-view" href="" target="_blank" class="btn-action bili-primary" style="flex:2;text-decoration:none;display:flex;align-items:center;justify-content:center">📺 在 B站 观看稿件</a>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -788,6 +993,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
             </div>
             <div class="card-actions">
               <button class="btn-action primary" onclick="openPlayer('${item.id}')">▶ 播放</button>
+              <button class="btn-action bili-btn" onclick="openBiliModal('${item.id}')" title="一键发布至哔哩哔哩 (B站)">📺 B站</button>
               <button class="btn-action" onclick="copyShareUrl('${item.id}')" title="复制在线直链">🔗 分享</button>
               <button class="btn-action" onclick="openQR('${item.id}')" title="手机扫码在手机全屏看">📱 扫码</button>
               ${r2Configured && !item.cdn_url && item.exists_locally ? `<button class="btn-action" onclick="syncToR2('${item.id}', this)" title="一键同步至 Cloudflare R2">☁️ 同步 R2</button>` : ''}
@@ -831,6 +1037,11 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
         navigator.clipboard.writeText(playUrl).then(() => {
           showToast('已复制视频播放直链！');
         });
+      };
+
+      $('btn-bili-player').onclick = () => {
+        closePlayer();
+        openBiliModal(item.id);
       };
 
       modal.classList.add('active');
@@ -887,12 +1098,201 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
     $('r2-status-badge').onclick = () => $('r2-modal').classList.add('active');
     $('r2-close').onclick = () => $('r2-modal').classList.remove('active');
     $('r2-modal').onclick = (e) => {
-      if (e.target === $('r2-modal')) $('r2-modal').classList.remove('active');
+    // ── Bilibili 投稿逻辑 ──
+    let currentBiliVideo = null;
+    let biliPollTimer = null;
+    let biliTaskTimer = null;
+
+    async function loadBiliTids() {
+      const select = $('bili-select-tid');
+      if (select.children.length) return;
+      try {
+        const res = await fetch('/api/bilibili/tids');
+        const data = await res.json();
+        select.innerHTML = (data.tids || []).map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+      } catch (err) {
+        select.innerHTML = '<option value="28">音乐 · 原创音乐 (推荐)</option><option value="31">音乐 · 音乐综合 / 翻唱</option><option value="278">科技 · AI音乐</option>';
+      }
+    }
+
+    async function openBiliModal(jobId) {
+      const item = allVideos.find(v => v.id === jobId);
+      if (!item) return;
+      currentBiliVideo = item;
+
+      await loadBiliTids();
+      $('bili-input-title').value = `《${item.song_title}》| Suno AI 音乐MV (${item.aspect})`;
+      $('bili-input-desc').value = `🎵 歌曲：《${item.song_title}》\n✨ 词曲音频：由 Suno AI 创作\n🎬 动态视觉：由 suno2MV 自动编排生成\n时长：${item.duration}s\n\n欢迎一键三连支持！#Suno #AI音乐 #音乐MV #音乐日记`;
+      const videoPlayUrl = item.cdn_url || (window.location.origin + item.stream_url);
+      $('bili-video-source-label').textContent = item.cdn_url ? `☁️ R2 CDN (${formatBytes(item.file_size)})` : `💾 本地流媒体 (${formatBytes(item.file_size)})`;
+      $('bili-video-source-label').title = videoPlayUrl;
+
+      $('bili-modal').classList.add('active');
+      showBiliSection('loading');
+      await refreshBiliAuth();
+    }
+
+    function closeBiliModal() {
+      if (biliPollTimer) clearInterval(biliPollTimer);
+      if (biliTaskTimer) clearInterval(biliTaskTimer);
+      $('bili-modal').classList.remove('active');
+    }
+
+    function showBiliSection(sec) {
+      $('bili-login-section').style.display = sec === 'login' ? 'block' : 'none';
+      $('bili-form-section').style.display = sec === 'form' ? 'block' : 'none';
+      $('bili-progress-section').style.display = sec === 'progress' ? 'block' : 'none';
+      $('bili-success-section').style.display = sec === 'success' ? 'block' : 'none';
+    }
+
+    async function refreshBiliAuth() {
+      try {
+        const res = await fetch('/api/bilibili/status');
+        const data = await res.json();
+        if (data.is_logged_in) {
+          $('bili-user-avatar').src = data.face || 'https://static.hdslb.com/images/member/noface.gif';
+          $('bili-user-name').textContent = data.uname || 'B站UP主';
+          $('bili-user-mid').textContent = `UID: ${data.mid}`;
+          $('bili-user-level').textContent = `LV${data.level || 6}`;
+          showBiliSection('form');
+        } else {
+          showBiliSection('login');
+          startBiliQRLogin();
+        }
+      } catch (err) {
+        showBiliSection('login');
+        startBiliQRLogin();
+      }
+    }
+
+    async function startBiliQRLogin() {
+      if (biliPollTimer) clearInterval(biliPollTimer);
+      $('bili-qr-status').textContent = '正在生成二维码...';
+      try {
+        const res = await fetch('/api/bilibili/qrcode');
+        const data = await res.json();
+        if (!data.success) {
+          $('bili-qr-status').textContent = '生成二维码失败: ' + (data.message || '网络异常');
+          return;
+        }
+        $('bili-qr-img').src = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(data.url)}`;
+        $('bili-qr-status').textContent = '等待手机扫码登录...';
+
+        biliPollTimer = setInterval(async () => {
+          try {
+            const pRes = await fetch(`/api/bilibili/qrcode/poll?key=${data.qrcode_key}`);
+            const pData = await pRes.json();
+            if (pData.code === 0) {
+              clearInterval(biliPollTimer);
+              showToast('🎉 B 站扫码登录成功！');
+              await refreshBiliAuth();
+            } else if (pData.code === 86090) {
+              $('bili-qr-status').textContent = '📱 已扫码，请在手机端点击【确认登录】';
+            } else if (pData.code === 86038) {
+              clearInterval(biliPollTimer);
+              $('bili-qr-status').textContent = '⌛ 二维码已失效，请点击刷新按钮';
+            }
+          } catch (e) {}
+        }, 2000);
+      } catch (err) {
+        $('bili-qr-status').textContent = '网络连接失败，请重试';
+      }
+    }
+
+    async function logoutBili() {
+      if (!confirm('确定要退出当前 B 站账号吗？')) return;
+      try {
+        await fetch('/api/bilibili/logout', { method: 'POST' });
+        showToast('已退出 B 站登录');
+        await refreshBiliAuth();
+      } catch (err) {
+        alert('登出失败: ' + err.message);
+      }
+    }
+
+    async function submitBiliPublish() {
+      if (!currentBiliVideo) return;
+      const title = $('bili-input-title').value.trim();
+      if (!title) {
+        alert('请输入稿件标题！');
+        return;
+      }
+
+      const tid = parseInt($('bili-select-tid').value) || 28;
+      const tags = $('bili-input-tags').value.split(/[,，]/).map(t => t.trim()).filter(Boolean);
+      const desc = $('bili-input-desc').value.trim();
+      const videoSource = currentBiliVideo.cdn_url || (window.location.origin + currentBiliVideo.stream_url);
+
+      showBiliSection('progress');
+      $('bili-progress-bar').style.width = '2%';
+      $('bili-progress-pct').textContent = '2%';
+      $('bili-progress-msg').textContent = '正在向服务器创建发布任务...';
+
+      try {
+        const res = await fetch('/api/bilibili/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            video_source: videoSource,
+            title,
+            desc,
+            tags,
+            tid,
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || data.message || '创建发布任务失败');
+
+        const taskId = data.task_id;
+        pollBiliTask(taskId);
+      } catch (err) {
+        alert('发布异常: ' + err.message);
+        showBiliSection('form');
+      }
+    }
+
+    function pollBiliTask(taskId) {
+      if (biliTaskTimer) clearInterval(biliTaskTimer);
+      biliTaskTimer = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/bilibili/tasks/${taskId}`);
+          const task = await res.json();
+          if (task.status === 'completed') {
+            clearInterval(biliTaskTimer);
+            showBiliSection('success');
+            const result = task.result || {};
+            $('bili-result-bvid').textContent = result.bvid || '审核中';
+            $('bili-btn-view').href = result.video_url || `https://www.bilibili.com/video/${result.bvid}`;
+            showToast('🎉 B 站投稿发布成功！');
+          } else if (task.status === 'error') {
+            clearInterval(biliTaskTimer);
+            alert('发布失败: ' + (task.error || task.message || '未知错误'));
+            showBiliSection('form');
+          } else {
+            const pct = Math.round((task.progress || 0) * 100);
+            $('bili-progress-bar').style.width = pct + '%';
+            $('bili-progress-pct').textContent = pct + '%';
+            $('bili-progress-msg').textContent = task.message || '正在处理中...';
+          }
+        } catch (e) {}
+      }, 1500);
+    }
+
+    // B站弹窗事件绑定
+    $('bili-close').onclick = closeBiliModal;
+    $('bili-btn-cancel').onclick = closeBiliModal;
+    $('bili-btn-done').onclick = closeBiliModal;
+    $('bili-modal').onclick = (e) => {
+      if (e.target === $('bili-modal')) closeBiliModal();
     };
+    $('bili-qr-refresh').onclick = startBiliQRLogin;
+    $('bili-btn-logout').onclick = logoutBili;
+    $('bili-btn-submit').onclick = submitBiliPublish;
 
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closePlayer();
+        closeBiliModal();
         $('qr-modal').classList.remove('active');
         $('r2-modal').classList.remove('active');
       }
