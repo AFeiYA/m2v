@@ -198,214 +198,194 @@ class XiaohongshuUploader:
 
     def generate_qrcode(self) -> dict:
         """获取小红书创作者平台的最新扫码登录二维码"""
-        return self._run_threaded(self._generate_qrcode_impl)
-
-    def _generate_qrcode_impl(self) -> dict:
         from playwright.sync_api import sync_playwright
 
         with self._qr_lock:
             # 清理旧的扫码会话
             if self._qr_session:
-                try:
-                    self._qr_session["context"].close()
-                    self._qr_session["playwright"].stop()
-                except Exception:
-                    pass
+                self._qr_session["cancelled"] = True
                 self._qr_session = None
 
-            self._clean_locks()
+        self._clean_locks()
+        ready_event = threading.Event()
+        result_box = {}
+        session_id = uuid.uuid4().hex[:12]
+
+        def _worker():
             try:
-                pw = sync_playwright().start()
-                ctx = pw.chromium.launch_persistent_context(
-                    user_data_dir=str(self.profile_dir.resolve()),
-                    channel="chrome",
-                    headless=True,
-                    viewport={"width": 1280, "height": 800},
-                    user_agent=DEFAULT_USER_AGENT,
-                )
-                page = ctx.pages[0] if ctx.pages else ctx.new_page()
-                page.goto("https://creator.xiaohongshu.com/login", wait_until="domcontentloaded", timeout=15000)
-                page.wait_for_timeout(2500)
+                with sync_playwright() as pw:
+                    ctx = pw.chromium.launch_persistent_context(
+                        user_data_dir=str(self.profile_dir.resolve()),
+                        channel="chrome",
+                        headless=True,
+                        viewport={"width": 1280, "height": 800},
+                        user_agent=DEFAULT_USER_AGENT,
+                    )
+                    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                    page.goto("https://creator.xiaohongshu.com/login", wait_until="domcontentloaded", timeout=20000)
+                    page.wait_for_timeout(2500)
 
-                # 优先检查是否已直接登录 (小红书自动跳转到 /new/home 或其它非 login 页面)
-                current_url = page.url
-                cookies_list = ctx.cookies()
-                cookies_dict = {c["name"]: c["value"] for c in cookies_list}
-                is_logged_in = ("/login" not in current_url and "creator.xiaohongshu.com" in current_url) or any(
-                    k in cookies_dict
-                    for k in [
-                        "access-token-creator.xiaohongshu.com",
-                        "customer-sso-sid",
-                        "galaxy_creator_session_id",
-                    ]
-                )
+                    # 优先检查是否已直接登录
+                    current_url = page.url
+                    cookies_list = ctx.cookies()
+                    cookies_dict = {c["name"]: c["value"] for c in cookies_list}
+                    is_logged_in = ("/login" not in current_url and "creator.xiaohongshu.com" in current_url) or any(
+                        k in cookies_dict
+                        for k in [
+                            "access-token-creator.xiaohongshu.com",
+                            "customer-sso-sid",
+                            "galaxy_creator_session_id",
+                        ]
+                    )
 
-                if is_logged_in:
-                    self._save_cookies(cookies_dict)
-                    try:
+                    if is_logged_in:
+                        self._save_cookies(cookies_dict)
+                        user = self.get_account_status()
+                        uname = user.get("uname") or "小红书创作者"
+                        result_box["data"] = {
+                            "success": True,
+                            "is_logged_in": True,
+                            "uname": uname,
+                            "avatar": user.get("avatar", ""),
+                            "message": f"🎉 小红书账号 [{uname}] 已登录！",
+                        }
+                        ready_event.set()
                         ctx.close()
-                        pw.stop()
-                    except Exception:
-                        pass
-                    user = self.get_account_status()
-                    uname = user.get("uname") or "小红书创作者"
-                    return {
-                        "success": True,
-                        "is_logged_in": True,
-                        "uname": uname,
-                        "avatar": user.get("avatar", ""),
-                        "message": f"🎉 小红书账号 [{uname}] 已登录！",
+                        return
+
+                    # 提取二维码图片
+                    qr_data_url = ""
+                    for img in page.locator('img[src*="data:image"]').all():
+                        box = img.bounding_box()
+                        if box and box.get("width", 0) >= 100:
+                            src = img.get_attribute("src")
+                            if src and src.startswith("data:image"):
+                                qr_data_url = src
+                                break
+
+                    if not qr_data_url:
+                        # 尝试点击右上角角标切换
+                        page.evaluate("""() => {
+                            const imgs = Array.from(document.querySelectorAll("img"));
+                            const corner = imgs.find(img => {
+                                const rect = img.getBoundingClientRect();
+                                return rect.width > 30 && rect.width < 90;
+                            });
+                            if (corner) corner.click();
+                        }""")
+                        page.wait_for_timeout(1500)
+                        for img in page.locator('img[src*="data:image"]').all():
+                            box = img.bounding_box()
+                            if box and box.get("width", 0) >= 100:
+                                src = img.get_attribute("src")
+                                if src and src.startswith("data:image"):
+                                    qr_data_url = src
+                                    break
+
+                    if not qr_data_url:
+                        card = page.locator('.login-box, .login-container, [class*="login"]').first
+                        if card.count() > 0:
+                            qr_bytes = card.screenshot()
+                            qr_data_url = "data:image/png;base64," + base64.b64encode(qr_bytes).decode("utf-8")
+
+                    if not qr_data_url:
+                        result_box["data"] = {"success": False, "message": "未能从小红书获取到登录二维码，请点击打开浏览器登录"}
+                        ready_event.set()
+                        ctx.close()
+                        return
+
+                    session_data = {
+                        "id": session_id,
+                        "status": "waiting",
+                        "is_logged_in": False,
+                        "uname": "",
+                        "avatar": "",
+                        "message": "请使用小红书 App 扫描二维码并确认登录",
+                        "cancelled": False,
                     }
+                    with self._qr_lock:
+                        self._qr_session = session_data
 
-                # 切换到二维码登录标签
-                qr_data_url = ""
-                for img in page.locator('img[src*="data:image"]').all():
-                    box = img.bounding_box()
-                    if box and box.get("width", 0) >= 100:
-                        src = img.get_attribute("src")
-                        if src and src.startswith("data:image"):
-                            qr_data_url = src
+                    result_box["data"] = {
+                        "success": True,
+                        "session_id": session_id,
+                        "qrcode_image": qr_data_url,
+                        "message": "请使用小红书 App 扫描二维码并确认登录",
+                    }
+                    ready_event.set()
+
+                    # 在本线程内独立持续轮询，直到登录成功、失效或关闭
+                    loop_start = time.time()
+                    while time.time() - loop_start < 180:
+                        if session_data.get("cancelled"):
                             break
-
-                # 若尚未展示二维码，点击右上角 64x64 切换角标
-                if not qr_data_url:
-                    page.evaluate("""() => {
-                        const imgs = Array.from(document.querySelectorAll("img"));
-                        const corner = imgs.find(img => {
-                            const rect = img.getBoundingClientRect();
-                            return rect.width > 30 && rect.width < 90;
-                        });
-                        if (corner) corner.click();
-                    }""")
-                    page.wait_for_timeout(1500)
-
-                # 提取真实二维码图片 (宽度大于 100px 的二维码)
-                if not qr_data_url:
-                    for img in page.locator('img[src*="data:image"]').all():
-                        box = img.bounding_box()
-                        if box and box.get("width", 0) >= 100:
-                            src = img.get_attribute("src")
-                            if src and src.startswith("data:image"):
-                                qr_data_url = src
+                        page.wait_for_timeout(1500)
+                        try:
+                            cur_url = page.url
+                            cur_cookies = {c["name"]: c["value"] for c in ctx.cookies()}
+                            ok = ("/login" not in cur_url and "creator.xiaohongshu.com" in cur_url) or any(
+                                k in cur_cookies
+                                for k in [
+                                    "access-token-creator.xiaohongshu.com",
+                                    "customer-sso-sid",
+                                    "galaxy_creator_session_id",
+                                ]
+                            )
+                            if ok:
+                                self._save_cookies(cur_cookies)
+                                st = self.get_account_status()
+                                uname = st.get("uname") or "小红书创作者"
+                                with self._qr_lock:
+                                    session_data["status"] = "success"
+                                    session_data["is_logged_in"] = True
+                                    session_data["uname"] = uname
+                                    session_data["avatar"] = st.get("avatar", "")
+                                    session_data["message"] = f"🎉 小红书账号 [{uname}] 登录成功！"
                                 break
 
-                # 如果有二维码蒙层失效按钮，点击刷新
-                refresh_btn = page.locator('text="点击刷新", text="刷新二维码", text="二维码已失效", text="已失效"').first
-                if refresh_btn.count() > 0 and refresh_btn.is_visible():
-                    refresh_btn.click()
-                    page.wait_for_timeout(1500)
-                    for img in page.locator('img[src*="data:image"]').all():
-                        box = img.bounding_box()
-                        if box and box.get("width", 0) >= 100:
-                            src = img.get_attribute("src")
-                            if src and src.startswith("data:image"):
-                                qr_data_url = src
+                            refresh_btn = page.locator('text="点击刷新", text="刷新二维码", text="二维码已失效", text="已失效"').first
+                            if refresh_btn.count() > 0 and refresh_btn.is_visible():
+                                with self._qr_lock:
+                                    session_data["status"] = "expired"
+                                    session_data["message"] = "二维码已失效，请重新刷新"
                                 break
+                        except Exception as e:
+                            logger.debug(f"XHS 扫码监控异常: {e}")
 
-                if not qr_data_url:
-                    # 备选：直接截取登录区域
-                    card = page.locator('.login-box, .login-container, [class*="login"]').first
-                    if card.count() > 0:
-                        qr_bytes = card.screenshot()
-                        qr_data_url = "data:image/png;base64," + base64.b64encode(qr_bytes).decode("utf-8")
-
-                if not qr_data_url:
                     ctx.close()
-                    pw.stop()
-                    return {"success": False, "message": "未能从小红书获取到登录二维码，请点击打开浏览器登录"}
-
-                session_id = uuid.uuid4().hex[:12]
-                self._qr_session = {
-                    "id": session_id,
-                    "playwright": pw,
-                    "context": ctx,
-                    "page": page,
-                    "created_at": time.time(),
-                }
-
-                return {
-                    "success": True,
-                    "session_id": session_id,
-                    "qrcode_image": qr_data_url,
-                    "message": "请使用小红书 App 扫描二维码并确认登录",
-                }
             except Exception as e:
-                logger.error(f"获取小红书二维码异常: {e}")
-                return {"success": False, "message": f"获取二维码失败: {str(e)}"}
+                logger.error(f"XHS 扫码线程异常: {e}")
+                if not ready_event.is_set():
+                    result_box["data"] = {"success": False, "message": f"获取二维码失败: {str(e)}"}
+                    ready_event.set()
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        ready_event.wait(timeout=25)
+        return result_box.get("data", {"success": False, "message": "获取二维码超时，请重试"})
 
     def poll_qrcode(self, session_id: str) -> dict:
-        """轮询小红书扫码登录状态"""
-        return self._run_threaded(self._poll_qrcode_impl, session_id)
+        """轮询小红书扫码登录状态 (纯内存读，彻底避免跨线程 greenlet 冲突)"""
+        st = self.get_account_status()
+        if st.get("is_logged_in"):
+            return {
+                "status": "success",
+                "is_logged_in": True,
+                "uname": st.get("uname", "小红书创作者"),
+                "avatar": st.get("avatar", ""),
+                "message": f"🎉 小红书账号 [{st.get('uname')}] 登录成功！",
+            }
 
-    def _poll_qrcode_impl(self, session_id: str) -> dict:
         with self._qr_lock:
-            # 先检查是否已经登录（例如其它方式完成鉴权）
-            st = self.get_account_status()
-            if st.get("is_logged_in"):
-                return {
-                    "status": "success",
-                    "is_logged_in": True,
-                    "uname": st.get("uname", "小红书创作者"),
-                    "avatar": st.get("avatar", ""),
-                    "message": f"🎉 小红书账号 [{st.get('uname')}] 登录成功！",
-                }
-
             if not self._qr_session or self._qr_session.get("id") != session_id:
                 return {"status": "expired", "message": "扫码会话已过期，请重新获取二维码"}
-
-            ctx = self._qr_session["context"]
-            page = self._qr_session["page"]
-            pw = self._qr_session["playwright"]
-
-            try:
-                current_url = page.url
-                cookies_list = ctx.cookies()
-                cookies_dict = {c["name"]: c["value"] for c in cookies_list}
-
-                # 检查是否跳转离开登录页或获得 access-token
-                is_logged_in = ("/login" not in current_url and "creator.xiaohongshu.com" in current_url) or any(
-                    k in cookies_dict
-                    for k in [
-                        "access-token-creator.xiaohongshu.com",
-                        "customer-sso-sid",
-                        "galaxy_creator_session_id",
-                    ]
-                )
-
-                if is_logged_in:
-                    # 登录成功，同步 cookies
-                    self._save_cookies(cookies_dict)
-                    time.sleep(1)
-
-                    # 获取用户信息
-                    status = self.get_account_status()
-                    uname = status.get("uname") or "小红书创作者"
-
-                    # 优雅关闭扫码浏览器实例
-                    try:
-                        ctx.close()
-                        pw.stop()
-                    except Exception:
-                        pass
-                    self._qr_session = None
-
-                    return {
-                        "status": "success",
-                        "is_logged_in": True,
-                        "uname": uname,
-                        "avatar": status.get("avatar", ""),
-                        "message": f"🎉 小红书账号 [{uname}] 登录成功！",
-                    }
-
-                # 检查二维码是否过期
-                refresh_btn = page.locator('text="点击刷新", text="刷新二维码", text="二维码已失效", text="已失效"').first
-                if refresh_btn.count() > 0 and refresh_btn.is_visible():
-                    return {"status": "expired", "message": "二维码已失效，请重新刷新"}
-
-                return {"status": "waiting", "message": "等待用户在小红书手机客户端扫码确认..."}
-            except Exception as e:
-                logger.warning(f"轮询小红书状态异常: {e}")
-                return {"status": "waiting", "message": "正在确认登录状态..."}
+            return {
+                "status": self._qr_session.get("status", "waiting"),
+                "is_logged_in": self._qr_session.get("is_logged_in", False),
+                "uname": self._qr_session.get("uname", ""),
+                "avatar": self._qr_session.get("avatar", ""),
+                "message": self._qr_session.get("message", "等待用户扫码确认..."),
+            }
 
     def launch_browser_login(self) -> dict:
         """打开前台浏览器窗口，方便创作者通过手机号验证码或已有凭据直接登录"""
@@ -547,14 +527,32 @@ class XiaohongshuUploader:
                     user_data_dir=str(self.profile_dir.resolve()),
                     channel="chrome",
                     headless=True,
-                    viewport={"width": 1280, "height": 850},
+                    viewport={"width": 1280, "height": 900},
                     user_agent=DEFAULT_USER_AGENT,
                 )
+                # 注入 Hook: 强制所有 Shadow Root 以 open 模式创建，使 Playwright 能够穿透定位内部元素
+                ctx.add_init_script("""(() => {
+                    const orig = Element.prototype.attachShadow;
+                    Element.prototype.attachShadow = function(init) {
+                        return orig.call(this, { ...init, mode: 'open' });
+                    };
+                })();""")
+
+                # 如果本地有缓存 cookies，一并补全到上下文
+                if self.cookies:
+                    try:
+                        ctx.add_cookies([
+                            {"name": k, "value": v, "domain": ".xiaohongshu.com", "path": "/"}
+                            for k, v in self.cookies.items()
+                        ])
+                    except Exception:
+                        pass
+
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
 
                 # 打开创作者发布页面
                 _notify(0.25, "正在打开创作者发布中心...")
-                page.goto("https://creator.xiaohongshu.com/publish/publish?source=official", wait_until="domcontentloaded", timeout=20000)
+                page.goto("https://creator.xiaohongshu.com/publish/publish?source=official", wait_until="domcontentloaded", timeout=25000)
                 page.wait_for_timeout(3000)
 
                 # 检查是否重定向到登录页
@@ -566,7 +564,7 @@ class XiaohongshuUploader:
                 if video_tab.count() > 0:
                     try:
                         video_tab.click()
-                        page.wait_for_timeout(1500)
+                        page.wait_for_timeout(1000)
                     except Exception:
                         pass
 
@@ -579,47 +577,36 @@ class XiaohongshuUploader:
                 file_input.set_input_files(local_video_path)
                 page.wait_for_timeout(3000)
 
-                # 等待视频上传和初步解析完成
-                _notify(0.50, "视频正在后台上传与转码中，请稍候...")
-                upload_start = time.time()
-                upload_finished = False
-                while time.time() - upload_start < 120:
-                    # 检查标题输入框是否出现（视频上传就绪后小红书会展开完整填写表单）
-                    title_input = page.locator('input[placeholder*="填写标题"], input[placeholder*="标题"], .title-input input').first
-                    if title_input.count() > 0 and title_input.is_visible():
-                        upload_finished = True
-                        break
-                    page.wait_for_timeout(2000)
-
-                if not upload_finished:
-                    logger.warning("未检测到标题栏自动展开，继续尝试填写")
-
-                _notify(0.70, "正在填写笔记标题与正文歌词...")
-
-                # 填写标题 (最多20字)
+                # 等待表单展开 (以标题输入框为基准)
+                _notify(0.45, "等待视频表单就绪...")
                 title_input = page.locator('input[placeholder*="填写标题"], input[placeholder*="标题"], .title-input input').first
-                if title_input.count() > 0:
+                try:
+                    title_input.wait_for(state="visible", timeout=30000)
+                except Exception:
+                    logger.warning("未检测到标题输入框自动展开，继续检查发布按钮")
+
+                _notify(0.60, "正在填写笔记标题与正文歌词...")
+                # 填写标题 (最多20字)
+                if title_input.count() > 0 and title_input.is_visible():
                     title_input.click()
                     title_input.fill("")
                     title_input.fill(display_title)
                     page.wait_for_timeout(500)
 
                 # 填写正文内容与话题
-                desc_input = page.locator('textarea[placeholder*="填写更全面"], textarea[placeholder*="描述"], .post-content, div[contenteditable="true"]').first
-                if desc_input.count() > 0:
+                desc_input = page.locator('.tiptap.ProseMirror, textarea[placeholder*="填写更全面"], textarea[placeholder*="描述"], div[contenteditable="true"]').first
+                if desc_input.count() > 0 and desc_input.is_visible():
                     desc_input.click()
                     if desc_input.evaluate('e => e.tagName') == 'TEXTAREA':
                         desc_input.fill(final_desc)
                     else:
-                        # contenteditable div
-                        desc_input.fill("")
-                        page.keyboard.type(final_desc, delay=20)
-                    page.wait_for_timeout(1000)
+                        page.keyboard.type(final_desc, delay=15)
+                    page.wait_for_timeout(800)
 
                 # 设置封面 (如果有自定义封面)
                 if cover_source and Path(cover_source).exists():
                     try:
-                        _notify(0.85, "正在设置视频高清封面...")
+                        _notify(0.75, "正在设置视频高清封面...")
                         cover_upload_input = page.locator('input[type="file"][accept*="image"]').first
                         if cover_upload_input.count() > 0:
                             cover_upload_input.set_input_files(cover_source)
@@ -627,41 +614,85 @@ class XiaohongshuUploader:
                     except Exception as e:
                         logger.warning(f"设置小红书封面失败，继续发布: {e}")
 
+                # 等待视频文件上传及平台转码完成（以发布按钮启用状态为准）
+                _notify(0.85, "等待视频在小红书后台转码与就绪...")
+                upload_wait_start = time.time()
+                is_ready_to_publish = False
+                while time.time() - upload_wait_start < 120:
+                    pub_btn = page.locator('xhs-publish-btn button.bg-red, xhs-publish-btn button:has-text("发布"), button:has-text("发布")').first
+                    if pub_btn.count() > 0 and pub_btn.is_visible():
+                        aria_disabled = pub_btn.get_attribute("aria-disabled")
+                        if aria_disabled != "true" and not pub_btn.is_disabled():
+                            is_ready_to_publish = True
+                            break
+                    page.wait_for_timeout(2000)
+
                 _notify(0.92, "正在提交发布视频笔记...")
                 # 点击发布按钮
-                publish_btn = page.locator('button:has-text("发布"), .publishBtn, .btn-publish, button.bg-red').first
-                if publish_btn.count() == 0:
-                    raise RuntimeError("未找到小红书【发布】按钮")
+                pub_btn = page.locator('xhs-publish-btn button.bg-red, xhs-publish-btn button:has-text("发布"), button:has-text("发布")').first
+                if pub_btn.count() > 0 and pub_btn.is_visible():
+                    pub_btn.scroll_into_view_if_needed()
+                    pub_btn.click()
+                else:
+                    # 备选：坐标点击 xhs-publish-btn 右半侧红色区域
+                    xhs_custom_btn = page.locator('xhs-publish-btn').first
+                    if xhs_custom_btn.count() > 0:
+                        box = xhs_custom_btn.bounding_box()
+                        if box:
+                            page.mouse.click(box["x"] + box["width"] * 0.60, box["y"] + box["height"] * 0.5)
+                        else:
+                            raise RuntimeError("未找到小红书【发布】按钮")
+                    else:
+                        raise RuntimeError("未找到小红书【发布】按钮")
 
-                publish_btn.click()
                 page.wait_for_timeout(3000)
 
-                # 验证发布结果
-                _notify(0.98, "正在确认发布结果...")
+                # 严格验证发布结果 (严禁假成功)
+                _notify(0.96, "正在确认发布结果...")
                 publish_ok = False
                 wait_submit_start = time.time()
-                while time.time() - wait_submit_start < 25:
+                while time.time() - wait_submit_start < 30:
                     if "/publish" not in page.url or page.locator('text="发布成功", text="管理笔记"').count() > 0:
                         publish_ok = True
                         break
                     # 检查是否有错误提示
                     error_toast = page.locator('.d-toast-error, .ant-message-error, [class*="error-message"]').first
                     if error_toast.count() > 0 and error_toast.is_visible():
-                        err_text = error_toast.inner_text()
+                        err_text = error_toast.inner_text().strip()
                         if err_text:
                             raise RuntimeError(f"小红书平台提示: {err_text}")
                     page.wait_for_timeout(1500)
 
-                # 保存成功后的 cookies
+                if not publish_ok:
+                    raise RuntimeError("小红书发布未能在规定时间内确认成功（仍停留在发布表单），请检查是否有必填项未满足")
+
+                # 发布后真实双重检查 (Double Check 笔记管理列表)
+                _notify(0.99, "正在查询笔记管理中心真实审核状态...")
+                note_status = "审核中"
+                try:
+                    page.goto("https://creator.xiaohongshu.com/new/note-manager", wait_until="domcontentloaded", timeout=15000)
+                    page.wait_for_timeout(2500)
+                    first_note = page.locator('.note-item, tr.ant-table-row, [class*="note-card"]').first
+                    if first_note.count() > 0:
+                        note_text = first_note.inner_text()
+                        if "已发布" in note_text:
+                            note_status = "已发布"
+                        elif "审核中" in note_text or "处理中" in note_text:
+                            note_status = "审核中"
+                except Exception as e:
+                    logger.debug(f"二次获取小红书列表状态跳过: {e}")
+
+                # 保存更新后的 cookies
                 cookies = {c["name"]: c["value"] for c in ctx.cookies()}
                 self._save_cookies(cookies)
 
-                _notify(1.0, f"🎉 小红书视频笔记发布成功！标题: {display_title}")
+                _notify(1.0, f"🎉 小红书视频笔记发布成功！当前状态: {note_status}，标题: {display_title}")
                 return {
                     "success": True,
                     "platform": "xiaohongshu",
                     "title": display_title,
-                    "message": "视频笔记已成功提交至小红书！",
+                    "status": note_status,
+                    "message": f"视频笔记已成功提交至小红书！当前状态为【{note_status}】",
                 }
         finally:
             if temp_video_file and temp_video_file.exists():

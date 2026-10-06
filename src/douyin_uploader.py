@@ -163,151 +163,163 @@ class DouyinUploader:
 
     def generate_qrcode(self) -> dict:
         """获取抖音创作者中心扫码登录二维码"""
-        return self._run_threaded(self._generate_qrcode_impl)
-
-    def _generate_qrcode_impl(self) -> dict:
         from playwright.sync_api import sync_playwright
 
         with self._qr_lock:
             if self._qr_session:
-                try:
-                    self._qr_session["context"].close()
-                    self._qr_session["playwright"].stop()
-                except Exception:
-                    pass
+                self._qr_session["cancelled"] = True
                 self._qr_session = None
 
-            self._clean_locks()
+        self._clean_locks()
+        ready_event = threading.Event()
+        result_box = {}
+        session_id = uuid.uuid4().hex[:12]
+
+        def _worker():
             try:
-                pw = sync_playwright().start()
-                ctx = pw.chromium.launch_persistent_context(
-                    user_data_dir=str(self.profile_dir.resolve()),
-                    channel="chrome",
-                    headless=True,
-                    viewport={"width": 1280, "height": 800},
-                    user_agent=DEFAULT_USER_AGENT,
-                )
-                page = ctx.pages[0] if ctx.pages else ctx.new_page()
-                page.goto("https://creator.douyin.com/", wait_until="domcontentloaded", timeout=15000)
-                page.wait_for_timeout(3000)
+                with sync_playwright() as pw:
+                    ctx = pw.chromium.launch_persistent_context(
+                        user_data_dir=str(self.profile_dir.resolve()),
+                        channel="chrome",
+                        headless=True,
+                        viewport={"width": 1280, "height": 800},
+                        user_agent=DEFAULT_USER_AGENT,
+                    )
+                    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                    page.goto("https://creator.douyin.com/", wait_until="domcontentloaded", timeout=20000)
+                    page.wait_for_timeout(3000)
 
-                current_url = page.url
-                cookies_list = ctx.cookies()
-                cookies_dict = {c["name"]: c["value"] for c in cookies_list}
-                if "sessionid" in cookies_dict or ("creator-micro" in current_url and page.locator('.header-avatar, .creator-avatar').count() > 0):
-                    self._save_cookies(cookies_dict, {"is_logged_in": True, "uname": "抖音创作者"})
-                    try:
+                    current_url = page.url
+                    cookies_list = ctx.cookies()
+                    cookies_dict = {c["name"]: c["value"] for c in cookies_list}
+                    if "sessionid" in cookies_dict or ("creator-micro" in current_url and page.locator('.header-avatar, .creator-avatar').count() > 0):
+                        self._save_cookies(cookies_dict, {"is_logged_in": True, "uname": "抖音创作者"})
+                        result_box["data"] = {
+                            "success": True,
+                            "is_logged_in": True,
+                            "uname": "抖音创作者",
+                            "message": "🎉 抖音创作者平台已登录！",
+                        }
+                        ready_event.set()
                         ctx.close()
-                        pw.stop()
-                    except Exception:
-                        pass
-                    return {
-                        "success": True,
-                        "is_logged_in": True,
-                        "uname": "抖音创作者",
-                        "message": "🎉 抖音创作者平台已登录！",
+                        return
+
+                    # 查找扫码区域
+                    qr_wrap = page.locator('.login-panel-qrcode, [class*="qrcode-box"], [class*="qrcode"]').first
+                    if qr_wrap.count() == 0:
+                        qr_wrap = page.locator('canvas, img[src*="qrcode"]').first
+
+                    if qr_wrap.count() == 0:
+                        qr_wrap = page.locator('[class*="login"]').first
+
+                    if qr_wrap.count() == 0:
+                        result_box["data"] = {"success": False, "message": "未能加载抖音登录二维码"}
+                        ready_event.set()
+                        ctx.close()
+                        return
+
+                    qr_bytes = qr_wrap.screenshot()
+                    qr_data_url = "data:image/png;base64," + base64.b64encode(qr_bytes).decode("utf-8")
+
+                    session_data = {
+                        "id": session_id,
+                        "status": "waiting",
+                        "is_logged_in": False,
+                        "uname": "",
+                        "avatar": "",
+                        "message": "请使用抖音 App 扫描屏幕二维码并确认登录",
+                        "cancelled": False,
                     }
+                    with self._qr_lock:
+                        self._qr_session = session_data
 
-                # 查找扫码区域
-                qr_wrap = page.locator('.login-panel-qrcode, [class*="qrcode-box"], [class*="qrcode"]').first
-                if qr_wrap.count() == 0:
-                    qr_wrap = page.locator('canvas, img[src*="qrcode"]').first
+                    result_box["data"] = {
+                        "success": True,
+                        "session_id": session_id,
+                        "qrcode_image": qr_data_url,
+                        "message": "请使用抖音 App 扫描屏幕二维码并确认登录",
+                    }
+                    ready_event.set()
 
-                if qr_wrap.count() == 0:
-                    # 备选：截取右侧登录卡片
-                    qr_wrap = page.locator('[class*="login"]').first
+                    # 在本线程内独立持续轮询，直到登录成功、失效或关闭
+                    loop_start = time.time()
+                    while time.time() - loop_start < 180:
+                        if session_data.get("cancelled"):
+                            break
+                        page.wait_for_timeout(1500)
+                        try:
+                            cur_url = page.url
+                            cur_cookies = {c["name"]: c["value"] for c in ctx.cookies()}
+                            is_logged_in = "sessionid" in cur_cookies or (
+                                "creator-micro" in cur_url and page.locator('.header-avatar, .creator-avatar').count() > 0
+                            )
+                            if is_logged_in:
+                                uname = "抖音创作者"
+                                try:
+                                    name_el = page.locator('.name-text, [class*="nickname"], [class*="user-name"]').first
+                                    if name_el.count() > 0:
+                                        uname = name_el.inner_text().strip() or uname
+                                except Exception:
+                                    pass
 
-                if qr_wrap.count() == 0:
+                                user_data = {
+                                    "is_logged_in": True,
+                                    "is_login": True,
+                                    "uname": uname,
+                                    "avatar": "",
+                                    "message": f"🎉 抖音账号 [{uname}] 登录成功！",
+                                }
+                                self._save_cookies(cur_cookies, user_data)
+                                with self._qr_lock:
+                                    session_data["status"] = "success"
+                                    session_data["is_logged_in"] = True
+                                    session_data["uname"] = uname
+                                    session_data["message"] = f"🎉 抖音账号 [{uname}] 登录成功！"
+                                break
+
+                            refresh_btn = page.locator('text="点击刷新", .refresh-btn').first
+                            if refresh_btn.count() > 0 and refresh_btn.is_visible():
+                                with self._qr_lock:
+                                    session_data["status"] = "expired"
+                                    session_data["message"] = "二维码已失效，请重新刷新"
+                                break
+                        except Exception as e:
+                            logger.debug(f"抖音扫码监控异常: {e}")
+
                     ctx.close()
-                    pw.stop()
-                    return {"success": False, "message": "未能加载抖音登录二维码"}
-
-                qr_bytes = qr_wrap.screenshot()
-                qr_data_url = "data:image/png;base64," + base64.b64encode(qr_bytes).decode("utf-8")
-
-                session_id = uuid.uuid4().hex[:12]
-                self._qr_session = {
-                    "id": session_id,
-                    "playwright": pw,
-                    "context": ctx,
-                    "page": page,
-                    "created_at": time.time(),
-                }
-
-                return {
-                    "success": True,
-                    "session_id": session_id,
-                    "qrcode_image": qr_data_url,
-                    "message": "请使用抖音 App 扫描屏幕二维码并确认登录",
-                }
             except Exception as e:
-                logger.error(f"获取抖音二维码异常: {e}")
-                return {"success": False, "message": f"获取二维码失败: {str(e)}"}
+                logger.error(f"抖音扫码线程异常: {e}")
+                if not ready_event.is_set():
+                    result_box["data"] = {"success": False, "message": f"获取二维码失败: {str(e)}"}
+                    ready_event.set()
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        ready_event.wait(timeout=25)
+        return result_box.get("data", {"success": False, "message": "获取二维码超时，请重试"})
 
     def poll_qrcode(self, session_id: str) -> dict:
-        """轮询抖音扫码状态"""
-        return self._run_threaded(self._poll_qrcode_impl, session_id)
+        """轮询抖音扫码状态 (纯内存读，彻底避免跨线程 greenlet 冲突)"""
+        st = self.get_account_status()
+        if st.get("is_logged_in"):
+            return {
+                "status": "success",
+                "is_logged_in": True,
+                "uname": st.get("uname", "抖音创作者"),
+                "avatar": "",
+                "message": f"🎉 抖音账号 [{st.get('uname')}] 登录成功！",
+            }
 
-    def _poll_qrcode_impl(self, session_id: str) -> dict:
         with self._qr_lock:
             if not self._qr_session or self._qr_session.get("id") != session_id:
                 return {"status": "expired", "message": "扫码会话已过期，请重新获取二维码"}
-
-            ctx = self._qr_session["context"]
-            page = self._qr_session["page"]
-            pw = self._qr_session["playwright"]
-
-            try:
-                current_url = page.url
-                # 检查是否成功登录并进入创作者后台
-                is_logged_in = "creator-micro" in current_url or page.locator('.header-avatar, .creator-avatar').count() > 0
-
-                cookies = {c["name"]: c["value"] for c in ctx.cookies()}
-                if "sessionid" in cookies:
-                    is_logged_in = True
-
-                if is_logged_in:
-                    page.wait_for_timeout(2000)
-                    uname = "抖音创作者"
-                    try:
-                        name_el = page.locator('.name-text, [class*="nickname"], [class*="user-name"]').first
-                        if name_el.count() > 0:
-                            uname = name_el.inner_text().strip() or uname
-                    except Exception:
-                        pass
-
-                    user_data = {
-                        "is_logged_in": True,
-                        "is_login": True,
-                        "uname": uname,
-                        "avatar": "",
-                        "message": f"🎉 抖音账号 [{uname}] 登录成功！",
-                    }
-                    self._save_cookies(cookies, user_data)
-
-                    try:
-                        ctx.close()
-                        pw.stop()
-                    except Exception:
-                        pass
-                    self._qr_session = None
-
-                    return {
-                        "status": "success",
-                        "is_logged_in": True,
-                        "uname": uname,
-                        "message": f"🎉 抖音账号 [{uname}] 登录成功！",
-                    }
-
-                # 检查二维码是否刷新或失效
-                refresh_btn = page.locator('text="点击刷新", .refresh-btn').first
-                if refresh_btn.count() > 0 and refresh_btn.is_visible():
-                    return {"status": "expired", "message": "二维码已失效，请重新刷新"}
-
-                return {"status": "waiting", "message": "等待抖音 App 扫描确认登录..."}
-            except Exception as e:
-                logger.warning(f"轮询抖音状态异常: {e}")
-                return {"status": "waiting", "message": "正在确认登录状态..."}
+            return {
+                "status": self._qr_session.get("status", "waiting"),
+                "is_logged_in": self._qr_session.get("is_logged_in", False),
+                "uname": self._qr_session.get("uname", ""),
+                "avatar": self._qr_session.get("avatar", ""),
+                "message": self._qr_session.get("message", "等待用户扫码确认..."),
+            }
 
     def launch_browser_login(self) -> dict:
         """打开 Chrome 窗口供创作者登录抖音"""

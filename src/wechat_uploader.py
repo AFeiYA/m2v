@@ -162,144 +162,158 @@ class WeChatChannelsUploader:
 
     def generate_qrcode(self) -> dict:
         """获取微信视频号助手扫码登录二维码"""
-        return self._run_threaded(self._generate_qrcode_impl)
-
-    def _generate_qrcode_impl(self) -> dict:
         from playwright.sync_api import sync_playwright
 
         with self._qr_lock:
             if self._qr_session:
-                try:
-                    self._qr_session["context"].close()
-                    self._qr_session["playwright"].stop()
-                except Exception:
-                    pass
+                self._qr_session["cancelled"] = True
                 self._qr_session = None
 
-            self._clean_locks()
+        self._clean_locks()
+        ready_event = threading.Event()
+        result_box = {}
+        session_id = uuid.uuid4().hex[:12]
+
+        def _worker():
             try:
-                pw = sync_playwright().start()
-                ctx = pw.chromium.launch_persistent_context(
-                    user_data_dir=str(self.profile_dir.resolve()),
-                    channel="chrome",
-                    headless=True,
-                    viewport={"width": 1280, "height": 800},
-                    user_agent=DEFAULT_USER_AGENT,
-                )
-                page = ctx.pages[0] if ctx.pages else ctx.new_page()
-                page.goto("https://channels.weixin.qq.com/login.html", wait_until="domcontentloaded", timeout=15000)
-                page.wait_for_timeout(3000)
+                with sync_playwright() as pw:
+                    ctx = pw.chromium.launch_persistent_context(
+                        user_data_dir=str(self.profile_dir.resolve()),
+                        channel="chrome",
+                        headless=True,
+                        viewport={"width": 1280, "height": 800},
+                        user_agent=DEFAULT_USER_AGENT,
+                    )
+                    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                    page.goto("https://channels.weixin.qq.com/login.html", wait_until="domcontentloaded", timeout=20000)
+                    page.wait_for_timeout(3000)
 
-                current_url = page.url
-                if "login.html" not in current_url and "channels.weixin.qq.com" in current_url:
-                    cookies_list = ctx.cookies()
-                    cookies_dict = {c["name"]: c["value"] for c in cookies_list}
-                    self._save_cookies(cookies_dict, {"is_logged_in": True, "uname": "微信视频号创作者"})
-                    try:
+                    current_url = page.url
+                    if "login.html" not in current_url and "channels.weixin.qq.com" in current_url:
+                        cookies_list = ctx.cookies()
+                        cookies_dict = {c["name"]: c["value"] for c in cookies_list}
+                        self._save_cookies(cookies_dict, {"is_logged_in": True, "uname": "微信视频号创作者"})
+                        result_box["data"] = {
+                            "success": True,
+                            "is_logged_in": True,
+                            "uname": "微信视频号创作者",
+                            "message": "🎉 微信视频号助手已登录！",
+                        }
+                        ready_event.set()
                         ctx.close()
-                        pw.stop()
-                    except Exception:
-                        pass
-                    return {
-                        "success": True,
-                        "is_logged_in": True,
-                        "uname": "微信视频号创作者",
-                        "message": "🎉 微信视频号助手已登录！",
+                        return
+
+                    # 截取二维码区域
+                    qr_wrap = page.locator('.login-qrcode-wrap, .qrcode-wrap, .qrcode-area').first
+                    if qr_wrap.count() == 0:
+                        qr_wrap = page.locator('canvas, img[src*="qrcode"]').first
+
+                    if qr_wrap.count() == 0:
+                        result_box["data"] = {"success": False, "message": "未能加载视频号登录二维码"}
+                        ready_event.set()
+                        ctx.close()
+                        return
+
+                    qr_bytes = qr_wrap.screenshot()
+                    qr_data_url = "data:image/png;base64," + base64.b64encode(qr_bytes).decode("utf-8")
+
+                    session_data = {
+                        "id": session_id,
+                        "status": "waiting",
+                        "is_logged_in": False,
+                        "uname": "",
+                        "avatar": "",
+                        "message": "请使用微信扫描屏幕二维码并确认登录视频号助手",
+                        "cancelled": False,
                     }
+                    with self._qr_lock:
+                        self._qr_session = session_data
 
-                # 截取二维码区域
-                qr_wrap = page.locator('.login-qrcode-wrap, .qrcode-wrap, .qrcode-area').first
-                if qr_wrap.count() == 0:
-                    qr_wrap = page.locator('canvas, img[src*="qrcode"]').first
+                    result_box["data"] = {
+                        "success": True,
+                        "session_id": session_id,
+                        "qrcode_image": qr_data_url,
+                        "message": "请使用微信扫描屏幕二维码并确认登录视频号助手",
+                    }
+                    ready_event.set()
 
-                if qr_wrap.count() == 0:
+                    # 在本线程内独立持续轮询，直到登录成功、失效或关闭
+                    loop_start = time.time()
+                    while time.time() - loop_start < 180:
+                        if session_data.get("cancelled"):
+                            break
+                        page.wait_for_timeout(1500)
+                        try:
+                            cur_url = page.url
+                            if "login.html" not in cur_url and "channels.weixin.qq.com" in cur_url:
+                                page.wait_for_timeout(2000)
+                                uname = "微信视频号创作者"
+                                try:
+                                    name_el = page.locator('.finder-nickname, .user-name, [class*="nickname"]').first
+                                    if name_el.count() > 0:
+                                        uname = name_el.inner_text().strip() or uname
+                                except Exception:
+                                    pass
+
+                                cookies = {c["name"]: c["value"] for c in ctx.cookies()}
+                                user_data = {
+                                    "is_logged_in": True,
+                                    "is_login": True,
+                                    "uname": uname,
+                                    "avatar": "",
+                                    "message": f"🎉 微信视频号 [{uname}] 登录成功！",
+                                }
+                                self._save_cookies(cookies, user_data)
+                                with self._qr_lock:
+                                    session_data["status"] = "success"
+                                    session_data["is_logged_in"] = True
+                                    session_data["uname"] = uname
+                                    session_data["message"] = f"🎉 微信视频号 [{uname}] 登录成功！"
+                                break
+
+                            refresh_btn = page.locator('text="点击刷新", .refresh-btn').first
+                            if refresh_btn.count() > 0 and refresh_btn.is_visible():
+                                with self._qr_lock:
+                                    session_data["status"] = "expired"
+                                    session_data["message"] = "二维码已失效，请重新刷新"
+                                break
+                        except Exception as e:
+                            logger.debug(f"微信扫码监控异常: {e}")
+
                     ctx.close()
-                    pw.stop()
-                    return {"success": False, "message": "未能加载视频号登录二维码"}
-
-                qr_bytes = qr_wrap.screenshot()
-                qr_data_url = "data:image/png;base64," + base64.b64encode(qr_bytes).decode("utf-8")
-
-                session_id = uuid.uuid4().hex[:12]
-                self._qr_session = {
-                    "id": session_id,
-                    "playwright": pw,
-                    "context": ctx,
-                    "page": page,
-                    "created_at": time.time(),
-                }
-
-                return {
-                    "success": True,
-                    "session_id": session_id,
-                    "qrcode_image": qr_data_url,
-                    "message": "请使用微信扫描屏幕二维码并确认登录视频号助手",
-                }
             except Exception as e:
-                logger.error(f"获取微信视频号二维码异常: {e}")
-                return {"success": False, "message": f"获取二维码失败: {str(e)}"}
+                logger.error(f"微信扫码线程异常: {e}")
+                if not ready_event.is_set():
+                    result_box["data"] = {"success": False, "message": f"获取二维码失败: {str(e)}"}
+                    ready_event.set()
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        ready_event.wait(timeout=25)
+        return result_box.get("data", {"success": False, "message": "获取二维码超时，请重试"})
 
     def poll_qrcode(self, session_id: str) -> dict:
-        """轮询微信视频号扫码状态"""
-        return self._run_threaded(self._poll_qrcode_impl, session_id)
+        """轮询微信视频号扫码状态 (纯内存读，彻底避免跨线程 greenlet 冲突)"""
+        st = self.get_account_status()
+        if st.get("is_logged_in"):
+            return {
+                "status": "success",
+                "is_logged_in": True,
+                "uname": st.get("uname", "微信视频号创作者"),
+                "avatar": "",
+                "message": f"🎉 微信视频号 [{st.get('uname')}] 登录成功！",
+            }
 
-    def _poll_qrcode_impl(self, session_id: str) -> dict:
         with self._qr_lock:
             if not self._qr_session or self._qr_session.get("id") != session_id:
                 return {"status": "expired", "message": "扫码会话已过期，请重新获取二维码"}
-
-            ctx = self._qr_session["context"]
-            page = self._qr_session["page"]
-            pw = self._qr_session["playwright"]
-
-            try:
-                current_url = page.url
-                # 登录成功后会跳转离开 login.html
-                if "login.html" not in current_url and "channels.weixin.qq.com" in current_url:
-                    page.wait_for_timeout(2000)
-
-                    # 尝试读取创作者昵称
-                    uname = "微信视频号创作者"
-                    try:
-                        name_el = page.locator('.finder-nickname, .user-name, [class*="nickname"]').first
-                        if name_el.count() > 0:
-                            uname = name_el.inner_text().strip() or uname
-                    except Exception:
-                        pass
-
-                    cookies = {c["name"]: c["value"] for c in ctx.cookies()}
-                    user_data = {
-                        "is_logged_in": True,
-                        "is_login": True,
-                        "uname": uname,
-                        "avatar": "",
-                        "message": f"🎉 微信视频号 [{uname}] 登录成功！",
-                    }
-                    self._save_cookies(cookies, user_data)
-
-                    try:
-                        ctx.close()
-                        pw.stop()
-                    except Exception:
-                        pass
-                    self._qr_session = None
-
-                    return {
-                        "status": "success",
-                        "is_logged_in": True,
-                        "uname": uname,
-                        "message": f"🎉 微信视频号 [{uname}] 登录成功！",
-                    }
-
-                # 检查二维码是否刷新或失效
-                refresh_btn = page.locator('text="点击刷新", .refresh-btn').first
-                if refresh_btn.count() > 0 and refresh_btn.is_visible():
-                    return {"status": "expired", "message": "二维码已失效，请重新刷新"}
-
-                return {"status": "waiting", "message": "等待微信扫描确认登录..."}
-            except Exception as e:
-                logger.warning(f"轮询微信视频号状态异常: {e}")
-                return {"status": "waiting", "message": "正在确认登录状态..."}
+            return {
+                "status": self._qr_session.get("status", "waiting"),
+                "is_logged_in": self._qr_session.get("is_logged_in", False),
+                "uname": self._qr_session.get("uname", ""),
+                "avatar": self._qr_session.get("avatar", ""),
+                "message": self._qr_session.get("message", "等待微信扫码确认..."),
+            }
 
     def launch_browser_login(self) -> dict:
         """打开 Chrome 窗口供创作者扫码登录"""
@@ -420,13 +434,22 @@ class WeChatChannelsUploader:
                     viewport={"width": 1280, "height": 850},
                     user_agent=DEFAULT_USER_AGENT,
                 )
+                if self.cookies:
+                    try:
+                        ctx.add_cookies([
+                            {"name": k, "value": v, "domain": ".weixin.qq.com", "path": "/"}
+                            for k, v in self.cookies.items()
+                        ])
+                    except Exception:
+                        pass
+
                 page = ctx.pages[0] if ctx.pages else ctx.new_page()
 
                 _notify(0.25, "正在打开视频号发表页面...")
                 page.goto("https://channels.weixin.qq.com/platform/post/create", wait_until="domcontentloaded", timeout=25000)
-                page.wait_for_timeout(2000)
+                page.wait_for_timeout(3000)
 
-                if "login.html" in page.url:
+                if "login.html" in page.url or page.locator('.login-panel, .qrcode-wrap, text="登录视频号助手"').count() > 0:
                     raise RuntimeError("微信视频号未登录或登录已失效，请先扫码登录")
 
                 # 如果有弹出的指引或协议弹窗，自动点击“我知道了”
@@ -458,14 +481,18 @@ class WeChatChannelsUploader:
                 upload_start = time.time()
                 while time.time() - upload_start < 180:
                     cancel_btn = page.locator('text="取消上传"').first
-                    proc_tip = page.locator('text="正在处理文件"').first
+                    proc_tip = page.locator('text="正在处理文件", text="上传中"').first
                     is_uploading = (cancel_btn.count() > 0 and cancel_btn.is_visible()) or (
                         proc_tip.count() > 0 and proc_tip.is_visible()
                     )
-                    del_btn = page.locator('text="删除"').first
-                    if (del_btn.count() > 0 and del_btn.is_visible()) or not is_uploading:
-                        if time.time() - upload_start > 3:
-                            break
+                    pub_btn = page.locator('button:has-text("发表"), .weui-desktop-btn_primary:has-text("发表")').first
+                    is_btn_ready = False
+                    if pub_btn.count() > 0:
+                        btn_cls = pub_btn.get_attribute("class") or ""
+                        is_btn_ready = "disabled" not in btn_cls and not pub_btn.is_disabled()
+
+                    if is_btn_ready and not is_uploading and time.time() - upload_start > 5:
+                        break
                     page.wait_for_timeout(2000)
 
                 _notify(0.75, "正在填写动态文案与短标题...")
@@ -521,11 +548,11 @@ class WeChatChannelsUploader:
                 publish_btn.click()
                 page.wait_for_timeout(3000)
 
-                # 确认发布结果
-                _notify(0.98, "正在确认发布结果...")
+                # 严密确认发布结果 (严禁假成功)
+                _notify(0.96, "正在确认发布结果...")
                 publish_ok = False
                 confirm_start = time.time()
-                while time.time() - confirm_start < 25:
+                while time.time() - confirm_start < 30:
                     cur = page.url
                     if "create" not in cur or "/post/list" in cur:
                         publish_ok = True
@@ -535,17 +562,42 @@ class WeChatChannelsUploader:
                         break
                     err_box = page.locator('.weui-desktop-form__extra-error, .weui-desktop-tooltip_error, [class*="error-message"]').first
                     if err_box.count() > 0 and err_box.is_visible():
-                        err_msg = err_box.inner_text()
+                        err_msg = err_box.inner_text().strip()
                         if err_msg:
                             raise RuntimeError(f"视频号平台提示: {err_msg}")
                     page.wait_for_timeout(1500)
 
-                _notify(1.0, f"🎉 微信视频号发布成功！标题: {clean_title}")
+                if not publish_ok:
+                    err_box = page.locator('.weui-desktop-form__extra-error, .weui-desktop-tooltip_error, [class*="error-message"]').first
+                    if err_box.count() > 0 and err_box.is_visible():
+                        err_msg = err_box.inner_text().strip()
+                        if err_msg:
+                            raise RuntimeError(f"视频号发表未通过: {err_msg}")
+                    raise RuntimeError("视频号发表未在规定时间内确认成功（页面仍停留在编辑页），未检测到发布完成")
+
+                # 二次真实检查：进入发表记录列表验证最新状态
+                _notify(0.99, "正在查询视频号发表记录真实审核状态...")
+                post_status = "审核中"
+                try:
+                    page.goto("https://channels.weixin.qq.com/platform/post/list", wait_until="domcontentloaded", timeout=15000)
+                    page.wait_for_timeout(2500)
+                    first_post = page.locator('.post-item, .weui-desktop-table tr, [class*="post-card"]').first
+                    if first_post.count() > 0:
+                        first_text = first_post.inner_text()
+                        if "已发表" in first_text:
+                            post_status = "已发表"
+                        elif "审核中" in first_text or "处理中" in first_text:
+                            post_status = "审核中"
+                except Exception as e:
+                    logger.debug(f"二次获取视频号列表状态跳过: {e}")
+
+                _notify(1.0, f"🎉 微信视频号发布成功！当前状态: {post_status}，标题: {clean_title}")
                 return {
                     "success": True,
                     "platform": "wechat",
                     "title": clean_title,
-                    "message": "视频已成功提交至微信视频号！",
+                    "status": post_status,
+                    "message": f"视频已成功提交至微信视频号！当前状态为【{post_status}】",
                 }
         finally:
             if temp_video_file and temp_video_file.exists():
