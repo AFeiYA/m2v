@@ -428,63 +428,121 @@ class WeChatChannelsUploader:
 
                 _notify(0.25, "正在打开视频号发表页面...")
                 page.goto("https://channels.weixin.qq.com/platform/post/create", wait_until="domcontentloaded", timeout=25000)
-                page.wait_for_timeout(3000)
+                page.wait_for_timeout(2000)
 
                 if "login.html" in page.url:
                     raise RuntimeError("微信视频号未登录或登录已失效，请先扫码登录")
 
-                _notify(0.35, "正在上传视频文件...")
+                # 如果有弹出的指引或协议弹窗，自动点击“我知道了”
+                notice_btn = page.locator('button:has-text("我知道了")').first
+                if notice_btn.count() > 0 and notice_btn.is_visible():
+                    try:
+                        notice_btn.click()
+                        page.wait_for_timeout(1000)
+                    except Exception:
+                        pass
+
+                _notify(0.35, "正在等待视频上传控件就绪...")
+                # 微信视频号基于无界微前端架构，需等待 input[type="file"] 注入 DOM
                 file_input = page.locator('input[type="file"]').first
-                if file_input.count() == 0:
-                    raise RuntimeError("未找到视频上传控件")
+                try:
+                    file_input.wait_for(state="attached", timeout=30000)
+                except Exception:
+                    inputs = page.locator('input[type="file"]').all()
+                    if not inputs:
+                        raise RuntimeError("未找到视频上传控件，页面加载超时或尚未完成登录")
+                    file_input = inputs[0]
 
+                _notify(0.40, "正在上传视频文件到微信视频号...")
                 file_input.set_input_files(local_video_path)
-                page.wait_for_timeout(3000)
+                page.wait_for_timeout(2000)
 
-                _notify(0.55, "正在等待视频上传处理完成...")
+                # 等待视频文件上传和转码初步完成
+                _notify(0.55, "正在上传并处理视频文件...")
                 upload_start = time.time()
-                while time.time() - upload_start < 120:
-                    # 检查是否有发表按钮并处于可用状态
-                    submit_btn = page.locator('button:has-text("发表"), .weui-desktop-btn_primary:has-text("发表")').first
-                    if submit_btn.count() > 0 and not submit_btn.is_disabled():
-                        break
+                while time.time() - upload_start < 180:
+                    cancel_btn = page.locator('text="取消上传"').first
+                    proc_tip = page.locator('text="正在处理文件"').first
+                    is_uploading = (cancel_btn.count() > 0 and cancel_btn.is_visible()) or (
+                        proc_tip.count() > 0 and proc_tip.is_visible()
+                    )
+                    del_btn = page.locator('text="删除"').first
+                    if (del_btn.count() > 0 and del_btn.is_visible()) or not is_uploading:
+                        if time.time() - upload_start > 3:
+                            break
                     page.wait_for_timeout(2000)
 
-                _notify(0.75, "正在填写动态文案与话题标签...")
-                desc_input = page.locator('.post-desc-input, textarea, [contenteditable="true"]').first
+                _notify(0.75, "正在填写动态文案与短标题...")
+                # 微信视频号描述框为富文本编辑器：.input-editor 或 [data-placeholder*="描述"]
+                desc_input = page.locator('.input-editor, [data-placeholder*="描述"], div[contenteditable="true"], div[contenteditable=""]').first
                 if desc_input.count() > 0:
-                    desc_input.click()
-                    if desc_input.evaluate('e => e.tagName') == 'TEXTAREA':
-                        desc_input.fill(final_desc)
-                    else:
-                        page.keyboard.type(final_desc, delay=20)
-                    page.wait_for_timeout(1000)
+                    try:
+                        desc_input.scroll_into_view_if_needed()
+                        desc_input.click()
+                        page.keyboard.press("Meta+A")
+                        page.keyboard.press("Backspace")
+                        page.keyboard.type(final_desc, delay=10)
+                        page.wait_for_timeout(500)
+                    except Exception as e:
+                        logger.warning(f"输入视频号描述异常: {e}")
 
-                # 设置封面
+                # 填写短标题 (最多20字)
+                short_title_input = page.locator('input[placeholder*="短标题"], .form-item:has-text("短标题") input').first
+                if short_title_input.count() > 0 and short_title_input.is_visible():
+                    try:
+                        short_title_input.click()
+                        short_title_input.fill("")
+                        short_title_input.fill(clean_title[:20])
+                        page.wait_for_timeout(500)
+                    except Exception as e:
+                        logger.warning(f"输入短标题异常: {e}")
+
+                # 设置封面 (可选)
                 if cover_source and Path(cover_source).exists():
                     try:
-                        cover_btn = page.locator('text="选择封面", text="更换封面"').first
-                        if cover_btn.count() > 0:
-                            cover_btn.click()
+                        cover_edit_btn = page.locator('.form-item:has-text("封面"), :has-text("封面预览")').locator('text="编辑", text="选择封面", button:has-text("编辑")').first
+                        if cover_edit_btn.count() > 0 and cover_edit_btn.is_visible():
+                            _notify(0.85, "正在设置视频封面...")
+                            cover_edit_btn.click()
                             page.wait_for_timeout(1000)
                             cover_file_input = page.locator('input[type="file"][accept*="image"]').first
                             if cover_file_input.count() > 0:
                                 cover_file_input.set_input_files(cover_source)
                                 page.wait_for_timeout(1500)
                                 confirm_btn = page.locator('button:has-text("确定"), button:has-text("完成")').first
-                                if confirm_btn.count() > 0:
+                                if confirm_btn.count() > 0 and confirm_btn.is_visible():
                                     confirm_btn.click()
                                     page.wait_for_timeout(1000)
                     except Exception as e:
-                        logger.warning(f"设置视频号封面帧失败: {e}")
+                        logger.warning(f"设置视频号封面帧失败，保留默认封面: {e}")
 
-                _notify(0.92, "正在提交发表到视频号...")
+                _notify(0.92, "正在提交发表到微信视频号...")
                 publish_btn = page.locator('button:has-text("发表"), .weui-desktop-btn_primary:has-text("发表")').first
                 if publish_btn.count() == 0:
                     raise RuntimeError("未找到视频号【发表】按钮")
 
+                publish_btn.scroll_into_view_if_needed()
                 publish_btn.click()
-                page.wait_for_timeout(4000)
+                page.wait_for_timeout(3000)
+
+                # 确认发布结果
+                _notify(0.98, "正在确认发布结果...")
+                publish_ok = False
+                confirm_start = time.time()
+                while time.time() - confirm_start < 25:
+                    cur = page.url
+                    if "create" not in cur or "/post/list" in cur:
+                        publish_ok = True
+                        break
+                    if page.locator('text="发表成功", text="动态已发表", text="审核中"').count() > 0:
+                        publish_ok = True
+                        break
+                    err_box = page.locator('.weui-desktop-form__extra-error, .weui-desktop-tooltip_error, [class*="error-message"]').first
+                    if err_box.count() > 0 and err_box.is_visible():
+                        err_msg = err_box.inner_text()
+                        if err_msg:
+                            raise RuntimeError(f"视频号平台提示: {err_msg}")
+                    page.wait_for_timeout(1500)
 
                 _notify(1.0, f"🎉 微信视频号发布成功！标题: {clean_title}")
                 return {

@@ -439,11 +439,17 @@ class DouyinUploader:
                 if "creator-micro" not in page.url:
                     raise RuntimeError("抖音未登录或登录态失效，请先扫码登录")
 
-                _notify(0.35, "正在上传视频文件到抖音...")
+                _notify(0.35, "正在等待抖音上传控件就绪...")
                 file_input = page.locator('input[type="file"]').first
-                if file_input.count() == 0:
-                    raise RuntimeError("未找到抖音视频上传控件")
+                try:
+                    file_input.wait_for(state="attached", timeout=30000)
+                except Exception:
+                    inputs = page.locator('input[type="file"]').all()
+                    if not inputs:
+                        raise RuntimeError("未找到抖音视频上传控件，页面加载超时或尚未完成登录")
+                    file_input = inputs[0]
 
+                _notify(0.40, "正在上传视频文件到抖音...")
                 file_input.set_input_files(local_video_path)
                 page.wait_for_timeout(3000)
 
