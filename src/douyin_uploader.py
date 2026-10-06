@@ -86,14 +86,12 @@ class DouyinUploader:
     @property
     def is_configured(self) -> bool:
         """检查是否有基本登录凭证"""
-        return bool(self.user_info.get("is_logged_in") or (self.profile_dir / "Default").exists())
+        return bool(self.cookies.get("sessionid"))
 
     def get_account_status(self) -> dict:
         """检查当前抖音登录状态"""
-        if self.user_info and self.user_info.get("is_logged_in"):
-            return self.user_info
-
-        if (self.profile_dir / "Default").exists():
+        # 必须存在 cookies 文件并且包含有效的创作者 sessionid
+        if self.cookies_path.exists() and self.cookies.get("sessionid"):
             return {
                 "is_logged_in": True,
                 "is_login": True,
@@ -196,7 +194,7 @@ class DouyinUploader:
                 current_url = page.url
                 cookies_list = ctx.cookies()
                 cookies_dict = {c["name"]: c["value"] for c in cookies_list}
-                if ("/login" not in current_url and "creator.douyin.com" in current_url) or "sessionid" in cookies_dict:
+                if "sessionid" in cookies_dict or ("creator-micro" in current_url and page.locator('.header-avatar, .creator-avatar').count() > 0):
                     self._save_cookies(cookies_dict, {"is_logged_in": True, "uname": "抖音创作者"})
                     try:
                         ctx.close()

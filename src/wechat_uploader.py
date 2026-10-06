@@ -86,15 +86,11 @@ class WeChatChannelsUploader:
     @property
     def is_configured(self) -> bool:
         """检查是否有基本登录凭证"""
-        return bool(self.user_info.get("is_logged_in") or (self.profile_dir / "Default").exists())
+        return bool(self.cookies.get("sessionid") or self.user_info.get("is_logged_in"))
 
     def get_account_status(self) -> dict:
         """检查当前视频号登录状态"""
-        if self.user_info and self.user_info.get("is_logged_in"):
-            return self.user_info
-
-        # 检查持久化 profile 是否存在
-        if (self.profile_dir / "Default").exists():
+        if self.cookies_path.exists() and (self.cookies.get("sessionid") or self.user_info.get("is_logged_in")):
             return {
                 "is_logged_in": True,
                 "is_login": True,
