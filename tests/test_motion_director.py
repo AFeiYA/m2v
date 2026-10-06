@@ -285,7 +285,7 @@ def test_single_line_parallel_context_reaches_past_an_explanation_line():
     assert previous==before
     assert '邻句仅作上下文' in bundle['prompt']
     assert '首句必须标明结构标签与 Primary 依据' in bundle['prompt']
-    assert 'hold 必须 none' in bundle['prompt']
+    assert 'hold 允许 none/drift' in bundle['prompt']
     assert 'schema 外字段' in bundle['prompt']
 
 
@@ -301,11 +301,11 @@ def test_visual_intensity_round_trip_and_bounded_values(project):
         line_response(project,data,'line_0003')
 
 
-def test_new_direction_forbids_breathing_but_legacy_data_stays_readable(project):
+def test_new_direction_allows_breathing_drift(project):
     from src.motion_director import line_prompt_bundle,line_response,director_capabilities
     bundle=line_prompt_bundle(project,'line_0003')
-    assert bundle['input']['output_schema']['$defs']['ActivePosterNode']['properties']['hold']['const']=='none'
-    assert 'drift' not in director_capabilities()['poster_runtime']
+    assert bundle['input']['output_schema']['$defs']['ActivePosterNode']['properties']['hold']['enum']==['none', 'drift']
+    assert 'drift' in director_capabilities()['poster_runtime']
     data=bundle['response_example'];data['cue']['poster']['nodes'][0]['hold']='drift'
     assert line_response(project,data,'line_0003')[0].cue.poster.nodes[0].hold=='drift'
 

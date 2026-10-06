@@ -327,7 +327,7 @@ def rule_plan(project, previous=None, style='impact'):
 
 def director_capabilities():
     return {'executable': ['word-impact', 'phrase-rise', 'quiet-hold', 'phrase-actions', 'pdoom-post'],
-            'poster_runtime': ['hero-stack', 'center-stack', 'staggered', 'right-stack', 'cumulative-entrances', 'primary-pulse', 'cut', 'fade', 'bounded-handover', 'portrait-layout'],
+            'poster_runtime': ['hero-stack', 'center-stack', 'staggered', 'right-stack', 'cumulative-entrances', 'primary-pulse', 'drift', 'cut', 'fade', 'bounded-handover', 'portrait-layout'],
             'semantic_relations': {'kinds': ['guidance', 'contrast', 'negation', 'repetition', 'spatial'], 'references': 'zero-based poster.nodes indices', 'runtime': 'bounded semantic arrangement using existing entrances, hierarchy and offsets; timing and one primary preserved; semantic_mode off disables it'},
             'design_only': [],
             'not_supported': ['3d-glyphs', 'tunnel', 'depth-of-field'],
@@ -355,9 +355,14 @@ def design_schema(model):
     modern = deepcopy(original)
     modern['properties'] = {k:v for k,v in modern['properties'].items() if k not in LEGACY_CUE_FIELDS}
     modern['properties']['locked'] = {'const': False, 'default': False}
-    # Locked legacy nodes may retain drift in source; new direction cannot request it.
+    # 开放 hold: ['none', 'drift']，让 LMM 导演根据音乐意境自适应选择微悬浮呼吸感
     active_node = deepcopy(schema['$defs']['PosterNode'])
-    active_node['properties']['hold'] = {'const': 'none', 'default': 'none', 'type': 'string'}
+    active_node['properties']['hold'] = {
+        'type': 'string',
+        'enum': ['none', 'drift'],
+        'default': 'none',
+        'description': '静置微动效: none(静止锁定位), drift(有机微悬浮慢呼吸)'
+    }
     schema['$defs']['ActivePosterNode'] = active_node
     active_poster = deepcopy(schema['$defs']['PosterDirection'])
     active_poster['properties']['nodes']['items'] = {'$ref': '#/$defs/ActivePosterNode'}
@@ -416,7 +421,10 @@ poster.nodes 的节点数量必须严格服从 target_nodes 的目标：
 【海报排版与动画规则】
 - 颜色层级：整曲 visual_language 定义统一的 background、foreground、accent。默认 primary 使用 color_role=accent，secondary 使用 foreground，support 使用 muted，让最大字号与强调色指向同一个语义焦点，不把鲜明强调色给铺垫而让主视觉退为普通色。每张海报最多一个 accent 节点，且只能是 primary；可因句意采用无强调色的单色方案，此时 primary 使用 foreground，并在 poster.intent 简述原因。muted 只降低辅助信息权重，仍需保持可读；不得给各词组任意新增颜色或让整句全部高亮。重复句、平行句保持相应角色的颜色策略一致，避免强调色随机换到不同语义层。实际字号、颜色对比与显示由代码执行，不声称已完成像素级检查。
 - 海报构图：合理运用 hero-stack、center-stack、right-stack、staggered。节点随演唱 cumulative 累积落位，最终拼合为完整画面，不返回坐标/字号。
-- 动效节制：entrance 限 none/fade/slide-up/slide-left/scale-in；hold 必须 none；beat_reaction 仅 primary 允许 pulse，短促快唱选用简洁淡入或滑入。
+- 动效节制与呼吸感决策：
+  * entrance 限 none/fade/slide-up/slide-left/scale-in；
+  * hold 允许 none/drift：紧凑快歌、力量型短句或硬核断点默认采用 hold="none" 保持平面坚实锁定；长音抒情、悬停蓄势或情绪余韵段落，鼓励选用 hold="drift" 赋予字块有机微悬浮呼吸感；
+  * beat_reaction：主要为 primary 节点提供重音律动 pulse，短促快唱选用简洁淡入或滑入。
 - 句间衔接：final_hold 必为 available-tail，transition_out 仅 cut/fade，transition_note 阐述意象传承，末句收束。
 - 完整性：完全覆盖给定 line_id，word_indices 原序完整不漏，保留 locked 节点与既有 seed。
 
