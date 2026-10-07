@@ -230,4 +230,113 @@ def test_fine_blocks_and_dp_handles_tight_pauses():
     assert len(stanzas) == 6
 
 
+def test_anchor_stanzas_monotonic_repeated_chorus():
+    """验证全局单调唯一分配：两段完全相同的重复副歌，必须分别匹配到先后两次独立的演唱，杜绝挤占同一区间"""
+    from src.aligner import LyricLine, anchor_stanzas_with_asr
+
+    lyrics = [
+        (0, LyricLine(text="intro line before chorus", paragraph=0)),
+        (1, LyricLine(text="look up sky", paragraph=1)),
+        (2, LyricLine(text="look up sky", paragraph=2)),
+        (3, LyricLine(text="outro line after chorus", paragraph=3)),
+    ]
+
+    asr_words = [
+        {"word": "intro", "start": 1.0, "end": 2.0, "py": "intro"},
+        {"word": "line", "start": 2.1, "end": 3.0, "py": "line"},
+        {"word": "before", "start": 3.1, "end": 4.0, "py": "before"},
+        {"word": "chorus", "start": 4.1, "end": 5.0, "py": "chorus"},
+
+        {"word": "look", "start": 10.0, "end": 10.8, "py": "look"},
+        {"word": "up", "start": 10.9, "end": 11.5, "py": "up"},
+        {"word": "sky", "start": 11.6, "end": 12.5, "py": "sky"},
+
+        {"word": "look", "start": 30.0, "end": 30.8, "py": "look"},
+        {"word": "up", "start": 30.9, "end": 31.5, "py": "up"},
+        {"word": "sky", "start": 31.6, "end": 32.5, "py": "sky"},
+
+        {"word": "outro", "start": 40.0, "end": 41.0, "py": "outro"},
+        {"word": "line", "start": 41.1, "end": 42.0, "py": "line"},
+        {"word": "after", "start": 42.1, "end": 43.0, "py": "after"},
+        {"word": "chorus", "start": 43.1, "end": 44.0, "py": "chorus"},
+    ]
+
+    paras, bounds = anchor_stanzas_with_asr(lyrics, asr_words, total_audio_sec=50.0)
+
+    # 验证副歌 1 与副歌 2 分别匹配到 10s 和 30s
+    p1_s, p1_e = bounds[1]
+    p2_s, p2_e = bounds[2]
+
+    assert 9.0 <= p1_s <= 11.0, f"副歌1起点异常: {p1_s}"
+    assert 11.5 <= p1_e <= 14.0, f"副歌1终点异常: {p1_e}"
+
+    assert 28.0 <= p2_s <= 31.0, f"副歌2起点异常: {p2_s}"
+    assert 31.5 <= p2_e <= 34.0, f"副歌2终点异常: {p2_e}"
+
+    # 严格单调性
+    assert p1_e <= p2_s, f"时间重叠违背单调性: p1_end={p1_e}, p2_start={p2_s}"
+
+
+def test_align_en_token_spans_apostrophe_exact_mapping():
+    """验证英文带撇号缩写词 (Don't, It's, isn't) 的显式 token-to-target 映射，无跨度漂移"""
+    import torchaudio
+    from src.aligner import tokenize_lyric_line
+
+    bundle_en = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
+    labels_en = bundle_en.get_labels()
+    dict_en = {c: i for i, c in enumerate(labels_en)}
+
+    test_lines = [
+        "Don't look back",
+        "It's a long way home, isn't it?",
+        "Harp-string bridge and a sky scrubbed clean",
+    ]
+
+    full_target_ids: list[int] = []
+    full_tokens_with_spans = []
+    curr_span_pos = 0
+
+    for li, text in enumerate(test_lines):
+        tokens = tokenize_lyric_line(text)
+        tok_records = []
+        for tok in tokens:
+            chars = [c.upper() for c in tok if c.upper() in dict_en and dict_en[c.upper()] != 0 and c != "|"]
+            tok_records.append((tok, chars))
+
+        line_tok_spans = []
+        vocal_count = sum(1 for _, chars in tok_records if chars)
+        vocal_idx = 0
+        for tok, chars in tok_records:
+            if not chars:
+                line_tok_spans.append((tok, curr_span_pos, curr_span_pos))
+                continue
+            s_pos = curr_span_pos
+            for c in chars:
+                full_target_ids.append(dict_en[c])
+            curr_span_pos += len(chars)
+            e_pos = curr_span_pos
+            line_tok_spans.append((tok, s_pos, e_pos))
+            vocal_idx += 1
+            if vocal_idx < vocal_count:
+                full_target_ids.append(dict_en["|"])
+                curr_span_pos += 1
+
+        full_tokens_with_spans.append((text, line_tok_spans))
+        if li < len(test_lines) - 1 and full_target_ids:
+            full_target_ids.append(dict_en["|"])
+            curr_span_pos += 1
+
+    # 验证 target 长度与 span 指针 100% 严密闭合
+    assert len(full_target_ids) == curr_span_pos
+
+    # 验证 "Don't" 包含了完整的 5 个字符，且紧随其后的 "look" 起始位置为 6
+    line0_toks = full_tokens_with_spans[0][1]
+    dont_tok, d_s, d_e = line0_toks[0]
+    look_tok, l_s, l_e = line0_toks[1]
+    assert dont_tok.strip() == "Don't"
+    assert d_e - d_s == 5  # D, O, N, ', T
+    assert l_s == 6  # 5 是 '|' 分隔符
+
+
+
 

@@ -592,14 +592,13 @@ def anchor_stanzas_with_asr(
                 break
 
         cand_indices = [idx for idx, w in enumerate(valid_asr) if prev_e - 1.0 <= w["start"] <= next_s + 1.0]
-        group_anchored = {}
+        group_candidates: dict[int, list[tuple[float, float, float]]] = {}
         for p in group:
             l_toks = p_tokens[p]
             n = len(l_toks)
             min_span = max(1, int(n * 0.5))
             max_span = int(n * 1.6) + 4
-            best_sc = -1.0
-            best_match = None
+            p_matches = []
             if len(cand_indices) >= 3:
                 for si_idx in range(len(cand_indices)):
                     for ei_idx in range(si_idx + min_span, min(len(cand_indices) + 1, si_idx + max_span)):
@@ -607,22 +606,66 @@ def anchor_stanzas_with_asr(
                         ei = cand_indices[ei_idx - 1] + 1
                         matcher = SequenceMatcher(None, l_toks, c_tokens[si:ei])
                         sc = matcher.ratio()
-                        if sc > best_sc:
-                            best_sc = sc
-                            best_match = (si, ei, matcher.get_matching_blocks())
-            if best_match and best_sc >= 0.40:
-                si, ei, blocks = best_match
-                valid_blocks = [b for b in blocks if b.size > 0]
-                if valid_blocks:
-                    first_b = valid_blocks[0]
-                    last_b = valid_blocks[-1]
-                    first_cand_idx = si + first_b.b
-                    last_cand_idx = si + last_b.b + last_b.size - 1
-                    missed_head = first_b.a
-                    missed_tail = len(l_toks) - (last_b.a + last_b.size)
-                    raw_s = max(prev_e, valid_asr[first_cand_idx]["start"] - missed_head * 0.40)
-                    raw_e = min(next_s, valid_asr[last_cand_idx]["end"] + missed_tail * 0.45)
-                    group_anchored[p] = (raw_s, raw_e, best_sc)
+                        if sc >= 0.40:
+                            blocks = [b for b in matcher.get_matching_blocks() if b.size > 0]
+                            if blocks:
+                                first_b = blocks[0]
+                                last_b = blocks[-1]
+                                first_cand_idx = si + first_b.b
+                                last_cand_idx = si + last_b.b + last_b.size - 1
+                                missed_head = first_b.a
+                                missed_tail = len(l_toks) - (last_b.a + last_b.size)
+                                raw_s = max(prev_e, valid_asr[first_cand_idx]["start"] - missed_head * 0.40)
+                                raw_e = min(next_s, valid_asr[last_cand_idx]["end"] + missed_tail * 0.45)
+                                p_matches.append((raw_s, raw_e, sc))
+
+            # 对重叠候选进行局部聚类，保留独立的时序候选段
+            p_matches.sort(key=lambda m: (m[0], -m[2]))
+            distinct: list[tuple[float, float, float]] = []
+            for m in p_matches:
+                s, e, sc = m
+                merged = False
+                for d_idx, (ds, de, dsc) in enumerate(distinct):
+                    overlap = max(0.0, min(e, de) - max(s, ds))
+                    if overlap > 0.5 * min(e - s, de - ds):
+                        if sc > dsc:
+                            distinct[d_idx] = (s, e, sc)
+                        merged = True
+                        break
+                if not merged:
+                    distinct.append((s, e, sc))
+            distinct.sort(key=lambda x: x[0])
+            group_candidates[p] = distinct
+
+        # 动态规划求解全局时间单调唯一分配 (严格保证前句结束时间 <= 后句开始时间，杜绝重复副歌挤占同一区间)
+        group_anchored: dict[int, tuple[float, float, float]] = {}
+        m_len = len(group)
+        memo: dict = {}
+
+        def _dp(idx: int, last_end_t: float) -> tuple[float, list[tuple[int, tuple[float, float, float] | None]]]:
+            key = (idx, round(last_end_t, 2))
+            if key in memo:
+                return memo[key]
+            if idx == m_len:
+                return (0.0, [])
+            p_cur = group[idx]
+            cands = group_candidates.get(p_cur, [])
+            best_sc, best_choices = _dp(idx + 1, last_end_t)
+            best_res = (best_sc, [(p_cur, None)] + best_choices)
+            for c in cands:
+                c_s, c_e, c_sc = c
+                if c_s >= last_end_t - 0.5:
+                    future_sc, future_choices = _dp(idx + 1, c_e)
+                    tot_sc = c_sc + future_sc
+                    if tot_sc > best_res[0]:
+                        best_res = (tot_sc, [(p_cur, c)] + future_choices)
+            memo[key] = best_res
+            return best_res
+
+        _, choices = _dp(0, prev_e)
+        for p_chosen, c_chosen in choices:
+            if c_chosen is not None:
+                group_anchored[p_chosen] = c_chosen
 
         cur_anchor_t = prev_e
         i = 0
@@ -829,21 +872,48 @@ def align_lyrics_ctc(
                                    for chunk in wav_slice.split(20 * 16000, dim=1)
                                    if chunk.size(1) >= 400], dim=1)
 
-        clean_lines = []
-        for _, ly in lines_with_idx:
-            words = [re.sub(r"[^A-Za-z0-9']", "", w).upper() for w in ly.text.split() if w.strip()]
-            words = [w for w in words if w]
-            clean_lines.append("|".join(words))
+        # 构建显式 token-to-target 跨度映射，杜绝标点/撇号造成的索引漂移
+        full_target_ids: list[int] = []
+        full_tokens_with_spans = []  # [(orig_idx, ly, [(tok, s_pos, e_pos)])]
+        curr_span_pos = 0
 
-        full_text = "|".join(clean_lines)
-        target_ids = [dict_en[c] for c in full_text if c in dict_en and dict_en[c] != 0]
-        if not target_ids or wav_slice.size(1) < 400:
+        for li, (orig_idx, ly) in enumerate(lines_with_idx):
+            tokens = tokenize_lyric_line(ly.text)
+            tok_records: list[tuple[str, list[str]]] = []
+            for tok in tokens:
+                chars = [c.upper() for c in tok if c.upper() in dict_en and dict_en[c.upper()] != 0 and c != "|"]
+                tok_records.append((tok, chars))
+
+            line_tok_spans: list[tuple[str, int, int]] = []
+            vocal_count = sum(1 for _, chars in tok_records if chars)
+            vocal_idx = 0
+            for tok, chars in tok_records:
+                if not chars:
+                    line_tok_spans.append((tok, curr_span_pos, curr_span_pos))
+                    continue
+                s_pos = curr_span_pos
+                for c in chars:
+                    full_target_ids.append(dict_en[c])
+                curr_span_pos += len(chars)
+                e_pos = curr_span_pos
+                line_tok_spans.append((tok, s_pos, e_pos))
+                vocal_idx += 1
+                if vocal_idx < vocal_count:
+                    full_target_ids.append(dict_en["|"])
+                    curr_span_pos += 1
+
+            full_tokens_with_spans.append((orig_idx, ly, line_tok_spans))
+            if li < len(lines_with_idx) - 1 and full_target_ids:
+                full_target_ids.append(dict_en["|"])
+                curr_span_pos += 1
+
+        if not full_target_ids or wav_slice.size(1) < 400:
             for orig_idx, ly in lines_with_idx:
                 words = _fallback_even_split(ly.text, s_sec, e_sec)
                 aligned_line_map[orig_idx] = AlignedLine(text=ly.text, start=s_sec, end=e_sec, words=words)
             return
 
-        targets = torch.tensor([target_ids], dtype=torch.int32)
+        targets = torch.tensor([full_target_ids], dtype=torch.int32)
         try:
             aligned_tokens, scores = forced_align(emissions, targets, blank=0)
             spans = merge_tokens(aligned_tokens[0], scores[0], blank=0)
@@ -856,24 +926,14 @@ def align_lyrics_ctc(
 
         frame_dur = (wav_slice.size(1) / 16000.0) / emissions.size(1)
 
-        span_idx = 0
-        for li, (orig_idx, ly) in enumerate(lines_with_idx):
-            line_str = clean_lines[li]
-            target_count = len([c for c in line_str if c in dict_en and dict_en[c] != 0])
-            l_spans = spans[span_idx: span_idx + target_count]
-            span_idx += target_count + 1
-
+        for orig_idx, ly, line_tok_spans in full_tokens_with_spans:
             words: list[WordTimestamp] = []
-            tokens = tokenize_lyric_line(ly.text)
-            curr_s_idx = 0
-            for tok in tokens:
-                tok_clean = "".join(c.upper() for c in tok if c.isalnum())
-                if not tok_clean:
-                    w_s = s_sec + l_spans[curr_s_idx].start * frame_dur if curr_s_idx < len(l_spans) else (words[-1].end if words else s_sec)
-                    words.append(WordTimestamp(word=tok, start=round(w_s, 3), end=round(w_s, 3)))
+            for tok, s_pos, e_pos in line_tok_spans:
+                if s_pos == e_pos:
+                    prev_end = words[-1].end if words else s_sec
+                    words.append(WordTimestamp(word=tok, start=round(prev_end, 3), end=round(prev_end, 3)))
                     continue
-                w_spans = l_spans[curr_s_idx: curr_s_idx + len(tok_clean)]
-                curr_s_idx += len(tok_clean) + 1
+                w_spans = spans[s_pos:e_pos]
                 if not w_spans:
                     prev_end = words[-1].end if words else s_sec
                     words.append(WordTimestamp(word=tok, start=round(prev_end, 3), end=round(prev_end + 0.1, 3)))
