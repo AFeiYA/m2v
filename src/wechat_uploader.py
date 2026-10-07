@@ -24,8 +24,10 @@ from pathlib import Path
 from typing import Callable, Optional, Union
 
 import requests
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from src.session_manager import get_uploader_for_session, resolve_session_id
 
 logger = logging.getLogger("wechat_uploader")
 
@@ -773,45 +775,56 @@ class WeChatPublishRequest(BaseModel):
 
 
 @wechat_router.get("/status")
-def get_wx_status():
+def get_wx_status(sid: str = Depends(resolve_session_id)):
     """获取微信视频号登录状态"""
-    return wechat_uploader.get_account_status()
+    uploader = get_uploader_for_session("wechat", sid)
+    return uploader.get_account_status()
 
 
 @wechat_router.get("/qrcode")
-def get_wx_qrcode():
+def get_wx_qrcode(sid: str = Depends(resolve_session_id)):
     """生成微信视频号扫码二维码"""
-    return wechat_uploader.generate_qrcode()
+    uploader = get_uploader_for_session("wechat", sid)
+    return uploader.generate_qrcode()
 
 
 @wechat_router.get("/qrcode/poll")
-def poll_wx_qrcode(session_id: str):
+def poll_wx_qrcode(session_id: str, sid: str = Depends(resolve_session_id)):
     """轮询微信视频号扫码状态"""
-    return wechat_uploader.poll_qrcode(session_id)
+    uploader = get_uploader_for_session("wechat", sid)
+    return uploader.poll_qrcode(session_id)
 
 
 @wechat_router.post("/browser-login")
-def open_wx_browser_login():
+def open_wx_browser_login(sid: str = Depends(resolve_session_id)):
     """打开本地 Chrome 浏览器窗口完成微信视频号登录"""
-    return wechat_uploader.launch_browser_login()
+    uploader = get_uploader_for_session("wechat", sid)
+    return uploader.launch_browser_login()
 
 
 @wechat_router.post("/logout")
-def logout_wx():
+def logout_wx(sid: str = Depends(resolve_session_id)):
     """退出微信视频号登录"""
-    return wechat_uploader.logout()
+    uploader = get_uploader_for_session("wechat", sid)
+    return uploader.logout()
 
 
 @wechat_router.post("/publish")
-def start_wx_publish_task(req: WeChatPublishRequest, background_tasks: BackgroundTasks):
+def start_wx_publish_task(
+    req: WeChatPublishRequest,
+    background_tasks: BackgroundTasks,
+    sid: str = Depends(resolve_session_id),
+):
     """创建异步发布微信视频号任务"""
-    if not wechat_uploader.is_configured:
+    uploader = get_uploader_for_session("wechat", sid)
+    if not uploader.is_configured:
         raise HTTPException(400, "尚未登录微信视频号，请先扫码登录")
 
     task_id = uuid.uuid4().hex[:12]
     with wx_tasks_lock:
         wx_publish_tasks[task_id] = {
             "id": task_id,
+            "session_id": sid,
             "status": "pending",
             "progress": 0.01,
             "message": "视频号发布任务排队中...",
@@ -829,7 +842,7 @@ def start_wx_publish_task(req: WeChatPublishRequest, background_tasks: Backgroun
                     wx_publish_tasks[task_id]["status"] = "uploading" if pct < 0.95 else "submitting"
 
         try:
-            res = wechat_uploader.publish_video(
+            res = uploader.publish_video(
                 video_source=req.video_source,
                 title=req.title,
                 desc=req.desc,
@@ -837,11 +850,28 @@ def start_wx_publish_task(req: WeChatPublishRequest, background_tasks: Backgroun
                 cover_source=req.cover_source,
                 progress_callback=_cb,
             )
+            res = res or {}
+            is_failed = res.get("success") is False or res.get("status") == "error"
+            is_review = (
+                res.get("status") in ["under_review", "reviewing", "pending_review"]
+                or res.get("is_review") is True
+                or ("审核" in str(res.get("message", "")))
+            )
+
             with wx_tasks_lock:
-                wx_publish_tasks[task_id]["status"] = "completed"
                 wx_publish_tasks[task_id]["progress"] = 1.0
-                wx_publish_tasks[task_id]["message"] = res.get("message", "发布成功")
                 wx_publish_tasks[task_id]["result"] = res
+                if is_failed:
+                    wx_publish_tasks[task_id]["status"] = "error"
+                    wx_publish_tasks[task_id]["message"] = res.get("message", "发布失败")
+                    wx_publish_tasks[task_id]["error"] = res.get("message", "平台返回失败")
+                elif is_review:
+                    wx_publish_tasks[task_id]["status"] = "under_review"
+                    wx_publish_tasks[task_id]["message"] = res.get("message", "提交成功，正在审核中")
+                else:
+                    wx_publish_tasks[task_id]["status"] = "completed"
+                    wx_publish_tasks[task_id]["message"] = res.get("message", "发布成功")
+
         except Exception as e:
             logger.error(f"微信视频号任务 {task_id} 异常: {e}")
             with wx_tasks_lock:

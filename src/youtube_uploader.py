@@ -22,8 +22,10 @@ from pathlib import Path
 from typing import Callable, Optional, Union
 
 import requests
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from src.session_manager import get_uploader_for_session, resolve_session_id
 
 logger = logging.getLogger("youtube_uploader")
 
@@ -297,33 +299,42 @@ class TokenSetRequest(BaseModel):
 
 
 @youtube_router.get("/status")
-def get_yt_status():
+def get_yt_status(sid: str = Depends(resolve_session_id)):
     """获取 YouTube 频道状态"""
-    return youtube_uploader.get_account_status()
+    uploader = get_uploader_for_session("youtube", sid)
+    return uploader.get_account_status()
 
 
 @youtube_router.post("/token")
-def set_yt_token(req: TokenSetRequest):
+def set_yt_token(req: TokenSetRequest, sid: str = Depends(resolve_session_id)):
     """设置 YouTube Access Token"""
-    return youtube_uploader.set_tokens(req.access_token, req.refresh_token)
+    uploader = get_uploader_for_session("youtube", sid)
+    return uploader.set_tokens(req.access_token, req.refresh_token)
 
 
 @youtube_router.post("/logout")
-def logout_yt():
+def logout_yt(sid: str = Depends(resolve_session_id)):
     """清除 YouTube 连接"""
-    return youtube_uploader.logout()
+    uploader = get_uploader_for_session("youtube", sid)
+    return uploader.logout()
 
 
 @youtube_router.post("/publish")
-def start_yt_publish_task(req: YouTubePublishRequest, background_tasks: BackgroundTasks):
+def start_yt_publish_task(
+    req: YouTubePublishRequest,
+    background_tasks: BackgroundTasks,
+    sid: str = Depends(resolve_session_id),
+):
     """创建异步发布 YouTube 任务"""
-    if not youtube_uploader.is_configured:
+    uploader = get_uploader_for_session("youtube", sid)
+    if not uploader.is_configured:
         raise HTTPException(400, "尚未连接 YouTube 账号，请先配置 Access Token")
 
     task_id = uuid.uuid4().hex[:12]
     with yt_tasks_lock:
         yt_publish_tasks[task_id] = {
             "id": task_id,
+            "session_id": sid,
             "status": "pending",
             "progress": 0.01,
             "message": "YouTube 发布任务排队中...",
@@ -341,7 +352,7 @@ def start_yt_publish_task(req: YouTubePublishRequest, background_tasks: Backgrou
                     yt_publish_tasks[task_id]["status"] = "uploading" if pct < 0.95 else "submitting"
 
         try:
-            res = youtube_uploader.publish_video(
+            res = uploader.publish_video(
                 video_source=req.video_source,
                 title=req.title,
                 desc=req.desc,
@@ -350,11 +361,28 @@ def start_yt_publish_task(req: YouTubePublishRequest, background_tasks: Backgrou
                 privacy_status=req.privacy_status,
                 progress_callback=_cb,
             )
+            res = res or {}
+            is_failed = res.get("success") is False or res.get("status") == "error"
+            is_review = (
+                res.get("status") in ["under_review", "reviewing", "pending_review"]
+                or res.get("is_review") is True
+                or ("审核" in str(res.get("message", "")))
+            )
+
             with yt_tasks_lock:
-                yt_publish_tasks[task_id]["status"] = "completed"
                 yt_publish_tasks[task_id]["progress"] = 1.0
-                yt_publish_tasks[task_id]["message"] = res.get("message", "发布成功")
                 yt_publish_tasks[task_id]["result"] = res
+                if is_failed:
+                    yt_publish_tasks[task_id]["status"] = "error"
+                    yt_publish_tasks[task_id]["message"] = res.get("message", "发布失败")
+                    yt_publish_tasks[task_id]["error"] = res.get("message", "平台返回失败")
+                elif is_review:
+                    yt_publish_tasks[task_id]["status"] = "under_review"
+                    yt_publish_tasks[task_id]["message"] = res.get("message", "提交成功，正在审核中")
+                else:
+                    yt_publish_tasks[task_id]["status"] = "completed"
+                    yt_publish_tasks[task_id]["message"] = res.get("message", "发布成功")
+
         except Exception as e:
             logger.error(f"YouTube 任务 {task_id} 异常: {e}")
             with yt_tasks_lock:

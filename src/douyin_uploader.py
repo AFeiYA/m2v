@@ -23,8 +23,10 @@ from pathlib import Path
 from typing import Callable, Optional, Union
 
 import requests
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from src.session_manager import get_uploader_for_session, resolve_session_id
 
 logger = logging.getLogger("douyin_uploader")
 
@@ -531,45 +533,56 @@ class DouyinPublishRequest(BaseModel):
 
 
 @douyin_router.get("/status")
-def get_dy_status():
+def get_dy_status(sid: str = Depends(resolve_session_id)):
     """获取抖音登录状态"""
-    return douyin_uploader.get_account_status()
+    uploader = get_uploader_for_session("douyin", sid)
+    return uploader.get_account_status()
 
 
 @douyin_router.get("/qrcode")
-def get_dy_qrcode():
+def get_dy_qrcode(sid: str = Depends(resolve_session_id)):
     """生成抖音扫码二维码"""
-    return douyin_uploader.generate_qrcode()
+    uploader = get_uploader_for_session("douyin", sid)
+    return uploader.generate_qrcode()
 
 
 @douyin_router.get("/qrcode/poll")
-def poll_dy_qrcode(session_id: str):
+def poll_dy_qrcode(session_id: str, sid: str = Depends(resolve_session_id)):
     """轮询抖音扫码状态"""
-    return douyin_uploader.poll_qrcode(session_id)
+    uploader = get_uploader_for_session("douyin", sid)
+    return uploader.poll_qrcode(session_id)
 
 
 @douyin_router.post("/browser-login")
-def open_dy_browser_login():
+def open_dy_browser_login(sid: str = Depends(resolve_session_id)):
     """打开本地 Chrome 浏览器窗口完成抖音登录"""
-    return douyin_uploader.launch_browser_login()
+    uploader = get_uploader_for_session("douyin", sid)
+    return uploader.launch_browser_login()
 
 
 @douyin_router.post("/logout")
-def logout_dy():
+def logout_dy(sid: str = Depends(resolve_session_id)):
     """退出抖音登录"""
-    return douyin_uploader.logout()
+    uploader = get_uploader_for_session("douyin", sid)
+    return uploader.logout()
 
 
 @douyin_router.post("/publish")
-def start_dy_publish_task(req: DouyinPublishRequest, background_tasks: BackgroundTasks):
+def start_dy_publish_task(
+    req: DouyinPublishRequest,
+    background_tasks: BackgroundTasks,
+    sid: str = Depends(resolve_session_id),
+):
     """创建异步发布抖音任务"""
-    if not douyin_uploader.is_configured:
+    uploader = get_uploader_for_session("douyin", sid)
+    if not uploader.is_configured:
         raise HTTPException(400, "尚未登录抖音账号，请先扫码登录")
 
     task_id = uuid.uuid4().hex[:12]
     with dy_tasks_lock:
         dy_publish_tasks[task_id] = {
             "id": task_id,
+            "session_id": sid,
             "status": "pending",
             "progress": 0.01,
             "message": "抖音发布任务排队中...",
@@ -587,7 +600,7 @@ def start_dy_publish_task(req: DouyinPublishRequest, background_tasks: Backgroun
                     dy_publish_tasks[task_id]["status"] = "uploading" if pct < 0.95 else "submitting"
 
         try:
-            res = douyin_uploader.publish_video(
+            res = uploader.publish_video(
                 video_source=req.video_source,
                 title=req.title,
                 desc=req.desc,
@@ -595,11 +608,28 @@ def start_dy_publish_task(req: DouyinPublishRequest, background_tasks: Backgroun
                 cover_source=req.cover_source,
                 progress_callback=_cb,
             )
+            res = res or {}
+            is_failed = res.get("success") is False or res.get("status") == "error"
+            is_review = (
+                res.get("status") in ["under_review", "reviewing", "pending_review"]
+                or res.get("is_review") is True
+                or ("审核" in str(res.get("message", "")))
+            )
+
             with dy_tasks_lock:
-                dy_publish_tasks[task_id]["status"] = "completed"
                 dy_publish_tasks[task_id]["progress"] = 1.0
-                dy_publish_tasks[task_id]["message"] = res.get("message", "发布成功")
                 dy_publish_tasks[task_id]["result"] = res
+                if is_failed:
+                    dy_publish_tasks[task_id]["status"] = "error"
+                    dy_publish_tasks[task_id]["message"] = res.get("message", "发布失败")
+                    dy_publish_tasks[task_id]["error"] = res.get("message", "平台返回失败")
+                elif is_review:
+                    dy_publish_tasks[task_id]["status"] = "under_review"
+                    dy_publish_tasks[task_id]["message"] = res.get("message", "提交成功，正在审核中")
+                else:
+                    dy_publish_tasks[task_id]["status"] = "completed"
+                    dy_publish_tasks[task_id]["message"] = res.get("message", "发布成功")
+
         except Exception as e:
             logger.error(f"抖音任务 {task_id} 异常: {e}")
             with dy_tasks_lock:

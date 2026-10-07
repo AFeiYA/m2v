@@ -599,8 +599,10 @@ bilibili_uploader = BilibiliUploader()
 # ── FastAPI 路由与后台任务管理器 ────────────────────────
 import threading
 import uuid
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from src.session_manager import get_uploader_for_session, resolve_session_id
 
 bilibili_router = APIRouter(prefix="/api/bilibili", tags=["Bilibili"])
 
@@ -619,9 +621,10 @@ class BiliPublishRequest(BaseModel):
 
 
 @bilibili_router.get("/status")
-def get_bilibili_status():
+def get_bilibili_status(sid: str = Depends(resolve_session_id)):
     """获取当前 B 站登录状态"""
-    return bilibili_uploader.get_account_status()
+    uploader = get_uploader_for_session("bilibili", sid)
+    return uploader.get_account_status()
 
 
 @bilibili_router.get("/tids")
@@ -631,33 +634,42 @@ def get_popular_tids():
 
 
 @bilibili_router.get("/qrcode")
-def get_bilibili_qrcode():
+def get_bilibili_qrcode(sid: str = Depends(resolve_session_id)):
     """生成扫码登录二维码数据"""
-    return bilibili_uploader.generate_qrcode()
+    uploader = get_uploader_for_session("bilibili", sid)
+    return uploader.generate_qrcode()
 
 
 @bilibili_router.get("/qrcode/poll")
-def poll_bilibili_qrcode(key: str):
+def poll_bilibili_qrcode(key: str, sid: str = Depends(resolve_session_id)):
     """轮询扫码登录状态"""
-    return bilibili_uploader.poll_qrcode(key)
+    uploader = get_uploader_for_session("bilibili", sid)
+    return uploader.poll_qrcode(key)
 
 
 @bilibili_router.post("/logout")
-def logout_bilibili():
+def logout_bilibili(sid: str = Depends(resolve_session_id)):
     """退出登录并清理凭证"""
-    return bilibili_uploader.logout()
+    uploader = get_uploader_for_session("bilibili", sid)
+    return uploader.logout()
 
 
 @bilibili_router.post("/publish")
-def start_publish_task(req: BiliPublishRequest, background_tasks: BackgroundTasks):
+def start_publish_task(
+    req: BiliPublishRequest,
+    background_tasks: BackgroundTasks,
+    sid: str = Depends(resolve_session_id),
+):
     """创建异步发布稿件任务"""
-    if not bilibili_uploader.is_configured:
+    uploader = get_uploader_for_session("bilibili", sid)
+    if not uploader.is_configured:
         raise HTTPException(400, "尚未登录 B 站账号，请先使用哔哩哔哩 App 扫码登录")
 
     task_id = uuid.uuid4().hex[:12]
     with tasks_lock:
         publish_tasks[task_id] = {
             "id": task_id,
+            "session_id": sid,
             "status": "pending",
             "progress": 0.01,
             "message": "发布任务排队中...",
@@ -675,7 +687,7 @@ def start_publish_task(req: BiliPublishRequest, background_tasks: BackgroundTask
                     publish_tasks[task_id]["status"] = "uploading" if pct < 0.95 else "submitting"
 
         try:
-            res = bilibili_uploader.publish_video(
+            res = uploader.publish_video(
                 video_source=req.video_source,
                 title=req.title,
                 desc=req.desc,
@@ -685,11 +697,28 @@ def start_publish_task(req: BiliPublishRequest, background_tasks: BackgroundTask
                 dynamic=req.dynamic,
                 progress_callback=_cb,
             )
+            res = res or {}
+            is_failed = res.get("success") is False or res.get("status") == "error"
+            is_review = (
+                res.get("status") in ["under_review", "reviewing", "pending_review"]
+                or res.get("is_review") is True
+                or ("审核" in str(res.get("message", "")))
+            )
+
             with tasks_lock:
-                publish_tasks[task_id]["status"] = "completed"
                 publish_tasks[task_id]["progress"] = 1.0
-                publish_tasks[task_id]["message"] = f"发布成功！BV号: {res.get('bvid')}"
                 publish_tasks[task_id]["result"] = res
+                if is_failed:
+                    publish_tasks[task_id]["status"] = "error"
+                    publish_tasks[task_id]["message"] = res.get("message", "发布失败")
+                    publish_tasks[task_id]["error"] = res.get("message", "平台返回失败")
+                elif is_review:
+                    publish_tasks[task_id]["status"] = "under_review"
+                    publish_tasks[task_id]["message"] = res.get("message", "提交成功，正在审核中")
+                else:
+                    publish_tasks[task_id]["status"] = "completed"
+                    publish_tasks[task_id]["message"] = f"发布成功！BV号: {res.get('bvid', '')}"
+
         except Exception as e:
             logger.error(f"B站任务 {task_id} 异常: {e}")
             with tasks_lock:

@@ -23,8 +23,10 @@ from pathlib import Path
 from typing import Callable, Optional, Union
 
 import requests
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from src.session_manager import get_uploader_for_session, resolve_session_id
 
 logger = logging.getLogger("xiaohongshu_uploader")
 
@@ -743,45 +745,56 @@ class XhsPublishRequest(BaseModel):
 
 
 @xiaohongshu_router.get("/status")
-def get_xhs_status():
+def get_xhs_status(sid: str = Depends(resolve_session_id)):
     """获取当前小红书创作者账号状态"""
-    return xiaohongshu_uploader.get_account_status()
+    uploader = get_uploader_for_session("xiaohongshu", sid)
+    return uploader.get_account_status()
 
 
 @xiaohongshu_router.get("/qrcode")
-def get_xhs_qrcode():
+def get_xhs_qrcode(sid: str = Depends(resolve_session_id)):
     """生成小红书扫码登录二维码"""
-    return xiaohongshu_uploader.generate_qrcode()
+    uploader = get_uploader_for_session("xiaohongshu", sid)
+    return uploader.generate_qrcode()
 
 
 @xiaohongshu_router.get("/qrcode/poll")
-def poll_xhs_qrcode(session_id: str):
+def poll_xhs_qrcode(session_id: str, sid: str = Depends(resolve_session_id)):
     """轮询小红书扫码登录状态"""
-    return xiaohongshu_uploader.poll_qrcode(session_id)
+    uploader = get_uploader_for_session("xiaohongshu", sid)
+    return uploader.poll_qrcode(session_id)
 
 
 @xiaohongshu_router.post("/browser-login")
-def open_xhs_browser_login():
+def open_xhs_browser_login(sid: str = Depends(resolve_session_id)):
     """打开本地 Chrome 浏览器窗口完成小红书登录"""
-    return xiaohongshu_uploader.launch_browser_login()
+    uploader = get_uploader_for_session("xiaohongshu", sid)
+    return uploader.launch_browser_login()
 
 
 @xiaohongshu_router.post("/logout")
-def logout_xhs():
+def logout_xhs(sid: str = Depends(resolve_session_id)):
     """退出小红书登录并清理凭据"""
-    return xiaohongshu_uploader.logout()
+    uploader = get_uploader_for_session("xiaohongshu", sid)
+    return uploader.logout()
 
 
 @xiaohongshu_router.post("/publish")
-def start_xhs_publish_task(req: XhsPublishRequest, background_tasks: BackgroundTasks):
+def start_xhs_publish_task(
+    req: XhsPublishRequest,
+    background_tasks: BackgroundTasks,
+    sid: str = Depends(resolve_session_id),
+):
     """创建异步发布小红书视频笔记任务"""
-    if not xiaohongshu_uploader.is_configured:
+    uploader = get_uploader_for_session("xiaohongshu", sid)
+    if not uploader.is_configured:
         raise HTTPException(400, "尚未登录小红书账号，请先使用小红书 App 扫码登录")
 
     task_id = uuid.uuid4().hex[:12]
     with xhs_tasks_lock:
         xhs_publish_tasks[task_id] = {
             "id": task_id,
+            "session_id": sid,
             "status": "pending",
             "progress": 0.01,
             "message": "小红书发布任务排队中...",
@@ -799,7 +812,7 @@ def start_xhs_publish_task(req: XhsPublishRequest, background_tasks: BackgroundT
                     xhs_publish_tasks[task_id]["status"] = "uploading" if pct < 0.95 else "submitting"
 
         try:
-            res = xiaohongshu_uploader.publish_video(
+            res = uploader.publish_video(
                 video_source=req.video_source,
                 title=req.title,
                 desc=req.desc,
@@ -807,11 +820,28 @@ def start_xhs_publish_task(req: XhsPublishRequest, background_tasks: BackgroundT
                 cover_source=req.cover_source,
                 progress_callback=_cb,
             )
+            res = res or {}
+            is_failed = res.get("success") is False or res.get("status") == "error"
+            is_review = (
+                res.get("status") in ["under_review", "reviewing", "pending_review"]
+                or res.get("is_review") is True
+                or ("审核" in str(res.get("message", "")))
+            )
+
             with xhs_tasks_lock:
-                xhs_publish_tasks[task_id]["status"] = "completed"
                 xhs_publish_tasks[task_id]["progress"] = 1.0
-                xhs_publish_tasks[task_id]["message"] = res.get("message", "发布成功")
                 xhs_publish_tasks[task_id]["result"] = res
+                if is_failed:
+                    xhs_publish_tasks[task_id]["status"] = "error"
+                    xhs_publish_tasks[task_id]["message"] = res.get("message", "发布失败")
+                    xhs_publish_tasks[task_id]["error"] = res.get("message", "平台返回失败")
+                elif is_review:
+                    xhs_publish_tasks[task_id]["status"] = "under_review"
+                    xhs_publish_tasks[task_id]["message"] = res.get("message", "提交成功，正在审核中")
+                else:
+                    xhs_publish_tasks[task_id]["status"] = "completed"
+                    xhs_publish_tasks[task_id]["message"] = res.get("message", "发布成功")
+
         except Exception as e:
             logger.error(f"小红书任务 {task_id} 异常: {e}")
             with xhs_tasks_lock:

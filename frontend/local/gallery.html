@@ -895,7 +895,11 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       <div style="margin-bottom:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
           <label class="form-label" style="margin:0">目标发布平台 (点击卡片可快速扫码登录或勾选)</label>
-          <button id="syndicate-refresh-status" class="btn-action" style="font-size:11px;padding:2px 8px">🔄 刷新账号状态</button>
+          <div style="display:flex;gap:6px;align-items:center">
+            <span style="font-size:11px;padding:2px 8px;border-radius:12px;background:rgba(7,193,96,0.15);color:#07C160;border:1px solid rgba(7,193,96,0.3)">🔒 会话沙箱隔离</span>
+            <button onclick="clearMySessionData()" class="btn-action" style="font-size:11px;padding:2px 8px;color:#f87171" title="从云端彻底擦除当前绑定的所有平台登录凭据">🧹 清理我的凭据</button>
+            <button id="syndicate-refresh-status" class="btn-action" style="font-size:11px;padding:2px 8px">🔄 刷新</button>
+          </div>
         </div>
         <div id="syndicate-platform-grid" class="platform-grid">
           <!-- 动态渲染各平台卡片 -->
@@ -1067,6 +1071,28 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
     let allVideos = [];
     let currentFilter = 'all';
     let r2Configured = false;
+
+    // ── 多租户会话沙箱识别 (Scheme B Session Isolation) ──
+    function getSessionId() {
+      let sid = localStorage.getItem('m2v_session_id');
+      if (!sid || !/^[a-zA-Z0-9_\-]{8,64}$/.test(sid)) {
+        sid = 'm2v_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
+        localStorage.setItem('m2v_session_id', sid);
+      }
+      return sid;
+    }
+
+    async function apiFetch(url, options = {}) {
+      options = options || {};
+      options.headers = options.headers || {};
+      const sid = getSessionId();
+      if (options.headers instanceof Headers) {
+        options.headers.set('X-Session-ID', sid);
+      } else {
+        options.headers['X-Session-ID'] = sid;
+      }
+      return fetch(url, options);
+    }
 
     function showToast(text) {
       const toast = $('toast');
@@ -1373,7 +1399,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
 
     async function refreshBiliAuth() {
       try {
-        const res = await fetch('/api/bilibili/status');
+        const res = await apiFetch('/api/bilibili/status');
         const data = await res.json();
         if (data.is_logged_in) {
           $('bili-user-avatar').src = data.face || 'https://static.hdslb.com/images/member/noface.gif';
@@ -1395,7 +1421,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       if (biliPollTimer) clearInterval(biliPollTimer);
       $('bili-qr-status').textContent = '正在生成二维码...';
       try {
-        const res = await fetch('/api/bilibili/qrcode');
+        const res = await apiFetch('/api/bilibili/qrcode');
         const data = await res.json();
         if (!data.success) {
           $('bili-qr-status').textContent = '生成二维码失败: ' + (data.message || '网络异常');
@@ -1406,7 +1432,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
 
         biliPollTimer = setInterval(async () => {
           try {
-            const pRes = await fetch(`/api/bilibili/qrcode/poll?key=${data.qrcode_key}`);
+            const pRes = await apiFetch(`/api/bilibili/qrcode/poll?key=${data.qrcode_key}`);
             const pData = await pRes.json();
             if (pData.code === 0) {
               clearInterval(biliPollTimer);
@@ -1428,7 +1454,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
     async function logoutBili() {
       if (!confirm('确定要退出当前 B 站账号吗？')) return;
       try {
-        await fetch('/api/bilibili/logout', { method: 'POST' });
+        await apiFetch('/api/bilibili/logout', { method: 'POST' });
         showToast('已退出 B 站登录');
         await refreshBiliAuth();
       } catch (err) {
@@ -1455,7 +1481,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       $('bili-progress-msg').textContent = '正在向服务器创建发布任务...';
 
       try {
-        const res = await fetch('/api/bilibili/publish', {
+        const res = await apiFetch('/api/bilibili/publish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1481,7 +1507,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       if (biliTaskTimer) clearInterval(biliTaskTimer);
       biliTaskTimer = setInterval(async () => {
         try {
-          const res = await fetch(`/api/bilibili/tasks/${taskId}`);
+          const res = await apiFetch(`/api/bilibili/tasks/${taskId}`);
           const task = await res.json();
           if (task.status === 'completed') {
             clearInterval(biliTaskTimer);
@@ -1523,9 +1549,26 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
     let syndicateTaskTimer = null;
     let currentQrPlatform = null;
 
+    async function clearMySessionData() {
+      if (!confirm('确定要从云端服务器彻底抹除您当前会话绑定的所有平台登录凭据吗？（阅后即焚，不留存）')) return;
+      try {
+        const res = await apiFetch('/api/syndicate/session/clear', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('🎉 云端凭据与沙箱数据已物理清除！');
+          localStorage.removeItem('m2v_session_id');
+          await loadSyndicateStatus();
+        } else {
+          alert('清除失败: ' + (data.message || '未知错误'));
+        }
+      } catch (err) {
+        alert('请求异常: ' + err.message);
+      }
+    }
+
     async function loadSyndicateStatus() {
       try {
-        const res = await fetch('/api/syndicate/status');
+        const res = await apiFetch('/api/syndicate/status');
         const data = await res.json();
         syndicatePlatforms = data.platforms || {};
         renderSyndicatePlatformGrid();
@@ -1619,7 +1662,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       }
 
       try {
-        const res = await fetch(`/api/${pid}/qrcode`);
+        const res = await apiFetch(`/api/${pid}/qrcode`);
         const data = await res.json();
 
         // 若服务端检测到该平台已经登录
@@ -1647,7 +1690,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
         syndicateQrTimer = setInterval(async () => {
           try {
             const pollUrl = pid === 'bilibili' ? `/api/bilibili/qrcode/poll?key=${sessionId}` : `/api/${pid}/qrcode/poll?session_id=${sessionId}`;
-            const pRes = await fetch(pollUrl);
+            const pRes = await apiFetch(pollUrl);
             const pData = await pRes.json();
             
             const isSuccess = (pid === 'bilibili' && pData.code === 0) || pData.status === 'success' || pData.is_logged_in;
@@ -1675,7 +1718,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
     async function launchBrowserLoginForCurrentPlatform() {
       if (!currentQrPlatform) return;
       try {
-        await fetch(`/api/${currentQrPlatform}/browser-login`, { method: 'POST' });
+        await apiFetch(`/api/${currentQrPlatform}/browser-login`, { method: 'POST' });
         showToast('已打开系统 Chrome 窗口，请在浏览器中登录');
       } catch (err) {
         alert('启动浏览器失败: ' + err.message);
@@ -1686,7 +1729,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       const token = prompt('请输入 Google YouTube OAuth2 Access Token (可在 Google Cloud Console 获取):');
       if (!token) return;
       try {
-        const res = await fetch('/api/youtube/token', {
+        const res = await apiFetch('/api/youtube/token', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ access_token: token.trim() })
@@ -1708,7 +1751,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       const p = syndicatePlatforms[pid];
       if (!confirm(`确定要退出 ${p ? p.name : pid} 账号登录吗？`)) return;
       try {
-        await fetch(`/api/${pid}/logout`, { method: 'POST' });
+        await apiFetch(`/api/${pid}/logout`, { method: 'POST' });
         showToast(`已退出 ${p ? p.name : pid} 登录`);
         await loadSyndicateStatus();
       } catch (err) {
@@ -1799,7 +1842,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       }).join('');
 
       try {
-        const res = await fetch('/api/syndicate/publish', {
+        const res = await apiFetch('/api/syndicate/publish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1825,7 +1868,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       if (syndicateTaskTimer) clearInterval(syndicateTaskTimer);
       syndicateTaskTimer = setInterval(async () => {
         try {
-          const res = await fetch(`/api/syndicate/tasks/${taskId}`);
+          const res = await apiFetch(`/api/syndicate/tasks/${taskId}`);
           const task = await res.json();
 
           const overallPct = Math.round((task.overall_progress || 0) * 100);
@@ -1847,6 +1890,10 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
               badge.textContent = '🎉 发布成功';
               badge.style.color = '#07C160';
               badge.style.fontWeight = '600';
+            } else if (s.status === 'under_review') {
+              badge.textContent = '⏳ 审核中';
+              badge.style.color = '#f59e0b';
+              badge.style.fontWeight = '600';
             } else if (s.status === 'error') {
               badge.textContent = '❌ 发布失败';
               badge.style.color = '#FF2442';
@@ -1857,10 +1904,16 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
             }
           }
 
-          if (task.status === 'completed' || task.status === 'error') {
+          if (task.status === 'completed' || task.status === 'partial_success' || task.status === 'error') {
             clearInterval(syndicateTaskTimer);
             $('syndicate-btn-done').style.display = 'block';
-            showToast('🎉 全网多发任务处理完毕！');
+            if (task.status === 'completed') {
+              showToast('🎉 全网多发任务全部发布成功！');
+            } else if (task.status === 'partial_success') {
+              showToast('⚠️ 全网多发任务处理完毕 (部分平台待审核或失败)');
+            } else {
+              showToast('❌ 全网多发任务发布遇到错误');
+            }
           }
         } catch (e) {}
       }, 1500);
