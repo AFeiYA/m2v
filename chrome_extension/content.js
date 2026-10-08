@@ -195,7 +195,7 @@
         // Read the selected track at click time, rather than cached song state.
         const track = await requestCurrentTrack();
         const response = await new Promise((resolve, reject) => {
-          chrome.runtime.sendMessage({ action: "DOWNLOAD_TRACK_MP3", track }, result => {
+          chrome.runtime.sendMessage({ action: "DOWNLOAD_TRACK_MP3", track, serverUrl: activeServerUrl }, result => {
             if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
             else if (result?.status !== "ok") reject(new Error(result?.message || "无法启动 MP3 下载"));
             else resolve(result);
@@ -377,7 +377,10 @@
   // 接收来自 popup.js 的消息
   if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-      if (request.action === "EXPORT_PROGRESS") {
+      if (request.action === "MP3_PROGRESS") {
+        showToast("正在准备 MP3", request.task.message || "正在转换音轨…", true, "MP3 音轨");
+        sendResponse({ status: "ok" });
+      } else if (request.action === "EXPORT_PROGRESS") {
         showToast(request.task.message || "正在处理视频…",
           `任务：${request.task.task_id}${Number.isFinite(request.task.progress) ? ` · ${Math.round(request.task.progress)}%` : ""}`);
         sendResponse({ status: "ok" });

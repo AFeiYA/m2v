@@ -86,9 +86,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     songNameEl.textContent = response.title || "未知曲目";
-    btnDownloadMp3.disabled = !response.audioUrl;
-    btnDownloadMp3.title = response.audioUrl ? "下载当前曲目的原始 MP3" : "请刷新页面并播放目标歌曲，让插件识别音频地址";
-    if (!response.audioUrl) downloadStatus.textContent = "尚未检测到 MP3 地址，请刷新页面并播放目标歌曲。";
+    btnDownloadMp3.disabled = !response.audioUrl && !response.songId;
+    btnDownloadMp3.title = response.audioUrl ? "下载当前曲目的原始 MP3" : "从 MP4 提取音轨并转换为 MP3，需要后台服务";
+    if (!response.audioUrl) downloadStatus.textContent = "无原始 MP3 地址时，将通过所选后台提取 MP4 音轨，不进行歌词对齐。";
 
     if (response.is_public === false) {
       publishStatusEl.innerHTML = '<span style="color: #f59e0b;">⚠️ 未公开 (需在 Suno 点击 Publish)</span>';
@@ -113,7 +113,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         return;
       }
       songNameEl.textContent = track.title || "未知曲目";
-      chrome.runtime.sendMessage({ action: "DOWNLOAD_TRACK_MP3", track }, (response) => {
+      chrome.runtime.sendMessage({ action: "DOWNLOAD_TRACK_MP3", track, serverUrl: serverInput.value }, (response) => {
         const error = chrome.runtime.lastError;
         downloadStatus.textContent = error ? `下载失败：${error.message}` :
           response?.status === "ok" ? `已开始下载 ${response.data.filename}，进度请查看 Chrome 下载列表。` :

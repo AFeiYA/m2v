@@ -154,7 +154,7 @@ async function exportVideoAndDownload(blob, track, serverUrl, section = "", dura
 }
 
 // Download original MP3 independently of the alignment/rendering server.
-async function downloadTrackMp3(track) {
+async function downloadOriginalMp3(track) {
   if (!track || !track.audioUrl) {
     throw new Error("未检测到歌曲的 MP3 地址，请刷新 Suno 页面并播放目标歌曲后再试。");
   }
@@ -212,6 +212,35 @@ async function downloadTrackMp3(track) {
   return { downloadId, filename };
 }
 
+// Original MP3 first; if absent/denied or actually MP4, use the backend's
+// existing Suno MP4 audio extraction without running separation/alignment.
+async function downloadTrackMp3(track, serverUrl, onProgress = () => {}) {
+  try {
+    return await downloadOriginalMp3(track);
+  } catch (error) {
+    const recoverable = !track?.audioUrl || /HTTP (403|404)|不是 MP3/.test(error.message);
+    if (!track?.songId || !recoverable) throw error;
+  }
+  const targetServer = (serverUrl || "https://mv.fovea.si").replace(/\/+$/, "");
+  onProgress({ message: "正在通过后台提取 MP4 音轨并转换 MP3，无需歌词对齐…" });
+  const form = new FormData();
+  form.append("song_id", track.songId);
+  form.append("title", track.title || "Suno_Track");
+  const data = await readServerResponse(await fetch(`${targetServer}/api/plugin/export_audio`, { method: "POST", body: form }));
+  if (!data.task_id) throw new Error("后台未返回音频任务编号");
+  const result = await pollLyricVideoTask(targetServer, data.task_id, onProgress);
+  if (!result.download_url) throw new Error("后台未返回 MP3 下载地址");
+  const downloadId = await new Promise((resolve, reject) => {
+    chrome.downloads.download({ url: new URL(result.download_url, targetServer).href,
+      filename: result.filename, saveAs: false, conflictAction: "uniquify" }, id => {
+      if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+      else if (id === undefined) reject(new Error("浏览器未能启动 MP3 下载"));
+      else resolve(id);
+    });
+  });
+  return { downloadId, filename: result.filename, converted: true };
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   const onProgress = (task) => {
     if (sender.tab?.id !== undefined) chrome.tabs.sendMessage(sender.tab.id,
@@ -226,7 +255,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
   if (request.action === "DOWNLOAD_TRACK_MP3") {
-    downloadTrackMp3(request.track)
+    downloadTrackMp3(request.track, request.serverUrl, task => {
+      if (sender.tab?.id !== undefined) chrome.tabs.sendMessage(sender.tab.id,
+        { action: "MP3_PROGRESS", task }, () => { void chrome.runtime.lastError; });
+    })
       .then((data) => sendResponse({ status: "ok", data }))
       .catch((error) => sendResponse({ status: "error", message: error.message }));
     return true;

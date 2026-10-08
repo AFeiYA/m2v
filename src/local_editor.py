@@ -304,6 +304,68 @@ def api_get_gpu_status():
 
 
 
+@app.post("/api/plugin/export_audio")
+async def plugin_export_audio(song_id: str = Form(...), title: str = Form("Suno_Track")):
+    """Download the song's audio, including the existing MP4 fallback, without AI."""
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", song_id):
+        raise HTTPException(400, "歌曲编号无效")
+    scan_dir = _get_scan_dir()
+    task_id = f"audio_{uuid.uuid4().hex}"
+    _lyric_video_tasks[task_id] = {
+        "task_id": task_id, "title": title, "status": "pending", "progress": 0,
+        "phase": "audio", "message": "正在准备音频下载…", "result": None, "error": None,
+    }
+
+    def worker():
+        import tempfile
+        import subprocess
+        from urllib.parse import quote
+        from src.suno_fetch import download_song, _sanitize_filename
+        from src.utils import get_ffmpeg_binary
+        task = _lyric_video_tasks[task_id]
+        try:
+            task.update(status="running", progress=5, message="正在下载歌曲音频，直链不可用时从 MP4 提取音轨…")
+            folder = scan_dir / "_plugin_audio" / task_id
+            folder.mkdir(parents=True, exist_ok=True)
+            filename = (_sanitize_filename(title) or "Suno_Track") + ".mp3"
+            output = folder / filename
+            route = "song" if re.fullmatch(r"[0-9a-fA-F-]{36}", song_id) else "s"
+            with tempfile.TemporaryDirectory(prefix="source_", dir=folder) as tmp:
+                source, _, _, _ = download_song(f"https://suno.com/{route}/{song_id}", Path(tmp), save_json=False)
+                if source is None or not source.exists():
+                    raise RuntimeError("未能获取可解码的歌曲音频或 MP4 音轨，请确认当前歌曲可访问。")
+                with source.open("rb") as handle:
+                    header = handle.read(4)
+                mp3_header = header[:3] == b"ID3" or (
+                    len(header) == 4 and header[0] == 255 and header[1] & 0xE0 == 0xE0
+                    and header[1] & 6 == 2 and header[1] & 0x18 != 8
+                )
+                if mp3_header:
+                    # download_song already encoded the MP4 audio to MP3.
+                    # Preserve those bytes instead of adding another lossy encode.
+                    task.update(progress=90, message="MP3 音频已提取，正在准备下载…")
+                    shutil.copy2(source, output)
+                else:
+                    task.update(progress=75, message="正在将音轨转换为 MP3（不进行人声分离或歌词对齐）…")
+                    result = subprocess.run(
+                        [get_ffmpeg_binary(), "-y", "-i", str(source), "-map", "0:a:0",
+                         "-vn", "-c:a", "libmp3lame", "-b:a", "192k", str(output)],
+                        capture_output=True, text=True, timeout=180,
+                    )
+                    if result.returncode or not output.exists() or output.stat().st_size == 0:
+                        raise RuntimeError(f"MP3 音轨转换失败: {result.stderr[-300:]}")
+            task.update(result={
+                "download_url": f"/api/asset_file?download=true&filename={quote(filename)}&path={encode_path(str(output.absolute()))}",
+                "filename": filename,
+            }, status="completed", progress=100, message="MP3 音频已就绪")
+        except Exception as exc:
+            log.exception("插件音频导出失败: %s", task_id)
+            task.update(status="failed", error=str(exc), message=f"音频导出失败: {exc}")
+    threading.Thread(target=worker, daemon=True).start()
+    return {"status": "pending", "task_id": task_id}
+
+
 @app.post("/api/plugin/export_video")
 async def plugin_direct_export_video(
     audio_file: UploadFile = File(None),
