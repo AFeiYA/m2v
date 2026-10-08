@@ -10,6 +10,24 @@
   let capturePending = false;
   let captureStarting = false;
   let captureTimer;
+  let trackInterval;
+  let routeObserver;
+  let stopped = false;
+  function contextActive() {
+    if (stopped) return false;
+    try {
+      if (chrome.runtime.id) return true;
+    } catch (_) { /* Reloading the extension invalidates the old page script. */ }
+    stopped = true;
+    clearInterval(trackInterval);
+    clearTimeout(captureTimer);
+    capturePending = false;
+    routeObserver?.disconnect();
+    document.getElementById("fovea-suno-floating-btn")?.remove();
+    document.getElementById("fovea-section-dropdown")?.remove();
+    showToast("Extension updated", "Refresh this Suno page to reconnect the MP3 / MP4 controls.", false, "Fovea MV");
+    return false;
+  }
   function applyBarPreferences() {
     const bar = document.getElementById("fovea-suno-floating-btn");
     if (!bar) return;
@@ -129,6 +147,7 @@
 
   // 2. 注入悬浮分段胶囊按钮与乐段切换下拉菜单 (方案 A)
   function injectFloatingButton() {
+    if (!contextActive()) return;
     if (document.getElementById("fovea-suno-floating-btn")) return;
 
     const btn = document.createElement("div");
@@ -154,6 +173,7 @@
     document.body.appendChild(btn);
     applyBarPreferences();
     btn.querySelector(".fovea-collapse").addEventListener("click", event => {
+      if (!contextActive()) return;
       event.stopPropagation();
       collapsed = !collapsed;
       applyBarPreferences();
@@ -200,6 +220,7 @@
       // 下拉项点击切换
       dropdown.querySelectorAll(".fovea-dropdown-item").forEach((it) => {
         it.addEventListener("click", (e) => {
+          if (!contextActive()) return;
           e.stopPropagation();
           currentSection = it.dataset.section || "chorus";
           currentDuration = Number(it.dataset.duration || 30);
@@ -236,15 +257,19 @@
 
     const mp3Button = btn.querySelector(".fovea-btn-mp3");
     mp3Button.addEventListener("click", async (event) => {
+      if (!contextActive()) return;
       event.stopPropagation();
       mp3Button.disabled = true;
       mp3Button.textContent = "Checking…";
       try {
         // Read the selected track at click time, rather than cached song state.
         const track = await requestCurrentTrack();
+        if (!contextActive()) return;
         if (track.is_public === false) throw new Error("Song is not published. Publish it in Suno first.");
         if (!await FoveaUI.consent(activeServerUrl, "audio")) return;
+        if (!contextActive()) return;
         await FoveaUI.allowAudio(track);
+        if (!contextActive()) return;
         const response = await new Promise((resolve, reject) => {
           chrome.runtime.sendMessage({ action: "DOWNLOAD_TRACK_MP3", track, serverUrl: activeServerUrl }, result => {
             if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
@@ -273,7 +298,9 @@
     }
 
     // 定期向 MAIN world 的 inject.js 请求精准的当前歌曲信息 (避开页面 h1 干扰)
-    setInterval(() => {
+    clearInterval(trackInterval);
+    trackInterval = setInterval(() => {
+      if (!contextActive()) return;
       window.postMessage({ type: "FOVEA_QUERY_TRACK_INFO" }, "*");
     }, 1500);
     window.postMessage({ type: "FOVEA_QUERY_TRACK_INFO" }, "*");
@@ -299,12 +326,17 @@
 
   // 3. 触发捕获流程: 向 MAIN World 的 inject.js 发送请求
   async function triggerCapture() {
+    if (!contextActive()) return;
     const btn = document.getElementById("fovea-suno-floating-btn");
     if (captureStarting || btn?.classList.contains("fovea-loading")) return;
     captureStarting = true;
     try {
       if (!await FoveaUI.consent(activeServerUrl, "video")) return;
+    } catch (error) {
+      if (contextActive()) showToast("Cannot create MP4", FoveaUI.error(error), false);
+      return;
     } finally { captureStarting = false; }
+    if (!contextActive()) return;
     if (btn) btn.classList.add("fovea-loading");
     capturePending = true;
     captureTimer = setTimeout(() => {
@@ -328,6 +360,7 @@
   // 4. 监听来自 inject.js (MAIN World) 的响应
   window.addEventListener("message", (event) => {
     if (event.source !== window || !event.data) return;
+    if (!contextActive()) return;
 
     // 实时同步当前检测到的曲目名称
     if (event.data.type === "FOVEA_REPORT_TRACK_INFO" && event.data.track) {
@@ -426,11 +459,13 @@
 
   // SPA 路由变化检测
   let lastUrl = location.href;
-  new MutationObserver(() => {
+  routeObserver = new MutationObserver(() => {
+    if (!contextActive()) return;
     const url = location.href;
     if (url !== lastUrl) {
       lastUrl = url;
       injectFloatingButton();
     }
-  }).observe(document, { subtree: true, childList: true });
+  });
+  routeObserver.observe(document, { subtree: true, childList: true });
 })();

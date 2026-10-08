@@ -30,7 +30,7 @@ def test_floating_controls_submit_current_song_and_remember_visibility():
                         },
                     }},
                     permissions: { contains: async () => true },
-                    runtime: { onMessage: { addListener: () => {} }, sendMessage: (request, callback) => {
+                    runtime: { id: 'test-extension', onMessage: { addListener: () => {} }, sendMessage: (request, callback) => {
                         requests.push(request); callback({status: 'ok'});
                     }},
                 };
@@ -57,5 +57,17 @@ def test_floating_controls_submit_current_song_and_remember_visibility():
             assert page.locator('#fovea-suno-floating-btn').is_visible()
             box = page.locator('#fovea-suno-floating-btn').bounding_box()
             assert box['x'] >= 0 and box['x'] + box['width'] <= 375
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.evaluate('''() => {
+                Object.defineProperty(chrome.runtime, 'id', { get() { throw new Error('Extension context invalidated.'); } });
+                window.postMessage({type: 'FOVEA_CAPTURE_BY_SONG_ID', track: {songId: 'stale'}}, '*');
+            }''')
+            page.wait_for_function('!document.getElementById("fovea-suno-floating-btn")')
+            assert 'Refresh this Suno page' in page.locator('#fovea-toast-overlay').inner_text()
+            page.evaluate('document.body.appendChild(document.createElement("div"))')
+            page.wait_for_timeout(1700)
+            assert page.evaluate('requests.length') == 1
+            assert errors == []
         finally:
             browser.close()
