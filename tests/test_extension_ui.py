@@ -16,7 +16,7 @@ def test_floating_controls_submit_current_song_and_remember_visibility():
             page.on('dialog', lambda dialog: dialog.accept())
             page.set_content('<body></body>')
             page.evaluate('''() => {
-                window.saved = {}; window.changes = []; window.requests = [];
+                window.saved = {}; window.changes = []; window.requests = []; window.runtimeListeners = [];
                 window.chrome = {
                     storage: { onChanged: { addListener: fn => changes.push(fn) }, local: {
                         get: (keys, cb) => {
@@ -30,7 +30,7 @@ def test_floating_controls_submit_current_song_and_remember_visibility():
                         },
                     }},
                     permissions: { contains: async () => true },
-                    runtime: { id: 'test-extension', onMessage: { addListener: () => {} }, sendMessage: (request, callback) => {
+                    runtime: { id: 'test-extension', onMessage: { addListener: fn => runtimeListeners.push(fn) }, sendMessage: (request, callback) => {
                         requests.push(request); callback({status: 'ok'});
                     }},
                 };
@@ -51,8 +51,18 @@ def test_floating_controls_submit_current_song_and_remember_visibility():
             page.wait_for_function('requests.length === 1')
             assert page.evaluate('requests[0].action') == 'EXPORT_VIDEO_BY_SONG_ID'
             assert page.evaluate('requests[0].track.songId') == 'song-b'
+            page.locator('.fovea-collapse').click()
+            assert page.locator('#fovea-toast-overlay').is_hidden()
+            page.evaluate('''runtimeListeners[0]({action: 'EXPORT_PROGRESS', task: {
+                task_id: 'job-b', phase: 'rendering', progress: 70
+            }}, {}, () => {})''')
+            assert page.locator('#fovea-toast-overlay').is_hidden()
+            page.locator('.fovea-collapse').click()
+            assert page.locator('#fovea-toast-overlay').is_visible()
+            assert '70%' in page.locator('#fovea-toast-overlay').inner_text()
             page.evaluate('chrome.storage.local.set({barHidden: true})')
             assert page.locator('#fovea-suno-floating-btn').is_hidden()
+            assert page.locator('#fovea-toast-overlay').is_hidden()
             page.evaluate('chrome.storage.local.set({barHidden: false})')
             assert page.locator('#fovea-suno-floating-btn').is_visible()
             box = page.locator('#fovea-suno-floating-btn').bounding_box()

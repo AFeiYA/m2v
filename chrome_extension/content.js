@@ -10,6 +10,8 @@
   let capturePending = false;
   let captureStarting = false;
   let captureTimer;
+  let toastVisible = false;
+  let toastTimer;
   let trackInterval;
   let routeObserver;
   let stopped = false;
@@ -29,6 +31,8 @@
     return false;
   }
   function applyBarPreferences() {
+    const overlay = document.getElementById("fovea-toast-overlay");
+    if (overlay) overlay.style.display = toastVisible && !collapsed && !floatingHidden ? "block" : "none";
     const bar = document.getElementById("fovea-suno-floating-btn");
     if (!bar) return;
     bar.classList.toggle("fovea-collapsed", collapsed);
@@ -60,6 +64,8 @@
 
   // 1. Toast 状态弹窗
   function showToast(title, desc, indeterminate = true, badge = "9:16 Lyric MP4") {
+    clearTimeout(toastTimer);
+    toastVisible = true;
     let overlay = document.getElementById("fovea-toast-overlay");
     if (!overlay) {
       overlay = document.createElement("div");
@@ -80,11 +86,13 @@
     overlay.querySelector(".fovea-toast-heading").textContent = title;
     overlay.querySelector(".fovea-toast-badge").textContent = badge;
     overlay.querySelector(".fovea-toast-desc").textContent = desc;
-    overlay.style.display = "block";
+    overlay.style.display = collapsed || floatingHidden ? "none" : "block";
   }
 
   function hideToast(delayMs = 0) {
-    setTimeout(() => {
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toastVisible = false;
       const overlay = document.getElementById("fovea-toast-overlay");
       if (overlay) overlay.style.display = "none";
     }, delayMs);
