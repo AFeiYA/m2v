@@ -277,6 +277,34 @@ def test_anchor_stanzas_monotonic_repeated_chorus():
     assert p1_e <= p2_s, f"时间重叠违背单调性: p1_end={p1_e}, p2_start={p2_s}"
 
 
+def test_phonetic_tokens_normalize_quotes_for_lyrics_and_asr():
+    from src.aligner import tokenize_lyric_phonetic
+    expected = tokenize_lyric_phonetic("I'm pouring my drink; they're here.")
+    assert tokenize_lyric_phonetic("I’m pouring my drink; they’re here.") == expected
+    assert tokenize_lyric_phonetic("I‘m pouring my drink; they`re here.") == expected
+    assert tokenize_lyric_phonetic("\u2060I’m pouring my drink; they’re here.\u200b") == expected
+    assert [token['py'] for token in tokenize_lyric_phonetic("One, two—keep 'em flying high!")] == ['one', 'two', 'keep', 'em', 'flying', 'high']
+    assert [token['py'] for token in tokenize_lyric_phonetic("你好，世界！")] == ['ni', 'hao', 'shi', 'jie']
+
+
+def test_asr_anchors_use_same_apostrophe_normalization(monkeypatch, tmp_path):
+    import json
+    from types import SimpleNamespace
+    from src import aligner
+    audio = tmp_path / "song.wav"
+    audio.write_bytes(b"mock audio")
+    cache = tmp_path / ".song_asr_words.json"
+    cache.write_text(json.dumps({"version": 3, "words": [{"py": "stale"}], "meta": {
+        "mtime": audio.stat().st_mtime, "size": audio.stat().st_size, "language": "en", "model": "base"
+    }}))
+    monkeypatch.setattr(aligner, "_transcribe_whisper", lambda *args, **kwargs: ([
+        SimpleNamespace(words=[SimpleNamespace(word="I’m", start=1.0, end=1.4)])
+    ], None))
+    words = aligner.extract_asr_words(audio, aligner.AlignerConfig(whisper_model="base"), language="en")
+    assert words == [{"raw": "im", "py": "im", "start": 1.0, "end": 1.4}]
+    assert json.loads(cache.read_text())["version"] == 4
+
+
 def test_align_en_token_spans_apostrophe_exact_mapping():
     """验证英文带撇号缩写词 (Don't, It's, isn't) 的显式 token-to-target 映射，无跨度漂移"""
     import torchaudio
@@ -336,7 +364,5 @@ def test_align_en_token_spans_apostrophe_exact_mapping():
     assert dont_tok.strip() == "Don't"
     assert d_e - d_s == 5  # D, O, N, ', T
     assert l_s == 6  # 5 是 '|' 分隔符
-
-
 
 

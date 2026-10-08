@@ -446,6 +446,7 @@ def _audit_alignment(aligned: list[AlignedLine]) -> list[AlignedLine]:
 
 def tokenize_lyric_phonetic(text: str) -> list[dict]:
     """提取歌词行的发音 token (中文转拼音，英文转小写单词)"""
+    text = text.translate(str.maketrans({"’": "'", "‘": "'", "`": "'", "\u2060": "", "\u200b": "", "\ufeff": ""}))
     parts = re.findall(r'[\u4e00-\u9fff]|[a-zA-Z0-9\']+', text)
     tokens = []
     for p in parts:
@@ -486,8 +487,8 @@ def extract_asr_words(
                 lang_ok = (meta.get("language") == req_lang) or (not req_lang)
                 model_ok = meta.get("model") == (config.whisper_model if config else "large-v3")
                 size_ok = meta.get("size") == st.st_size
-                if data.get("version") == 3 and mtime_ok and lang_ok and model_ok and size_ok and cached_words:
-                    log.info("🎯 复用已缓存的 ASR 词级时间戳 (v3): %s (%d 个词, lang=%s)",
+                if data.get("version") == 4 and mtime_ok and lang_ok and model_ok and size_ok and cached_words:
+                    log.info("🎯 复用已缓存的 ASR 词级时间戳 (v4): %s (%d 个词, lang=%s)",
                              cache_path.name, len(cached_words), meta.get("language"))
                     return cached_words
         except Exception:
@@ -518,20 +519,12 @@ def extract_asr_words(
                 w_text = w.word.strip()
                 if not w_text:
                     continue
-                parts = re.findall(r'[\u4e00-\u9fff]|[a-zA-Z0-9\']+', w_text)
-                for p in parts:
-                    if '\u4e00' <= p <= '\u9fff':
-                        pys = pypinyin.lazy_pinyin(p)
-                        py = pys[0].lower() if pys else p.lower()
-                        asr_words.append({'raw': p, 'py': py, 'start': round(w.start, 3), 'end': round(w.end, 3)})
-                    else:
-                        clean = re.sub(r'[^a-zA-Z0-9]', '', p).lower()
-                        if clean:
-                            asr_words.append({'raw': clean, 'py': clean, 'start': round(w.start, 3), 'end': round(w.end, 3)})
+                for token in tokenize_lyric_phonetic(w_text):
+                    asr_words.append({**token, 'start': round(w.start, 3), 'end': round(w.end, 3)})
 
         if asr_words:
             cache_payload = {
-                "version": 3,
+                "version": 4,
                 "meta": {
                     "mtime": vocals_path.stat().st_mtime,
                     "size": vocals_path.stat().st_size,
