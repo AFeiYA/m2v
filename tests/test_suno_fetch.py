@@ -189,3 +189,9 @@ def test_clean_lyrics_removes_full_width_arrangement_and_keeps_sung_english():
     raw = "（Fast Kick + 电流噪声渐入）\nYo，Check it out\n左手在右手的左边\n（Bass Drop 前停顿）\n那里正在跳动\nLet’s go!（Drop）\n（Funky Bass + Groove Beat）"
     assert _clean_lyrics(raw).splitlines() == ["Yo，Check it out", "左手在右手的左边", "那里正在跳动", "Let’s go!"]
     assert _clean_lyrics("(Bass Drop)\n[Verse]\nHello world (Drop)\n[Vocal grit] 你好") == "Hello world\n你好"
+
+
+def test_clean_lyrics_preserves_invisible_stanza_separators():
+    from src.suno_fetch import _clean_lyrics
+    raw = "\u2060\nPhone buzzing twice\n\u2060\u2060\nYeah, a circus\n\u200b\nYeah, a circus\n\ufeff"
+    assert _clean_lyrics(raw) == "Phone buzzing twice\n\nYeah, a circus\n\nYeah, a circus"

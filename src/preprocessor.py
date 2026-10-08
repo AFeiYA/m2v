@@ -78,6 +78,9 @@ def preprocess_lyrics(
         config = PreprocessorConfig()
 
     raw_text = _read_file_auto_encoding(lyrics_path)
+    # Editor padding such as WORD JOINER must be removed before paragraph
+    # parsing. Otherwise visually blank separators merge all stanzas into one.
+    raw_text = raw_text.translate(str.maketrans("", "", "\u2060\u200b\ufeff"))
     log.info("读取歌词: %s (%d 字符)", lyrics_path.name, len(raw_text))
 
     # 判断格式

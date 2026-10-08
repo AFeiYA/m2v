@@ -28,6 +28,15 @@ def _write_temp(content: str, suffix: str = ".txt") -> Path:
 # TXT 解析
 # ---------------------------------------------------------------------------
 
+def test_invisible_blank_lines_preserve_stanzas_and_repeat_occurrence(tmp_path):
+    path = tmp_path / "song.txt"
+    path.write_text("\ufeffPhone buzzing twice\n\u2060\u2060\nYeah, a circus\n\u200b\nYeah, a circus", encoding="utf-8")
+    lines = preprocess_lyrics(path)
+    assert [line.text for line in lines] == ["Phone buzzing twice", "Yeah, a circus", "Yeah, a circus"]
+    assert [line.paragraph for line in lines] == [0, 1, 2]
+    assert [line.occurrence for line in lines] == [0, 0, 1]
+
+
 class TestParseTxt:
     def test_basic(self):
         lines = _parse_txt("第一行\n第二行\n第三行")

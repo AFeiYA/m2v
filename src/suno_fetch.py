@@ -454,6 +454,7 @@ def _clean_lyrics(prompt: str) -> str:
     过滤 [Verse 1]、[Chorus]、[Intro]、[Outro: ...]、[End] 等方括号标签，
     以及 (Ambient wind...) 等音效/乐器演奏指导，保留所有实际歌词。
     """
+    prompt = prompt.translate(str.maketrans("", "", "\u2060\u200b\ufeff"))
     lines = prompt.split('\n')
     result: list[str] = []
 
