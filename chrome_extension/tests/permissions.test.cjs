@@ -5,6 +5,24 @@ const vm = require('node:vm');
 const path = require('node:path');
 const manifest = require('../manifest.json');
 
+test('content scripts without permissions API leave audio permission checks to the worker', async () => {
+  const context = vm.createContext({ URL, chrome: {} });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../ui.js'), 'utf8'), context);
+  const track = {songId: 'selected', audioUrl: 'https://cdn1.suno.ai/song.mp3'};
+  await context.FoveaUI.allowAudio(track);
+  assert.equal(track.audioUrl, 'https://cdn1.suno.ai/song.mp3');
+});
+
+test('popup denial of extra audio-host access selects server fallback', async () => {
+  const context = vm.createContext({ URL, chrome: { permissions: {
+    contains: async () => false, request: async () => false,
+  } } });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../ui.js'), 'utf8'), context);
+  const track = {songId: 'selected', audioUrl: 'https://media.cloudfront.net/song.mp3'};
+  await context.FoveaUI.allowAudio(track);
+  assert.equal(track.audioUrl, '');
+});
+
 test('rights confirmation is song-specific, cancellable and does not claim verification', () => {
   const prompts = [];
   const context = vm.createContext({ confirm: text => { prompts.push(text); return false; } });

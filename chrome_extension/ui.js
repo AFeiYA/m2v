@@ -35,6 +35,9 @@ globalThis.FoveaUI = {
   },
   async allowAudio(track) {
     if (!track?.audioUrl) return;
+    // Chrome does not expose permissions to content scripts. The popup may
+    // request optional access; the worker checks existing grants for page clicks.
+    if (!chrome.permissions?.contains || !chrome.permissions?.request) return;
     const url = new URL(track.audioUrl);
     if (url.protocol !== "https:" || !["suno.ai", "suno.com", "cloudfront.net", "amazonaws.com"].some(host => url.hostname === host || url.hostname.endsWith(`.${host}`))) return;
     const permission = { origins: [url.origin + "/*"] };

@@ -33,6 +33,17 @@ function background(bytes, { status = 206, downloadError = null } = {}) {
 }
 const track = { title: '兔子洞 / Rabbit Hole', audioUrl: 'https://cdn1.suno.ai/song.mp3', is_public: true };
 
+test('worker refuses an ungranted audio host before fetching', async () => {
+  let fetched = false;
+  const context = vm.createContext({ URL, console,
+    chrome: { runtime: {onMessage: {addListener() {}}}, permissions: {contains: async () => false} },
+    fetch: async () => { fetched = true; },
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../background.js'), 'utf8'), context);
+  await assert.rejects(context.downloadOriginalMp3(track), /Audio-host access is not granted/);
+  assert.equal(fetched, false);
+});
+
 test('unpublished MP3 fails before any audio fetch or download', async () => {
   const bg = background([73, 68, 51]);
   assert.match((await bg.send({ ...track, is_public: false })).message, /not published/);

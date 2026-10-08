@@ -255,6 +255,9 @@ async function downloadOriginalMp3(track) {
   if (url.protocol !== "https:" || !allowedHost || url.username || url.password) {
     throw new Error("No trusted Suno audio URL detected.");
   }
+  if (chrome.permissions?.contains && !await chrome.permissions.contains({ origins: [url.origin + "/*"] })) {
+    throw new Error("Audio-host access is not granted. Open the extension popup to allow access, or use the selected server.");
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
@@ -324,7 +327,7 @@ async function downloadTrackMp3(track, serverUrl, onProgress = () => {}) {
   try {
     return await downloadOriginalMp3(track);
   } catch (error) {
-    const recoverable = !track?.audioUrl || /HTTP (403|404|429|5\d\d)|not MP3|Audio check timed out|Failed to fetch|NetworkError/i.test(error.message);
+    const recoverable = !track?.audioUrl || /HTTP (403|404|429|5\d\d)|not MP3|Audio check timed out|Failed to fetch|NetworkError|Audio-host access is not granted/i.test(error.message);
     if (!track?.songId || !recoverable) throw error;
   }
   const targetServer = safeServerUrl(serverUrl);

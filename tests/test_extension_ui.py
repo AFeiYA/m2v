@@ -31,10 +31,16 @@ def test_floating_controls_submit_current_song_and_remember_visibility():
                     }},
                     permissions: { contains: async () => true },
                     runtime: { id: 'test-extension', onMessage: { addListener: fn => runtimeListeners.push(fn) }, sendMessage: (request, callback) => {
-                        requests.push(request); callback({status: 'ok'});
+                        requests.push(request); callback({status: 'ok', data: {filename: 'B.mp3'}});
                     }},
                 };
                 window.addEventListener('message', event => {
+                    if (event.data.type === 'FOVEA_QUERY_TRACK_INFO') {
+                        window.postMessage({type: 'FOVEA_REPORT_TRACK_INFO', track: {
+                            songId: 'song-b', title: 'B', is_public: true,
+                            audioUrl: 'https://cdn1.suno.ai/song-b.mp3'
+                        }}, '*');
+                    }
                     if (event.data.type === 'FOVEA_CAPTURE_REQUEST') {
                         window.postMessage({type: 'FOVEA_CAPTURE_BY_SONG_ID', track: {songId: 'song-b', title: 'B'}, section: event.data.section, duration: event.data.duration}, '*');
                     }
@@ -72,6 +78,12 @@ def test_floating_controls_submit_current_song_and_remember_visibility():
             assert page.locator('#fovea-suno-floating-btn').is_visible()
             box = page.locator('#fovea-suno-floating-btn').bounding_box()
             assert box['x'] >= 0 and box['x'] + box['width'] <= 375
+            # Actual Chrome content scripts do not expose chrome.permissions.
+            page.evaluate('delete chrome.permissions')
+            page.locator('.fovea-btn-mp3').click()
+            page.wait_for_function('requests.length === 2')
+            assert page.evaluate('requests[1].action') == 'DOWNLOAD_TRACK_MP3'
+            assert page.evaluate('requests[1].track.audioUrl') == 'https://cdn1.suno.ai/song-b.mp3'
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.evaluate('''() => {
@@ -82,7 +94,7 @@ def test_floating_controls_submit_current_song_and_remember_visibility():
             assert 'Refresh this Suno page' in page.locator('#fovea-toast-overlay').inner_text()
             page.evaluate('document.body.appendChild(document.createElement("div"))')
             page.wait_for_timeout(1700)
-            assert page.evaluate('requests.length') == 1
+            assert page.evaluate('requests.length') == 2
             assert errors == []
         finally:
             browser.close()
