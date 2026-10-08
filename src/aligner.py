@@ -19,6 +19,7 @@ import difflib
 import json
 import re
 import sys
+from dataclasses import replace
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
@@ -56,8 +57,45 @@ def _get_whisper(config: AlignerConfig | None = None) -> Any:
     key = (model_size, device, compute_type)
     if key not in _whisper_cache:
         log.info("【多语言 Whisper 引擎】加载 Whisper: %s (device=%s, compute=%s)", model_size, device, compute_type)
-        _whisper_cache[key] = WhisperModel(model_size, device=device, compute_type=compute_type)
+        try:
+            _whisper_cache[key] = WhisperModel(model_size, device=device, compute_type=compute_type)
+        except Exception as error:
+            if device != "cuda" or not _is_cuda_failure(error):
+                raise
+            log.warning("Whisper CUDA 初始化失败，改用 CPU/int8: %s", error)
+            return _get_whisper(replace(config, device="cpu", compute_type="int8"))
     return _whisper_cache[key]
+
+
+def _is_cuda_failure(error: Exception) -> bool:
+    return any(word in str(error).lower() for word in ("cuda", "cublas", "cudnn"))
+
+
+def _transcribe_whisper(audio_path: str, config: AlignerConfig | None = None, **options):
+    """Consume lazy segments inside the retry boundary (CUDA may fail on iteration)."""
+    cfg = config or AlignerConfig()
+    try:
+        segments, info = _get_whisper(cfg).transcribe(audio_path, **options)
+        return list(segments), info
+    except Exception as error:
+        if cfg.device != "cuda" or not _is_cuda_failure(error):
+            raise
+        log.warning("Whisper CUDA 推理失败，重新用 CPU/int8 完整提取锚点: %s", error)
+        cpu_config = replace(cfg, device="cpu", compute_type="int8")
+        segments, info = _get_whisper(cpu_config).transcribe(audio_path, **options)
+        return list(segments), info
+
+
+def _validate_asr_evidence(asr_words: list[dict], line_count: int, singing_sections: list) -> None:
+    if line_count <= 1:
+        return
+    if not asr_words:
+        raise RuntimeError("歌词对齐失败：未能提取句级 ASR 锚点，不能用估算窗口生成整首歌。请重试或检查 Whisper 运行环境。")
+    if singing_sections:
+        voice_end = max(end for _, end in singing_sections)
+        asr_end = max(word["end"] for word in asr_words)
+        if voice_end - asr_end > max(20.0, voice_end * 0.2):
+            raise RuntimeError(f"歌词对齐失败：ASR 锚点仅到 {asr_end:.1f}s，人声延续到 {voice_end:.1f}s，后段覆盖不足，请重新识别。")
 
 # ---------------------------------------------------------------------------
 # 数据结构 (统一由 Pydantic v2 强类型体系提供)
@@ -446,18 +484,16 @@ def extract_asr_words(
                 st = vocals_path.stat()
                 mtime_ok = abs(meta.get("mtime", 0.0) - st.st_mtime) < 2.0
                 lang_ok = (meta.get("language") == req_lang) or (not req_lang)
-                if mtime_ok and lang_ok and cached_words:
-                    log.info("🎯 复用已缓存的 ASR 词级时间戳 (v2): %s (%d 个词, lang=%s)",
+                model_ok = meta.get("model") == (config.whisper_model if config else "large-v3")
+                size_ok = meta.get("size") == st.st_size
+                if data.get("version") == 3 and mtime_ok and lang_ok and model_ok and size_ok and cached_words:
+                    log.info("🎯 复用已缓存的 ASR 词级时间戳 (v3): %s (%d 个词, lang=%s)",
                              cache_path.name, len(cached_words), meta.get("language"))
                     return cached_words
-            elif isinstance(data, list) and data and (not req_lang or req_lang in ("auto", "mixed")):
-                log.info("🎯 复用已缓存的多语言 ASR 词级时间戳: %s (%d 个词)", cache_path.name, len(data))
-                return data
         except Exception:
             pass
 
     try:
-        model = _get_whisper(config)
         transcribe_opts: dict[str, Any] = {
             "beam_size": 5,
             "word_timestamps": True,
@@ -474,7 +510,7 @@ def extract_asr_words(
         if lyrics_prompt and req_lang != "en":
             transcribe_opts["initial_prompt"] = lyrics_prompt[:250]
 
-        segments, _ = model.transcribe(str(vocals_path), **transcribe_opts)
+        segments, _ = _transcribe_whisper(str(vocals_path), config, **transcribe_opts)
 
         asr_words: list[dict] = []
         for s in segments:
@@ -495,12 +531,12 @@ def extract_asr_words(
 
         if asr_words:
             cache_payload = {
-                "version": 2,
+                "version": 3,
                 "meta": {
                     "mtime": vocals_path.stat().st_mtime,
                     "size": vocals_path.stat().st_size,
                     "language": req_lang,
-                    "model": getattr(config, "whisper_model", "base") if config else "base",
+                    "model": getattr(config, "whisper_model", "base") if config else "large-v3",
                 },
                 "words": asr_words,
             }
@@ -509,7 +545,7 @@ def extract_asr_words(
             log.info("ASR 锚点提取并缓存完成: %d 个词 (lang=%s)", len(asr_words), req_lang or "auto")
         return asr_words
     except Exception as e:
-        log.warning("多语言 ASR 锚点提取异常 (将回退至声学 VAD 模式): %s", e)
+        log.warning("多语言 ASR 锚点提取失败 (不生成无锚点整曲估算结果): %s", e)
         return []
 
 
@@ -1151,9 +1187,8 @@ def align_lyrics_ctc(
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
                     tmp_path = tf.name
                 sf.write(tmp_path, sub_slice, sr)
-                wm = _get_whisper(config)
-                # 局部切片转写 (支持小切片的多语言自动识别)
-                segments, _ = wm.transcribe(tmp_path, word_timestamps=True)
+                # 局部切片同样在 CUDA 失败时完整重试 CPU。
+                segments, _ = _transcribe_whisper(tmp_path, config, word_timestamps=True)
                 for s in segments:
                     if s.words:
                         for w in s.words:
@@ -1250,6 +1285,7 @@ def align_lyrics_ctc(
     # 步骤 A: 提取全曲 ASR 词级时间戳锚点 (单曲一次，缓存复用)
     prompt_text = "\n".join(ly.text for _, ly in singing_lyrics)
     asr_words = extract_asr_words(vocals_path, lyrics_prompt=prompt_text, config=config, language=song_lang)
+    _validate_asr_evidence(asr_words, len(singing_lyrics), singing_sections)
     wav_np = wav_16k.squeeze(0).cpu().numpy()
 
     # 步骤 B: 两阶段岛驱动宏观乐段定位与声学停顿吸附
@@ -1372,9 +1408,8 @@ def transcribe_audio_with_anchors(
     if config is None:
         config = AlignerConfig()
 
-    model = _get_whisper(config)
     lang = config.language if config.language and config.language != "auto" else None
-    segments, info = model.transcribe(str(vocals_path), language=lang, beam_size=5, word_timestamps=True)
+    segments, info = _transcribe_whisper(str(vocals_path), config, language=lang, beam_size=5, word_timestamps=True)
 
     detected_lang = info.language or "zh"
     anchors: list[WhisperSegmentAnchor] = []

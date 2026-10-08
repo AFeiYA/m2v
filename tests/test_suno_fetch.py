@@ -119,6 +119,8 @@ def test_auto_process_suno_pipeline_config_and_flow(tmp_path):
         audio_file = tmp_path / "test.mp3"
         audio_file.write_bytes(b"dummy audio")
 
+        config_file = tmp_path / "pipeline.toml"
+        config_file.write_text('[aligner]\nlanguage = "zh"\n')
         cb_calls = []
         def _cb(prog, msg):
             cb_calls.append((prog, msg))
@@ -131,6 +133,8 @@ def test_auto_process_suno_pipeline_config_and_flow(tmp_path):
             progress_callback=_cb,
             skip_separation=True,
             use_gpu=True,
+            language="auto",
+            config_file=config_file,
         )
 
         assert result["status"] == "ok"
@@ -141,6 +145,7 @@ def test_auto_process_suno_pipeline_config_and_flow(tmp_path):
         assert passed_config.skip_separation is True
         assert passed_config.separator.device == "cuda"
         assert passed_config.ass_only is True
+        assert passed_config.aligner.language == "auto"
         # 验证进度回调包含极速模式字样
         assert any("极速模式" in msg for _, msg in cb_calls)
 

@@ -1042,7 +1042,7 @@ def auto_process_suno(
         config.separator.device = dev
         config.aligner.device = dev
 
-    if language and language != "auto":
+    if language is not None:
         config.aligner.language = language
 
     if config.skip_separation:
