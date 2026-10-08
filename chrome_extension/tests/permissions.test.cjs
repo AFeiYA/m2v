@@ -5,6 +5,21 @@ const vm = require('node:vm');
 const path = require('node:path');
 const manifest = require('../manifest.json');
 
+test('rights confirmation is song-specific, cancellable and does not claim verification', () => {
+  const prompts = [];
+  const context = vm.createContext({ confirm: text => { prompts.push(text); return false; } });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../ui.js'), 'utf8'), context);
+  assert.equal(context.FoveaUI.confirmRights({title: 'A', is_public: true}), false);
+  context.confirm = text => { prompts.push(text); return true; };
+  assert.equal(context.FoveaUI.confirmRights({title: 'B', is_public: true}), true);
+  assert.match(prompts[0], /Song: A/);
+  assert.match(prompts[1], /Song: B/);
+  assert.match(prompts[0], /does not verify ownership/);
+  assert.match(prompts[0], /approved download channels/);
+  assert.throws(() => context.FoveaUI.confirmRights({is_public: false}), /not published/);
+  assert.equal(prompts.length, 2);
+});
+
 test('default permissions do not include access to every website', () => {
   assert.ok(!manifest.host_permissions.includes('<all_urls>'));
   assert.ok(!manifest.permissions.includes('tabs'));

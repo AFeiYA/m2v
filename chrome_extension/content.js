@@ -274,6 +274,7 @@
         const track = await requestCurrentTrack();
         if (!contextActive()) return;
         if (track.is_public === false) throw new Error("Song is not published. Publish it in Suno first.");
+        if (!FoveaUI.confirmRights(track)) return;
         if (!await FoveaUI.consent(activeServerUrl, "audio")) return;
         if (!contextActive()) return;
         await FoveaUI.allowAudio(track);
@@ -398,6 +399,17 @@
     }
 
     if (event.data.type === "FOVEA_CAPTURE_BY_SONG_ID") {
+      try {
+        if (!FoveaUI.confirmRights(event.data.track)) {
+          btn?.classList.remove("fovea-loading");
+          hideToast();
+          return;
+        }
+      } catch (error) {
+        btn?.classList.remove("fovea-loading");
+        showToast("Cannot create MP4", FoveaUI.error(error), false);
+        return;
+      }
       showToast("Submitting video job", "Processing progress will appear after submission.");
       chrome.runtime.sendMessage({
         action: "EXPORT_VIDEO_BY_SONG_ID", track: event.data.track,

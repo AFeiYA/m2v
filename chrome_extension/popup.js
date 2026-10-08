@@ -166,6 +166,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       songNameEl.textContent = track.title || "Unknown track";
       try {
         if (track.is_public === false) throw new Error("Song is not published. Publish it in Suno first.");
+        if (!FoveaUI.confirmRights(track)) { btnDownloadMp3.disabled = false; return; }
         if (!await FoveaUI.consent(configuredServer, "audio")) { btnDownloadMp3.disabled = false; return; }
         await FoveaUI.allowAudio(track);
       }

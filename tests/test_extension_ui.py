@@ -51,6 +51,11 @@ def test_floating_controls_submit_current_song_and_remember_visibility():
             page.wait_for_function('requests.length === 1')
             assert page.evaluate('requests[0].action') == 'EXPORT_VIDEO_BY_SONG_ID'
             assert page.evaluate('requests[0].track.songId') == 'song-b'
+            page.evaluate('window.originalConfirm = window.confirm; window.confirm = () => false')
+            page.locator('.fovea-btn-main').click()
+            page.wait_for_function('!document.getElementById("fovea-suno-floating-btn").classList.contains("fovea-loading")')
+            assert page.evaluate('requests.length') == 1
+            page.evaluate('window.confirm = window.originalConfirm')
             page.locator('.fovea-collapse').click()
             assert page.locator('#fovea-toast-overlay').is_hidden()
             page.evaluate('''runtimeListeners[0]({action: 'EXPORT_PROGRESS', task: {

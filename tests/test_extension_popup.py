@@ -50,6 +50,11 @@ def test_server_draft_is_not_used_and_history_clear_keeps_active_jobs():
             page.locator('#btnDownloadMp3').click()
             page.wait_for_function('sent.length === 1')
             assert page.evaluate('sent[0].serverUrl') == 'https://mv.fovea.si'
+            page.evaluate('window.originalConfirm = window.confirm; window.confirm = () => false')
+            page.locator('#btnDownloadMp3').click()
+            page.wait_for_function('!document.getElementById("btnDownloadMp3").disabled')
+            assert page.evaluate('sent.length') == 1
+            page.evaluate('window.confirm = window.originalConfirm')
             page.locator('#btnSaveServer').click()
             page.wait_for_function('!document.getElementById("errorDetails").hidden')
             assert page.evaluate('data.serverUrl') is None
