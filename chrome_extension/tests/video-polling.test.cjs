@@ -33,11 +33,11 @@ test('backend failure is not swallowed and retried as a network failure', async 
 });
 test('lost task after restart provides ID and does not loop forever', async () => {
   const context = environment(async () => new Response('{}', { status: 404 }));
-  await assert.rejects(context.pollLyricVideoTask('https://server', 'job'), /后台可能已经重启.*job/);
+  await assert.rejects(context.pollLyricVideoTask('https://server', 'job'), /server may have restarted.*job/);
 });
 test('waiting deadline is not described as backend cancellation', async () => {
   const context = environment(async () => { throw new Error('must not fetch'); });
-  await assert.rejects(context.pollLyricVideoTask('https://server', 'job', () => {}, { timeoutMs: 0 }), /任务未被取消.*继续查询.*job/);
+  await assert.rejects(context.pollLyricVideoTask('https://server', 'job', () => {}, { timeoutMs: 0 }), /job was not cancelled.*Resume last video.*job/);
 });
 test('resuming and simultaneous queries download once without another POST', async () => {
   const context = environment(async (url, options) => {
@@ -60,5 +60,5 @@ test('resuming and simultaneous queries download once without another POST', asy
   const results = await Promise.all([context.finishVideoJob(job), context.finishVideoJob(job)]);
   assert.equal(downloads, 1);
   assert.equal(removed, 1);
-  assert.equal(results[0].filename, 'song_副歌_9x16.mp4');
+  assert.equal(results[0].filename, 'song_Chorus_9x16.mp4');
 });

@@ -21,14 +21,14 @@ async function readServerResponse(response) {
   let data;
   try { data = JSON.parse(text); } catch (_) {
     const summary = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 240);
-    throw new Error(`服务器返回非 JSON 响应 (HTTP ${response.status})${summary ? `：${summary}` : ""}`);
+    throw new Error(`Server returned a non-JSON response (HTTP ${response.status})${summary ? `：${summary}` : ""}`);
   }
   if (!response.ok) {
     const detail = data?.detail || data?.message || data?.error;
-    throw new Error(`后台请求失败 (HTTP ${response.status})${detail ? `：${typeof detail === "string" ? detail : JSON.stringify(detail)}` : ""}`);
+    throw new Error(`Server request failed (HTTP ${response.status})${detail ? `：${typeof detail === "string" ? detail : JSON.stringify(detail)}` : ""}`);
   }
   if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error(`服务器响应格式异常 (HTTP ${response.status})`);
+    throw new Error(`Unexpected server response (HTTP ${response.status})`);
   }
   return data;
 }
@@ -44,27 +44,27 @@ async function pollLyricVideoTask(targetServer, taskId, onProgress = () => {}, o
       const resp = await fetch(`${targetServer}/api/lyric_video/task_status?task_id=${encodeURIComponent(taskId)}`,
         { signal: AbortSignal.timeout(15000) });
       if ([429, 502, 503, 504].includes(resp.status)) {
-        onProgress({ message: "网络暂时中断，正在重新查询；后台任务继续运行。", task_id: taskId });
+        onProgress({ message: "Connection interrupted. Reconnecting; the job continues on the server.", task_id: taskId });
         await sleep(3000);
         continue;
       }
       if (!resp.ok) {
-        const detail = resp.status === 404 ? "任务不存在，后台可能已经重启" : `查询失败 (HTTP ${resp.status})`;
-        throw Object.assign(new Error(`${detail}；任务编号：${taskId}`), { terminal: true });
+        const detail = resp.status === 404 ? "Job not found; the server may have restarted" : `Status request failed (HTTP ${resp.status})`;
+        throw Object.assign(new Error(`${detail}; job ID: ${taskId}`), { terminal: true });
       }
       task = await readServerResponse(resp);
     } catch (error) {
       if (error.terminal) throw error;
-      onProgress({ message: "暂时无法查询进度，正在重连；后台任务可能仍在运行。", task_id: taskId });
+      onProgress({ message: "Unable to fetch progress. Reconnecting; the job may still be running.", task_id: taskId });
       await sleep(3000);
       continue;
     }
     onProgress(task);
     if (task.status === "completed") return task.result || {};
-    if (task.status === "failed") throw new Error(task.error || task.message || "视频生成失败");
+    if (task.status === "failed") throw new Error(task.error || task.message || "Video creation failed");
     await sleep(2000);
   }
-  throw new Error(`等待进度已超过 20 分钟，后台任务未被取消。请在插件中点击“继续查询上次任务”。任务编号：${taskId}`);
+  throw new Error(`Stopped checking after 20 minutes. The job was not cancelled. Click “Resume last video”. Job ID: ${taskId}`);
 }
 
 const activeVideoJobs = new Map();
@@ -74,14 +74,14 @@ function finishVideoJob(job, onProgress = () => {}) {
   const promise = (async () => {
     const result = await pollLyricVideoTask(job.targetServer, job.taskId, onProgress);
     const rawVideoUrl = result.download_url || result.video_url;
-    if (!rawVideoUrl) throw new Error("后台未返回视频下载地址");
+    if (!rawVideoUrl) throw new Error("Server did not return a video download URL");
     const downloadUrl = new URL(rawVideoUrl, job.targetServer).href;
-    const suffix = { chorus: "_副歌", verse1: "_主歌1", intro: "_前奏" }[job.section] || "";
+    const suffix = { chorus: "_Chorus", verse1: "_Verse1", intro: "_Intro" }[job.section] || "";
     const filename = `${(job.title || "suno_mv").replace(/[\\/:*?"<>|]/g, "_")}${suffix}_9x16.mp4`;
     await new Promise((resolve, reject) => {
       chrome.downloads.download({ url: downloadUrl, filename, saveAs: false, conflictAction: "uniquify" }, (id) => {
         if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-        else if (id === undefined) reject(new Error("浏览器未能启动视频下载"));
+        else if (id === undefined) reject(new Error("Chrome could not start the video download"));
         else resolve(id);
       });
     });
@@ -102,7 +102,7 @@ async function exportVideoAndDownload(blob, track, serverUrl, section = "", dura
   // 严格检查公开状态 (Publish)
   if (track && track.is_public === false) {
     throw new Error(
-      `曲目《${track.title || "当前歌曲"}》尚未公开 (Publish)，无法生成视频！\n💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。`
+      `${track.title || "This song"} is not published. Cannot create a video.\n💡 Choose Publish in Suno’s (…) menu and try again.`
     );
   }
 
@@ -136,14 +136,14 @@ async function exportVideoAndDownload(blob, track, serverUrl, section = "", dura
     });
   } catch (netErr) {
     throw new Error(
-      `无法连接本地后台服务 (${targetServer})。\n原因: ${netErr.message}。\n请确保终端已运行: .venv/bin/python -m src.local_editor --port 8000`
+      `Cannot connect to the server (${targetServer})。\nReason: ${netErr.message}。\nFor a local server, run: .venv/bin/python -m src.local_editor --port 8000`
     );
   }
 
   const data = await readServerResponse(resp);
   const taskId = data.task_id;
   if (!taskId) {
-    throw new Error("后台未返回任务 ID");
+    throw new Error("Server did not return a job ID");
   }
 
   console.log(`[Fovea MV Background] 任务已提交 (ID: ${taskId})，开始轮询渲染进度...`);
@@ -156,16 +156,16 @@ async function exportVideoAndDownload(blob, track, serverUrl, section = "", dura
 // Download original MP3 independently of the alignment/rendering server.
 async function downloadOriginalMp3(track) {
   if (!track || !track.audioUrl) {
-    throw new Error("未检测到歌曲的 MP3 地址，请刷新 Suno 页面并播放目标歌曲后再试。");
+    throw new Error("No MP3 URL detected. Refresh Suno and play the song.");
   }
   let url;
   try { url = new URL(track.audioUrl); } catch (_) {
-    throw new Error("歌曲音频地址无效，请刷新页面后重试。");
+    throw new Error("Invalid audio URL. Refresh Suno and try again.");
   }
   const allowedHost = ["suno.ai", "suno.com", "cloudfront.net", "amazonaws.com"]
     .some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
   if (url.protocol !== "https:" || !allowedHost || url.username || url.password) {
-    throw new Error("未检测到可信的 Suno 音频地址。");
+    throw new Error("No trusted Suno audio URL detected.");
   }
 
   const controller = new AbortController();
@@ -174,7 +174,7 @@ async function downloadOriginalMp3(track) {
     const response = await fetch(url.href, {
       headers: { Range: "bytes=0-1023" }, signal: controller.signal,
     });
-    if (!response.ok) throw new Error(`音频无法下载 (HTTP ${response.status})，请刷新歌曲后重试。`);
+    if (!response.ok) throw new Error(`Audio download failed (HTTP ${response.status}). Refresh the song and try again.`);
     // Verify the header instead of renaming an MP4/HTML response to .mp3.
     const reader = response.body.getReader();
     const header = [];
@@ -191,10 +191,10 @@ async function downloadOriginalMp3(track) {
       (header[1] & 0x18) !== 0x08 && (header[2] & 0xf0) !== 0 &&
       (header[2] & 0xf0) !== 0xf0 && (header[2] & 0x0c) !== 0x0c;
     if (!id3 && !mp3Frame) {
-      throw new Error("当前音频源不是 MP3，无法直接保存为 MP3。请使用 Suno 的原音频下载入口。");
+      throw new Error("The audio source is not MP3 and cannot be downloaded directly.");
     }
   } catch (error) {
-    if (error.name === "AbortError") throw new Error("检查音频超时，请稍后重试。");
+    if (error.name === "AbortError") throw new Error("Audio check timed out. Please try again.");
     throw error;
   } finally { clearTimeout(timer); }
 
@@ -204,8 +204,8 @@ async function downloadOriginalMp3(track) {
   const downloadId = await new Promise((resolve, reject) => {
     chrome.downloads.download({ url: url.href, filename, saveAs: false, conflictAction: "uniquify" }, (id) => {
       const error = chrome.runtime.lastError;
-      if (error) reject(new Error(`无法启动下载：${error.message}`));
-      else if (id === undefined) reject(new Error("浏览器未能启动音频下载。"));
+      if (error) reject(new Error(`Could not start download: ${error.message}`));
+      else if (id === undefined) reject(new Error("Chrome could not start the audio download."));
       else resolve(id);
     });
   });
@@ -219,11 +219,11 @@ async function downloadTrackMp3(track, serverUrl, onProgress = () => {}) {
   try {
     return await downloadOriginalMp3(track);
   } catch (error) {
-    const recoverable = !track?.audioUrl || /HTTP (403|404)|不是 MP3/.test(error.message);
+    const recoverable = !track?.audioUrl || /HTTP (403|404)|not MP3/.test(error.message);
     if (!track?.songId || !recoverable) throw error;
   }
   const targetServer = (serverUrl || "https://mv.fovea.si").replace(/\/+$/, "");
-  if (!/^[A-Za-z0-9_-]{1,128}$/.test(track.songId)) throw new Error("歌曲编号无效，请刷新 Suno 页面。");
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(track.songId)) throw new Error("Invalid song ID. Refresh Suno and try again.");
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(track.songId);
   const songUrl = `https://suno.com/${uuid ? "song" : "s"}/${track.songId}`;
   const downloadUrl = new URL(`${targetServer}/api/suno/download_mp3`);
@@ -231,12 +231,12 @@ async function downloadTrackMp3(track, serverUrl, onProgress = () => {}) {
   const title = String(track.title || "Suno_Track")
     .replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").replace(/^\.+|[. ]+$/g, "").slice(0, 120) || "Suno_Track";
   const filename = `${title}.mp3`;
-  onProgress({ message: "已请求后台“仅下载”功能，MP4 音轨提取与下载进度请查看 Chrome 下载列表。" });
+  onProgress({ message: "Audio download requested. Check Chrome’s downloads for progress." });
   const downloadId = await new Promise((resolve, reject) => {
     chrome.downloads.download({ url: downloadUrl.href,
       filename, saveAs: false, conflictAction: "uniquify" }, id => {
       if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-      else if (id === undefined) reject(new Error("浏览器未能启动 MP3 下载"));
+      else if (id === undefined) reject(new Error("Chrome could not start the MP3 download"));
       else resolve(id);
     });
   });
@@ -250,7 +250,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   };
   if (request.action === "RESUME_VIDEO_JOB") {
     chrome.storage.local.get("pendingVideoJob").then(({ pendingVideoJob }) => {
-      if (!pendingVideoJob) throw new Error("没有待查询的任务");
+      if (!pendingVideoJob) throw new Error("No pending video job");
       return finishVideoJob(pendingVideoJob, onProgress);
     }).then(data => sendResponse({ status: "ok", data }))
       .catch(error => sendResponse({ status: "error", message: error.message }));
@@ -274,7 +274,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         .then((res) => sendResponse({ status: "ok", data: res }))
         .catch((err) => sendResponse({ status: "error", message: err.message }));
     } catch (e) {
-      sendResponse({ status: "error", message: `音频流解码异常: ${e.message}` });
+      sendResponse({ status: "error", message: `Audio decoding failed: ${e.message}` });
     }
     return true;
   }
@@ -283,7 +283,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "EXPORT_VIDEO_FETCH") {
     fetch(request.url)
       .then((r) => {
-        if (!r.ok) throw new Error(`CDN 音频流下载失败 (HTTP ${r.status})`);
+        if (!r.ok) throw new Error(`CDN audio download failed (HTTP ${r.status})`);
         return r.blob();
       })
       .then((blob) => exportVideoAndDownload(blob, request.track, request.serverUrl, request.section, request.duration, onProgress))

@@ -11,14 +11,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   chrome.storage.local.get("pendingVideoJob", ({ pendingVideoJob }) => {
     if (!pendingVideoJob) return;
     btnResumeVideo.hidden = false;
-    videoTaskStatus.textContent = `${pendingVideoJob.title || "视频"} · ${pendingVideoJob.taskId}`;
+    videoTaskStatus.textContent = `${pendingVideoJob.title || "Video"} · ${pendingVideoJob.taskId}`;
   });
   btnResumeVideo.addEventListener("click", () => {
     btnResumeVideo.disabled = true;
-    videoTaskStatus.textContent = "正在查询原任务，完成后自动下载；不会重新生成。";
+    videoTaskStatus.textContent = "Checking the existing job. Download starts when ready.";
     chrome.runtime.sendMessage({ action: "RESUME_VIDEO_JOB" }, response => {
       videoTaskStatus.textContent = chrome.runtime.lastError?.message ||
-        (response?.status === "ok" ? "视频已开始下载。" : response?.message || "查询中断，请再次查询。");
+        (response?.status === "ok" ? "Video download started." : response?.message || "Connection interrupted. Resume to try again.");
       btnResumeVideo.disabled = false;
       if (response?.status === "ok") btnResumeVideo.hidden = true;
     });
@@ -71,8 +71,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
   if (!tab || !tab.url || !tab.url.includes("suno.com")) {
-    songNameEl.textContent = "请先打开 Suno 页面 (suno.com)";
-    publishStatusEl.innerHTML = '<span style="color: #94a3b8;">⚠️ 请切换至 Suno 听歌标签页</span>';
+    songNameEl.textContent = "Open a song on suno.com";
+    publishStatusEl.innerHTML = '<span style="color: #94a3b8;">⚠️ Switch to a Suno tab</span>';
     btnExport.disabled = true;
     return;
   }
@@ -80,44 +80,44 @@ document.addEventListener("DOMContentLoaded", async () => {
   // 向当前 Suno 标签页请求歌曲信息
   chrome.tabs.sendMessage(tab.id, { action: "GET_TRACK_INFO" }, (response) => {
     if (chrome.runtime.lastError || !response) {
-      songNameEl.textContent = "未检测到歌曲信息";
-      publishStatusEl.innerHTML = '<span style="color: #94a3b8;">💡 请在页面上点击【播放】试听歌曲</span>';
+      songNameEl.textContent = "No song detected";
+      publishStatusEl.innerHTML = '<span style="color: #94a3b8;">💡 Play the song to detect it</span>';
       return;
     }
 
-    songNameEl.textContent = response.title || "未知曲目";
+    songNameEl.textContent = response.title || "Unknown track";
     btnDownloadMp3.disabled = !response.audioUrl && !response.songId;
-    btnDownloadMp3.title = response.audioUrl ? "下载当前曲目的原始 MP3" : "从 MP4 提取音轨并转换为 MP3，需要后台服务";
-    if (!response.audioUrl) downloadStatus.textContent = "无原始 MP3 地址时，将通过所选后台提取 MP4 音轨，不进行歌词对齐。";
+    btnDownloadMp3.title = response.audioUrl ? "Download this song as MP3" : "Extract MP3 audio using the selected server";
+    if (!response.audioUrl) downloadStatus.textContent = "If no MP3 URL is available, the server extracts the audio. No lyric alignment is needed.";
 
     if (response.is_public === false) {
-      publishStatusEl.innerHTML = '<span style="color: #f59e0b;">⚠️ 未公开 (需在 Suno 点击 Publish)</span>';
+      publishStatusEl.innerHTML = '<span style="color: #f59e0b;">⚠️ Not published — use Publish in Suno</span>';
       btnExport.disabled = true;
-      btnExport.title = "该曲目尚未公开，请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布";
+      btnExport.title = "Publish this song in Suno’s (…) menu first";
     } else {
-      publishStatusEl.innerHTML = '<span style="color: #10b981;">● 已公开 (可一键生成 9:16 动效视频)</span>';
+      publishStatusEl.innerHTML = '<span style="color: #10b981;">● Published — ready for MP4</span>';
       btnExport.disabled = false;
-      btnExport.title = "点击开始纯 CTC 字级对齐并渲染 9:16 动效 MP4 短视频";
+      btnExport.title = "Align lyrics and create a vertical MP4";
     }
   });
 
   btnDownloadMp3.addEventListener("click", () => {
     btnDownloadMp3.disabled = true;
-    downloadStatus.textContent = "正在检查当前歌曲音频…";
+    downloadStatus.textContent = "Checking song audio…";
     // Re-query on click so switching tracks after opening the popup cannot
     // accidentally download the previously displayed song.
     chrome.tabs.sendMessage(tab.id, { action: "GET_TRACK_INFO" }, (track) => {
       if (chrome.runtime.lastError || !track) {
-        downloadStatus.textContent = "无法读取歌曲，请刷新 Suno 页面后重试。";
+        downloadStatus.textContent = "Cannot read the song. Refresh Suno and try again.";
         btnDownloadMp3.disabled = false;
         return;
       }
-      songNameEl.textContent = track.title || "未知曲目";
+      songNameEl.textContent = track.title || "Unknown track";
       chrome.runtime.sendMessage({ action: "DOWNLOAD_TRACK_MP3", track, serverUrl: serverInput.value }, (response) => {
         const error = chrome.runtime.lastError;
-        downloadStatus.textContent = error ? `下载失败：${error.message}` :
-          response?.status === "ok" ? `已开始下载 ${response.data.filename}，进度请查看 Chrome 下载列表。` :
-          response?.message || "下载失败，请重试。";
+        downloadStatus.textContent = error ? `Download failed: ${error.message}` :
+          response?.status === "ok" ? `Downloading ${response.data.filename}. Check Chrome’s downloads.` :
+          response?.message || "Download failed. Please try again.";
         btnDownloadMp3.disabled = false;
       });
     });
@@ -126,7 +126,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // 触发生成短视频
   btnExport.addEventListener("click", () => {
     btnExport.disabled = true;
-    btnExport.textContent = "⏳ 正在提交渲染并下载...";
+    btnExport.textContent = "⏳ Submitting video...";
     chrome.tabs.sendMessage(tab.id, { action: "TRIGGER_EXPORT" }, (response) => {
       window.close();
     });

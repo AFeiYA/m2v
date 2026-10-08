@@ -19,6 +19,35 @@
   user-select: none;
   backdrop-filter: blur(12px);
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: calc(100vw - 56px);
+}
+
+.fovea-song-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  min-width: 0;
+}
+.fovea-btn-text {
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fovea-pulse-dot, .fovea-btn-divider { flex-shrink: 0; }
+.fovea-video-controls { display: flex; align-items: center; flex-shrink: 0; }
+.fovea-btn-main, .fovea-btn-section-trigger {
+  appearance: none;
+  border: none;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  white-space: nowrap;
+}
+.fovea-btn-main:focus-visible, .fovea-btn-section-trigger:focus-visible, .fovea-btn-mp3:focus-visible {
+  outline: 2px solid white;
+  outline-offset: -3px;
 }
 
 #fovea-suno-floating-btn:hover {
@@ -32,7 +61,7 @@
   gap: 8px;
   padding: 10px 14px 10px 16px;
   cursor: pointer;
-  border-radius: 9999px 0 0 9999px;
+  border-radius: 0;
   transition: background 0.15s ease;
 }
 .fovea-btn-main:hover {
@@ -112,8 +141,11 @@
 
 #fovea-suno-floating-btn.fovea-loading {
   opacity: 0.85;
-  pointer-events: none;
   background: #374151;
+}
+#fovea-suno-floating-btn.fovea-loading .fovea-video-controls {
+  pointer-events: none;
+  opacity: 0.6;
 }
 
 .fovea-pulse-dot {
@@ -215,18 +247,24 @@
   color: white;
   font: inherit;
   padding: 10px 14px;
-  border-radius: 0 9999px 9999px 0;
+  border-radius: 0;
   cursor: pointer;
   pointer-events: auto;
   white-space: nowrap;
 }
 .fovea-btn-mp3:hover { background: rgba(0, 0, 0, 0.3); }
 .fovea-btn-mp3:disabled { cursor: wait; opacity: 0.65; }
-#fovea-suno-floating-btn .fovea-btn-section-trigger { border-radius: 0; }
+#fovea-suno-floating-btn .fovea-btn-section-trigger { border-radius: 0 9999px 9999px 0; }
 @media (max-width: 600px) {
   #fovea-suno-floating-btn { right: 8px; font-size: 11px; max-width: calc(100vw - 16px); }
+  #fovea-suno-floating-btn .fovea-song-title { padding: 10px 8px; }
   #fovea-suno-floating-btn .fovea-btn-main { padding: 10px 8px; min-width: 0; }
   #fovea-suno-floating-btn .fovea-btn-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #fovea-suno-floating-btn .fovea-btn-section-trigger { flex-shrink: 0; padding: 10px 6px; font-size: 11px; }
   #fovea-suno-floating-btn .fovea-btn-mp3 { flex-shrink: 0; padding: 10px 8px; font-size: 11px; }
+  #fovea-section-dropdown, #fovea-toast-overlay { right: 8px; max-width: calc(100vw - 16px); }
+}
+@media (max-width: 440px) {
+  #fovea-suno-floating-btn .fovea-section-label { display: none; }
+  #fovea-suno-floating-btn .fovea-pulse-dot { display: none; }
 }

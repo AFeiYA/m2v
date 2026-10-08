@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Fovea MV 动效视频助手</title>
+  <title>Fovea MV Music Video Assistant</title>
   <style>
     * {
       box-sizing: border-box;
@@ -155,40 +155,40 @@
     <div class="brand">
       <span>✨ Fovea MV</span>
     </div>
-    <span class="badge">9:16 动效 MP4</span>
+    <span class="badge">9:16 Lyric MP4</span>
   </div>
 
   <div class="card">
-    <div class="card-title">当前检测到的歌曲</div>
-    <div class="song-name" id="songName">正在检测播放中歌曲...</div>
+    <div class="card-title">Current song</div>
+    <div class="song-name" id="songName">Detecting song...</div>
     <div class="status-row" id="publishStatus"></div>
   </div>
 
-  <button class="btn-primary" id="btnExport" disabled>
-    <span>🎬 一键生成 9:16 动效 MP4</span>
-  </button>
-
-  <button class="btn-primary" id="btnDownloadMp3" style="margin-top: 8px; background: #334155; box-shadow: none;" disabled>
-    🎵 仅下载 MP3
+  <button class="btn-primary" id="btnDownloadMp3" style="background: #334155; box-shadow: none;" disabled>
+    🎵 Download MP3
   </button>
   <div class="status-row" id="downloadStatus" role="status" aria-live="polite"></div>
 
-  <button class="btn-primary" id="btnResumeVideo" style="margin-top: 8px; background: #334155;" hidden>继续查询上次任务</button>
+  <button class="btn-primary" id="btnExport" style="margin-top: 8px;" disabled>
+    <span>🎬 Create MP4</span>
+  </button>
+
+  <button class="btn-primary" id="btnResumeVideo" style="margin-top: 8px; background: #334155;" hidden>Resume last video</button>
   <div class="status-row" id="videoTaskStatus" role="status" aria-live="polite"></div>
 
   <div class="settings-row">
     <div class="node-header">
-      <label>后台服务节点:</label>
+      <label>Server:</label>
       <div class="node-btns">
-        <button type="button" id="btnCloudNode" class="node-btn active">☁️ 云端生产</button>
-        <button type="button" id="btnLocalNode" class="node-btn">💻 本地开发</button>
+        <button type="button" id="btnCloudNode" class="node-btn active">☁️ Cloud</button>
+        <button type="button" id="btnLocalNode" class="node-btn">💻 Local</button>
       </div>
     </div>
     <input type="text" class="input-server" id="serverInput" value="https://mv.fovea.si" />
   </div>
 
   <div class="footer-tip" id="footerTip">
-    💡 提示：原 MP3 直链无需后台；缺失或受限时，通过所选后台从 MP4 提取音轨。视频生成仅支持已公开发布 (Publish) 的曲目。未公开曲目请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开后再试。视频合成后将自动保存到本地下载目录。
+    MP3 downloads use the original audio or your selected server. MP4 creation requires a published song. Use Suno’s (…) menu → Publish. Files are saved to Chrome’s download folder.
   </div>
 
   <script src="popup.js"></script>

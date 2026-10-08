@@ -25,6 +25,6 @@ test('successful response returns task ID', async () => {
   assert.equal(result.task_id, 'lyric_123');
 });
 test('invalid successful response reports unexpected format', async () => {
-  await assert.rejects(read(new Response('null')), /格式异常/);
+  await assert.rejects(read(new Response('null')), /Unexpected server response/);
   await assert.rejects(read(new Response('<html>login</html>')), /HTTP 200.*login/);
 });

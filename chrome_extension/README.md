@@ -1,4 +1,6 @@
-# Fovea MV Chrome 插件（1.4.4）
+# Fovea MV Chrome 插件（1.4.5）
+
+界面使用英文。Suno 悬浮栏从左至右为歌曲名称、Download MP3、Create MP4 与视频片段选择；歌曲名称仅作展示。长歌名自动省略，悬停可查看完整名称。MP4 的片段选择不影响整曲 MP3 下载。
 
 ## 功能
 

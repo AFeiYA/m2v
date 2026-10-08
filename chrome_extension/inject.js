@@ -305,7 +305,7 @@
         {
           type: "FOVEA_CAPTURE_NOT_PUBLISHED",
           track,
-          message: `曲目《${track.title}》尚未公开 (Publish)，无法生成视频！\n💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。`,
+          message: `${track.title} is not published. Cannot create a video.\n💡 Choose Publish in Suno’s (…) menu and try again.`,
         },
         "*"
       );
@@ -372,7 +372,7 @@
     }
 
     throw new Error(
-      `未找到播放流（检测到 ${audios.length} 个播放器）。请先在 Suno 页面点击【播放】试听这首歌曲！`
+      `No audio stream found (${audios.length} players detected). Play the song in Suno first.`
     );
   }
 
@@ -386,7 +386,7 @@
         window.postMessage(
           {
             type: "FOVEA_CAPTURE_ERROR",
-            error: err.message || "截取音频失败",
+            error: err.message || "Audio capture failed",
           },
           "*"
         );
