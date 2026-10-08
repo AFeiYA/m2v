@@ -37,6 +37,15 @@
 }
 .fovea-pulse-dot, .fovea-btn-divider { flex-shrink: 0; }
 .fovea-video-controls { display: flex; align-items: center; flex-shrink: 0; }
+.fovea-collapse {
+  appearance: none; border: none; background: transparent; color: white;
+  padding: 10px 12px; font: inherit; cursor: pointer; border-radius: 9999px;
+}
+.fovea-collapse:hover { background: rgba(0, 0, 0, 0.18); }
+.fovea-collapsed .fovea-song-title, .fovea-collapsed .fovea-btn-divider,
+.fovea-collapsed .fovea-btn-mp3, .fovea-collapsed .fovea-btn-main,
+.fovea-collapsed .fovea-btn-section-trigger { display: none; }
+#fovea-suno-floating-btn.fovea-loading .fovea-collapse { pointer-events: auto; }
 .fovea-btn-main, .fovea-btn-section-trigger {
   appearance: none;
   border: none;
@@ -144,9 +153,10 @@
   background: #374151;
 }
 #fovea-suno-floating-btn.fovea-loading .fovea-video-controls {
-  pointer-events: none;
   opacity: 0.6;
 }
+#fovea-suno-floating-btn.fovea-loading .fovea-btn-main,
+#fovea-suno-floating-btn.fovea-loading .fovea-btn-section-trigger { pointer-events: none; }
 
 .fovea-pulse-dot {
   width: 8px;

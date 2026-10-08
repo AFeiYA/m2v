@@ -148,6 +148,10 @@
       line-height: 1.4;
       text-align: left;
     }
+    [hidden] { display: none !important; }
+    select { width: 100%; background: #0f172a; color: #cbd5e1; padding: 6px; border: 1px solid #334155; border-radius: 6px; margin: 8px 0; }
+    a { color: #a5b4fc; }
+    details { color: #94a3b8; font-size: 11px; margin-top: 8px; overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
@@ -174,7 +178,12 @@
   </button>
 
   <button class="btn-primary" id="btnResumeVideo" style="margin-top: 8px; background: #334155;" hidden>Resume last video</button>
+  <select id="jobSelect" aria-label="Video jobs" hidden></select>
   <div class="status-row" id="videoTaskStatus" role="status" aria-live="polite"></div>
+  <div class="status-row" id="recentDownload" role="status" aria-live="polite"></div>
+  <button class="node-btn" id="btnRetryDownload" hidden>Retry download</button>
+  <button class="node-btn" id="btnClearHistory">Clear finished history</button>
+  <details id="errorDetails" hidden><summary>Technical details</summary><div id="errorText"></div></details>
 
   <div class="settings-row">
     <div class="node-header">
@@ -185,12 +194,17 @@
       </div>
     </div>
     <input type="text" class="input-server" id="serverInput" value="https://mv.fovea.si" />
+    <button class="node-btn" id="btnSaveServer" style="margin-top: 6px;">Save server</button>
+    <div class="status-row" id="serverStatus" role="status"></div>
   </div>
 
   <div class="footer-tip" id="footerTip">
     MP3 downloads use the original audio or your selected server. MP4 creation requires a published song. Use Suno’s (…) menu → Publish. Files are saved to Chrome’s download folder.
   </div>
+  <div class="footer-tip"><a href="privacy.html" target="_blank" rel="noopener">Privacy &amp; data handling</a></div>
+  <label class="footer-tip" style="display:block;"><input type="checkbox" id="hideBar" /> Hide floating controls on Suno</label>
 
+  <script src="ui.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

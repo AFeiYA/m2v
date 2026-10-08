@@ -1,6 +1,7 @@
 """Plugin submission returns before slow inference; task failures remain queryable."""
 import threading
 import time
+import uuid
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -43,10 +44,16 @@ def test_submit_returns_before_fetch_and_keeps_progress(monkeypatch, tmp_path):
     monkeypatch.setattr(lyric_engine, 'export_lyric_video', render)
     client = TestClient(local_editor.app)
     try:
-        response = client.post('/api/plugin/export_video', data={'song_id': 'fake', 'title': 'original'})
+        payload = {'song_id': 'fake', 'title': 'original', 'request_id': str(uuid.uuid4())}
+        response = client.post('/api/plugin/export_video', data=payload)
         assert response.status_code == 200
         task_id = response.json()['task_id']
         assert entered.wait(1)
+        # Retrying after a lost submission response uses the same worker.
+        duplicate = client.post('/api/plugin/export_video', data=payload)
+        assert duplicate.json()['task_id'] == task_id
+        conflict = client.post('/api/plugin/export_video', data={**payload, 'title': 'other'})
+        assert conflict.status_code == 409
         task = client.get('/api/lyric_video/task_status', params={'task_id': task_id}).json()
         assert task['status'] == 'running'
         assert task['phase'] == 'fetching'

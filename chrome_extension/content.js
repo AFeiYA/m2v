@@ -5,13 +5,38 @@
 
 (function () {
   let activeServerUrl = "https://mv.fovea.si";
+  let collapsed = false;
+  let floatingHidden = false;
+  let capturePending = false;
+  let captureStarting = false;
+  let captureTimer;
+  function applyBarPreferences() {
+    const bar = document.getElementById("fovea-suno-floating-btn");
+    if (!bar) return;
+    bar.classList.toggle("fovea-collapsed", collapsed);
+    bar.style.display = floatingHidden ? "none" : "flex";
+    const toggle = bar.querySelector(".fovea-collapse");
+    toggle.textContent = collapsed ? "Fovea MV" : "−";
+    toggle.title = collapsed ? "Expand controls" : "Minimize controls";
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+  }
 
   // 读取配置的服务器地址 (默认云端服务 https://mv.fovea.si，亦可在扩展弹窗切换为本地服务)
   if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-    chrome.storage.local.get(["serverUrl"], (res) => {
+    chrome.storage.local.get(["serverUrl", "barCollapsed", "barHidden"], (res) => {
       if (res && res.serverUrl) {
         activeServerUrl = res.serverUrl.replace(/\/+$/, "");
       }
+      collapsed = Boolean(res.barCollapsed);
+      floatingHidden = Boolean(res.barHidden);
+      applyBarPreferences();
+    });
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== "local") return;
+      if (changes.serverUrl) activeServerUrl = changes.serverUrl.newValue || "https://mv.fovea.si";
+      if (changes.barCollapsed) collapsed = Boolean(changes.barCollapsed.newValue);
+      if (changes.barHidden) floatingHidden = Boolean(changes.barHidden.newValue);
+      applyBarPreferences();
     });
   }
 
@@ -122,10 +147,18 @@
           <span class="fovea-section-label">${SECTION_LABELS[currentSection] || "Chorus · 30s"}</span>
           <span class="fovea-dropdown-arrow">▾</span>
         </button>
+        <button type="button" class="fovea-collapse" title="Minimize controls" aria-label="Toggle floating controls" aria-expanded="true">−</button>
       </div>
     `;
 
     document.body.appendChild(btn);
+    applyBarPreferences();
+    btn.querySelector(".fovea-collapse").addEventListener("click", event => {
+      event.stopPropagation();
+      collapsed = !collapsed;
+      applyBarPreferences();
+      chrome.storage.local.set({ barCollapsed: collapsed });
+    });
 
     // 下拉菜单
     let dropdown = document.getElementById("fovea-section-dropdown");
@@ -209,6 +242,9 @@
       try {
         // Read the selected track at click time, rather than cached song state.
         const track = await requestCurrentTrack();
+        if (track.is_public === false) throw new Error("Song is not published. Publish it in Suno first.");
+        if (!await FoveaUI.consent(activeServerUrl, "audio")) return;
+        await FoveaUI.allowAudio(track);
         const response = await new Promise((resolve, reject) => {
           chrome.runtime.sendMessage({ action: "DOWNLOAD_TRACK_MP3", track, serverUrl: activeServerUrl }, result => {
             if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
@@ -219,7 +255,8 @@
         showToast("MP3 download started", response.data.filename + ". Check Chrome’s downloads for progress.", false, "Song MP3");
         hideToast(5000);
       } catch (error) {
-        alert(`[Fovea MV] MP3 Download failed: ${error.message}`);
+        showToast("MP3 download failed", FoveaUI.error(error), false, "MP3");
+        console.warn("MP3 download details:", error.message);
       } finally {
         mp3Button.disabled = false;
         mp3Button.textContent = "🎵 Download MP3";
@@ -261,9 +298,20 @@
   }
 
   // 3. 触发捕获流程: 向 MAIN World 的 inject.js 发送请求
-  function triggerCapture() {
+  async function triggerCapture() {
     const btn = document.getElementById("fovea-suno-floating-btn");
+    if (captureStarting || btn?.classList.contains("fovea-loading")) return;
+    captureStarting = true;
+    try {
+      if (!await FoveaUI.consent(activeServerUrl, "video")) return;
+    } finally { captureStarting = false; }
     if (btn) btn.classList.add("fovea-loading");
+    capturePending = true;
+    captureTimer = setTimeout(() => {
+      capturePending = false;
+      btn?.classList.remove("fovea-loading");
+      showToast("Cannot read song", "Refresh Suno and try again.", false);
+    }, 10000);
 
     const secBadge = SECTION_LABELS[currentSection] || "Chorus";
     showToast("🎵 Reading song info...", `Preparing ${currentTrackTitle || "current song"} · ${secBadge}...`);
@@ -290,11 +338,10 @@
     }
 
     const btn = document.getElementById("fovea-suno-floating-btn");
-
-    function startProgressStages() {
-      showToast("Submitting video job", "Processing progress will appear after submission.");
-    }
-    function stopProgressStages() {}
+    if (!["FOVEA_CAPTURE_BY_SONG_ID", "FOVEA_CAPTURE_NOT_PUBLISHED", "FOVEA_CAPTURE_ERROR"].includes(event.data.type)) return;
+    if (!capturePending) return;
+    capturePending = false;
+    clearTimeout(captureTimer);
 
     // 拦截到未公开 (Publish) 的曲目
     if (event.data.type === "FOVEA_CAPTURE_NOT_PUBLISHED") {
@@ -309,91 +356,38 @@
       return;
     }
 
-    if (event.data.type === "FOVEA_CAPTURE_SUCCESS") {
-      showToast("⚡ Audio ready", "Uploading audio for lyric alignment and video rendering...");
-      startProgressStages();
-
-      chrome.runtime.sendMessage(
-        {
-          action: "EXPORT_VIDEO_DIRECT_BLOB",
-          dataUrl: event.data.dataUrl,
-          track: event.data.track,
-          serverUrl: activeServerUrl,
-          section: event.data.section || currentSection,
-          duration: event.data.duration !== undefined ? event.data.duration : currentDuration,
-        },
-        (response) => {
-          stopProgressStages();
-          if (btn) btn.classList.remove("fovea-loading");
-          if (!response || response.status !== "ok") {
-            alert(`[Fovea MV] Video creation failed:\n${response ? response.message : "Unknown error"}`);
-            hideToast();
-            return;
-          }
-          showToast("🎉 Video ready!", `MP4 download started for ${event.data.track.title || "Suno"}. Check Chrome’s downloads.`, false);
-          hideToast(3500);
+    if (event.data.type === "FOVEA_CAPTURE_BY_SONG_ID") {
+      showToast("Submitting video job", "Processing progress will appear after submission.");
+      chrome.runtime.sendMessage({
+        action: "EXPORT_VIDEO_BY_SONG_ID", track: event.data.track,
+        serverUrl: activeServerUrl, section: event.data.section || currentSection,
+        duration: event.data.duration !== undefined ? event.data.duration : currentDuration,
+      }, response => {
+        const runtimeError = chrome.runtime.lastError?.message;
+        if (btn) btn.classList.remove("fovea-loading");
+        if (runtimeError || response?.status !== "ok") {
+          showToast("Video creation failed", FoveaUI.error(runtimeError || response?.message), false);
+          return;
         }
-      );
-    } else if (event.data.type === "FOVEA_CAPTURE_NEED_BG_FETCH") {
-      showToast("⚡ Fetching audio", "Downloading audio and submitting the video job...");
-      startProgressStages();
-
-      chrome.runtime.sendMessage(
-        {
-          action: "EXPORT_VIDEO_FETCH",
-          url: event.data.url,
-          track: event.data.track,
-          serverUrl: activeServerUrl,
-          section: event.data.section || currentSection,
-          duration: event.data.duration !== undefined ? event.data.duration : currentDuration,
-        },
-        (response) => {
-          stopProgressStages();
-          if (btn) btn.classList.remove("fovea-loading");
-          if (!response || response.status !== "ok") {
-            alert(`[Fovea MV] Video creation failed:\n${response ? response.message : "Unknown error"}`);
-            hideToast();
-            return;
-          }
-          showToast("🎉 Video ready!", `MP4 download started for ${event.data.track.title || "Suno"}. Check Chrome’s downloads.`, false);
-          hideToast(3500);
-        }
-      );
-    } else if (event.data.type === "FOVEA_CAPTURE_BY_SONG_ID") {
-      showToast("⚡ Preparing song", "Connecting to the server for lyric alignment and rendering...");
-      startProgressStages();
-
-      chrome.runtime.sendMessage(
-        {
-          action: "EXPORT_VIDEO_BY_SONG_ID",
-          track: event.data.track,
-          serverUrl: activeServerUrl,
-          section: event.data.section || currentSection,
-          duration: event.data.duration !== undefined ? event.data.duration : currentDuration,
-        },
-        (response) => {
-          stopProgressStages();
-          if (btn) btn.classList.remove("fovea-loading");
-          if (!response || response.status !== "ok") {
-            alert(`[Fovea MV] Video creation failed:\n${response ? response.message : "Unknown error"}`);
-            hideToast();
-            return;
-          }
-          showToast("🎉 Video ready!", `MP4 download started for ${event.data.track.title || "Suno"}. Check Chrome’s downloads.`, false);
-          hideToast(3500);
-        }
-      );
+        showToast("Video ready!", "Download started. Check the extension popup for completion.", false);
+        hideToast(3500);
+      });
     } else if (event.data.type === "FOVEA_CAPTURE_ERROR") {
       if (btn) btn.classList.remove("fovea-loading");
-      alert(`[Fovea MV] Notice: ${event.data.error}\n💡 Play the song in Suno and check that your selected server is available.`);
-      hideToast();
+      showToast("Cannot create MP4", FoveaUI.error(event.data.error), false);
     }
   });
 
   // 接收来自 popup.js 的消息
   if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-      if (request.action === "MP3_PROGRESS") {
+      if (request.action === "DOWNLOAD_STATUS") {
+        const completed = request.download.state === "complete";
+        showToast(completed ? "Download complete" : "Download failed",
+          completed ? request.download.filename : "Open the extension popup and choose Retry download.", false, request.download.kind);
+        hideToast(completed ? 5000 : 10000);
+        sendResponse({ status: "ok" });
+      } else if (request.action === "MP3_PROGRESS") {
         showToast("Preparing MP3", progressLabel(request.task, "Preparing audio…"), true, "MP3 audio");
         sendResponse({ status: "ok" });
       } else if (request.action === "EXPORT_PROGRESS") {

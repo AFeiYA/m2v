@@ -54,6 +54,7 @@ test('resuming and simultaneous queries download once without another POST', asy
   } };
   context.chrome.storage = { local: {
     get: async () => ({ pendingVideoJob: { taskId: 'job' } }),
+    set: async () => {},
     remove: async () => { removed++; },
   } };
   const job = { targetServer: 'https://server', taskId: 'job', title: 'song', section: 'chorus' };

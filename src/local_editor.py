@@ -41,6 +41,7 @@ from src.storyboard_schema import (
 from src.subtitle import generate_ass
 from src.config import PipelineConfig, SubtitleConfig
 from src.utils import log
+from src.task_store import TaskStore
 from src.video_providers import get_comfyui_client
 
 # ── 默认值 ────────────────────────────────────────────────
@@ -98,6 +99,12 @@ class RealignRequest(BaseModel):
 def _get_scan_dir() -> Path:
     """获取扫描目录（从 app.state 中读取）"""
     return getattr(app.state, "scan_dir", Path(DEFAULT_DIR))
+
+
+@app.get("/privacy/extension", response_class=HTMLResponse)
+def extension_privacy():
+    """Public privacy page usable in the Chrome Web Store listing."""
+    return HTMLResponse((_PROJECT_ROOT / "chrome_extension" / "privacy.html").read_text(encoding="utf-8"))
 
 
 def _validate_path(p: Path, must_exist: bool = True) -> Path:
@@ -385,6 +392,7 @@ async def plugin_direct_export_video(
     section_name: str = Form(""),
     start_time: float = Form(0.0),
     duration_limit: float = Form(0.0),
+    request_id: str = Form(""),
 ):
     """
     接收来自 Chrome 插件的一键动效短视频生成请求。
@@ -418,6 +426,32 @@ async def plugin_direct_export_video(
     import tempfile
     import os
     scan_dir = _get_scan_dir()
+    if request_id:
+        try:
+            request_id = str(uuid.UUID(request_id))
+        except ValueError:
+            raise HTTPException(400, "Invalid request ID")
+        task_id = f"lyric_{hashlib.sha256(request_id.encode()).hexdigest()}"
+    else:
+        task_id = f"lyric_{uuid.uuid4().hex}"
+    fingerprint = hashlib.sha256(json.dumps(
+        [song_id, url, title, section_name, start_time, duration_limit,
+         aspect_ratio, template, theme, background_mode, lyrics, prompt, artist, cover_url],
+        ensure_ascii=False).encode()).hexdigest()
+    # Reserve before awaiting uploads so duplicate requests start one worker.
+    with _lyric_video_tasks.lock:
+        existing = _lyric_video_tasks.get(task_id)
+        if existing:
+            if existing.get("request_fingerprint") != fingerprint:
+                raise HTTPException(409, "Request ID already belongs to a different video")
+            return {"status": existing["status"], "task_id": task_id, "title": title}
+        _lyric_video_tasks.cleanup()
+        _lyric_video_tasks[task_id] = {
+            "status": "pending", "phase": "queued", "progress": 0.0,
+            "message": "Waiting in queue", "task_id": task_id,
+            "title": title, "result": None, "error": None,
+            "request_fingerprint": fingerprint,
+        }
     staged_upload = None
     if audio_file is not None and audio_file.filename:
         staging_dir = scan_dir.parent / "work" / "plugin_uploads"
@@ -432,14 +466,8 @@ async def plugin_direct_export_video(
                     destination.write(chunk)
         except Exception:
             staged_upload.unlink(missing_ok=True)
+            _lyric_video_tasks[task_id].update(status="failed", error="Audio upload failed")
             raise
-
-    task_id = f"lyric_{uuid.uuid4().hex}"
-    _lyric_video_tasks[task_id] = {
-        "status": "pending", "phase": "queued", "progress": 0.0,
-        "message": "任务已提交，等待处理…", "task_id": task_id,
-        "title": title, "result": None, "error": None,
-    }
 
     def _update(phase, progress, message):
         task = _lyric_video_tasks[task_id]
@@ -1418,6 +1446,19 @@ def download_original_mp3(song: str | None = None, json_path: str | None = None)
     return FileResponse(target_mp3, media_type=media_type, headers=headers)
 
 
+@app.get("/api/suno/publish_status")
+def api_suno_publish_status(url: str):
+    """Check public availability without downloading or aligning audio."""
+    from src.suno_fetch import fetch_song, SongNotPublishedError
+    try:
+        song = fetch_song(url.strip(), require_public=True)
+        return {"is_public": song.is_public is True}
+    except SongNotPublishedError:
+        raise HTTPException(400, "Song is not published. Publish it in Suno’s (…) menu before downloading MP3 or MP4.")
+    except Exception:
+        raise HTTPException(502, "Could not verify song publication. Please try again.")
+
+
 @app.get("/api/suno/download_mp3", operation_id="api_suno_download_mp3_get")
 @app.post("/api/suno/download_mp3", operation_id="api_suno_download_mp3_post")
 def api_suno_download_mp3(url: str):
@@ -1426,6 +1467,7 @@ def api_suno_download_mp3(url: str):
     仅执行歌曲信息抓取 + 原曲音频下载 (支持直链与视频流自动回退提取)，
     不进行耗时的 Demucs 人声分离和 WhisperX 字符级对齐。
     """
+    from src.suno_fetch import SongNotPublishedError
     url = url.strip()
     if not url:
         raise HTTPException(400, "请输入 Suno 歌曲链接")
@@ -1505,6 +1547,8 @@ def api_suno_download_mp3(url: str):
     except HTTPException:
         raise
     except Exception as e:
+        if isinstance(e, SongNotPublishedError):
+            raise HTTPException(400, "Song is not published. Publish it in Suno’s (…) menu before downloading MP3 or MP4.")
         log.error("Suno MP3 下载失败: %s", e, exc_info=True)
         raise HTTPException(500, f"Suno MP3 下载失败: {str(e)}")
 
@@ -1526,7 +1570,7 @@ class LyricVideoExportRequest(BaseModel):
     end_time: float | None = Field(default=None, description="裁剪结束时间 (秒)")
 
 
-_lyric_video_tasks: dict[str, dict[str, Any]] = {}
+_lyric_video_tasks = TaskStore(lambda: _get_scan_dir().parent / "work" / "video_tasks")
 
 
 @app.get("/api/lyric_video/templates")

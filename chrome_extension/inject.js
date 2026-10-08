@@ -4,28 +4,7 @@
  */
 
 (function () {
-  window.__FOVEA_MEDIA_BLOBS__ = [];
   window.__FOVEA_CLIPS__ = window.__FOVEA_CLIPS__ || {};
-
-  // 1. 深度拦截 URL.createObjectURL，捕获播放流 Blob
-  try {
-    const origCreate = URL.createObjectURL;
-    URL.createObjectURL = function (obj) {
-      if (obj && (obj instanceof Blob || obj instanceof File)) {
-        if (
-          (obj.type && (obj.type.includes("audio") || obj.type.includes("video") || obj.type.includes("octet-stream"))) ||
-          obj.size > 200000
-        ) {
-          console.log("[Fovea MV] 🎯 捕获到播放流 Blob:", obj.type, `${(obj.size / 1024 / 1024).toFixed(2)}MB`);
-          window.__FOVEA_MEDIA_BLOBS__.push(obj);
-          window.__FOVEA_LAST_BLOB__ = obj;
-        }
-      }
-      return origCreate.apply(this, arguments);
-    };
-  } catch (e) {
-    console.warn("[Fovea MV] 拦截 createObjectURL 异常:", e);
-  }
 
   // 2. 深度拦截 window.fetch，自动捕获 Suno 的 Clip 数据对象并精准判断 is_public
   try {
@@ -100,7 +79,7 @@
     let artist = "Suno Creator";
     let prompt = "";
     let songId = window.__FOVEA_CURRENT_PLAYING_CLIP_ID__ || "";
-    let is_public = true;
+    let is_public = null;
     let coverUrl = "";
     let audioUrl = "";
 
@@ -121,7 +100,7 @@
     }
 
     // 3. 优先级 A: 系统级 MediaSession (Suno 播放时由其 Web 音频播放引擎写入，100% 精准对应当前曲目)
-    if (navigator.mediaSession && navigator.mediaSession.metadata) {
+    if (!m && navigator.mediaSession && navigator.mediaSession.metadata) {
       const msMeta = navigator.mediaSession.metadata;
       if (isValidSongTitle(msMeta.title)) {
         title = msMeta.title.trim();
@@ -140,7 +119,7 @@
     const playerBar = document.querySelector(
       "footer, [data-testid*='player'], [class*='player-bar'], [class*='bottom-0']"
     );
-    if (playerBar) {
+    if (playerBar && !m) {
       const playerSongLink = playerBar.querySelector("a[href*='/song/'], a[href*='/s/']");
       if (playerSongLink) {
         const linkTxt = playerSongLink.innerText.trim();
@@ -200,14 +179,12 @@
     if (songId && window.__FOVEA_CLIPS__[songId]) {
       const clip = window.__FOVEA_CLIPS__[songId];
       audioUrl = clip.audio_url || "";
-      if (clip.is_public === false) {
-        is_public = false;
-      }
+      if (typeof clip.is_public === "boolean") is_public = clip.is_public;
       if (clip.title && isValidSongTitle(clip.title)) title = clip.title;
       if (clip.display_name || clip.handle) artist = clip.display_name || clip.handle;
       if (clip.metadata && clip.metadata.prompt) prompt = clip.metadata.prompt;
-      if (!coverUrl) coverUrl = clip.image_large_url || clip.image_url || "";
-    } else if (title) {
+      coverUrl = clip.image_large_url || clip.image_url || coverUrl;
+    } else if (title && !songId) {
       // 通过标题在已拦截的 clips 中反向匹配对应 clip
       const matched = Object.values(window.__FOVEA_CLIPS__).find(
         (c) => c.title && c.title.trim().toLowerCase() === title.toLowerCase()
@@ -215,7 +192,7 @@
       if (matched) {
         songId = matched.id;
         audioUrl = matched.audio_url || "";
-        if (matched.is_public === false) is_public = false;
+        if (typeof matched.is_public === "boolean") is_public = matched.is_public;
         if (matched.display_name || matched.handle) artist = matched.display_name || matched.handle;
         if (matched.metadata && matched.metadata.prompt) prompt = matched.metadata.prompt;
         if (!coverUrl) coverUrl = matched.image_large_url || matched.image_url || "";
@@ -275,25 +252,6 @@
     return { title: title || "Suno_Track", artist, prompt, songId, coverUrl, audioUrl, is_public };
   }
 
-  // 4. 将 Blob 转换为 DataURL 并回传给 content.js
-  function returnBlobResult(blob, track, source = "blob", section = "chorus", duration = 30) {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      window.postMessage(
-        {
-          type: "FOVEA_CAPTURE_SUCCESS",
-          dataUrl: reader.result,
-          track,
-          source,
-          section,
-          duration,
-        },
-        "*"
-      );
-    };
-    reader.readAsDataURL(blob);
-  }
-
   // 5. 执行捕获与导出主流程
   async function handleCapture(section = "chorus", duration = 30) {
     const track = getTrackInfo();
@@ -312,51 +270,8 @@
       return;
     }
 
-    // 优先策略 A: 使用内存拦截捕获到的完整解密 Blob
-    if (window.__FOVEA_LAST_BLOB__) {
-      console.log("[Fovea MV] 使用拦截到的媒体 Blob 读取音频...");
-      returnBlobResult(window.__FOVEA_LAST_BLOB__, track, "hooked_blob", section, duration);
-      return;
-    }
-
-    // 优先策略 B: 扫描页面上的 <audio> 标签
-    const audios = Array.from(document.querySelectorAll("audio"));
-    if (audios.length > 0) {
-      const activeAudio =
-        audios.find((a) => !a.paused) || audios.find((a) => a.currentTime > 0) || audios[0];
-      const src = activeAudio.currentSrc || activeAudio.src;
-
-      console.log("[Fovea MV] 发现播放器 audio.src:", src);
-
-      if (src && src.startsWith("blob:")) {
-        try {
-          const resp = await window.fetch(src);
-          if (resp.ok) {
-            const blob = await resp.blob();
-            returnBlobResult(blob, track, "audio_blob_src", section, duration);
-            return;
-          }
-        } catch (err) {
-          console.warn("[Fovea MV] 主世界 fetch blob 失败:", err);
-        }
-      }
-
-      if (src && src.startsWith("http")) {
-        window.postMessage(
-          {
-            type: "FOVEA_CAPTURE_NEED_BG_FETCH",
-            url: src,
-            track,
-            section,
-            duration,
-          },
-          "*"
-        );
-        return;
-      }
-    }
-
-    // 优先策略 C: 若在 song 详情页且未点播放，检查页面上的 Next.js 初始数据
+    // Resolve the selected song on the server. A player Blob has no trustworthy
+    // song identity and may still belong to the song played before navigation.
     if (track.songId) {
       window.postMessage(
         {
@@ -372,7 +287,7 @@
     }
 
     throw new Error(
-      `No audio stream found (${audios.length} players detected). Play the song in Suno first.`
+      "No song ID found. Open the song page and try again."
     );
   }
 

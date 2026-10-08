@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Fovea MV — Privacy</title>
+<style>body{max-width:760px;margin:48px auto;padding:0 24px;font:16px/1.65 system-ui;color:#e2e8f0;background:#0f172a}h1,h2{color:white}a{color:#a5b4fc}</style></head>
+<body><h1>Privacy &amp; data handling</h1><p>Updated: October 8, 2026. Applies to Fovea MV Chrome extension 1.5.0.</p>
+<h2>What happens when you use it</h2>
+<p>The extension reads song metadata and media addresses on Suno pages. It does not request access to cookies, passwords, browser history or social publishing accounts. It has no analytics or advertising trackers.</p>
+<p><strong>Download MP3:</strong> an available MP3 downloads directly from Suno’s media service. The selected server may receive the song link to verify publication; if the MP3 is unavailable, it downloads/extracts the audio. Both MP3 and MP4 require a publicly published song. Unknown publication status is checked rather than assumed public.</p>
+<p><strong>Create MP4:</strong> the selected server receives the song ID, title, artist, lyrics/prompt, cover address and chosen clip. It downloads the audio, aligns lyrics and renders video. Its hosting and processing infrastructure handles this data. This quick-export feature does not call the AI Director’s LLM API.</p>
+<h2>Where data stays</h2>
+<p>Chrome stores server preferences, consent choices, task identifiers, song metadata for recovery, and recent download statuses locally. Downloaded files stay in your Chrome download folder. Clear finished history in the popup to remove finished task and download records; active jobs are kept. This does not delete files or cancel server jobs. Uninstalling removes extension storage.</p>
+<p>The backend task recovery window is seven days. Expired journals are removed on lookup or when new video jobs trigger cleanup; this cleanup is lazy, so idle servers may keep expired files longer. Audio, lyrics, covers, alignment files and rendered videos are stored on the selected server; this release does not automatically delete those project files. A local server keeps them on your computer. A cloud server keeps them on its host. Contact the operator to request deletion; do not upload material you cannot share with that operator.</p>
+<p>Server restarts can interrupt unfinished work. Recovery of completed results requires the server disk to survive the restart. Temporary cloud disks may lose files.</p>
+<h2>Permissions and control</h2>
+<p>Suno and media-host access detects and downloads songs. Downloads permission saves files and checks completion. Storage remembers settings and jobs. Alarms checks existing jobs after the background worker sleeps. Access to a custom HTTPS server is requested only when you save its address. Cloud communication uses HTTPS; local loopback servers may use HTTP.</p>
+<p>Use your own music or music you have permission to process. Fovea MV is an independent tool, not an official Suno product.</p>
+<p>Support and deletion requests: <a href="https://github.com/AFeiYA/m2v/issues">project support</a>. Do not post private audio, credentials, task IDs or download links in public issues; ask for a private support channel first.</p>
+</body></html>
