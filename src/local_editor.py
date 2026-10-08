@@ -51,6 +51,7 @@ DEFAULT_PORT  = 8000
 # ─────────────────────────────────────────────────────────
 
 _alignment_write_lock = threading.Lock()
+_plugin_export_lock = threading.Lock()
 
 app = FastAPI(title="M2V 本地编辑器", docs_url=None, redoc_url=None)
 
@@ -325,8 +326,8 @@ async def plugin_direct_export_video(
 ):
     """
     接收来自 Chrome 插件的一键动效短视频生成请求。
-    强制校验歌曲是否已在 Suno 上 Publish (公开)，
-    自动执行音频准备、纯 CTC 毫秒级字级时间轴对齐、并直接渲染 9:16 商业级 MP4 短视频。
+    暂存上传文件后立即返回任务编号；后台排队执行公开状态检查、
+    音频准备、分离、歌词对齐和视频渲染，通过任务接口查询真实进度。
     """
     import subprocess
     from urllib.parse import quote
@@ -350,231 +351,254 @@ async def plugin_direct_export_video(
             detail="该曲目尚未公开 (Publish)，无法生成视频！\n💡 请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
         )
 
-    clean_title = _sanitize_filename(title) or f"suno_{uuid.uuid4().hex[:8]}"
+    # Only stage request-owned uploads here. Network, inference and rendering
+    # must run after returning the task ID, outside the ASGI event loop.
+    import tempfile
+    import os
     scan_dir = _get_scan_dir()
-    input_dir = scan_dir.parent / "input" / clean_title
-    output_dir = scan_dir / clean_title
-    input_dir.mkdir(parents=True, exist_ok=True)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    fetched_song = None
-    target_url = url or (f"https://suno.com/song/{song_id}" if song_id else "")
-
-    if target_url:
-        try:
-            fetched_song = fetch_song(target_url, require_public=True)
-            if fetched_song:
-                clean_title = _sanitize_filename(fetched_song.title) or clean_title
-                artist = fetched_song.artist or artist
-                prompt = fetched_song.raw_prompt or prompt
-                lyrics = fetched_song.lyrics or lyrics
-        except SongNotPublishedError as sne:
-            log.warning("检测到未公开曲目请求: %s", sne)
-            raise HTTPException(status_code=400, detail=str(sne))
-        except Exception as e:
-            log.warning("尝试在线拉取歌曲信息异常: %s", e)
-
-    # 2. 准备音频
-    target_mp3 = input_dir / f"{clean_title}.mp3"
+    staged_upload = None
     if audio_file is not None and audio_file.filename:
-        temp_upload = input_dir / f"temp_{clean_title}_{audio_file.filename}"
-        with open(temp_upload, "wb") as f:
-            shutil.copyfileobj(audio_file.file, f)
-
-        ffmpeg_bin = get_ffmpeg_binary()
-        cmd = [
-            ffmpeg_bin, "-y",
-            "-i", str(temp_upload),
-            "-vn",
-            "-c:a", "libmp3lame",
-            "-b:a", "192k",
-            str(target_mp3),
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True)
-        if res.returncode != 0 or not target_mp3.exists() or target_mp3.stat().st_size == 0:
-            if temp_upload.suffix.lower() in [".mp3", ".wav", ".m4a"]:
-                shutil.copy2(temp_upload, target_mp3)
-            else:
-                temp_upload.unlink(missing_ok=True)
-                raise HTTPException(500, f"音频转码失败: {res.stderr[-200:] if res.stderr else '未知错误'}")
-        temp_upload.unlink(missing_ok=True)
-    elif fetched_song:
-        download_song(fetched_song, input_dir, song_name=clean_title, save_json=True)
-        cand_mp3 = input_dir / f"{clean_title}.mp3"
-        if cand_mp3.exists():
-            target_mp3 = cand_mp3
-
-    if not target_mp3.exists() or target_mp3.stat().st_size == 0:
-        raise HTTPException(400, "未能获取到有效的音频流。请先在 Suno 页面点击【播放】试听这首歌曲。")
-
-    # 3. 准备封面
-    cover_file = input_dir / f"{clean_title}_cover.png"
-    cand_cover_url = cover_url or (fetched_song.raw_clip.get("image_large_url") or fetched_song.raw_clip.get("image_url") if fetched_song else "")
-    if cand_cover_url and not cover_file.exists():
+        staging_dir = scan_dir.parent / "work" / "plugin_uploads"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        fd, staging_path = tempfile.mkstemp(
+            prefix="upload_", suffix=Path(audio_file.filename).suffix, dir=staging_dir,
+        )
+        staged_upload = Path(staging_path)
         try:
-            import requests
-            img_resp = requests.get(cand_cover_url, timeout=10)
-            if img_resp.status_code == 200:
-                cover_file.write_bytes(img_resp.content)
-        except Exception as e:
-            log.warning("下载封面失败: %s", e)
+            with os.fdopen(fd, "wb") as destination:
+                while chunk := await audio_file.read(1024 * 1024):
+                    destination.write(chunk)
+        except Exception:
+            staged_upload.unlink(missing_ok=True)
+            raise
 
-    # 4. 准备歌词
-    clean_lyr = _clean_lyrics(lyrics)
-    if not clean_lyr and prompt:
-        clean_lyr = _clean_lyrics(prompt)
-    lyrics_path = input_dir / f"{clean_title}.txt"
-    lyrics_path.write_text(clean_lyr, encoding="utf-8")
-
-    meta_json = input_dir / f"{clean_title}_suno.json"
-    meta_data = {
-        "id": song_id or clean_title,
-        "title": clean_title,
-        "artist": artist,
-        "is_public": True,
-        "metadata": {
-            "prompt": prompt,
-            "tags": tags,
-        },
-        "from_extension": True,
-    }
-    meta_json.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    # 5. 执行极速纯 CTC 对齐
-    cfg_file = scan_dir.parent / "pipeline.toml"
-    config = PipelineConfig.from_file(cfg_file) if cfg_file.exists() else PipelineConfig()
-    config.ass_only = True
-
-    process_one(target_mp3, lyrics_path, output_dir, None, config)
-
-    alignment_json_path = output_dir / f"{clean_title}_alignment.json"
-    if alignment_json_path.exists() and prompt:
-        try:
-            enrich_alignment_sections(alignment_json_path, prompt)
-        except Exception as e:
-            log.warning("乐段结构注入异常: %s", e)
-
-    # 6. 计算乐段与裁剪起止时间
-    seg_start = max(0.0, float(start_time or 0.0))
-    seg_dur = float(duration_limit or 0.0) if duration_limit and duration_limit > 0 else None
-    out_suffix = ""
-
-    if alignment_json_path.exists():
-        try:
-            from src.aligner import AlignmentResult
-            al_obj = AlignmentResult.load_json(alignment_json_path)
-            sec_lower = (section_name or "").strip().lower()
-
-            if sec_lower in ("chorus", "verse1", "verse2", "intro"):
-                target_sec = None
-                if sec_lower == "chorus":
-                    out_suffix = "_副歌"
-                    for s in al_obj.sections:
-                        s_name = (getattr(s, "name", "") or "").lower()
-                        s_lbl = getattr(s, "label", "") or ""
-                        if "chorus" in s_name or "副歌" in s_lbl:
-                            target_sec = s
-                            break
-                    if not target_sec:
-                        for line in getattr(al_obj, "lines", []):
-                            l_sec = getattr(line, "section", "") or ""
-                            if "chorus" in l_sec.lower() or "副歌" in l_sec:
-                                seg_start = line.start
-                                target_sec = True
-                                break
-                    if not target_sec and al_obj.sections:
-                        target_sec = max(al_obj.sections, key=lambda x: getattr(x, "energy", 0.0))
-                    if not target_sec and al_obj.duration > 35:
-                        seg_start = al_obj.duration * 0.35
-                elif sec_lower == "verse1":
-                    out_suffix = "_主歌1"
-                    for s in al_obj.sections:
-                        s_name = (getattr(s, "name", "") or "").lower()
-                        s_lbl = getattr(s, "label", "") or ""
-                        if "verse" in s_name or "主歌" in s_lbl:
-                            target_sec = s
-                            break
-                    if not target_sec:
-                        for line in getattr(al_obj, "lines", []):
-                            l_sec = getattr(line, "section", "") or ""
-                            if "verse" in l_sec.lower() or "主歌" in l_sec:
-                                seg_start = line.start
-                                target_sec = True
-                                break
-                elif sec_lower == "intro":
-                    out_suffix = "_前奏"
-                    seg_start = 0.0
-                    target_sec = True
-
-                if target_sec and hasattr(target_sec, "start"):
-                    seg_start = target_sec.start
-                    if not seg_dur or seg_dur <= 0:
-                        seg_dur = 30.0  # 自动向后截取 30 秒黄金短视频长度
-                elif not seg_dur or seg_dur <= 0:
-                    if sec_lower != "full":
-                        seg_dur = 30.0
-        except Exception as e:
-            log.warning("解析乐段切片异常: %s", e)
-
-    # 7. 创建异步视频合成任务
-    clean_ratio = aspect_ratio.replace(":", "x")
-    out_mp4 = output_dir / f"{clean_title}_lyric_{clean_ratio}_{template}{out_suffix}.mp4"
-    task_id = f"lyric_{uuid.uuid4().hex[:8]}"
-
+    task_id = f"lyric_{uuid.uuid4().hex}"
     _lyric_video_tasks[task_id] = {
-        "status": "pending",
-        "progress": 20.0,
-        "message": f"纯 CTC 词级时间轴已对齐{f' ({out_suffix[1:]})' if out_suffix else ''}，正在准备合成 9:16 动效短视频...",
-        "task_id": task_id,
-        "title": clean_title,
-        "result": None,
-        "error": None,
+        "status": "pending", "phase": "queued", "progress": 0.0,
+        "message": "任务已提交，等待处理…", "task_id": task_id,
+        "title": title, "result": None, "error": None,
     }
+
+    def _update(phase, progress, message):
+        task = _lyric_video_tasks[task_id]
+        task.update(phase=phase, progress=max(task["progress"], progress), message=message)
 
     def _worker():
+        # Serialize plugin pipelines: model/GPU resources and song paths are
+        # shared. Queued requests still return immediately and remain pollable.
         try:
-            _lyric_video_tasks[task_id]["status"] = "running"
-            _lyric_video_tasks[task_id]["progress"] = 35.0
+            with _plugin_export_lock:
+                _lyric_video_tasks[task_id]["status"] = "running"
+                _update("fetching", 1, "正在获取歌曲信息…")
+                artist_value, prompt_value, lyrics_value = artist, prompt, lyrics
+                clean_title = _sanitize_filename(title) or f"suno_{uuid.uuid4().hex[:8]}"
+                fetched_song = None
+                target_url = url or (f"https://suno.com/song/{song_id}" if song_id else "")
 
-            def _on_prog(p_val: float, msg: str):
-                _lyric_video_tasks[task_id]["progress"] = max(35.0, p_val)
-                _lyric_video_tasks[task_id]["message"] = msg
+                if target_url:
+                    try:
+                        fetched_song = fetch_song(target_url, require_public=True)
+                        if fetched_song:
+                            clean_title = _sanitize_filename(fetched_song.title) or clean_title
+                            artist_value = fetched_song.artist or artist_value
+                            prompt_value = fetched_song.raw_prompt or prompt_value
+                            lyrics_value = fetched_song.lyrics or lyrics_value
+                    except SongNotPublishedError as sne:
+                        log.warning("检测到未公开曲目请求: %s", sne)
+                        raise HTTPException(status_code=400, detail=str(sne))
+                    except Exception as e:
+                        log.warning("尝试在线拉取歌曲信息异常: %s", e)
 
-            res = export_lyric_video(
-                alignment_source=alignment_json_path,
-                audio_path=target_mp3,
-                output_path=out_mp4,
-                aspect_ratio=aspect_ratio,
-                template=template,
-                theme=theme,
-                background_mode=background_mode,
-                cover_path=cover_file if cover_file.exists() else None,
-                start_time=seg_start,
-                duration_limit=seg_dur,
-                progress_callback=_on_prog,
-            )
+                input_dir = scan_dir.parent / "input" / clean_title
+                output_dir = scan_dir / clean_title
+                input_dir.mkdir(parents=True, exist_ok=True)
+                output_dir.mkdir(parents=True, exist_ok=True)
+                _update("audio", 5, "正在准备歌曲音频…")
+                # 2. 准备音频
+                target_mp3 = input_dir / f"{clean_title}.mp3"
+                if staged_upload is not None:
+                    temp_upload = staged_upload
 
-            res["video_url"] = f"/api/asset_file?path={encode_path(str(out_mp4.absolute()))}"
-            res["download_url"] = f"/api/asset_file?download=true&filename={quote(clean_title + out_suffix + '_9x16.mp4')}&path={encode_path(str(out_mp4.absolute()))}"
+                    ffmpeg_bin = get_ffmpeg_binary()
+                    cmd = [
+                        ffmpeg_bin, "-y",
+                        "-i", str(temp_upload),
+                        "-vn",
+                        "-c:a", "libmp3lame",
+                        "-b:a", "192k",
+                        str(target_mp3),
+                    ]
+                    res = subprocess.run(cmd, capture_output=True, text=True)
+                    if res.returncode != 0 or not target_mp3.exists() or target_mp3.stat().st_size == 0:
+                        if temp_upload.suffix.lower() in [".mp3", ".wav", ".m4a"]:
+                            shutil.copy2(temp_upload, target_mp3)
+                        else:
+                            temp_upload.unlink(missing_ok=True)
+                            raise HTTPException(500, f"音频转码失败: {res.stderr[-200:] if res.stderr else '未知错误'}")
+                    temp_upload.unlink(missing_ok=True)
+                elif fetched_song:
+                    download_song(fetched_song, input_dir, song_name=clean_title, save_json=True)
+                    cand_mp3 = input_dir / f"{clean_title}.mp3"
+                    if cand_mp3.exists():
+                        target_mp3 = cand_mp3
 
-            _lyric_video_tasks[task_id]["status"] = "completed"
-            _lyric_video_tasks[task_id]["progress"] = 100.0
-            _lyric_video_tasks[task_id]["message"] = f"视频生成成功！耗时: {res.get('elapsed_seconds')}s"
-            _lyric_video_tasks[task_id]["result"] = res
-            log.info("Chrome 插件触发动效短视频生成完成: %s -> %s", task_id, out_mp4.name)
-        except Exception as e:
-            log.exception("Chrome 插件触发动效短视频生成失败: %s", e)
-            _lyric_video_tasks[task_id]["status"] = "failed"
-            _lyric_video_tasks[task_id]["error"] = str(e)
-            _lyric_video_tasks[task_id]["message"] = f"生成失败: {e}"
+                if not target_mp3.exists() or target_mp3.stat().st_size == 0:
+                    raise HTTPException(400, "未能获取到有效的音频流。请先在 Suno 页面点击【播放】试听这首歌曲。")
+
+                # 3. 准备封面
+                cover_file = input_dir / f"{clean_title}_cover.png"
+                cand_cover_url = cover_url or (fetched_song.raw_clip.get("image_large_url") or fetched_song.raw_clip.get("image_url") if fetched_song else "")
+                if cand_cover_url and not cover_file.exists():
+                    try:
+                        import requests
+                        img_resp = requests.get(cand_cover_url, timeout=10)
+                        if img_resp.status_code == 200:
+                            cover_file.write_bytes(img_resp.content)
+                    except Exception as e:
+                        log.warning("下载封面失败: %s", e)
+
+                # 4. 准备歌词
+                clean_lyr = _clean_lyrics(lyrics_value)
+                if not clean_lyr and prompt_value:
+                    clean_lyr = _clean_lyrics(prompt_value)
+                lyrics_path = input_dir / f"{clean_title}.txt"
+                lyrics_path.write_text(clean_lyr, encoding="utf-8")
+
+                meta_json = input_dir / f"{clean_title}_suno.json"
+                meta_data = {
+                    "id": song_id or clean_title,
+                    "title": clean_title,
+                    "artist": artist_value,
+                    "is_public": True,
+                    "metadata": {
+                        "prompt": prompt_value,
+                        "tags": tags,
+                    },
+                    "from_extension": True,
+                }
+                meta_json.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+                # 5. 执行分离、歌词对齐和字幕生成
+                cfg_file = scan_dir.parent / "pipeline.toml"
+                config = PipelineConfig.from_file(cfg_file) if cfg_file.exists() else PipelineConfig()
+                config.ass_only = True
+
+                def _pipeline_progress(step, progress, message):
+                    _update(step, 10 + min(100, max(0, progress)) * 0.65, message)
+
+                process_one(target_mp3, lyrics_path, output_dir, None, config, on_progress=_pipeline_progress)
+
+                alignment_json_path = output_dir / f"{clean_title}_alignment.json"
+                if alignment_json_path.exists() and prompt_value:
+                    try:
+                        enrich_alignment_sections(alignment_json_path, prompt_value)
+                    except Exception as e:
+                        log.warning("乐段结构注入异常: %s", e)
+
+                # 6. 计算乐段与裁剪起止时间
+                seg_start = max(0.0, float(start_time or 0.0))
+                seg_dur = float(duration_limit or 0.0) if duration_limit and duration_limit > 0 else None
+                out_suffix = ""
+
+                if alignment_json_path.exists():
+                    try:
+                        from src.aligner import AlignmentResult
+                        al_obj = AlignmentResult.load_json(alignment_json_path)
+                        sec_lower = (section_name or "").strip().lower()
+
+                        if sec_lower in ("chorus", "verse1", "verse2", "intro"):
+                            target_sec = None
+                            if sec_lower == "chorus":
+                                out_suffix = "_副歌"
+                                for s in al_obj.sections:
+                                    s_name = (getattr(s, "name", "") or "").lower()
+                                    s_lbl = getattr(s, "label", "") or ""
+                                    if "chorus" in s_name or "副歌" in s_lbl:
+                                        target_sec = s
+                                        break
+                                if not target_sec:
+                                    for line in getattr(al_obj, "lines", []):
+                                        l_sec = getattr(line, "section", "") or ""
+                                        if "chorus" in l_sec.lower() or "副歌" in l_sec:
+                                            seg_start = line.start
+                                            target_sec = True
+                                            break
+                                if not target_sec and al_obj.sections:
+                                    target_sec = max(al_obj.sections, key=lambda x: getattr(x, "energy", 0.0))
+                                if not target_sec and al_obj.duration > 35:
+                                    seg_start = al_obj.duration * 0.35
+                            elif sec_lower == "verse1":
+                                out_suffix = "_主歌1"
+                                for s in al_obj.sections:
+                                    s_name = (getattr(s, "name", "") or "").lower()
+                                    s_lbl = getattr(s, "label", "") or ""
+                                    if "verse" in s_name or "主歌" in s_lbl:
+                                        target_sec = s
+                                        break
+                                if not target_sec:
+                                    for line in getattr(al_obj, "lines", []):
+                                        l_sec = getattr(line, "section", "") or ""
+                                        if "verse" in l_sec.lower() or "主歌" in l_sec:
+                                            seg_start = line.start
+                                            target_sec = True
+                                            break
+                            elif sec_lower == "intro":
+                                out_suffix = "_前奏"
+                                seg_start = 0.0
+                                target_sec = True
+
+                            if target_sec and hasattr(target_sec, "start"):
+                                seg_start = target_sec.start
+                                if not seg_dur or seg_dur <= 0:
+                                    seg_dur = 30.0  # 自动向后截取 30 秒黄金短视频长度
+                            elif not seg_dur or seg_dur <= 0:
+                                if sec_lower != "full":
+                                    seg_dur = 30.0
+                    except Exception as e:
+                        log.warning("解析乐段切片异常: %s", e)
+
+                clean_ratio = aspect_ratio.replace(":", "x")
+                out_mp4 = output_dir / f"{clean_title}_lyric_{clean_ratio}_{template}{out_suffix}.mp4"
+                _lyric_video_tasks[task_id]["title"] = clean_title
+                _update("rendering", 75, "正在渲染歌词视频…")
+
+                def _on_prog(p_val: float, msg: str):
+                    _update("rendering", 75 + min(100, max(0, p_val)) * 0.25, msg)
+
+                res = export_lyric_video(
+                    alignment_source=alignment_json_path,
+                    audio_path=target_mp3,
+                    output_path=out_mp4,
+                    aspect_ratio=aspect_ratio,
+                    template=template,
+                    theme=theme,
+                    background_mode=background_mode,
+                    cover_path=cover_file if cover_file.exists() else None,
+                    start_time=seg_start,
+                    duration_limit=seg_dur,
+                    progress_callback=_on_prog,
+                )
+
+                res["video_url"] = f"/api/asset_file?path={encode_path(str(out_mp4.absolute()))}"
+                res["download_url"] = f"/api/asset_file?download=true&filename={quote(clean_title + out_suffix + '_' + clean_ratio + '.mp4')}&path={encode_path(str(out_mp4.absolute()))}"
+
+                _lyric_video_tasks[task_id].update(
+                    result=res, progress=100.0, phase="completed",
+                    message=f"视频生成成功！耗时: {res.get('elapsed_seconds')}s",
+                    status="completed",
+                )
+                log.info("Chrome 插件触发动效短视频生成完成: %s -> %s", task_id, out_mp4.name)
+        except Exception as exc:
+            error = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+            log.exception("Chrome 插件视频任务失败: %s", task_id)
+            _lyric_video_tasks[task_id].update(status="failed", error=error, message=f"生成失败: {error}")
+        finally:
+            if staged_upload is not None:
+                staged_upload.unlink(missing_ok=True)
 
     threading.Thread(target=_worker, daemon=True).start()
-    return {
-        "status": "pending",
-        "task_id": task_id,
-        "title": clean_title,
-        "message": "9:16 动效短视频渲染任务已提交，正在合成...",
-    }
+    return {"status": "pending", "task_id": task_id, "title": title,
+            "message": "任务已提交，下载、分离、对齐和渲染将在后台完成。"}
 
 
 @app.post("/api/plugin/import")

@@ -16,7 +16,7 @@
   }
 
   // 1. Toast 状态弹窗
-  function showToast(title, desc, indeterminate = true) {
+  function showToast(title, desc, indeterminate = true, badge = "9:16 动效 MP4") {
     let overlay = document.getElementById("fovea-toast-overlay");
     if (!overlay) {
       overlay = document.createElement("div");
@@ -26,14 +26,17 @@
 
     overlay.innerHTML = `
       <div class="fovea-toast-title">
-        <span>${title}</span>
-        <span class="fovea-toast-badge">9:16 动效 MP4</span>
+        <span class="fovea-toast-heading"></span>
+        <span class="fovea-toast-badge"></span>
       </div>
-      <div class="fovea-toast-desc">${desc}</div>
+      <div class="fovea-toast-desc"></div>
       <div class="fovea-toast-progress">
         <div class="fovea-toast-bar ${indeterminate ? "fovea-indeterminate" : ""}"></div>
       </div>
     `;
+    overlay.querySelector(".fovea-toast-heading").textContent = title;
+    overlay.querySelector(".fovea-toast-badge").textContent = badge;
+    overlay.querySelector(".fovea-toast-desc").textContent = desc;
     overlay.style.display = "block";
   }
 
@@ -105,6 +108,8 @@
         <span class="fovea-section-label">${SECTION_LABELS[currentSection] || "🔥 副歌 (30s)"}</span>
         <span class="fovea-dropdown-arrow">▾</span>
       </div>
+      <div class="fovea-btn-divider"></div>
+      <button type="button" class="fovea-btn-mp3" title="仅下载当前歌曲原始 MP3，无需后台生成视频">🎵 仅下载 MP3</button>
     `;
 
     document.body.appendChild(btn);
@@ -181,6 +186,31 @@
       });
     }
 
+    const mp3Button = btn.querySelector(".fovea-btn-mp3");
+    mp3Button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      mp3Button.disabled = true;
+      mp3Button.textContent = "正在检查…";
+      try {
+        // Read the selected track at click time, rather than cached song state.
+        const track = await requestCurrentTrack();
+        const response = await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({ action: "DOWNLOAD_TRACK_MP3", track }, result => {
+            if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+            else if (result?.status !== "ok") reject(new Error(result?.message || "无法启动 MP3 下载"));
+            else resolve(result);
+          });
+        });
+        showToast("MP3 已开始下载", response.data.filename + "，进度请查看 Chrome 下载列表。", false, "原曲 MP3");
+        hideToast(5000);
+      } catch (error) {
+        alert(`[Fovea MV] MP3 下载失败：${error.message}`);
+      } finally {
+        mp3Button.disabled = false;
+        mp3Button.textContent = "🎵 仅下载 MP3";
+      }
+    });
+
     const secTrigger = btn.querySelector(".fovea-btn-section-trigger");
     if (secTrigger) {
       secTrigger.addEventListener("click", (e) => {
@@ -194,6 +224,24 @@
       window.postMessage({ type: "FOVEA_QUERY_TRACK_INFO" }, "*");
     }, 1500);
     window.postMessage({ type: "FOVEA_QUERY_TRACK_INFO" }, "*");
+  }
+
+  function requestCurrentTrack() {
+    return new Promise((resolve, reject) => {
+      const handler = event => {
+        if (event.source !== window || event.data?.type !== "FOVEA_REPORT_TRACK_INFO") return;
+        clearTimeout(timer);
+        window.removeEventListener("message", handler);
+        if (event.data.track) resolve(event.data.track);
+        else reject(new Error("未检测到歌曲，请播放目标歌曲后再试。"));
+      };
+      const timer = setTimeout(() => {
+        window.removeEventListener("message", handler);
+        reject(new Error("无法读取歌曲信息，请刷新 Suno 页面后再试。"));
+      }, 5000);
+      window.addEventListener("message", handler);
+      window.postMessage({ type: "FOVEA_QUERY_TRACK_INFO" }, "*");
+    });
   }
 
   // 3. 触发捕获流程: 向 MAIN World 的 inject.js 发送请求
@@ -227,28 +275,10 @@
 
     const btn = document.getElementById("fovea-suno-floating-btn");
 
-    let progressTimer = null;
     function startProgressStages() {
-      if (progressTimer) clearInterval(progressTimer);
-      let sec = 0;
-      progressTimer = setInterval(() => {
-        sec += 2;
-        if (sec >= 3 && sec < 8) {
-          showToast("⚡ [步骤 2/3] 纯 CTC 歌词对齐中", "正在执行毫秒级字级时间轴智能对齐 (纯 CTC 极速方案)...");
-        } else if (sec >= 8 && sec < 35) {
-          showToast("🚀 [步骤 3/3] 动效短视频渲染中", `FFmpeg 正在渲染 9:16 灵动渐变短视频 (${sec}s / 预计约 5~15 秒)...`);
-        } else if (sec >= 35) {
-          showToast("✨ [步骤 3/3] 即将完成", "视频合成已接近尾声，准备调用浏览器下载...");
-        }
-      }, 2000);
+      showToast("正在提交视频任务", "提交成功后将显示后台实际处理阶段，请耐心等待。");
     }
-
-    function stopProgressStages() {
-      if (progressTimer) {
-        clearInterval(progressTimer);
-        progressTimer = null;
-      }
-    }
+    function stopProgressStages() {}
 
     // 拦截到未公开 (Publish) 的曲目
     if (event.data.type === "FOVEA_CAPTURE_NOT_PUBLISHED") {
@@ -347,7 +377,11 @@
   // 接收来自 popup.js 的消息
   if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-      if (request.action === "TRIGGER_EXPORT") {
+      if (request.action === "EXPORT_PROGRESS") {
+        showToast(request.task.message || "正在处理视频…",
+          `任务：${request.task.task_id}${Number.isFinite(request.task.progress) ? ` · ${Math.round(request.task.progress)}%` : ""}`);
+        sendResponse({ status: "ok" });
+      } else if (request.action === "TRIGGER_EXPORT") {
         triggerCapture();
         sendResponse({ status: "triggered" });
       } else if (request.action === "GET_TRACK_INFO") {

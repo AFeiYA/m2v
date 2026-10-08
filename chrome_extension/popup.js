@@ -6,6 +6,24 @@ document.addEventListener("DOMContentLoaded", async () => {
   const downloadStatus = document.getElementById("downloadStatus");
   const serverInput = document.getElementById("serverInput");
 
+  const btnResumeVideo = document.getElementById("btnResumeVideo");
+  const videoTaskStatus = document.getElementById("videoTaskStatus");
+  chrome.storage.local.get("pendingVideoJob", ({ pendingVideoJob }) => {
+    if (!pendingVideoJob) return;
+    btnResumeVideo.hidden = false;
+    videoTaskStatus.textContent = `${pendingVideoJob.title || "视频"} · ${pendingVideoJob.taskId}`;
+  });
+  btnResumeVideo.addEventListener("click", () => {
+    btnResumeVideo.disabled = true;
+    videoTaskStatus.textContent = "正在查询原任务，完成后自动下载；不会重新生成。";
+    chrome.runtime.sendMessage({ action: "RESUME_VIDEO_JOB" }, response => {
+      videoTaskStatus.textContent = chrome.runtime.lastError?.message ||
+        (response?.status === "ok" ? "视频已开始下载。" : response?.message || "查询中断，请再次查询。");
+      btnResumeVideo.disabled = false;
+      if (response?.status === "ok") btnResumeVideo.hidden = true;
+    });
+  });
+
   const btnCloud = document.getElementById("btnCloudNode");
   const btnLocal = document.getElementById("btnLocalNode");
 

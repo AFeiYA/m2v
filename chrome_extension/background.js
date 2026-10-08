@@ -33,41 +33,69 @@ async function readServerResponse(response) {
   return data;
 }
 
-// 轮询短视频生成任务进度
-async function pollLyricVideoTask(targetServer, taskId) {
-  const maxAttempts = 120; // 最长等待 180 秒
-  let attempts = 0;
-
-  return new Promise((resolve, reject) => {
-    const timer = setInterval(async () => {
-      attempts++;
-      if (attempts > maxAttempts) {
-        clearInterval(timer);
-        reject(new Error("视频合成超时，请检查后端运行状态"));
-        return;
+// Each query is bounded and sequential; transient gateway failures do not
+// cancel the backend job. A saved ID allows resuming without resubmitting.
+async function pollLyricVideoTask(targetServer, taskId, onProgress = () => {}, options = {}) {
+  const deadline = Date.now() + (options.timeoutMs ?? 20 * 60 * 1000);
+  const sleep = options.sleep || ((ms) => new Promise(resolve => setTimeout(resolve, ms)));
+  while (Date.now() < deadline) {
+    let task;
+    try {
+      const resp = await fetch(`${targetServer}/api/lyric_video/task_status?task_id=${encodeURIComponent(taskId)}`,
+        { signal: AbortSignal.timeout(15000) });
+      if ([429, 502, 503, 504].includes(resp.status)) {
+        onProgress({ message: "网络暂时中断，正在重新查询；后台任务继续运行。", task_id: taskId });
+        await sleep(3000);
+        continue;
       }
-
-      try {
-        const resp = await fetch(`${targetServer}/api/lyric_video/task_status?task_id=${taskId}`);
-        if (!resp.ok) return;
-        const task = await resp.json();
-
-        if (task.status === "completed") {
-          clearInterval(timer);
-          resolve(task.result || {});
-        } else if (task.status === "failed") {
-          clearInterval(timer);
-          reject(new Error(task.error || task.message || "短视频合成失败"));
-        }
-      } catch (e) {
-        console.warn("[Fovea MV] 轮询任务进度异常:", e);
+      if (!resp.ok) {
+        const detail = resp.status === 404 ? "任务不存在，后台可能已经重启" : `查询失败 (HTTP ${resp.status})`;
+        throw Object.assign(new Error(`${detail}；任务编号：${taskId}`), { terminal: true });
       }
-    }, 1500);
-  });
+      task = await readServerResponse(resp);
+    } catch (error) {
+      if (error.terminal) throw error;
+      onProgress({ message: "暂时无法查询进度，正在重连；后台任务可能仍在运行。", task_id: taskId });
+      await sleep(3000);
+      continue;
+    }
+    onProgress(task);
+    if (task.status === "completed") return task.result || {};
+    if (task.status === "failed") throw new Error(task.error || task.message || "视频生成失败");
+    await sleep(2000);
+  }
+  throw new Error(`等待进度已超过 20 分钟，后台任务未被取消。请在插件中点击“继续查询上次任务”。任务编号：${taskId}`);
+}
+
+const activeVideoJobs = new Map();
+function finishVideoJob(job, onProgress = () => {}) {
+  const key = `${job.targetServer}/${job.taskId}`;
+  if (activeVideoJobs.has(key)) return activeVideoJobs.get(key);
+  const promise = (async () => {
+    const result = await pollLyricVideoTask(job.targetServer, job.taskId, onProgress);
+    const rawVideoUrl = result.download_url || result.video_url;
+    if (!rawVideoUrl) throw new Error("后台未返回视频下载地址");
+    const downloadUrl = new URL(rawVideoUrl, job.targetServer).href;
+    const suffix = { chorus: "_副歌", verse1: "_主歌1", intro: "_前奏" }[job.section] || "";
+    const filename = `${(job.title || "suno_mv").replace(/[\\/:*?"<>|]/g, "_")}${suffix}_9x16.mp4`;
+    await new Promise((resolve, reject) => {
+      chrome.downloads.download({ url: downloadUrl, filename, saveAs: false, conflictAction: "uniquify" }, (id) => {
+        if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+        else if (id === undefined) reject(new Error("浏览器未能启动视频下载"));
+        else resolve(id);
+      });
+    });
+    // Do not erase a newer task submitted while this one was rendering.
+    const stored = await chrome.storage.local.get("pendingVideoJob");
+    if (stored.pendingVideoJob?.taskId === job.taskId) await chrome.storage.local.remove("pendingVideoJob");
+    return { status: "ok", result, downloadUrl, filename };
+  })().finally(() => activeVideoJobs.delete(key));
+  activeVideoJobs.set(key, promise);
+  return promise;
 }
 
 // 调用视频生成并下载 MP4
-async function exportVideoAndDownload(blob, track, serverUrl, section = "", duration = 0) {
+async function exportVideoAndDownload(blob, track, serverUrl, section = "", duration = 0, onProgress = () => {}) {
   const targetServer = (serverUrl || "https://mv.fovea.si").replace(/\/+$/, "");
   const endpoint = `${targetServer}/api/plugin/export_video`;
 
@@ -120,39 +148,9 @@ async function exportVideoAndDownload(blob, track, serverUrl, section = "", dura
 
   console.log(`[Fovea MV Background] 任务已提交 (ID: ${taskId})，开始轮询渲染进度...`);
 
-  // 轮询直至完成
-  const result = await pollLyricVideoTask(targetServer, taskId);
-  const rawVideoUrl = result.download_url || result.video_url;
-  if (!rawVideoUrl) {
-    throw new Error("后台未返回视频下载地址");
-  }
-
-  const fullDownloadUrl = rawVideoUrl.startsWith("http")
-    ? rawVideoUrl
-    : `${targetServer}${rawVideoUrl}`;
-
-  let sectionSuffix = "";
-  if (section === "chorus") sectionSuffix = "_副歌";
-  else if (section === "verse1") sectionSuffix = "_主歌1";
-  else if (section === "intro") sectionSuffix = "_前奏";
-
-  const safeFilename = `${(track.title || "suno_mv").replace(/[\\/:*?"<>|]/g, "_")}${sectionSuffix}_9x16.mp4`;
-
-  console.log("[Fovea MV Background] 视频渲染成功，正在下载:", fullDownloadUrl);
-
-  // 通过 Chrome Downloads API 自动静默下载到本地
-  if (chrome.downloads && chrome.downloads.download) {
-    chrome.downloads.download({
-      url: fullDownloadUrl,
-      filename: safeFilename,
-      saveAs: false,
-    });
-  } else {
-    // 回退方案: 打开新标签页触发下载
-    chrome.tabs.create({ url: fullDownloadUrl });
-  }
-
-  return { status: "ok", result, downloadUrl: fullDownloadUrl, filename: safeFilename };
+  const job = { taskId, targetServer, title: track.title, section };
+  await chrome.storage.local.set({ pendingVideoJob: job });
+  return finishVideoJob(job, onProgress);
 }
 
 // Download original MP3 independently of the alignment/rendering server.
@@ -215,6 +213,18 @@ async function downloadTrackMp3(track) {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  const onProgress = (task) => {
+    if (sender.tab?.id !== undefined) chrome.tabs.sendMessage(sender.tab.id,
+      { action: "EXPORT_PROGRESS", task }, () => { void chrome.runtime.lastError; });
+  };
+  if (request.action === "RESUME_VIDEO_JOB") {
+    chrome.storage.local.get("pendingVideoJob").then(({ pendingVideoJob }) => {
+      if (!pendingVideoJob) throw new Error("没有待查询的任务");
+      return finishVideoJob(pendingVideoJob, onProgress);
+    }).then(data => sendResponse({ status: "ok", data }))
+      .catch(error => sendResponse({ status: "error", message: error.message }));
+    return true;
+  }
   if (request.action === "DOWNLOAD_TRACK_MP3") {
     downloadTrackMp3(request.track)
       .then((data) => sendResponse({ status: "ok", data }))
@@ -226,7 +236,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "EXPORT_VIDEO_DIRECT_BLOB") {
     try {
       const blob = dataUrlToBlob(request.dataUrl);
-      exportVideoAndDownload(blob, request.track, request.serverUrl, request.section, request.duration)
+      exportVideoAndDownload(blob, request.track, request.serverUrl, request.section, request.duration, onProgress)
         .then((res) => sendResponse({ status: "ok", data: res }))
         .catch((err) => sendResponse({ status: "error", message: err.message }));
     } catch (e) {
@@ -242,7 +252,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (!r.ok) throw new Error(`CDN 音频流下载失败 (HTTP ${r.status})`);
         return r.blob();
       })
-      .then((blob) => exportVideoAndDownload(blob, request.track, request.serverUrl, request.section, request.duration))
+      .then((blob) => exportVideoAndDownload(blob, request.track, request.serverUrl, request.section, request.duration, onProgress))
       .then((res) => sendResponse({ status: "ok", data: res }))
       .catch((err) => sendResponse({ status: "error", message: err.message }));
     return true;
@@ -250,7 +260,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // 3. 通过 Song ID 触发一键导出 MP4
   if (request.action === "EXPORT_VIDEO_BY_SONG_ID") {
-    exportVideoAndDownload(null, request.track, request.serverUrl, request.section, request.duration)
+    exportVideoAndDownload(null, request.track, request.serverUrl, request.section, request.duration, onProgress)
       .then((res) => sendResponse({ status: "ok", data: res }))
       .catch((err) => sendResponse({ status: "error", message: err.message }));
     return true;

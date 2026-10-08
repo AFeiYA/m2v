@@ -40,6 +40,9 @@ jobs:
           npm run build
           node node_modules/playwright-core/cli.js install --with-deps chromium
 
+      - name: Test Chrome extension
+        run: node --test chrome_extension/tests/*.test.cjs
+
       - name: Install system dependencies (ffmpeg)
         run: |
           sudo apt-get update

@@ -206,3 +206,27 @@
   color: #4ade80;
   font-weight: 600;
 }
+
+/* MP3 downloads remain independent while a video is being generated. */
+.fovea-btn-mp3 {
+  appearance: none;
+  border: none;
+  background: rgba(0, 0, 0, 0.18);
+  color: white;
+  font: inherit;
+  padding: 10px 14px;
+  border-radius: 0 9999px 9999px 0;
+  cursor: pointer;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+.fovea-btn-mp3:hover { background: rgba(0, 0, 0, 0.3); }
+.fovea-btn-mp3:disabled { cursor: wait; opacity: 0.65; }
+#fovea-suno-floating-btn .fovea-btn-section-trigger { border-radius: 0; }
+@media (max-width: 600px) {
+  #fovea-suno-floating-btn { right: 8px; font-size: 11px; max-width: calc(100vw - 16px); }
+  #fovea-suno-floating-btn .fovea-btn-main { padding: 10px 8px; min-width: 0; }
+  #fovea-suno-floating-btn .fovea-btn-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #fovea-suno-floating-btn .fovea-btn-section-trigger { flex-shrink: 0; padding: 10px 6px; font-size: 11px; }
+  #fovea-suno-floating-btn .fovea-btn-mp3 { flex-shrink: 0; padding: 10px 8px; font-size: 11px; }
+}
