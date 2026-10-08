@@ -212,8 +212,9 @@ async function downloadOriginalMp3(track) {
   return { downloadId, filename };
 }
 
-// Original MP3 first; if absent/denied or actually MP4, use the backend's
-// existing Suno MP4 audio extraction without running separation/alignment.
+// Original MP3 first; otherwise use the editor's existing download-only route.
+// Chrome owns the download, including waiting for MP4 audio extraction, so it
+// continues even if the popup closes or the service worker goes idle.
 async function downloadTrackMp3(track, serverUrl, onProgress = () => {}) {
   try {
     return await downloadOriginalMp3(track);
@@ -222,23 +223,24 @@ async function downloadTrackMp3(track, serverUrl, onProgress = () => {}) {
     if (!track?.songId || !recoverable) throw error;
   }
   const targetServer = (serverUrl || "https://mv.fovea.si").replace(/\/+$/, "");
-  onProgress({ message: "正在通过后台提取 MP4 音轨并转换 MP3，无需歌词对齐…" });
-  const form = new FormData();
-  form.append("song_id", track.songId);
-  form.append("title", track.title || "Suno_Track");
-  const data = await readServerResponse(await fetch(`${targetServer}/api/plugin/export_audio`, { method: "POST", body: form }));
-  if (!data.task_id) throw new Error("后台未返回音频任务编号");
-  const result = await pollLyricVideoTask(targetServer, data.task_id, onProgress);
-  if (!result.download_url) throw new Error("后台未返回 MP3 下载地址");
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(track.songId)) throw new Error("歌曲编号无效，请刷新 Suno 页面。");
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(track.songId);
+  const songUrl = `https://suno.com/${uuid ? "song" : "s"}/${track.songId}`;
+  const downloadUrl = new URL(`${targetServer}/api/suno/download_mp3`);
+  downloadUrl.searchParams.set("url", songUrl);
+  const title = String(track.title || "Suno_Track")
+    .replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").replace(/^\.+|[. ]+$/g, "").slice(0, 120) || "Suno_Track";
+  const filename = `${title}.mp3`;
+  onProgress({ message: "已请求后台“仅下载”功能，MP4 音轨提取与下载进度请查看 Chrome 下载列表。" });
   const downloadId = await new Promise((resolve, reject) => {
-    chrome.downloads.download({ url: new URL(result.download_url, targetServer).href,
-      filename: result.filename, saveAs: false, conflictAction: "uniquify" }, id => {
+    chrome.downloads.download({ url: downloadUrl.href,
+      filename, saveAs: false, conflictAction: "uniquify" }, id => {
       if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
       else if (id === undefined) reject(new Error("浏览器未能启动 MP3 下载"));
       else resolve(id);
     });
   });
-  return { downloadId, filename: result.filename, converted: true };
+  return { downloadId, filename, serverDownload: true };
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {

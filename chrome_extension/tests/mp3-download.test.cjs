@@ -98,8 +98,8 @@ test('player fallback must match the selected song UUID', () => {
   assert.equal(queryTrack({ source: 'blob:old-song' }).audioUrl, '');
 });
 
-test('missing MP3, CDN 403 and MP4 source use audio-only backend instead of video generation', async () => {
-  for (const source of ['missing', 'denied', 'mp4']) {
+test('missing MP3, CDN 403 and MP4 source use existing download-only route', async () => {
+  for (const source of ['missing', 'denied', 'mp4', 'uuid']) {
     const calls = [];
     const downloads = [];
     const context = vm.createContext({
@@ -109,20 +109,19 @@ test('missing MP3, CDN 403 and MP4 source use audio-only backend instead of vide
         calls.push({ url, options });
         if (options.headers?.Range) return source === 'denied' ? new Response('', { status: 403 }) :
           new Response(Uint8Array.from([0, 0, 0, 24, 102, 116, 121, 112]), { status: 206 });
-        if (url.endsWith('/api/plugin/export_audio')) {
-          assert.equal(options.body.get('song_id'), 'selected-song');
-          return new Response(JSON.stringify({ task_id: 'audio_job' }));
-        }
-        assert.match(url, /task_status/);
-        return new Response(JSON.stringify({ status: 'completed', result: { filename: 'Song.mp3', download_url: '/download.mp3' } }));
+        throw new Error('fallback must be a Chrome download, not a new export task');
       },
     });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../background.js'), 'utf8'), context);
-    const result = await context.downloadTrackMp3({ title: 'Song', songId: 'selected-song',
-      audioUrl: source === 'missing' ? '' : 'https://cdn1.suno.ai/source.mp4' }, 'http://127.0.0.1:8000');
+    const songId = source === 'uuid' ? 'ddb1252a-3347-4d6a-8b2b-63d05c915a87' : 'selected-song';
+    const result = await context.downloadTrackMp3({ title: 'Song', songId,
+      audioUrl: ['missing', 'uuid'].includes(source) ? '' : 'https://cdn1.suno.ai/source.mp4' }, 'http://127.0.0.1:8000');
     assert.equal(result.filename, 'Song.mp3');
-    assert.equal(downloads[0].url, 'http://127.0.0.1:8000/download.mp3');
-    assert.equal(calls.filter(call => call.url.endsWith('/export_audio')).length, 1);
-    assert.ok(calls.every(call => !call.url.includes('export_video')));
+    const downloadUrl = new URL(downloads[0].url);
+    assert.equal(downloadUrl.origin, 'http://127.0.0.1:8000');
+    assert.equal(downloadUrl.pathname, '/api/suno/download_mp3');
+    assert.equal(downloadUrl.searchParams.get('url'), `https://suno.com/${source === 'uuid' ? 'song' : 's'}/${songId}`);
+    assert.equal(calls.length, ['missing', 'uuid'].includes(source) ? 0 : 1);
+    assert.equal(downloads[0].filename, 'Song.mp3');
   }
 });

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Fovea MV - Suno 歌词视频助手",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "在 Suno 网页识别歌曲、下载原曲 MP3，或调用后台对齐歌词并生成 9:16 动效 MP4 视频。",
   "permissions": [
     "storage",
