@@ -164,9 +164,14 @@
     <div class="status-row" id="publishStatus"></div>
   </div>
 
-  <button class="btn-primary" id="btnExport">
+  <button class="btn-primary" id="btnExport" disabled>
     <span>🎬 一键生成 9:16 动效 MP4</span>
   </button>
+
+  <button class="btn-primary" id="btnDownloadMp3" style="margin-top: 8px; background: #334155; box-shadow: none;" disabled>
+    🎵 下载原曲 MP3
+  </button>
+  <div class="status-row" id="downloadStatus" role="status" aria-live="polite"></div>
 
   <div class="settings-row">
     <div class="node-header">
@@ -180,7 +185,7 @@
   </div>
 
   <div class="footer-tip" id="footerTip">
-    💡 提示：本助手仅支持已公开发布 (Publish) 的曲目。未公开曲目请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开后再试。视频合成后将自动保存到本地下载目录。
+    💡 提示：MP3 下载无需后台服务，需页面提供可访问的 MP3 音频地址。视频生成仅支持已公开发布 (Publish) 的曲目。未公开曲目请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开后再试。视频合成后将自动保存到本地下载目录。
   </div>
 
   <script src="popup.js"></script>

@@ -102,6 +102,7 @@
     let songId = window.__FOVEA_CURRENT_PLAYING_CLIP_ID__ || "";
     let is_public = true;
     let coverUrl = "";
+    let audioUrl = "";
 
     // 1. 从 URL 提取 songId (若位于 /song/xxx 或 /s/xxx)
     const m = window.location.pathname.match(/(?:song|s)\/([0-9a-zA-Z_-]+)/);
@@ -198,6 +199,7 @@
     // 6. 优先级 D: 从全局拦截的 API 数据缓存中检查公开状态并补全
     if (songId && window.__FOVEA_CLIPS__[songId]) {
       const clip = window.__FOVEA_CLIPS__[songId];
+      audioUrl = clip.audio_url || "";
       if (clip.is_public === false) {
         is_public = false;
       }
@@ -212,6 +214,7 @@
       );
       if (matched) {
         songId = matched.id;
+        audioUrl = matched.audio_url || "";
         if (matched.is_public === false) is_public = false;
         if (matched.display_name || matched.handle) artist = matched.display_name || matched.handle;
         if (matched.metadata && matched.metadata.prompt) prompt = matched.metadata.prompt;
@@ -259,7 +262,17 @@
       }
     }
 
-    return { title: title || "Suno_Track", artist, prompt, songId, coverUrl, is_public };
+    // Only use the active player's source when it belongs to this track.
+    // A cached unassociated Blob may be a previous song or an MP4, so it is
+    // deliberately not used for MP3 downloads.
+    if (!audioUrl && activeAudio) {
+      const src = activeAudio.currentSrc || activeAudio.src || "";
+      const sourceId = src.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+      if (sourceId && sourceId[1].toLowerCase() === songId.toLowerCase() && /^https:\/\//i.test(src)) {
+        audioUrl = src;
+      }
+    }
+    return { title: title || "Suno_Track", artist, prompt, songId, coverUrl, audioUrl, is_public };
   }
 
   // 4. 将 Blob 转换为 DataURL 并回传给 content.js

@@ -15,6 +15,24 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([u8arr], { type: mime });
 }
 
+// Response bodies are single-use: read text once, then parse that string.
+async function readServerResponse(response) {
+  const text = await response.text();
+  let data;
+  try { data = JSON.parse(text); } catch (_) {
+    const summary = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 240);
+    throw new Error(`服务器返回非 JSON 响应 (HTTP ${response.status})${summary ? `：${summary}` : ""}`);
+  }
+  if (!response.ok) {
+    const detail = data?.detail || data?.message || data?.error;
+    throw new Error(`后台请求失败 (HTTP ${response.status})${detail ? `：${typeof detail === "string" ? detail : JSON.stringify(detail)}` : ""}`);
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error(`服务器响应格式异常 (HTTP ${response.status})`);
+  }
+  return data;
+}
+
 // 轮询短视频生成任务进度
 async function pollLyricVideoTask(targetServer, taskId) {
   const maxAttempts = 120; // 最长等待 180 秒
@@ -94,18 +112,7 @@ async function exportVideoAndDownload(blob, track, serverUrl, section = "", dura
     );
   }
 
-  if (!resp.ok) {
-    let errDetail = "";
-    try {
-      const errJson = await resp.json();
-      errDetail = errJson.detail || errJson.message || "";
-    } catch (_) {
-      errDetail = await resp.text();
-    }
-    throw new Error(errDetail || `后台处理失败 (HTTP ${resp.status})`);
-  }
-
-  const data = await resp.json();
+  const data = await readServerResponse(resp);
   const taskId = data.task_id;
   if (!taskId) {
     throw new Error("后台未返回任务 ID");
@@ -148,7 +155,73 @@ async function exportVideoAndDownload(blob, track, serverUrl, section = "", dura
   return { status: "ok", result, downloadUrl: fullDownloadUrl, filename: safeFilename };
 }
 
+// Download original MP3 independently of the alignment/rendering server.
+async function downloadTrackMp3(track) {
+  if (!track || !track.audioUrl) {
+    throw new Error("未检测到歌曲的 MP3 地址，请刷新 Suno 页面并播放目标歌曲后再试。");
+  }
+  let url;
+  try { url = new URL(track.audioUrl); } catch (_) {
+    throw new Error("歌曲音频地址无效，请刷新页面后重试。");
+  }
+  const allowedHost = ["suno.ai", "suno.com", "cloudfront.net", "amazonaws.com"]
+    .some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`));
+  if (url.protocol !== "https:" || !allowedHost || url.username || url.password) {
+    throw new Error("未检测到可信的 Suno 音频地址。");
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const response = await fetch(url.href, {
+      headers: { Range: "bytes=0-1023" }, signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`音频无法下载 (HTTP ${response.status})，请刷新歌曲后重试。`);
+    // Verify the header instead of renaming an MP4/HTML response to .mp3.
+    const reader = response.body.getReader();
+    const header = [];
+    try {
+      while (header.length < 10) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        header.push(...value.subarray(0, 1024 - header.length));
+      }
+    } finally { await reader.cancel(); }
+    const id3 = header[0] === 0x49 && header[1] === 0x44 && header[2] === 0x33;
+    const mp3Frame = header.length >= 4 && header[0] === 0xff &&
+      (header[1] & 0xe0) === 0xe0 && (header[1] & 0x06) === 0x02 &&
+      (header[1] & 0x18) !== 0x08 && (header[2] & 0xf0) !== 0 &&
+      (header[2] & 0xf0) !== 0xf0 && (header[2] & 0x0c) !== 0x0c;
+    if (!id3 && !mp3Frame) {
+      throw new Error("当前音频源不是 MP3，无法直接保存为 MP3。请使用 Suno 的原音频下载入口。");
+    }
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error("检查音频超时，请稍后重试。");
+    throw error;
+  } finally { clearTimeout(timer); }
+
+  const title = String(track.title || "Suno_Track")
+    .replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").replace(/^\.+|[. ]+$/g, "").slice(0, 120) || "Suno_Track";
+  const filename = `${title}.mp3`;
+  const downloadId = await new Promise((resolve, reject) => {
+    chrome.downloads.download({ url: url.href, filename, saveAs: false, conflictAction: "uniquify" }, (id) => {
+      const error = chrome.runtime.lastError;
+      if (error) reject(new Error(`无法启动下载：${error.message}`));
+      else if (id === undefined) reject(new Error("浏览器未能启动音频下载。"));
+      else resolve(id);
+    });
+  });
+  return { downloadId, filename };
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "DOWNLOAD_TRACK_MP3") {
+    downloadTrackMp3(request.track)
+      .then((data) => sendResponse({ status: "ok", data }))
+      .catch((error) => sendResponse({ status: "error", message: error.message }));
+    return true;
+  }
+
   // 1. 直传主世界解密 Blob 并导出 MP4
   if (request.action === "EXPORT_VIDEO_DIRECT_BLOB") {
     try {

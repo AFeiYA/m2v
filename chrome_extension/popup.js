@@ -2,6 +2,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const songNameEl = document.getElementById("songName");
   const publishStatusEl = document.getElementById("publishStatus");
   const btnExport = document.getElementById("btnExport");
+  const btnDownloadMp3 = document.getElementById("btnDownloadMp3");
+  const downloadStatus = document.getElementById("downloadStatus");
   const serverInput = document.getElementById("serverInput");
 
   const btnCloud = document.getElementById("btnCloudNode");
@@ -66,6 +68,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     songNameEl.textContent = response.title || "未知曲目";
+    btnDownloadMp3.disabled = !response.audioUrl;
+    btnDownloadMp3.title = response.audioUrl ? "下载当前曲目的原始 MP3" : "请刷新页面并播放目标歌曲，让插件识别音频地址";
+    if (!response.audioUrl) downloadStatus.textContent = "尚未检测到 MP3 地址，请刷新页面并播放目标歌曲。";
 
     if (response.is_public === false) {
       publishStatusEl.innerHTML = '<span style="color: #f59e0b;">⚠️ 未公开 (需在 Suno 点击 Publish)</span>';
@@ -76,6 +81,28 @@ document.addEventListener("DOMContentLoaded", async () => {
       btnExport.disabled = false;
       btnExport.title = "点击开始纯 CTC 字级对齐并渲染 9:16 动效 MP4 短视频";
     }
+  });
+
+  btnDownloadMp3.addEventListener("click", () => {
+    btnDownloadMp3.disabled = true;
+    downloadStatus.textContent = "正在检查当前歌曲音频…";
+    // Re-query on click so switching tracks after opening the popup cannot
+    // accidentally download the previously displayed song.
+    chrome.tabs.sendMessage(tab.id, { action: "GET_TRACK_INFO" }, (track) => {
+      if (chrome.runtime.lastError || !track) {
+        downloadStatus.textContent = "无法读取歌曲，请刷新 Suno 页面后重试。";
+        btnDownloadMp3.disabled = false;
+        return;
+      }
+      songNameEl.textContent = track.title || "未知曲目";
+      chrome.runtime.sendMessage({ action: "DOWNLOAD_TRACK_MP3", track }, (response) => {
+        const error = chrome.runtime.lastError;
+        downloadStatus.textContent = error ? `下载失败：${error.message}` :
+          response?.status === "ok" ? `已开始下载 ${response.data.filename}，进度请查看 Chrome 下载列表。` :
+          response?.message || "下载失败，请重试。";
+        btnDownloadMp3.disabled = false;
+      });
+    });
   });
 
   // 触发生成短视频

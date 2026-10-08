@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Fovea MV - Suno 歌词视频助手",
-  "version": "1.3.0",
-  "description": "在 Suno 网页一键识别已发布曲目，纯 CTC 字级时间轴对齐并一键生成下载 9:16 商业级动效 MP4 短视频。",
+  "version": "1.4.1",
+  "description": "在 Suno 网页识别歌曲、下载原曲 MP3，或调用后台对齐歌词并生成 9:16 动效 MP4 视频。",
   "permissions": [
     "storage",
     "activeTab",
@@ -45,7 +45,9 @@
         "*://suno.com/*",
         "*://*.suno.com/*"
       ],
-      "js": ["inject.js"],
+      "js": [
+        "inject.js"
+      ],
       "world": "MAIN",
       "run_at": "document_start"
     },
@@ -54,8 +56,12 @@
         "*://suno.com/*",
         "*://*.suno.com/*"
       ],
-      "js": ["content.js"],
-      "css": ["content.css"],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
       "run_at": "document_idle"
     }
   ]

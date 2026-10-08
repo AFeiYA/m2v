@@ -352,8 +352,13 @@
         sendResponse({ status: "triggered" });
       } else if (request.action === "GET_TRACK_INFO") {
         // 请求 MAIN world 当前歌曲
+        const timer = setTimeout(() => {
+          window.removeEventListener("message", handler);
+          sendResponse(null);
+        }, 5000);
         const handler = (ev) => {
           if (ev.source === window && ev.data && ev.data.type === "FOVEA_REPORT_TRACK_INFO") {
+            clearTimeout(timer);
             window.removeEventListener("message", handler);
             sendResponse(ev.data.track);
           }

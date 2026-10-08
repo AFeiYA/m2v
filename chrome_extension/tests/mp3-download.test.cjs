@@ -1,0 +1,99 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const path = require('node:path');
+
+function background(bytes, { status = 206, downloadError = null } = {}) {
+  const downloads = [];
+  let listener;
+  let fetchCount = 0;
+  const runtime = { lastError: null, onMessage: { addListener(fn) { listener = fn; } } };
+  const context = vm.createContext({
+    URL, AbortController, setTimeout, clearTimeout, setInterval, clearInterval, console,
+    chrome: { runtime, downloads: { download(options, callback) {
+      downloads.push(options);
+      runtime.lastError = downloadError;
+      callback(downloadError ? undefined : 123);
+      runtime.lastError = null;
+    } } },
+    fetch: async () => {
+      fetchCount++;
+      let consumed = false;
+      return { ok: status < 400, status, body: { getReader() { return {
+        read: async () => consumed ? { done: true } : (consumed = true, { done: false, value: Uint8Array.from(bytes) }),
+        cancel: async () => {},
+      }; } } };
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../background.js'), 'utf8'), context);
+  return { downloads, get fetchCount() { return fetchCount; }, send: track => new Promise(resolve => {
+    assert.equal(listener({ action: 'DOWNLOAD_TRACK_MP3', track }, {}, resolve), true);
+  }) };
+}
+const track = { title: '兔子洞 / Rabbit Hole', audioUrl: 'https://cdn1.suno.ai/song.mp3' };
+
+test('downloads ID3 MP3 with safe filename and without any render API', async () => {
+  const bg = background([73, 68, 51, 4, 0, 0, 0, 0, 0, 0]);
+  const response = await bg.send(track);
+  assert.equal(response.status, 'ok');
+  assert.equal(bg.downloads[0].filename, '兔子洞 _ Rabbit Hole.mp3');
+  assert.equal(bg.downloads[0].conflictAction, 'uniquify');
+  assert.equal(bg.fetchCount, 1);
+});
+test('accepts MP3 frame header without ID3', async () => {
+  assert.equal((await background([255, 251, 144, 0]).send(track)).status, 'ok');
+});
+test('rejects MP4, HTML, AAC and empty responses without downloading', async () => {
+  for (const bytes of [[0, 0, 0, 24, 102, 116, 121, 112], [60, 104, 116, 109, 108], [255, 241, 80, 0], []]) {
+    const bg = background(bytes);
+    assert.equal((await bg.send(track)).status, 'error');
+    assert.equal(bg.downloads.length, 0);
+  }
+});
+test('rejects missing, insecure and unrelated media URLs before fetching', async () => {
+  for (const audioUrl of ['', 'blob:example', 'http://cdn1.suno.ai/song.mp3', 'https://suno.ai.evil.example/song.mp3']) {
+    const bg = background([73, 68, 51]);
+    assert.equal((await bg.send({ ...track, audioUrl })).status, 'error');
+    assert.equal(bg.fetchCount, 0);
+  }
+});
+test('reports CDN denial and Chrome download errors', async () => {
+  const denied = background([], { status: 403 });
+  assert.match((await denied.send(track)).message, /403/);
+  const failed = background([73, 68, 51], { downloadError: { message: 'disk error' } });
+  assert.match((await failed.send(track)).message, /disk error/);
+});
+
+function queryTrack({ songId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', clip, source = '', metadata = null }) {
+  let handler;
+  let reported;
+  const audio = { currentSrc: source, paused: false, currentTime: 1 };
+  const context = vm.createContext({
+    Blob, File: class {}, URL: { createObjectURL() {} }, navigator: { mediaSession: { metadata } },
+    console, setTimeout,
+    document: {
+      title: 'Song | Suno', addEventListener() {}, querySelector() { return null; },
+      querySelectorAll(selector) { return selector === 'audio' ? [audio] : []; },
+    },
+    window: {
+      location: { pathname: `/song/${songId}` }, __FOVEA_CLIPS__: clip ? { [songId]: clip } : {},
+      fetch: async () => {}, addEventListener(_, fn) { handler = fn; },
+      postMessage(data) { reported = data; },
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../inject.js'), 'utf8'), context);
+  handler({ source: context.window, data: { type: 'FOVEA_QUERY_TRACK_INFO' } });
+  return reported.track;
+}
+test('uses current clip audio URL instead of a stale player source', () => {
+  const result = queryTrack({ clip: { title: 'Current', audio_url: track.audioUrl }, source: 'https://cdn1.suno.ai/other.mp3' });
+  assert.equal(result.audioUrl, track.audioUrl);
+  assert.equal(result.title, 'Current');
+});
+test('player fallback must match the selected song UUID', () => {
+  const id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  assert.equal(queryTrack({ source: `https://cdn1.suno.ai/${id}.mp3` }).audioUrl, `https://cdn1.suno.ai/${id}.mp3`);
+  assert.equal(queryTrack({ source: 'https://cdn1.suno.ai/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.mp3' }).audioUrl, '');
+  assert.equal(queryTrack({ source: 'blob:old-song' }).audioUrl, '');
+});
