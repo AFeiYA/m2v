@@ -51,8 +51,8 @@ _CREDIT_META_RE = re.compile(
     r")",
     re.IGNORECASE,
 )
-# 不可发音符号（保留中文、字母、数字、基本标点、空格）
-_UNPRINTABLE_RE = re.compile(r"[^\u4e00-\u9fff\u3400-\u4dbf\w\s，。、！？；：""''…—\-,\.!?;:'\"]")
+# 不可发音符号（保留中文、字母、数字、基本标点、空格、弯撇号/引号）
+_UNPRINTABLE_RE = re.compile(r"[^\u4e00-\u9fff\u3400-\u4dbf\w\s，。、！？；：\u201c\u201d\u2018\u2019""''…—\-,\.!?;:'\"]")
 # 章节标题: [Intro] / [Verse 1] / [Pre-Chorus] 等 (整行)
 _SECTION_HEADER_RE = re.compile(r"^\[.+\]$")
 # 整行都是括号注释: （Fast Kick + ...） / (Bass Drop)
@@ -300,7 +300,9 @@ def _convert_traditional(text: str, opencc_config: str = "t2s") -> str:
 # ---------------------------------------------------------------------------
 
 def _clean_symbols(text: str) -> str:
-    """去除不可发音的特殊符号，保留文字和基本标点"""
+    """去除不可发音的特殊符号，保留文字和基本标点，统一英文撇号与引号规范"""
+    text = text.replace("’", "'").replace("‘", "'").replace("`", "'")
+    text = text.replace("“", '"').replace("”", '"')
     return _UNPRINTABLE_RE.sub("", text)
 
 

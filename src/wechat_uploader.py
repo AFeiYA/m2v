@@ -27,7 +27,13 @@ import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src.session_manager import get_uploader_for_session, resolve_session_id
+from src.session_manager import (
+    GLOBAL_PUBLISH_SEMAPHORE,
+    acquire_publish_lock,
+    get_uploader_for_session,
+    release_publish_lock,
+    resolve_session_id,
+)
 
 logger = logging.getLogger("wechat_uploader")
 
@@ -198,14 +204,26 @@ class WeChatChannelsUploader:
         return {"success": True, "message": "已成功退出微信视频号登录"}
 
     def _clean_locks(self):
-        """清理 Chromium 异常退出残留的单例锁文件"""
+        """清理 Chromium 异常退出残留的单例锁文件与僵尸进程"""
+        pdir_str = str(self.profile_dir.resolve())
+        try:
+            res = subprocess.run(["pgrep", "-f", f"--user-data-dir={pdir_str}"], capture_output=True, text=True)
+            if res.stdout.strip():
+                for pid_str in res.stdout.strip().split():
+                    try:
+                        os.kill(int(pid_str), 9)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         for name in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
             f = self.profile_dir / name
-            if f.exists():
-                try:
-                    f.unlink()
-                except Exception:
-                    pass
+            try:
+                if f.is_symlink() or f.exists() or os.path.lexists(str(f)):
+                    f.unlink(missing_ok=True)
+            except Exception:
+                pass
+
 
     def _run_threaded(self, fn, *args, **kwargs):
         """在独立后台线程中执行 Playwright 操作，彻底避免与 FastAPI asyncio 循环冲突"""
@@ -820,6 +838,9 @@ def start_wx_publish_task(
     if not uploader.is_configured:
         raise HTTPException(400, "尚未登录微信视频号，请先扫码登录")
 
+    if not acquire_publish_lock(sid, "wechat", video_source=req.video_source):
+        raise HTTPException(409, "微信视频号已有任务正在发布中，请勿重复提交")
+
     task_id = uuid.uuid4().hex[:12]
     with wx_tasks_lock:
         wx_publish_tasks[task_id] = {
@@ -842,14 +863,15 @@ def start_wx_publish_task(
                     wx_publish_tasks[task_id]["status"] = "uploading" if pct < 0.95 else "submitting"
 
         try:
-            res = uploader.publish_video(
-                video_source=req.video_source,
-                title=req.title,
-                desc=req.desc,
-                tags=req.tags,
-                cover_source=req.cover_source,
-                progress_callback=_cb,
-            )
+            with GLOBAL_PUBLISH_SEMAPHORE:
+                res = uploader.publish_video(
+                    video_source=req.video_source,
+                    title=req.title,
+                    desc=req.desc,
+                    tags=req.tags,
+                    cover_source=req.cover_source,
+                    progress_callback=_cb,
+                )
             res = res or {}
             is_failed = res.get("success") is False or res.get("status") == "error"
             is_review = (
@@ -878,15 +900,23 @@ def start_wx_publish_task(
                 wx_publish_tasks[task_id]["status"] = "error"
                 wx_publish_tasks[task_id]["message"] = f"发布失败: {str(e)}"
                 wx_publish_tasks[task_id]["error"] = str(e)
+        finally:
+            release_publish_lock(sid, "wechat")
 
     background_tasks.add_task(_worker)
     return {"task_id": task_id, "status": "pending"}
 
 
 @wechat_router.get("/tasks/{task_id}")
-def get_wx_publish_task(task_id: str):
-    """获取微信视频号发布任务进度"""
+def get_wx_publish_task(task_id: str, sid: str = Depends(resolve_session_id)):
+    """获取微信视频号发布任务进度 (防越权访问)"""
     with wx_tasks_lock:
         if task_id not in wx_publish_tasks:
             raise HTTPException(404, "任务不存在")
-        return wx_publish_tasks[task_id]
+        task = wx_publish_tasks[task_id]
+        task_owner = task.get("session_id")
+        if task_owner and task_owner != sid and sid != "default":
+            raise HTTPException(404, "任务不存在或无权访问")
+        safe_copy = dict(task)
+        safe_copy.pop("session_id", None)
+        return safe_copy

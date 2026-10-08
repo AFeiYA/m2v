@@ -26,7 +26,13 @@ import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src.session_manager import get_uploader_for_session, resolve_session_id
+from src.session_manager import (
+    GLOBAL_PUBLISH_SEMAPHORE,
+    acquire_publish_lock,
+    get_uploader_for_session,
+    release_publish_lock,
+    resolve_session_id,
+)
 
 logger = logging.getLogger("xiaohongshu_uploader")
 
@@ -173,14 +179,26 @@ class XiaohongshuUploader:
         return {"success": True, "message": "已成功退出小红书登录并清理凭证"}
 
     def _clean_locks(self):
-        """清理 Chromium 异常退出残留的单例锁文件"""
+        """清理 Chromium 异常退出残留的单例锁文件与僵尸进程"""
+        pdir_str = str(self.profile_dir.resolve())
+        try:
+            res = subprocess.run(["pgrep", "-f", f"--user-data-dir={pdir_str}"], capture_output=True, text=True)
+            if res.stdout.strip():
+                for pid_str in res.stdout.strip().split():
+                    try:
+                        os.kill(int(pid_str), 9)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         for name in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
             f = self.profile_dir / name
-            if f.exists():
-                try:
-                    f.unlink()
-                except Exception:
-                    pass
+            try:
+                if f.is_symlink() or f.exists() or os.path.lexists(str(f)):
+                    f.unlink(missing_ok=True)
+            except Exception:
+                pass
+
 
     def _run_threaded(self, fn, *args, **kwargs):
         """在独立后台线程中执行 Playwright 操作，彻底避免与 FastAPI asyncio 循环冲突"""
@@ -790,6 +808,9 @@ def start_xhs_publish_task(
     if not uploader.is_configured:
         raise HTTPException(400, "尚未登录小红书账号，请先使用小红书 App 扫码登录")
 
+    if not acquire_publish_lock(sid, "xiaohongshu", video_source=req.video_source):
+        raise HTTPException(409, "小红书已有任务正在发布中，请勿重复提交")
+
     task_id = uuid.uuid4().hex[:12]
     with xhs_tasks_lock:
         xhs_publish_tasks[task_id] = {
@@ -812,14 +833,15 @@ def start_xhs_publish_task(
                     xhs_publish_tasks[task_id]["status"] = "uploading" if pct < 0.95 else "submitting"
 
         try:
-            res = uploader.publish_video(
-                video_source=req.video_source,
-                title=req.title,
-                desc=req.desc,
-                tags=req.tags,
-                cover_source=req.cover_source,
-                progress_callback=_cb,
-            )
+            with GLOBAL_PUBLISH_SEMAPHORE:
+                res = uploader.publish_video(
+                    video_source=req.video_source,
+                    title=req.title,
+                    desc=req.desc,
+                    tags=req.tags,
+                    cover_source=req.cover_source,
+                    progress_callback=_cb,
+                )
             res = res or {}
             is_failed = res.get("success") is False or res.get("status") == "error"
             is_review = (
@@ -848,15 +870,23 @@ def start_xhs_publish_task(
                 xhs_publish_tasks[task_id]["status"] = "error"
                 xhs_publish_tasks[task_id]["message"] = f"发布失败: {str(e)}"
                 xhs_publish_tasks[task_id]["error"] = str(e)
+        finally:
+            release_publish_lock(sid, "xiaohongshu")
 
     background_tasks.add_task(_worker)
     return {"task_id": task_id, "status": "pending"}
 
 
 @xiaohongshu_router.get("/tasks/{task_id}")
-def get_xhs_publish_task(task_id: str):
-    """获取小红书发布任务实时进度与结果"""
+def get_xhs_publish_task(task_id: str, sid: str = Depends(resolve_session_id)):
+    """获取小红书发布任务实时进度与结果 (防越权访问)"""
     with xhs_tasks_lock:
         if task_id not in xhs_publish_tasks:
             raise HTTPException(404, "任务不存在")
-        return xhs_publish_tasks[task_id]
+        task = xhs_publish_tasks[task_id]
+        task_owner = task.get("session_id")
+        if task_owner and task_owner != sid and sid != "default":
+            raise HTTPException(404, "任务不存在或无权访问")
+        safe_copy = dict(task)
+        safe_copy.pop("session_id", None)
+        return safe_copy

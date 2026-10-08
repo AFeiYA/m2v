@@ -75,6 +75,7 @@ class SunoImportRequest(BaseModel):
     async_mode: bool = Field(default=True, description="是否以异步任务模式启动，避免网关超时")
     skip_separation: bool | None = Field(default=None, description="是否跳过人声分离 (None 则遵循配置文件)")
     use_gpu: bool | None = Field(default=None, description="是否启用 GPU 硬件加速 (None 则自动探测)")
+    language: str | None = Field(default="auto", description="指定语言 (auto, en, zh, ja, ko)")
 
 
 
@@ -163,6 +164,7 @@ def import_suno_song(req: SunoImportRequest):
                     token=req.token,
                     skip_separation=req.skip_separation,
                     use_gpu=req.use_gpu,
+                    language=req.language,
                 )
             return result
         except Exception as e:
@@ -212,6 +214,7 @@ def import_suno_song(req: SunoImportRequest):
                     progress_callback=_cb,
                     skip_separation=req.skip_separation,
                     use_gpu=req.use_gpu,
+                    language=req.language,
                 )
             _suno_import_tasks[task_id]["status"] = "done"
             _suno_import_tasks[task_id]["progress"] = 100
@@ -2338,6 +2341,15 @@ app.include_router(youtube_router)
 
 from src.syndication_manager import syndication_router
 app.include_router(syndication_router)
+
+from src.session_manager import issue_session_token
+
+@app.post("/api/session/init")
+def init_session_endpoint():
+    """签发防篡改服务端 HMAC 签名会话凭据"""
+    import time
+    token = issue_session_token()
+    return {"session_token": token, "session_id": token, "created_at": time.time()}
 
 @app.get("/motion_lab", response_class=HTMLResponse)
 def motion_lab():

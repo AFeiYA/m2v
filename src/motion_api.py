@@ -11,9 +11,10 @@ import threading
 import time
 import uuid
 from typing import Literal
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
+from src.session_manager import resolve_session_id
 from src.motion_director import validate_plan, rule_plan, llm_prompt, director_input, line_prompt_bundle, line_response, cue_signature, source_signature
 from src.r2_storage import r2_storage
 
@@ -379,7 +380,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         return prepare_line(req, apply=True)
 
     @router.post('/render', status_code=202)
-    def render(req: RenderRequest):
+    def render(req: RenderRequest, sid: str = Depends(resolve_session_id)):
         path, payload = read(req.project_id)
         saved = previous(path)
         if not saved: raise HTTPException(422, '请先生成并保存动效导演方案')
@@ -411,7 +412,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
             options = {'aspect': req.aspect, 'height': req.height, 'mode': 'phrase', 'preset': req.style,
                        'bloom': req.bloom, 'grain': .035, 'shake': req.shake, 'punch': .7, 'post': req.post}
             atomic_write(snapshot, {'project': payload, 'options': options, 'audioPath': str(audio), 'start': req.start, 'length': length})
-            jobs[job_id] = {'id': job_id, 'status': 'queued', 'frames': 0, 'total': round(length*30), 'error': '', 'created_at': time.time(), 'width': round(req.height*16/9) if req.aspect == '16:9' else req.height, 'height': req.height if req.aspect == '16:9' else round(req.height*16/9), 'output': str(out)}
+            jobs[job_id] = {'id': job_id, 'session_id': sid, 'status': 'queued', 'frames': 0, 'total': round(length*30), 'error': '', 'created_at': time.time(), 'width': round(req.height*16/9) if req.aspect == '16:9' else req.height, 'height': req.height if req.aspect == '16:9' else round(req.height*16/9), 'output': str(out)}
 
         def run():
             diagnostics = ''
@@ -450,13 +451,17 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         return {'id': job_id}
 
     @router.get('/exports')
-    def exports(project_id: str):
+    def exports(project_id: str, sid: str = Depends(resolve_session_id)):
         path = project_path(project_id)
         records = []
         for p in (path.parent / 'motion_exports').glob('*_status.json'):
             record = json.loads(p.read_text(encoding='utf-8'))
+            if sid != "default" and record.get('session_id') and record.get('session_id') != sid:
+                continue
             record['created_at'] = record.get('created_at', p.stat().st_mtime)
-            records.append(record)
+            safe_rec = dict(record)
+            safe_rec.pop('session_id', None)
+            records.append(safe_rec)
         return sorted(records, key=lambda j: j['created_at'], reverse=True)
 
     @router.get('/r2/status')
@@ -464,7 +469,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         return r2_storage.get_status_info()
 
     @router.get('/gallery')
-    def gallery(project_id: str | None = None):
+    def gallery(project_id: str | None = None, sid: str = Depends(resolve_session_id)):
         """获取所有已导出的视频作品库（供展厅与播放器使用）"""
         records = []
         scan = get_scan_dir()
@@ -472,6 +477,8 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         for p in scan.glob(pattern):
             try:
                 data = json.loads(p.read_text(encoding='utf-8'))
+                if sid != "default" and data.get('session_id') and data.get('session_id') != sid:
+                    continue
                 if data.get('status') == 'done':
                     job_id = data.get('id', p.stem.replace('_status', ''))
                     song_dir = p.parent.parent
@@ -507,7 +514,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         return sorted(records, key=lambda x: x['created_at'], reverse=True)
 
     @router.post('/render/{job_id}/sync_r2')
-    def sync_r2(job_id: str):
+    def sync_r2(job_id: str, sid: str = Depends(resolve_session_id)):
         """将已存在的本地视频同步上传至 Cloudflare R2"""
         if not r2_storage.is_configured():
             raise HTTPException(400, 'Cloudflare R2 尚未配置')
@@ -515,11 +522,13 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         if not candidates:
             raise HTTPException(404, '视频任务不存在')
         status_path = candidates[0]
+        status_data = json.loads(status_path.read_text(encoding='utf-8'))
+        if sid != "default" and status_data.get('session_id') and status_data.get('session_id') != sid:
+            raise HTTPException(404, '视频任务不存在或无权访问')
         mp4_path = status_path.with_name(f'{job_id}.mp4')
         if not mp4_path.exists():
             raise HTTPException(404, '本地 MP4 文件不存在')
 
-        status_data = json.loads(status_path.read_text(encoding='utf-8'))
         r2_key = f"exports/{job_id}.mp4"
         upload_res = r2_storage.upload_video(mp4_path, r2_key)
         if not upload_res or not upload_res.get('url'):
@@ -536,7 +545,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         try:
             client = r2_storage.get_client()
             if client:
-                items = gallery()
+                items = gallery(sid=sid)
                 client.put_object(
                     Bucket=r2_storage.bucket,
                     Key="gallery.json",
@@ -550,31 +559,49 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         return {'success': True, 'cdn_url': upload_res['url'], 'r2_key': upload_res['key']}
 
     @router.get('/render/{job_id}')
-    def status(job_id: str):
-        if job_id not in jobs: raise HTTPException(404, '导出任务不存在')
-        return {key: value for key, value in jobs[job_id].items() if key != 'output'}
+    def status(job_id: str, sid: str = Depends(resolve_session_id)):
+        if job_id not in jobs:
+            candidates = list(get_scan_dir().glob(f'*/motion_exports/{job_id}_status.json'))
+            if not candidates:
+                raise HTTPException(404, '导出任务不存在')
+            data = json.loads(candidates[0].read_text(encoding='utf-8'))
+            if sid != "default" and data.get('session_id') and data.get('session_id') != sid:
+                raise HTTPException(404, '导出任务不存在或无权访问')
+            return {key: value for key, value in data.items() if key not in ('output', 'session_id')}
+        
+        job_data = jobs[job_id]
+        if sid != "default" and job_data.get('session_id') and job_data.get('session_id') != sid:
+            raise HTTPException(404, '导出任务不存在或无权访问')
+        return {key: value for key, value in job_data.items() if key not in ('output', 'session_id')}
 
     @router.post('/render/{job_id}/cancel')
-    def cancel(job_id: str):
+    def cancel(job_id: str, sid: str = Depends(resolve_session_id)):
         import signal
         with lock:
             if job_id not in jobs: raise HTTPException(404, '导出任务不存在')
+            if sid != "default" and jobs[job_id].get('session_id') and jobs[job_id].get('session_id') != sid:
+                raise HTTPException(404, '导出任务不存在或无权访问')
             if jobs[job_id]['status'] in ('queued', 'running'):
                 jobs[job_id]['status'] = 'cancelled'
                 child = processes.get(job_id)
                 if child:
                     try: os.killpg(child.pid, signal.SIGTERM)
                     except ProcessLookupError: pass
-        return status(job_id)
+        return status(job_id, sid=sid)
 
     @router.get('/render/{job_id}/stream')
-    def stream_video(job_id: str):
+    def stream_video(job_id: str, sid: str = Depends(resolve_session_id)):
         """流式播放视频，若存在 R2 CDN 直链则重定向，否则本地回退"""
-        if job_id in jobs and jobs[job_id].get('cdn_url'):
-            return RedirectResponse(jobs[job_id]['cdn_url'], status_code=307)
+        if job_id in jobs:
+            if sid != "default" and jobs[job_id].get('session_id') and jobs[job_id].get('session_id') != sid:
+                raise HTTPException(404, '视频尚未就绪或无权访问')
+            if jobs[job_id].get('cdn_url'):
+                return RedirectResponse(jobs[job_id]['cdn_url'], status_code=307)
         candidates = list(get_scan_dir().glob(f'*/motion_exports/{job_id}_status.json'))
         if candidates:
             data = json.loads(candidates[0].read_text(encoding='utf-8'))
+            if sid != "default" and data.get('session_id') and data.get('session_id') != sid:
+                raise HTTPException(404, '视频尚未就绪或无权访问')
             if data.get('cdn_url'):
                 return RedirectResponse(data['cdn_url'], status_code=307)
             local_mp4 = candidates[0].with_name(f'{job_id}.mp4')
@@ -585,14 +612,21 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         raise HTTPException(404, '视频尚未就绪或不存在')
 
     @router.get('/render/{job_id}/download')
-    def download(job_id: str):
+    def download(job_id: str, sid: str = Depends(resolve_session_id)):
         if job_id in jobs and jobs[job_id]['status'] == 'done':
+            if sid != "default" and jobs[job_id].get('session_id') and jobs[job_id].get('session_id') != sid:
+                raise HTTPException(404, '成片不存在或无权访问')
             out = Path(jobs[job_id]['output'])
         else:
             if len(job_id) != 32 or any(c not in '0123456789abcdef' for c in job_id):
                 raise HTTPException(404, '成片不存在')
             candidates = list(get_scan_dir().glob(f'*/motion_exports/{job_id}_status.json'))
-            if not candidates or json.loads(candidates[0].read_text())['status'] != 'done':
+            if not candidates:
+                raise HTTPException(404, '成片尚未完成')
+            data = json.loads(candidates[0].read_text())
+            if sid != "default" and data.get('session_id') and data.get('session_id') != sid:
+                raise HTTPException(404, '成片不存在或无权访问')
+            if data['status'] != 'done':
                 raise HTTPException(404, '成片尚未完成')
             out = candidates[0].with_name(f'{job_id}.mp4')
         return FileResponse(out, media_type='video/mp4', filename='motion-studio.mp4')

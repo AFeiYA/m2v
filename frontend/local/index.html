@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>M2V 歌词与字幕对齐编辑器</title>
   <script src="/static/wavesurfer.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css?v=20260928b">
+  <link rel="stylesheet" href="/static/style.css?v=20261008_snap">
 </head>
 
 <body>
@@ -28,6 +28,15 @@
           <label title="勾选：优先调用 GPU 硬件加速 (云端 ZeroGPU A100 / 本地 MPS)；取消勾选：使用 CPU 运行" style="display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: #cbd5e1; cursor: pointer; user-select: none;">
             <input type="checkbox" id="chk-use-gpu" checked style="cursor: pointer; margin: 0; accent-color: #3b82f6;">
             <span>GPU加速</span>
+          </label>
+          <label title="语言模式：默认自动识别；英文歌若遇复杂伴奏或嘶吼，强制指定英文可大幅提升对齐精度" style="display: inline-flex; align-items: center; gap: 2px; font-size: 11px; color: #cbd5e1; cursor: pointer; user-select: none;">
+            <select id="select-import-lang" style="height: 22px; font-size: 11px; background: #1e2430; color: #e2e8f0; border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; outline: none; cursor: pointer;">
+              <option value="auto">🌐 语言: 自动识别</option>
+              <option value="en">🇬🇧 强制英文 (EN)</option>
+              <option value="zh">🇨🇳 强制中文 (ZH)</option>
+              <option value="ja">🇯🇵 日语 (JA)</option>
+              <option value="ko">🇰🇷 韩语 (KO)</option>
+            </select>
           </label>
         </div>
         <button id="btn-quick-download-mp3" onclick="downloadOriginalAudio()" title="从粘贴的链接仅提取下载原曲 MP3 (执行步骤 1，跳过分离对齐)"
@@ -137,6 +146,9 @@
             <span class="sep">|</span>
             <button id="btn-line-expand" title="行时长+100ms">↔ 展开</button>
             <button id="btn-line-shrink" title="行时长-100ms">⇿ 收缩</button>
+            <span class="sep">|</span>
+            <button id="btn-snap-start-playhead" title="将首字起唱时间对齐至当前音频播放位置 (空格暂停后点击)">✂ 首字对齐播放头</button>
+            <button id="btn-snap-end-playhead" title="将尾字收唱时间对齐至当前音频播放位置">✂ 尾字对齐播放头</button>
           </div>
         </div>
 
@@ -336,8 +348,8 @@
     </div>
   </div>
 
-  <script src="/static/common.js?v=20260928b"></script>
-  <script src="/static/lyric_editor.js?v=20260928b"></script>
+  <script src="/static/common.js?v=20261008_snap"></script>
+  <script src="/static/lyric_editor.js?v=20261008_snap"></script>
 </body>
 
 </html>

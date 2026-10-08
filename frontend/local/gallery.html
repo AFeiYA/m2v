@@ -912,8 +912,8 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
             <button id="qr-drawer-close" class="modal-close" style="font-size:14px">✕</button>
           </div>
           <p id="qr-drawer-tip" style="margin:0 0 12px 0;color:var(--text-muted);font-size:12px">请使用对应手机 App 扫码登录</p>
-          <div style="background:#fff;display:inline-block;padding:10px;border-radius:12px;margin-bottom:10px">
-            <img id="syndicate-qr-img" src="" alt="登录二维码" style="width:170px;height:170px;display:block">
+          <div style="background:#fff;display:inline-block;padding:14px;border-radius:14px;margin-bottom:12px;box-shadow:0 4px 16px rgba(0,0,0,0.25)">
+            <img id="syndicate-qr-img" src="" alt="登录二维码" style="width:200px;height:200px;display:block;image-rendering:-webkit-optimize-contrast;image-rendering:crisp-edges">
           </div>
           <div id="syndicate-qr-status" style="font-size:12px;color:#a4bca0;margin-bottom:10px">正在加载二维码...</div>
           <div style="display:flex;gap:8px;justify-content:center">
@@ -1073,23 +1073,51 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
     let r2Configured = false;
 
     // ── 多租户会话沙箱识别 (Scheme B Session Isolation) ──
-    function getSessionId() {
+    let sessionInitPromise = null;
+    function isValidSessionId(sid) {
+      return Boolean(sid && typeof sid === 'string' && sid.includes('.') && (sid.startsWith('m2v_s_') || sid.startsWith('s_')));
+    }
+
+    async function ensureSession() {
       let sid = localStorage.getItem('m2v_session_id');
-      if (!sid || !/^[a-zA-Z0-9_\-]{8,64}$/.test(sid)) {
-        sid = 'm2v_' + Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 10);
-        localStorage.setItem('m2v_session_id', sid);
+      if (isValidSessionId(sid)) {
+        return sid;
       }
-      return sid;
+      if (sessionInitPromise) return sessionInitPromise;
+      sessionInitPromise = (async () => {
+        try {
+          const resp = await fetch('/api/session/init', { method: 'POST' });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.session_token) {
+              sid = data.session_token;
+              localStorage.setItem('m2v_session_id', sid);
+              return sid;
+            }
+          }
+        } catch (e) {
+          console.warn('获取服务端会话凭据失败:', e);
+        } finally {
+          sessionInitPromise = null;
+        }
+        return localStorage.getItem('m2v_session_id') || '';
+      })();
+      return sessionInitPromise;
     }
 
     async function apiFetch(url, options = {}) {
       options = options || {};
       options.headers = options.headers || {};
-      const sid = getSessionId();
-      if (options.headers instanceof Headers) {
-        options.headers.set('X-Session-ID', sid);
-      } else {
-        options.headers['X-Session-ID'] = sid;
+      let sid = localStorage.getItem('m2v_session_id');
+      if (!isValidSessionId(sid)) {
+        sid = await ensureSession();
+      }
+      if (sid) {
+        if (options.headers instanceof Headers) {
+          options.headers.set('X-Session-ID', sid);
+        } else {
+          options.headers['X-Session-ID'] = sid;
+        }
       }
       return fetch(url, options);
     }
@@ -1437,6 +1465,13 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
             if (pData.code === 0) {
               clearInterval(biliPollTimer);
               showToast('🎉 B 站扫码登录成功！');
+              if (pData.user && (pData.user.is_logged_in || pData.user.uname)) {
+                $('bili-user-avatar').src = pData.user.face || 'https://static.hdslb.com/images/member/noface.gif';
+                $('bili-user-name').textContent = pData.user.uname || 'B站UP主';
+                $('bili-user-mid').textContent = `UID: ${pData.user.mid || ''}`;
+                $('bili-user-level').textContent = `LV${pData.user.level || 6}`;
+                showBiliSection('form');
+              }
               await refreshBiliAuth();
             } else if (pData.code === 86090) {
               $('bili-qr-status').textContent = '📱 已扫码，请在手机端点击【确认登录】';
@@ -1557,6 +1592,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
         if (data.success) {
           showToast('🎉 云端凭据与沙箱数据已物理清除！');
           localStorage.removeItem('m2v_session_id');
+          await ensureSession();
           await loadSyndicateStatus();
         } else {
           alert('清除失败: ' + (data.message || '未知错误'));
@@ -1700,7 +1736,17 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
               $('syndicate-qr-drawer').style.display = 'none';
               showToast(`🎉 ${p.name} 授权成功！`);
               selectedPlatforms.add(pid);
+              if (syndicatePlatforms[pid]) {
+                syndicatePlatforms[pid].is_logged_in = true;
+                if (pData.uname) syndicatePlatforms[pid].uname = pData.uname;
+                if (pData.user && pData.user.uname) syndicatePlatforms[pid].uname = pData.user.uname;
+              }
+              renderSyndicatePlatformGrid();
               await loadSyndicateStatus();
+            } else if (pData.status === 'scanned') {
+              $('syndicate-qr-status').textContent = pData.message || '📱 手机已扫描，请在手机上点击确认登录';
+            } else if (pData.status === 'confirmed') {
+              $('syndicate-qr-status').textContent = pData.message || '🎉 手机端已确认授权，正在同步凭据...';
             } else if (pData.status === 'expired' || pData.code === 86038) {
               clearInterval(syndicateQrTimer);
               syndicateQrTimer = null;
@@ -1717,9 +1763,36 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
 
     async function launchBrowserLoginForCurrentPlatform() {
       if (!currentQrPlatform) return;
+      const pid = currentQrPlatform;
+      const p = syndicatePlatforms[pid];
       try {
-        await apiFetch(`/api/${currentQrPlatform}/browser-login`, { method: 'POST' });
-        showToast('已打开系统 Chrome 窗口，请在浏览器中登录');
+        await apiFetch(`/api/${pid}/browser-login`, { method: 'POST' });
+        showToast(`已打开系统 Chrome 窗口，请在浏览器中登录 ${p ? p.name : pid}`);
+        $('syndicate-qr-status').textContent = '🖥️ 浏览器窗口已开启，请在 Chrome 窗口中完成登录...';
+
+        // 启动后台轮询监听窗口登录完成
+        let bCount = 0;
+        const bTimer = setInterval(async () => {
+          bCount++;
+          if (bCount > 80) { clearInterval(bTimer); return; }
+          try {
+            const stRes = await apiFetch(`/api/${pid}/status`);
+            const stData = await stRes.json();
+            if (stData.is_logged_in) {
+              clearInterval(bTimer);
+              if (syndicateQrTimer) { clearInterval(syndicateQrTimer); syndicateQrTimer = null; }
+              $('syndicate-qr-drawer').style.display = 'none';
+              showToast(`🎉 ${p ? p.name : pid} 登录成功 (${stData.uname || ''})！`);
+              selectedPlatforms.add(pid);
+              if (syndicatePlatforms[pid]) {
+                syndicatePlatforms[pid].is_logged_in = true;
+                if (stData.uname) syndicatePlatforms[pid].uname = stData.uname;
+              }
+              renderSyndicatePlatformGrid();
+              await loadSyndicateStatus();
+            }
+          } catch (_) {}
+        }, 2500);
       } catch (err) {
         alert('启动浏览器失败: ' + err.message);
       }
@@ -1890,18 +1963,43 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
               badge.textContent = '🎉 发布成功';
               badge.style.color = '#07C160';
               badge.style.fontWeight = '600';
+              const qrBox = document.getElementById(`prog-qr-${pid}`);
+              if (qrBox) qrBox.remove();
+            } else if (s.status === 'needs_verification' || s.qr_image) {
+              badge.textContent = '📱 待扫码验证';
+              badge.style.color = '#38bdf8';
+              badge.style.fontWeight = '600';
+              let qrBox = document.getElementById(`prog-qr-${pid}`);
+              if (!qrBox && s.qr_image) {
+                qrBox = document.createElement('div');
+                qrBox.id = `prog-qr-${pid}`;
+                qrBox.style.cssText = 'margin:10px 0;padding:12px;background:rgba(56,189,248,0.08);border:1px dashed #38bdf8;border-radius:8px;text-align:center';
+                qrBox.innerHTML = `
+                  <div style="font-size:12px;font-weight:600;color:#38bdf8;margin-bottom:6px">⚠️ 首次在当前设备发布作品需安全授信（仅需一次）</div>
+                  <img src="${s.qr_image}" style="width:140px;height:140px;border-radius:6px;background:#fff;padding:4px;display:inline-block"/>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:6px">请使用【抖音APP】扫码并点击【确认】，授信后本次及后续发布将全自动执行！</div>
+
+                `;
+                const card = $(`prog-card-${pid}`);
+                if (card) card.appendChild(qrBox);
+              }
             } else if (s.status === 'under_review') {
               badge.textContent = '⏳ 审核中';
               badge.style.color = '#f59e0b';
               badge.style.fontWeight = '600';
+              const qrBox = document.getElementById(`prog-qr-${pid}`);
+              if (qrBox) qrBox.remove();
             } else if (s.status === 'error') {
               badge.textContent = '❌ 发布失败';
               badge.style.color = '#FF2442';
               badge.style.fontWeight = '600';
+              const qrBox = document.getElementById(`prog-qr-${pid}`);
+              if (qrBox) qrBox.remove();
             } else {
               badge.textContent = `${pPct}%`;
               badge.style.color = 'var(--accent)';
             }
+
           }
 
           if (task.status === 'completed' || task.status === 'partial_success' || task.status === 'error') {

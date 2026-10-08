@@ -17,6 +17,7 @@ import json
 import logging
 import math
 import os
+import shutil
 import socket
 import tempfile
 import time
@@ -148,6 +149,7 @@ class BilibiliUploader:
 
     def get_account_status(self) -> dict:
         """检查当前登录状态并获取用户信息"""
+        self._load_cookies()
         if not self.is_configured:
             return {"is_logged_in": False, "is_login": False, "uname": "", "message": "未登录 B 站账号"}
 
@@ -181,6 +183,8 @@ class BilibiliUploader:
                 }
         except Exception as e:
             logger.error(f"检查 B 站登录状态异常: {e}")
+            if self.user_info.get("is_logged_in") and self.cookies.get("SESSDATA"):
+                return self.user_info
             return {"is_logged_in": False, "is_login": False, "uname": "", "message": str(e)}
 
     def logout(self) -> dict:
@@ -246,6 +250,19 @@ class BilibiliUploader:
                 self._save_cookies(self.cookies)
 
                 status = self.get_account_status()
+
+                # 本地单机开发模式下同步至全局默认配置，避免丢失
+                try:
+                    from src.session_manager import is_default_session_allowed, _WORK_DIR
+                    if (
+                        is_default_session_allowed()
+                        and self.cookies_path != (_WORK_DIR / "bilibili_cookies.json")
+                        and self.cookies_path.parent.name.startswith("m2v_s_")
+                    ):
+                        shutil.copy2(self.cookies_path, _WORK_DIR / "bilibili_cookies.json")
+
+                except Exception:
+                    pass
                 return {
                     "status": "success",
                     "code": 0,
@@ -602,7 +619,13 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src.session_manager import get_uploader_for_session, resolve_session_id
+from src.session_manager import (
+    GLOBAL_PUBLISH_SEMAPHORE,
+    acquire_publish_lock,
+    get_uploader_for_session,
+    release_publish_lock,
+    resolve_session_id,
+)
 
 bilibili_router = APIRouter(prefix="/api/bilibili", tags=["Bilibili"])
 
@@ -665,6 +688,9 @@ def start_publish_task(
     if not uploader.is_configured:
         raise HTTPException(400, "尚未登录 B 站账号，请先使用哔哩哔哩 App 扫码登录")
 
+    if not acquire_publish_lock(sid, "bilibili", video_source=req.video_source):
+        raise HTTPException(409, "B站已有任务正在发布中，请勿重复提交")
+
     task_id = uuid.uuid4().hex[:12]
     with tasks_lock:
         publish_tasks[task_id] = {
@@ -687,16 +713,17 @@ def start_publish_task(
                     publish_tasks[task_id]["status"] = "uploading" if pct < 0.95 else "submitting"
 
         try:
-            res = uploader.publish_video(
-                video_source=req.video_source,
-                title=req.title,
-                desc=req.desc,
-                tags=req.tags,
-                tid=req.tid,
-                cover_source=req.cover_source,
-                dynamic=req.dynamic,
-                progress_callback=_cb,
-            )
+            with GLOBAL_PUBLISH_SEMAPHORE:
+                res = uploader.publish_video(
+                    video_source=req.video_source,
+                    title=req.title,
+                    desc=req.desc,
+                    tags=req.tags,
+                    tid=req.tid,
+                    cover_source=req.cover_source,
+                    dynamic=req.dynamic,
+                    progress_callback=_cb,
+                )
             res = res or {}
             is_failed = res.get("success") is False or res.get("status") == "error"
             is_review = (
@@ -725,16 +752,24 @@ def start_publish_task(
                 publish_tasks[task_id]["status"] = "error"
                 publish_tasks[task_id]["message"] = f"发布失败: {str(e)}"
                 publish_tasks[task_id]["error"] = str(e)
+        finally:
+            release_publish_lock(sid, "bilibili")
 
     background_tasks.add_task(_worker)
     return {"task_id": task_id, "status": "pending"}
 
 
 @bilibili_router.get("/tasks/{task_id}")
-def get_publish_task(task_id: str):
-    """获取发布任务实时进度与结果"""
+def get_publish_task(task_id: str, sid: str = Depends(resolve_session_id)):
+    """获取发布任务实时进度与结果 (防越权访问)"""
     with tasks_lock:
         if task_id not in publish_tasks:
             raise HTTPException(404, "任务不存在")
-        return publish_tasks[task_id]
+        task = publish_tasks[task_id]
+        task_owner = task.get("session_id")
+        if task_owner and task_owner != sid and sid != "default":
+            raise HTTPException(404, "任务不存在或无权访问")
+        safe_copy = dict(task)
+        safe_copy.pop("session_id", None)
+        return safe_copy
 

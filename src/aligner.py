@@ -169,7 +169,51 @@ class WhisperSegmentAnchor(BaseModel):
     words: list[WhisperWordAnchor] = Field(default_factory=list)
 
 
-def detect_line_lang(text: str) -> str:
+def detect_song_language(lyrics: list[Any]) -> str:
+    """
+    根据全曲歌词统计判定歌曲的主体语言 (Song-level Language Prior):
+    - zh: 纯中文 (或极少数拟声英文)
+    - en: 纯英文 (绝大多数行为标准拉丁英文)
+    - ja: 日文 (假名显著)
+    - ko: 韩文 (谚文显著)
+    - mixed: 中英混唱 / 多语言 (需启用 Whisper 多语言自动识别)
+    - other: 变音符拉丁小语种
+    """
+    if not lyrics:
+        return "en"
+    texts = [getattr(l, "text", str(l)) for l in lyrics if not getattr(l, "is_annotation", False)]
+    valid_texts = [t.strip() for t in texts if t.strip()]
+    if not valid_texts:
+        return "en"
+
+    ja_count = sum(1 for t in valid_texts if re.search(r"[\u3040-\u309f\u30a0-\u30ff]", t))
+    ko_count = sum(1 for t in valid_texts if re.search(r"[\uac00-\ud7af]", t))
+    if ja_count / len(valid_texts) >= 0.15:
+        return "ja"
+    if ko_count / len(valid_texts) >= 0.15:
+        return "ko"
+
+    zh_lines = sum(1 for t in valid_texts if len(_CHINESE_CHAR_RE.findall(t)) > 0)
+    en_lines = sum(1 for t in valid_texts if len(re.findall(r"[a-zA-Z]", t)) > 0 and len(_CHINESE_CHAR_RE.findall(t)) == 0)
+    total_lines = len(valid_texts)
+
+    # 若同时存在明确的中文行与英文行 (中英双语歌)，判定为 mixed，不能强制指定单一语言截断另一门语言
+    if zh_lines >= 2 and en_lines >= 2:
+        return "mixed"
+
+    accented_chars = sum(len(re.findall(r"[\u00C0-\u024F]", t)) for t in valid_texts)
+    latin_chars = sum(len(re.findall(r"[a-zA-Z]", t)) for t in valid_texts)
+    if accented_chars > 15 and accented_chars / max(1, latin_chars) > 0.1:
+        return "other"
+
+    if zh_lines / total_lines >= 0.60:
+        return "zh"
+    if en_lines / total_lines >= 0.75:
+        return "en"
+    return "mixed"
+
+
+def detect_line_lang(text: str, song_lang: str | None = None) -> str:
     """
     检测歌词行的语言类型:
     - zh: 中文 (汉字为主)
@@ -187,17 +231,25 @@ def detect_line_lang(text: str) -> str:
     if zh > latin:
         return "zh"
     if latin == 0:
-        return "zh" if zh > 0 else "en"
+        return "zh" if zh > 0 else (song_lang if song_lang not in ("mixed", None) else "en")
     accented = len(re.findall(r"[\u00C0-\u024F]", text))
     if accented > 0:
         return "other"
+
+    # 若全曲主语言确认为纯英文，且无变音符/中日韩字符，坚决遵循全曲英文主干，杜绝单字碰撞小语种误判
+    if song_lang == "en":
+        return "en"
+
     tokens = set(re.findall(r"[a-zA-Z]+", text.lower()))
-    if tokens & {
+    # 严格小语种特征词表：已剔除与常用英文重叠的 "die", "con", "la", "so", "in", "an", "est" 等
+    other_distinctive = {
         "les", "des", "sur", "avec", "dans", "pour", "une", "croissants",
-        "moi", "toi", "doux", "quand", "est", "sont", "nous", "vous",
-        "el", "la", "los", "las", "del", "por", "para", "con", "una",
-        "und", "der", "die", "das", "mit", "nicht", "eine", "einer"
-    }:
+        "moi", "toi", "doux", "quand", "sont", "nous", "vous",
+        "el", "los", "las", "del", "por", "para", "una",
+        "und", "der", "das", "mit", "nicht", "eine", "einer"
+    }
+    matched = tokens & other_distinctive
+    if len(matched) >= 2 or (len(matched) >= 1 and any(w in matched for w in ["croissants", "nicht", "avec", "moi", "toi", "pour", "dans", "und", "der", "das"])):
         return "other"
     return "en"
 
@@ -214,6 +266,7 @@ def tokenize_lyric_line(text: str) -> list[str]:
     将单行歌词拆分为最小对齐单元 (Tokens):
     - 中文汉字: 按单个字符切分 (如 '靠窗的位子' -> ['靠', '窗', '的', '位', '子'])
     - 英文单词: 按单词切分并保留后导空格 (如 'Give me ' -> ['Give ', 'me '])
+    - 连字符复合词: 按音节切分 (如 'BRO-KEN-MAN' -> ['BRO-', 'KEN-', 'MAN'])
     - 标点符号: 附着在相邻单词或独立
     """
     tokens: list[str] = []
@@ -228,10 +281,13 @@ def tokenize_lyric_line(text: str) -> list[str]:
                 j += 1
             tokens.append(text[i:j])
             i = j
-        elif char.isalnum() or char in ("'", "-"):
+        elif char.isalnum() or char == "'":
             # 英文单词连续捕获
             j = i + 1
-            while j < n and (text[j].isalnum() or text[j] in ("'", "-")):
+            while j < n and (text[j].isalnum() or text[j] == "'"):
+                j += 1
+            # 若紧随连字符且连字符后接字母 (如 BRO-KEN-MAN)，将连字符吸附至当前音节词尾，保留独立音节对齐
+            if j < n and text[j] == "-" and j + 1 < n and (text[j + 1].isalnum() or text[j + 1] == "'"):
                 j += 1
             # 吸附词尾空格 (卡拉OK排版关键)
             while j < n and text[j].isspace():
@@ -340,6 +396,7 @@ def _audit_alignment(aligned: list[AlignedLine]) -> list[AlignedLine]:
             start=round(line_start, 3),
             end=round(line_end, 3),
             words=audited_words,
+            style_overrides=dict(line.style_overrides) if line.style_overrides else {},
         ))
         prev_end = line_end
     return out
@@ -369,17 +426,31 @@ def extract_asr_words(
     vocals_path: Path,
     lyrics_prompt: str = "",
     config: AlignerConfig | None = None,
+    language: str | None = None,
+    force_refresh: bool = False,
 ) -> list[dict]:
     """
-    使用 faster-whisper 提取 ASR 词级时间戳锚点 (支持磁盘缓存)。
+    使用 faster-whisper 提取 ASR 词级时间戳锚点 (支持磁盘缓存与元数据校验)。
     识别文字仅作为定位证据，绝不篡改原歌词。
     """
     cache_path = vocals_path.parent / f".{vocals_path.stem}_asr_words.json"
-    if cache_path.exists():
+    req_lang = language or (config.language if config and config.language != "auto" else None)
+
+    if cache_path.exists() and not force_refresh:
         try:
             with open(cache_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if data and isinstance(data, list):
+            if isinstance(data, dict) and "words" in data:
+                meta = data.get("meta", {})
+                cached_words = data.get("words", [])
+                st = vocals_path.stat()
+                mtime_ok = abs(meta.get("mtime", 0.0) - st.st_mtime) < 2.0
+                lang_ok = (meta.get("language") == req_lang) or (not req_lang)
+                if mtime_ok and lang_ok and cached_words:
+                    log.info("🎯 复用已缓存的 ASR 词级时间戳 (v2): %s (%d 个词, lang=%s)",
+                             cache_path.name, len(cached_words), meta.get("language"))
+                    return cached_words
+            elif isinstance(data, list) and data and (not req_lang or req_lang in ("auto", "mixed")):
                 log.info("🎯 复用已缓存的多语言 ASR 词级时间戳: %s (%d 个词)", cache_path.name, len(data))
                 return data
         except Exception:
@@ -387,15 +458,23 @@ def extract_asr_words(
 
     try:
         model = _get_whisper(config)
-        segments, _ = model.transcribe(
-            str(vocals_path),
-            beam_size=5,
-            word_timestamps=True,
-            condition_on_previous_text=False,
-            vad_filter=True,
-            multilingual=True,
-            initial_prompt=lyrics_prompt[:250] if lyrics_prompt else None,
-        )
+        transcribe_opts: dict[str, Any] = {
+            "beam_size": 5,
+            "word_timestamps": True,
+            "condition_on_previous_text": False,
+            "vad_filter": False,  # 歌曲人声禁止默认 Silero VAD，避免弱音/呢喃/嘶吼被大面积截断
+        }
+        if req_lang in ("en", "zh", "ja", "ko"):
+            transcribe_opts["language"] = req_lang
+            transcribe_opts["multilingual"] = False
+        else:
+            transcribe_opts["multilingual"] = True
+
+        # 仅在非英文或特殊提示场景下传入 prompt，避免英文歌曲 prompt 造成注意力重复循环
+        if lyrics_prompt and req_lang != "en":
+            transcribe_opts["initial_prompt"] = lyrics_prompt[:250]
+
+        segments, _ = model.transcribe(str(vocals_path), **transcribe_opts)
 
         asr_words: list[dict] = []
         for s in segments:
@@ -415,9 +494,19 @@ def extract_asr_words(
                             asr_words.append({'raw': clean, 'py': clean, 'start': round(w.start, 3), 'end': round(w.end, 3)})
 
         if asr_words:
+            cache_payload = {
+                "version": 2,
+                "meta": {
+                    "mtime": vocals_path.stat().st_mtime,
+                    "size": vocals_path.stat().st_size,
+                    "language": req_lang,
+                    "model": getattr(config, "whisper_model", "base") if config else "base",
+                },
+                "words": asr_words,
+            }
             with open(cache_path, "w", encoding="utf-8") as f:
-                json.dump(asr_words, f, ensure_ascii=False, indent=2)
-            log.info("多语言 ASR 锚点提取并缓存完成: %d 个词", len(asr_words))
+                json.dump(cache_payload, f, ensure_ascii=False, indent=2)
+            log.info("ASR 锚点提取并缓存完成: %d 个词 (lang=%s)", len(asr_words), req_lang or "auto")
         return asr_words
     except Exception as e:
         log.warning("多语言 ASR 锚点提取异常 (将回退至声学 VAD 模式): %s", e)
@@ -461,6 +550,7 @@ def anchor_stanzas_with_asr(
     min_start: float = 0.0,
     wav_np: np.ndarray | None = None,
     sr: int = 16000,
+    song_lang: str | None = None,
 ) -> tuple[dict[int, list[tuple[int, LyricLine]]], dict[int, tuple[float, float]]]:
     """
     两阶段岛驱动宏观乐段定位引擎 (Two-Pass Island-Driven Stanza Anchoring)。
@@ -481,7 +571,7 @@ def anchor_stanzas_with_asr(
         cur_lang = None
         cur_p = 0
         for i, ly in singing_lyrics:
-            l_lang = detect_line_lang(ly.text)
+            l_lang = detect_line_lang(ly.text, song_lang=song_lang)
             if cur_p not in paras:
                 paras[cur_p] = []
             if cur_lang is not None and (l_lang != cur_lang or len(paras[cur_p]) >= 4):
@@ -531,13 +621,14 @@ def anchor_stanzas_with_asr(
             si, ei, blocks = best_match
             valid_blocks = [b for b in blocks if b.size > 0]
             if valid_blocks:
-                first_b = valid_blocks[0]
-                last_b = valid_blocks[-1]
+                sig_blocks = [b for b in valid_blocks if b.size >= 2] or valid_blocks
+                first_b = sig_blocks[0]
+                last_b = sig_blocks[-1]
                 first_cand_idx = si + first_b.b
                 last_cand_idx = si + last_b.b + last_b.size - 1
                 missed_head = first_b.a
                 missed_tail = len(l_toks) - (last_b.a + last_b.size)
-                raw_s = min_start if p == 0 else max(min_start, valid_asr[first_cand_idx]["start"] - missed_head * 0.40)
+                raw_s = min_start if p == 0 else max(min_start, valid_asr[first_cand_idx]["start"] - missed_head * 0.45)
                 raw_e = min(total_audio_sec, valid_asr[last_cand_idx]["end"] + missed_tail * 0.45)
                 sig = "".join(l_toks)
                 candidates[p] = {
@@ -607,15 +698,16 @@ def anchor_stanzas_with_asr(
                         matcher = SequenceMatcher(None, l_toks, c_tokens[si:ei])
                         sc = matcher.ratio()
                         if sc >= 0.40:
-                            blocks = [b for b in matcher.get_matching_blocks() if b.size > 0]
-                            if blocks:
-                                first_b = blocks[0]
-                                last_b = blocks[-1]
+                            valid_blocks = [b for b in matcher.get_matching_blocks() if b.size > 0]
+                            if valid_blocks:
+                                sig_blocks = [b for b in valid_blocks if b.size >= 2] or valid_blocks
+                                first_b = sig_blocks[0]
+                                last_b = sig_blocks[-1]
                                 first_cand_idx = si + first_b.b
                                 last_cand_idx = si + last_b.b + last_b.size - 1
                                 missed_head = first_b.a
                                 missed_tail = len(l_toks) - (last_b.a + last_b.size)
-                                raw_s = max(prev_e, valid_asr[first_cand_idx]["start"] - missed_head * 0.40)
+                                raw_s = max(prev_e, valid_asr[first_cand_idx]["start"] - missed_head * 0.45)
                                 raw_e = min(next_s, valid_asr[last_cand_idx]["end"] + missed_tail * 0.45)
                                 p_matches.append((raw_s, raw_e, sc))
 
@@ -688,6 +780,10 @@ def anchor_stanzas_with_asr(
                 sub_cur = cur_anchor_t
                 for gp_idx, (gp, sl) in enumerate(zip(unanchored_sub, sub_lens)):
                     p_dur = sub_gap_dur * (sl / tot_l)
+                    # 避免在全曲尾声处因缺少锚点将伴奏尾奏/空白长区间全部摊入歌词
+                    if next_anchor_t >= total_audio_sec - 1.0:
+                        max_expected_dur = max(6.0, len(paras.get(gp, [])) * 4.5)
+                        p_dur = min(p_dur, max_expected_dur)
                     raw_end = sub_cur + p_dur
                     if gp_idx < len(unanchored_sub) - 1:
                         snapped_end = find_silence_snap(raw_end, wav_np, sr, 2.5, min_t=sub_cur + 1.0)
@@ -695,7 +791,8 @@ def anchor_stanzas_with_asr(
                         if next_anchor_t < total_audio_sec - 1.0:
                             snapped_end = find_silence_snap(next_anchor_t - 2.5, wav_np, sr, 2.0, min_t=sub_cur + 1.0)
                         else:
-                            snapped_end = next_anchor_t
+                            snapped_end = find_silence_snap(raw_end, wav_np, sr, 3.0, min_t=sub_cur + 1.0, max_t=total_audio_sec)
+                    log.warning("乐段 %d 缺少 ASR 声学锚点证据，采用估算窗口: [%.2fs - %.2fs]", gp, sub_cur, snapped_end)
                     para_bounds[gp] = (round(sub_cur, 2), round(snapped_end, 2))
                     sub_cur = snapped_end
                 cur_anchor_t = next_anchor_t
@@ -804,15 +901,18 @@ def align_lyrics_ctc(
 
     log.info("人声检测发现 %d 个主要歌唱乐段: %s", len(singing_sections), singing_sections)
 
-    # 4. 歌词按语言分流
+    # 4. 全曲主语言先验判定与歌词按语言分流
     singing_lyrics: list[tuple[int, LyricLine]] = [(idx, ly) for idx, ly in enumerate(lyrics) if not ly.is_annotation]
+    forced_lang = config.language if (config and config.language and config.language != "auto") else None
+    song_lang = forced_lang or detect_song_language([ly for _, ly in singing_lyrics])
+    log.info("全曲主语言先验判定: %s (配置指定: %s)", song_lang, forced_lang)
 
     lang_runs: list[tuple[str, list[tuple[int, LyricLine]]]] = []
     cur_run: list[tuple[int, LyricLine]] = []
     cur_lang = None
     for item in singing_lyrics:
         idx, ly = item
-        lang = detect_line_lang(ly.text)
+        lang = detect_line_lang(ly.text, song_lang=song_lang)
         if cur_lang is None or lang == cur_lang:
             cur_run.append(item)
             cur_lang = lang
@@ -865,6 +965,9 @@ def align_lyrics_ctc(
         e_sec = min(total_audio_sec, e_sec + 0.3)
         wav_slice = wav_16k[:, int(s_sec * 16000): int(e_sec * 16000)]
         if wav_slice.size(1) < 400:
+            for orig_idx, ly in lines_with_idx:
+                words = _fallback_even_split(ly.text, s_sec, e_sec)
+                aligned_line_map[orig_idx] = AlignedLine(text=ly.text, start=s_sec, end=e_sec, words=words)
             return
 
         with torch.inference_mode():
@@ -1146,7 +1249,7 @@ def align_lyrics_ctc(
     # 6. 多语言语义 ASR 粗定位与可信乐段/句级音频窗口建立 (Semantic ASR Anchoring & Monotonic Matching)
     # 步骤 A: 提取全曲 ASR 词级时间戳锚点 (单曲一次，缓存复用)
     prompt_text = "\n".join(ly.text for _, ly in singing_lyrics)
-    asr_words = extract_asr_words(vocals_path, lyrics_prompt=prompt_text, config=config)
+    asr_words = extract_asr_words(vocals_path, lyrics_prompt=prompt_text, config=config, language=song_lang)
     wav_np = wav_16k.squeeze(0).cpu().numpy()
 
     # 步骤 B: 两阶段岛驱动宏观乐段定位与声学停顿吸附
@@ -1157,14 +1260,15 @@ def align_lyrics_ctc(
         min_start=min_start,
         wav_np=wav_np,
         sr=16000,
+        song_lang=song_lang,
     )
-    log.info("乐段语义窗口锚定完成: %d 个自然段均获得高置信度声学边界", len(para_bounds))
+    log.info("乐段语义窗口锚定完成: %d 个自然段已确立声学边界", len(para_bounds))
 
     # 步骤 C: 逐段执行独立中/英文 CTC 精确打点 (同语言整段联合 Viterbi 解码，混语言声学停顿切分)
     for p in sorted(paras.keys()):
         p_s, p_e = para_bounds[p]
         p_lines = paras[p]
-        langs = [detect_line_lang(ly.text) for _, ly in p_lines]
+        langs = [detect_line_lang(ly.text, song_lang=song_lang) for _, ly in p_lines]
         if all(l == "en" for l in langs):
             _dispatch_align("en", p_lines, p_s, p_e)
         elif all(l == "zh" for l in langs):
@@ -1175,7 +1279,7 @@ def align_lyrics_ctc(
             cur_r: list[tuple[int, LyricLine]] = []
             cur_l = None
             for idx_ly in p_lines:
-                ll = detect_line_lang(idx_ly[1].text)
+                ll = detect_line_lang(idx_ly[1].text, song_lang=song_lang)
                 if cur_l is None or ll == cur_l:
                     cur_r.append(idx_ly)
                     cur_l = ll

@@ -351,25 +351,106 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   border-bottom: 1px solid var(--border); font-size: 14px;
 }
 #word-timeline { flex: 1; overflow-x: auto; overflow-y: hidden; padding: 12px; position: relative; }
-.word-bar-container { display: flex; align-items: stretch; height: 48px; margin-bottom: 8px; }
+.word-bar-container {
+  display: flex;
+  align-items: stretch;
+  height: 52px;
+  margin-bottom: 8px;
+  gap: 8px;
+  width: 100%;
+}
+.words-track {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+}
 .word-bar {
-  display: flex; align-items: center; justify-content: center;
-  background: var(--word-bg); border: 1px solid var(--border);
-  border-radius: 3px; font-size: 16px; cursor: pointer;
-  position: relative; user-select: none; min-width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--word-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  position: relative;
+  user-select: none;
+  min-width: 24px;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   transition: background 0.1s;
 }
 .word-bar:hover { background: var(--word-hover); }
 .word-bar.selected { background: var(--word-active); border-color: #fff; }
 .word-bar.bar-singing { background: #ffdd57; color: #000; box-shadow: 0 0 10px #ffdd5788; }
-.word-bar.punct { background: transparent; border: 1px dashed var(--border); font-size: 12px; color: var(--text-dim); min-width: 8px; }
+.word-bar.punct { background: transparent; border: 1px dashed var(--border); font-size: 12px; color: var(--text-dim); min-width: 10px; }
 .word-bar .word-dur { position: absolute; bottom: 2px; font-size: 9px; color: var(--text-dim); font-family: monospace; }
 .word-bar .drag-handle {
   position: absolute; right: -4px; top: 0; bottom: 0;
-  width: 8px; cursor: col-resize; z-index: 2;
+  width: 8px; cursor: col-resize; z-index: 4;
 }
-.word-bar .drag-handle:hover { background: var(--accent); opacity: 0.6; border-radius: 2px; }
-.word-bar .drag-handle:active { background: #ff0; opacity: 0.8; }
+.word-bar .drag-handle:hover { background: var(--accent); opacity: 0.7; border-radius: 2px; }
+.word-bar .drag-handle:active { background: #ff0; opacity: 0.9; }
+
+/* 紧凑的前后间歇/间奏占位块 (固定小宽度，保证歌词主体开阔舒展) */
+.gap-pill {
+  flex: 0 0 auto;
+  min-width: 78px;
+  max-width: 110px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  position: relative;
+  user-select: none;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.gap-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #eceff4;
+}
+.gap-pill .gap-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 6px;
+  font-family: monospace;
+  pointer-events: none;
+}
+.gap-pill .edge-handle {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 12px;
+  cursor: col-resize;
+  z-index: 10;
+  background: #ff4b2b;
+  opacity: 0.95;
+  box-shadow: 0 0 6px rgba(255, 75, 43, 0.6);
+  border-radius: 2px;
+}
+.gap-pill.gap-pre .edge-handle { right: -6px; }
+.gap-pill.gap-post .edge-handle { left: -6px; }
+
+.gap-pill .edge-handle:hover {
+  background: #ffdd57;
+  opacity: 1;
+  box-shadow: 0 0 10px rgba(255, 221, 87, 0.9);
+}
+.gap-pill .edge-handle:active {
+  background: #00f0ff;
+  box-shadow: 0 0 12px #00f0ff;
+}
 #word-controls {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 12px; background: var(--bg-panel);

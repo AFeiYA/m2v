@@ -317,12 +317,15 @@ async function handleSunoImport() {
 
   const chkSep = document.getElementById("chk-separate-vocals");
   const chkGpu = document.getElementById("chk-use-gpu");
+  const selLang = document.getElementById("select-import-lang");
   const separateVocals = chkSep ? chkSep.checked : true;
   const useGpu = chkGpu ? chkGpu.checked : true;
+  const importLang = selLang ? selLang.value : "auto";
 
   try {
     localStorage.setItem("suno_chk_sep", separateVocals ? "1" : "0");
     localStorage.setItem("suno_chk_gpu", useGpu ? "1" : "0");
+    if (selLang) localStorage.setItem("suno_import_lang", importLang);
   } catch (e) {}
 
   const isNetEase = url.includes("163.com") || url.includes("163cn.tv") || url.includes("<iframe") || /^\d{5,}$/.test(url);
@@ -351,6 +354,7 @@ async function handleSunoImport() {
         async_mode: true,
         skip_separation: !separateVocals,
         use_gpu: useGpu,
+        language: importLang,
       }),
     });
 
@@ -664,6 +668,10 @@ window.addEventListener("DOMContentLoaded", () => {
     }
     if (chkGpu && localStorage.getItem("suno_chk_gpu") !== null) {
       chkGpu.checked = localStorage.getItem("suno_chk_gpu") === "1";
+    }
+    const selLang = document.getElementById("select-import-lang");
+    if (selLang && localStorage.getItem("suno_import_lang") !== null) {
+      selLang.value = localStorage.getItem("suno_import_lang");
     }
   } catch (e) {}
 

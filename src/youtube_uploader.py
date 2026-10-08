@@ -25,7 +25,13 @@ import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src.session_manager import get_uploader_for_session, resolve_session_id
+from src.session_manager import (
+    GLOBAL_PUBLISH_SEMAPHORE,
+    acquire_publish_lock,
+    get_uploader_for_session,
+    release_publish_lock,
+    resolve_session_id,
+)
 
 logger = logging.getLogger("youtube_uploader")
 
@@ -330,6 +336,9 @@ def start_yt_publish_task(
     if not uploader.is_configured:
         raise HTTPException(400, "尚未连接 YouTube 账号，请先配置 Access Token")
 
+    if not acquire_publish_lock(sid, "youtube", video_source=req.video_source):
+        raise HTTPException(409, "YouTube 已有任务正在发布中，请勿重复提交")
+
     task_id = uuid.uuid4().hex[:12]
     with yt_tasks_lock:
         yt_publish_tasks[task_id] = {
@@ -352,15 +361,16 @@ def start_yt_publish_task(
                     yt_publish_tasks[task_id]["status"] = "uploading" if pct < 0.95 else "submitting"
 
         try:
-            res = uploader.publish_video(
-                video_source=req.video_source,
-                title=req.title,
-                desc=req.desc,
-                tags=req.tags,
-                cover_source=req.cover_source,
-                privacy_status=req.privacy_status,
-                progress_callback=_cb,
-            )
+            with GLOBAL_PUBLISH_SEMAPHORE:
+                res = uploader.publish_video(
+                    video_source=req.video_source,
+                    title=req.title,
+                    desc=req.desc,
+                    tags=req.tags,
+                    cover_source=req.cover_source,
+                    privacy_status=req.privacy_status,
+                    progress_callback=_cb,
+                )
             res = res or {}
             is_failed = res.get("success") is False or res.get("status") == "error"
             is_review = (
@@ -389,15 +399,23 @@ def start_yt_publish_task(
                 yt_publish_tasks[task_id]["status"] = "error"
                 yt_publish_tasks[task_id]["message"] = f"发布失败: {str(e)}"
                 yt_publish_tasks[task_id]["error"] = str(e)
+        finally:
+            release_publish_lock(sid, "youtube")
 
     background_tasks.add_task(_worker)
     return {"task_id": task_id, "status": "pending"}
 
 
 @youtube_router.get("/tasks/{task_id}")
-def get_yt_publish_task(task_id: str):
-    """获取 YouTube 发布任务进度"""
+def get_yt_publish_task(task_id: str, sid: str = Depends(resolve_session_id)):
+    """获取 YouTube 发布任务进度 (防越权访问)"""
     with yt_tasks_lock:
         if task_id not in yt_publish_tasks:
             raise HTTPException(404, "任务不存在")
-        return yt_publish_tasks[task_id]
+        task = yt_publish_tasks[task_id]
+        task_owner = task.get("session_id")
+        if task_owner and task_owner != sid and sid != "default":
+            raise HTTPException(404, "任务不存在或无权访问")
+        safe_copy = dict(task)
+        safe_copy.pop("session_id", None)
+        return safe_copy

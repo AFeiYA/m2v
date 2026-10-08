@@ -24,10 +24,12 @@ from pydantic import BaseModel, Field
 from src.bilibili_uploader import bilibili_uploader
 from src.douyin_uploader import douyin_uploader
 from src.session_manager import (
+    GLOBAL_PUBLISH_SEMAPHORE,
     acquire_publish_lock,
     clear_session_data,
     get_publish_receipts,
     get_uploader_for_session,
+    issue_session_token,
     release_publish_lock,
     resolve_session_id,
     save_publish_receipt,
@@ -148,18 +150,18 @@ def start_syndication_publish(
     if not selected:
         raise HTTPException(400, "请至少选择一个要发布的平台")
 
-    # 并发防重复提交互斥锁检查
+    # 并发防重复提交互斥锁检查 (按 session_id + platform 互斥)
     locked_platforms = []
     for pid in selected:
-        if not acquire_publish_lock(session_id, pid, req.video_source):
+        if not acquire_publish_lock(session_id, pid, video_source=req.video_source):
             locked_platforms.append(PLATFORM_REGISTRY[pid]["name"])
 
     if locked_platforms:
         # 释放已获取到的锁
         for pid in selected:
             if PLATFORM_REGISTRY[pid]["name"] not in locked_platforms:
-                release_publish_lock(session_id, pid, req.video_source)
-        raise HTTPException(409, f"以下平台正在发布该视频，请勿重复提交: {', '.join(locked_platforms)}")
+                release_publish_lock(session_id, pid)
+        raise HTTPException(409, f"以下平台已有任务正在发布中，请勿重复提交: {', '.join(locked_platforms)}")
 
     task_id = uuid.uuid4().hex[:12]
     now = time.time()
@@ -190,13 +192,18 @@ def start_syndication_publish(
         }
 
     def _syndicate_worker():
-        def _update_platform_state(pid: str, pct: float, msg: str, status: str = "uploading"):
+        def _update_platform_state(pid: str, pct: float, msg: str, status: str = "uploading", **kwargs):
             with syndicate_lock:
                 if task_id in syndicate_tasks and pid in syndicate_tasks[task_id]["platform_states"]:
                     ps = syndicate_tasks[task_id]["platform_states"][pid]
                     ps["progress"] = round(pct, 2)
                     ps["message"] = msg
-                    ps["status"] = status
+                    qr = kwargs.get("qr_image") or kwargs.get("extra", {}).get("qr_image")
+                    if qr:
+                        ps["qr_image"] = qr
+                        ps["status"] = "needs_verification"
+                    else:
+                        ps["status"] = status
                     # 计算加权综合进度
                     total_p = sum(s["progress"] for s in syndicate_tasks[task_id]["platform_states"].values())
                     syndicate_tasks[task_id]["overall_progress"] = round(total_p / len(selected), 2)
@@ -204,60 +211,62 @@ def start_syndication_publish(
         def _publish_single_platform(pid: str):
             _update_platform_state(pid, 0.05, f"准备提交至{PLATFORM_REGISTRY[pid]['name']}...", "uploading")
 
-            def _cb(pct: float, msg: str):
-                _update_platform_state(pid, pct, msg, "uploading" if pct < 0.95 else "submitting")
+            def _cb(pct: float, msg: str, **kwargs):
+                _update_platform_state(pid, pct, msg, "uploading" if pct < 0.95 else "submitting", **kwargs)
+
 
             try:
                 uploader = get_uploader_for_session(pid, session_id)
-                if pid == "bilibili":
-                    res = uploader.publish_video(
-                        video_source=req.video_source,
-                        title=req.title,
-                        desc=req.desc,
-                        tags=req.tags,
-                        tid=req.bilibili_tid,
-                        cover_source=req.cover_source,
-                        progress_callback=_cb,
-                    )
-                elif pid == "xiaohongshu":
-                    res = uploader.publish_video(
-                        video_source=req.video_source,
-                        title=req.title,
-                        desc=req.desc,
-                        tags=req.tags,
-                        cover_source=req.cover_source,
-                        progress_callback=_cb,
-                    )
-                elif pid == "wechat":
-                    res = uploader.publish_video(
-                        video_source=req.video_source,
-                        title=req.title,
-                        desc=req.desc,
-                        tags=req.tags,
-                        cover_source=req.cover_source,
-                        progress_callback=_cb,
-                    )
-                elif pid == "douyin":
-                    res = uploader.publish_video(
-                        video_source=req.video_source,
-                        title=req.title,
-                        desc=req.desc,
-                        tags=req.tags,
-                        cover_source=req.cover_source,
-                        progress_callback=_cb,
-                    )
-                elif pid == "youtube":
-                    res = uploader.publish_video(
-                        video_source=req.video_source,
-                        title=req.title,
-                        desc=req.desc,
-                        tags=req.tags,
-                        cover_source=req.cover_source,
-                        privacy_status=req.youtube_privacy,
-                        progress_callback=_cb,
-                    )
-                else:
-                    raise ValueError(f"未知平台: {pid}")
+                with GLOBAL_PUBLISH_SEMAPHORE:
+                    if pid == "bilibili":
+                        res = uploader.publish_video(
+                            video_source=req.video_source,
+                            title=req.title,
+                            desc=req.desc,
+                            tags=req.tags,
+                            tid=req.bilibili_tid,
+                            cover_source=req.cover_source,
+                            progress_callback=_cb,
+                        )
+                    elif pid == "xiaohongshu":
+                        res = uploader.publish_video(
+                            video_source=req.video_source,
+                            title=req.title,
+                            desc=req.desc,
+                            tags=req.tags,
+                            cover_source=req.cover_source,
+                            progress_callback=_cb,
+                        )
+                    elif pid == "wechat":
+                        res = uploader.publish_video(
+                            video_source=req.video_source,
+                            title=req.title,
+                            desc=req.desc,
+                            tags=req.tags,
+                            cover_source=req.cover_source,
+                            progress_callback=_cb,
+                        )
+                    elif pid == "douyin":
+                        res = uploader.publish_video(
+                            video_source=req.video_source,
+                            title=req.title,
+                            desc=req.desc,
+                            tags=req.tags,
+                            cover_source=req.cover_source,
+                            progress_callback=_cb,
+                        )
+                    elif pid == "youtube":
+                        res = uploader.publish_video(
+                            video_source=req.video_source,
+                            title=req.title,
+                            desc=req.desc,
+                            tags=req.tags,
+                            cover_source=req.cover_source,
+                            privacy_status=req.youtube_privacy,
+                            progress_callback=_cb,
+                        )
+                    else:
+                        raise ValueError(f"未知平台: {pid}")
 
                 # 精准状态判定 (修复 success=false 仍判成功的 bug，区分审核中)
                 res = res or {}
@@ -292,7 +301,7 @@ def start_syndication_publish(
                     ps["message"] = f"发布失败: {str(e)}"
                     ps["error"] = str(e)
             finally:
-                release_publish_lock(session_id, pid, req.video_source)
+                release_publish_lock(session_id, pid)
 
         # 启动线程池并发发布
         with ThreadPoolExecutor(max_workers=min(len(selected), 4)) as executor:
@@ -317,23 +326,35 @@ def start_syndication_publish(
                 save_publish_receipt(session_id, syndicate_tasks[task_id])
 
     background_tasks.add_task(_syndicate_worker)
-    return {"task_id": task_id, "status": "running", "platforms": selected, "session_id": session_id}
+    return {"task_id": task_id, "status": "running", "platforms": selected}
+
+
+@syndication_router.post("/session/init")
+def init_session():
+    """由服务端签发高强度防篡改会话凭据 (HMAC-SHA256)"""
+    token = issue_session_token()
+    return {"session_token": token, "session_id": token, "created_at": time.time()}
 
 
 @syndication_router.get("/tasks/{task_id}")
-def get_syndication_task_progress(task_id: str):
-    """获取多平台一键发布的实时聚合进度"""
+def get_syndication_task_progress(task_id: str, session_id: str = Depends(resolve_session_id)):
+    """获取多平台一键发布的实时聚合进度 (带归属校验，防越权探测)"""
     with syndicate_lock:
         if task_id not in syndicate_tasks:
             raise HTTPException(404, "任务不存在")
-        return syndicate_tasks[task_id]
+        task = syndicate_tasks[task_id]
+        task_owner = task.get("session_id")
+        if task_owner and task_owner != session_id and session_id != "default":
+            raise HTTPException(404, "任务不存在或无权访问")
+        safe_copy = dict(task)
+        safe_copy.pop("session_id", None)
+        return safe_copy
 
 
 @syndication_router.get("/receipts")
 def get_session_publish_receipts(session_id: str = Depends(resolve_session_id)):
     """获取当前会话的历史发布回执"""
     return {
-        "session_id": session_id,
         "receipts": get_publish_receipts(session_id),
     }
 

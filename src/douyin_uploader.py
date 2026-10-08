@@ -26,7 +26,13 @@ import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src.session_manager import get_uploader_for_session, resolve_session_id
+from src.session_manager import (
+    GLOBAL_PUBLISH_SEMAPHORE,
+    acquire_publish_lock,
+    get_uploader_for_session,
+    release_publish_lock,
+    resolve_session_id,
+)
 
 logger = logging.getLogger("douyin_uploader")
 
@@ -75,31 +81,92 @@ class DouyinUploader:
 
     def _save_cookies(self, cookies: dict, user_info: Optional[dict] = None):
         """持久化 Cookies 到本地文件"""
-        self.cookies = cookies
+        self.cookies.update(cookies)
         if user_info:
-            self.user_info = user_info
+            self.user_info.update(user_info)
         data = {
             "cookies": self.cookies,
             "user": self.user_info,
             "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
         self.cookies_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            from src.session_manager import is_default_session_allowed, _WORK_DIR
+            if (
+                is_default_session_allowed()
+                and self.cookies_path != (_WORK_DIR / "douyin_cookies.json")
+                and self.cookies_path.parent.name.startswith("m2v_s_")
+            ):
+                shutil.copy2(self.cookies_path, _WORK_DIR / "douyin_cookies.json")
+
+        except Exception:
+            pass
+
+    def _has_session(self) -> bool:
+        """检查是否具有有效的抖音登录态"""
+        if not self.cookies:
+            return False
+        # 兼容原生 sessionid、安全域 sessionid_ss 或 sid_guard + uid_tt/passport
+        return bool(
+            self.cookies.get("sessionid")
+            or self.cookies.get("sessionid_ss")
+            or (self.cookies.get("sid_guard") and (self.cookies.get("uid_tt") or self.cookies.get("uid_tt_ss")))
+            or self.cookies.get("passport_auth_status") == "verified"
+        )
 
     @property
     def is_configured(self) -> bool:
         """检查是否有基本登录凭证"""
-        return bool(self.cookies.get("sessionid"))
+        self._load_cookies()
+        return self._has_session()
+
+    def _fetch_user_info_http(self) -> dict:
+        """通过轻量 HTTP API 获取最新的抖音创作者昵称与头像"""
+        if not self._has_session():
+            return {}
+        try:
+            s = requests.Session()
+            s.headers.update({
+                "User-Agent": DEFAULT_USER_AGENT,
+                "Referer": "https://creator.douyin.com/",
+            })
+            for k, v in self.cookies.items():
+                if v:
+                    s.cookies.set(k, str(v), domain=".douyin.com")
+            r = s.get("https://creator.douyin.com/web/api/media/user/info/", timeout=6)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("status_code") == 0:
+                    u = data.get("user", {})
+                    nick = u.get("nickname", "").strip()
+                    avatars = u.get("avatar_thumb", {}).get("url_list", [])
+                    avatar = avatars[0] if avatars else ""
+                    if nick:
+                        info = {"is_logged_in": True, "uname": nick, "avatar": avatar}
+                        self._save_cookies({}, info)
+                        return info
+        except Exception as e:
+            logger.debug(f"HTTP 获取抖音用户信息失败: {e}")
+        return {}
 
     def get_account_status(self) -> dict:
         """检查当前抖音登录状态"""
-        # 必须存在 cookies 文件并且包含有效的创作者 sessionid
-        if self.cookies_path.exists() and self.cookies.get("sessionid"):
+        self._load_cookies()
+        if self._has_session():
+            uname = self.user_info.get("uname")
+            avatar = self.user_info.get("avatar", "")
+            if not uname or uname == "抖音创作者" or not avatar:
+                fetched = self._fetch_user_info_http()
+                if fetched:
+                    uname = fetched.get("uname", uname)
+                    avatar = fetched.get("avatar", avatar)
+            uname = uname or "抖音创作者"
             return {
                 "is_logged_in": True,
                 "is_login": True,
-                "uname": self.user_info.get("uname", "抖音创作者"),
-                "avatar": self.user_info.get("avatar", ""),
-                "message": "已连接抖音创作者中心",
+                "uname": uname,
+                "avatar": avatar,
+                "message": f"已连接抖音创作者中心 ({uname})",
             }
 
         return {
@@ -112,6 +179,7 @@ class DouyinUploader:
 
     def logout(self) -> dict:
         """退出登录并清理凭证"""
+        self._stop_qr_session()
         self.cookies = {}
         self.user_info = {}
         if self.cookies_path.exists():
@@ -120,32 +188,53 @@ class DouyinUploader:
             except Exception:
                 pass
         try:
+            from src.session_manager import is_default_session_allowed, _WORK_DIR
+            if is_default_session_allowed() and (_WORK_DIR / "douyin_cookies.json").exists():
+                (_WORK_DIR / "douyin_cookies.json").unlink()
+        except Exception:
+            pass
+        try:
             if self.profile_dir.exists():
                 shutil.rmtree(self.profile_dir, ignore_errors=True)
                 self.profile_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
             logger.warning(f"清理抖音 profile 失败: {e}")
 
-        with self._qr_lock:
-            if self._qr_session:
-                try:
-                    self._qr_session["context"].close()
-                    self._qr_session["playwright"].stop()
-                except Exception:
-                    pass
-                self._qr_session = None
-
         return {"success": True, "message": "已成功退出抖音登录"}
 
     def _clean_locks(self):
-        """清理 Chromium 异常退出残留的单例锁文件"""
+        """清理 Chromium 异常退出残留的单例锁文件与僵尸进程"""
+        pdir_str = str(self.profile_dir.resolve())
+        try:
+            res = subprocess.run(["pgrep", "-f", f"--user-data-dir={pdir_str}"], capture_output=True, text=True)
+            if res.stdout.strip():
+                for pid_str in res.stdout.strip().split():
+                    try:
+                        os.kill(int(pid_str), 9)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         for name in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
             f = self.profile_dir / name
-            if f.exists():
-                try:
-                    f.unlink()
-                except Exception:
-                    pass
+            try:
+                if f.is_symlink() or f.exists() or os.path.lexists(str(f)):
+                    f.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    def _stop_qr_session(self):
+        """安全停止当前的扫码后台会话，释放资源并避免 Profile 目录锁竞争"""
+        with self._qr_lock:
+            if self._qr_session:
+                self._qr_session["cancelled"] = True
+                close_fn = self._qr_session.get("close_fn")
+                if callable(close_fn):
+                    try:
+                        close_fn()
+                    except Exception:
+                        pass
+                self._qr_session = None
 
     def _run_threaded(self, fn, *args, **kwargs):
         """在独立后台线程中执行 Playwright 操作，彻底避免与 FastAPI asyncio 循环冲突"""
@@ -164,136 +253,249 @@ class DouyinUploader:
         return container.get("val")
 
     def generate_qrcode(self) -> dict:
-        """获取抖音创作者中心扫码登录二维码"""
+        """获取抖音创作者中心扫码登录二维码并启动多级状态监听"""
         from playwright.sync_api import sync_playwright
 
-        with self._qr_lock:
-            if self._qr_session:
-                self._qr_session["cancelled"] = True
-                self._qr_session = None
-
+        self._stop_qr_session()
+        time.sleep(0.5)
         self._clean_locks()
+
         ready_event = threading.Event()
         result_box = {}
         session_id = uuid.uuid4().hex[:12]
 
         def _worker():
+            playwright_instance = None
+            browser_context = None
             try:
-                with sync_playwright() as pw:
-                    ctx = pw.chromium.launch_persistent_context(
-                        user_data_dir=str(self.profile_dir.resolve()),
-                        channel="chrome",
-                        headless=True,
-                        viewport={"width": 1280, "height": 800},
-                        user_agent=DEFAULT_USER_AGENT,
-                    )
-                    page = ctx.pages[0] if ctx.pages else ctx.new_page()
-                    page.goto("https://creator.douyin.com/", wait_until="domcontentloaded", timeout=20000)
-                    page.wait_for_timeout(3000)
+                playwright_instance = sync_playwright().start()
+                browser_context = playwright_instance.chromium.launch_persistent_context(
+                    user_data_dir=str(self.profile_dir.resolve()),
+                    channel="chrome",
+                    headless=True,
+                    viewport={"width": 1280, "height": 800},
+                    user_agent=DEFAULT_USER_AGENT,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                    ],
+                    ignore_default_args=["--enable-automation"],
+                )
+                browser_context.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined
+                    });
+                """)
 
-                    current_url = page.url
-                    cookies_list = ctx.cookies()
-                    cookies_dict = {c["name"]: c["value"] for c in cookies_list}
-                    if "sessionid" in cookies_dict or ("creator-micro" in current_url and page.locator('.header-avatar, .creator-avatar').count() > 0):
-                        self._save_cookies(cookies_dict, {"is_logged_in": True, "uname": "抖音创作者"})
-                        result_box["data"] = {
-                            "success": True,
-                            "is_logged_in": True,
-                            "uname": "抖音创作者",
-                            "message": "🎉 抖音创作者平台已登录！",
-                        }
-                        ready_event.set()
-                        ctx.close()
-                        return
+                # 注入已有 Cookies（如果有）
+                self._load_cookies()
+                if self.cookies:
+                    c_list = []
+                    for k, v in self.cookies.items():
+                        if v:
+                            c_list.append({"name": k, "value": str(v), "domain": ".douyin.com", "path": "/"})
+                            c_list.append({"name": k, "value": str(v), "domain": ".creator.douyin.com", "path": "/"})
+                    try:
+                        browser_context.add_cookies(c_list)
+                    except Exception:
+                        pass
 
-                    # 查找扫码区域
-                    qr_wrap = page.locator('.login-panel-qrcode, [class*="qrcode-box"], [class*="qrcode"]').first
-                    if qr_wrap.count() == 0:
-                        qr_wrap = page.locator('canvas, img[src*="qrcode"]').first
+                page = browser_context.pages[0] if browser_context.pages else browser_context.new_page()
 
-                    if qr_wrap.count() == 0:
-                        qr_wrap = page.locator('[class*="login"]').first
+                def _safe_close():
+                    try:
+                        browser_context.close()
+                    except Exception:
+                        pass
+                    try:
+                        playwright_instance.stop()
+                    except Exception:
+                        pass
 
-                    if qr_wrap.count() == 0:
-                        result_box["data"] = {"success": False, "message": "未能加载抖音登录二维码"}
-                        ready_event.set()
-                        ctx.close()
-                        return
+                session_data = {
+                    "id": session_id,
+                    "status": "waiting",
+                    "is_logged_in": False,
+                    "uname": "",
+                    "avatar": "",
+                    "message": "请使用抖音 App 扫描屏幕二维码并确认登录",
+                    "cancelled": False,
+                    "close_fn": _safe_close,
+                }
+                with self._qr_lock:
+                    self._qr_session = session_data
 
-                    qr_bytes = qr_wrap.screenshot()
-                    qr_data_url = "data:image/png;base64," + base64.b64encode(qr_bytes).decode("utf-8")
+                # 监听抖音 passport 的 check_qrconnect 接口响应（秒级感知已扫码/已确认）
+                def _handle_response(resp):
+                    try:
+                        if "check_qrconnect" in resp.url and resp.status == 200:
+                            data = resp.json().get("data", {})
+                            st = data.get("status")
+                            if st == "scanned":
+                                with self._qr_lock:
+                                    if self._qr_session and self._qr_session.get("status") != "success":
+                                        self._qr_session["status"] = "scanned"
+                                        self._qr_session["message"] = "📱 手机已扫描，请在抖音 App 上点击【确认登录】"
+                            elif st == "confirmed":
+                                with self._qr_lock:
+                                    if self._qr_session:
+                                        self._qr_session["status"] = "confirmed"
+                                        self._qr_session["message"] = "🎉 手机端已确认授权，正在同步创作者凭据..."
+                            elif st == "expired":
+                                with self._qr_lock:
+                                    if self._qr_session and self._qr_session.get("status") != "success":
+                                        self._qr_session["status"] = "expired"
+                                        self._qr_session["message"] = "⌛ 二维码已失效，请重新刷新"
+                    except Exception:
+                        pass
 
-                    session_data = {
-                        "id": session_id,
-                        "status": "waiting",
-                        "is_logged_in": False,
-                        "uname": "",
-                        "avatar": "",
-                        "message": "请使用抖音 App 扫描屏幕二维码并确认登录",
-                        "cancelled": False,
-                    }
-                    with self._qr_lock:
-                        self._qr_session = session_data
+                page.on("response", _handle_response)
 
+                page.goto("https://creator.douyin.com/", wait_until="domcontentloaded", timeout=25000)
+                page.wait_for_timeout(3000)
+
+                # 检查页面是否已处于登录态
+                current_url = page.url
+                cur_cookies = {c["name"]: c["value"] for c in browser_context.cookies()}
+                has_login_cookie = bool(cur_cookies.get("sessionid") or cur_cookies.get("sessionid_ss") or cur_cookies.get("sid_guard"))
+                if has_login_cookie or "creator-micro" in current_url:
+                    uname = "抖音创作者"
+                    try:
+                        name_el = page.locator('.name-text, [class*="nickname"], [class*="user-name"], [class*="avatar-name"]').first
+                        if name_el.count() > 0:
+                            uname = name_el.inner_text().strip() or uname
+                    except Exception:
+                        pass
+                    self._save_cookies(cur_cookies, {"is_logged_in": True, "uname": uname})
                     result_box["data"] = {
                         "success": True,
-                        "session_id": session_id,
-                        "qrcode_image": qr_data_url,
-                        "message": "请使用抖音 App 扫描屏幕二维码并确认登录",
+                        "is_logged_in": True,
+                        "uname": uname,
+                        "message": f"🎉 抖音创作者平台已登录 ({uname})！",
                     }
                     ready_event.set()
+                    _safe_close()
+                    return
 
-                    # 在本线程内独立持续轮询，直到登录成功、失效或关闭
-                    loop_start = time.time()
-                    while time.time() - loop_start < 180:
-                        if session_data.get("cancelled"):
-                            break
-                        page.wait_for_timeout(1500)
+                # 提取纯高清 512x512 二维码图片源
+                qr_data_url = ""
+                for img in page.locator('[class*="login"] img, img').all():
+                    try:
+                        src = img.get_attribute("src") or ""
+                        box = img.bounding_box()
+                        if src.startswith("data:image") and box:
+                            w, h = box.get("width", 0), box.get("height", 0)
+                            if 120 <= w <= 260 and abs(w - h) <= 25:
+                                qr_data_url = src
+                                break
+                    except Exception:
+                        continue
+
+                # 兜底截取纯方形二维码
+                if not qr_data_url:
+                    for img in page.locator('[class*="login"] img, img').all():
                         try:
-                            cur_url = page.url
-                            cur_cookies = {c["name"]: c["value"] for c in ctx.cookies()}
-                            is_logged_in = "sessionid" in cur_cookies or (
-                                "creator-micro" in cur_url and page.locator('.header-avatar, .creator-avatar').count() > 0
-                            )
-                            if is_logged_in:
-                                uname = "抖音创作者"
-                                try:
-                                    name_el = page.locator('.name-text, [class*="nickname"], [class*="user-name"]').first
-                                    if name_el.count() > 0:
-                                        uname = name_el.inner_text().strip() or uname
-                                except Exception:
-                                    pass
+                            box = img.bounding_box()
+                            if box:
+                                w, h = box.get("width", 0), box.get("height", 0)
+                                if 120 <= w <= 260 and abs(w - h) <= 25:
+                                    qr_bytes = img.screenshot()
+                                    qr_data_url = "data:image/png;base64," + base64.b64encode(qr_bytes).decode("utf-8")
+                                    break
+                        except Exception:
+                            continue
 
-                                user_data = {
-                                    "is_logged_in": True,
-                                    "is_login": True,
-                                    "uname": uname,
-                                    "avatar": "",
-                                    "message": f"🎉 抖音账号 [{uname}] 登录成功！",
-                                }
-                                self._save_cookies(cur_cookies, user_data)
-                                with self._qr_lock:
-                                    session_data["status"] = "success"
-                                    session_data["is_logged_in"] = True
-                                    session_data["uname"] = uname
-                                    session_data["message"] = f"🎉 抖音账号 [{uname}] 登录成功！"
+                if not qr_data_url:
+                    for sel in ['.login-panel-qrcode', '[class*="qrcode-box"]', '[class*="qrcode"]']:
+                        loc = page.locator(sel).first
+                        if loc.count() > 0:
+                            box = loc.bounding_box()
+                            if box and 100 <= box.get("width", 0) <= 300:
+                                qr_bytes = loc.screenshot()
+                                qr_data_url = "data:image/png;base64," + base64.b64encode(qr_bytes).decode("utf-8")
                                 break
 
-                            refresh_btn = page.locator(':has-text("点击刷新"), .refresh-btn').first
-                            if refresh_btn.count() > 0 and refresh_btn.is_visible():
-                                with self._qr_lock:
-                                    session_data["status"] = "expired"
-                                    session_data["message"] = "二维码已失效，请重新刷新"
-                                break
-                        except Exception as e:
-                            logger.debug(f"抖音扫码监控异常: {e}")
+                if not qr_data_url:
+                    result_box["data"] = {"success": False, "message": "未能加载抖音登录二维码"}
+                    ready_event.set()
+                    _safe_close()
+                    return
 
-                    ctx.close()
+                result_box["data"] = {
+                    "success": True,
+                    "session_id": session_id,
+                    "qrcode_image": qr_data_url,
+                    "message": "请使用抖音 App 扫描屏幕二维码并确认登录",
+                }
+                ready_event.set()
+
+                # 后台轮询扫码结果，结合 check_qrconnect 与页面 DOM、Cookies 判定
+                loop_start = time.time()
+                while time.time() - loop_start < 180:
+                    if session_data.get("cancelled"):
+                        break
+                    page.wait_for_timeout(1500)
+                    try:
+                        cur_url = page.url
+                        cur_cookies = {c["name"]: c["value"] for c in browser_context.cookies()}
+                        has_login_cookie = bool(cur_cookies.get("sessionid") or cur_cookies.get("sessionid_ss") or cur_cookies.get("sid_guard"))
+                        is_confirmed = session_data.get("status") == "confirmed"
+                        is_micro = "creator-micro" in cur_url
+
+                        if has_login_cookie or is_confirmed or is_micro:
+                            page.wait_for_timeout(2500)
+                            cur_cookies = {c["name"]: c["value"] for c in browser_context.cookies()}
+                            uname = "抖音创作者"
+                            try:
+                                name_el = page.locator('.name-text, [class*="nickname"], [class*="user-name"], [class*="avatar-name"]').first
+                                if name_el.count() > 0:
+                                    uname = name_el.inner_text().strip() or uname
+                            except Exception:
+                                pass
+
+                            user_data = {
+                                "is_logged_in": True,
+                                "is_login": True,
+                                "uname": uname,
+                                "avatar": "",
+                                "message": f"🎉 抖音账号 [{uname}] 登录成功！",
+                            }
+                            self._save_cookies(cur_cookies, user_data)
+                            with self._qr_lock:
+                                session_data["status"] = "success"
+                                session_data["is_logged_in"] = True
+                                session_data["uname"] = uname
+                                session_data["message"] = f"🎉 抖音账号 [{uname}] 登录成功！"
+                            break
+
+                        # 检查失效刷新按钮
+                        refresh_btn = page.locator(':has-text("点击刷新"), .refresh-btn').first
+                        if refresh_btn.count() > 0 and refresh_btn.is_visible():
+                            with self._qr_lock:
+                                session_data["status"] = "expired"
+                                session_data["message"] = "二维码已失效，请重新刷新"
+                            break
+                    except Exception as e:
+                        logger.debug(f"抖音扫码监控循环异常: {e}")
+                        break
+
+                _safe_close()
             except Exception as e:
                 logger.error(f"抖音扫码线程异常: {e}")
                 if not ready_event.is_set():
                     result_box["data"] = {"success": False, "message": f"获取二维码失败: {str(e)}"}
                     ready_event.set()
+                if browser_context:
+                    try:
+                        browser_context.close()
+                    except Exception:
+                        pass
+                if playwright_instance:
+                    try:
+                        playwright_instance.stop()
+                    except Exception:
+                        pass
 
         t = threading.Thread(target=_worker, daemon=True)
         t.start()
@@ -327,41 +529,76 @@ class DouyinUploader:
         """打开 Chrome 窗口供创作者登录抖音"""
         from playwright.sync_api import sync_playwright
 
+        self._stop_qr_session()
+        time.sleep(0.5)
+        self._clean_locks()
+
         def _run():
-            self._clean_locks()
-            with sync_playwright() as pw:
-                ctx = pw.chromium.launch_persistent_context(
+            playwright_instance = None
+            browser_context = None
+            try:
+                playwright_instance = sync_playwright().start()
+                browser_context = playwright_instance.chromium.launch_persistent_context(
                     user_data_dir=str(self.profile_dir.resolve()),
                     channel="chrome",
                     headless=False,
                     viewport={"width": 1280, "height": 850},
                     user_agent=DEFAULT_USER_AGENT,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                    ],
+                    ignore_default_args=["--enable-automation"],
                 )
-                page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                browser_context.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined
+                    });
+                """)
+                page = browser_context.pages[0] if browser_context.pages else browser_context.new_page()
                 page.goto("https://creator.douyin.com/", wait_until="domcontentloaded")
 
                 start_time = time.time()
-                while time.time() - start_time < 180:
+                while time.time() - start_time < 240:
                     try:
                         if page.is_closed():
                             break
-                        cookies = {c["name"]: c["value"] for c in ctx.cookies()}
-                        if "sessionid" in cookies or "creator-micro" in page.url:
-                            self._save_cookies(cookies, {"is_logged_in": True, "uname": "抖音创作者"})
-                            logger.info("抖音前台窗口登录成功并已捕获凭据")
+                        cookies = {c["name"]: c["value"] for c in browser_context.cookies()}
+                        has_login = bool(cookies.get("sessionid") or cookies.get("sessionid_ss") or cookies.get("sid_guard"))
+                        if has_login or "creator-micro" in page.url:
+                            uname = "抖音创作者"
+                            try:
+                                name_el = page.locator('.name-text, [class*="nickname"], [class*="user-name"], [class*="avatar-name"]').first
+                                if name_el.count() > 0:
+                                    uname = name_el.inner_text().strip() or uname
+                            except Exception:
+                                pass
+                            self._save_cookies(cookies, {"is_logged_in": True, "uname": uname})
+                            logger.info(f"抖音前台窗口登录成功 [{uname}] 并已捕获凭据")
                             page.wait_for_timeout(3000)
                             break
                     except Exception:
                         pass
                     time.sleep(2)
-                try:
-                    ctx.close()
-                except Exception:
-                    pass
+                browser_context.close()
+                playwright_instance.stop()
+            except Exception as e:
+                logger.error(f"抖音浏览器前台登录异常: {e}")
+                if browser_context:
+                    try:
+                        browser_context.close()
+                    except Exception:
+                        pass
+                if playwright_instance:
+                    try:
+                        playwright_instance.stop()
+                    except Exception:
+                        pass
 
         t = threading.Thread(target=_run, daemon=True)
         t.start()
-        return {"success": True, "message": "已打开 Chrome 浏览器窗口，请使用抖音扫码或验证码登录"}
+        return {"success": True, "message": "已打开系统 Chrome 窗口，请在浏览器中扫码或验证码登录"}
 
     def publish_video(
         self,
@@ -370,18 +607,32 @@ class DouyinUploader:
         desc: str = "",
         tags: Optional[list[str]] = None,
         cover_source: str = "",
-        progress_callback: Optional[Callable[[float, str], None]] = None,
+        progress_callback: Optional[Callable[..., None]] = None,
+        headless: bool = True,
     ) -> dict:
-        """自动化发布视频到抖音"""
+        """自动化发布视频到抖音 (支持上传等待、多重表单填写与风控扫码验证)"""
         from playwright.sync_api import sync_playwright
 
-        def _notify(pct: float, msg: str):
+        def _notify(pct: float, msg: str, **kwargs):
             if progress_callback:
-                progress_callback(pct, msg)
+                try:
+                    progress_callback(pct, msg, **kwargs)
+                except TypeError:
+                    progress_callback(pct, msg)
 
         temp_video_file = None
         temp_cover_file = None
         local_video_path = video_source
+
+        # 1. 确保释放 QR 锁与单例锁
+        self._stop_qr_session()
+        time.sleep(0.5)
+        self._clean_locks()
+        self._load_cookies()
+
+        # 检查是否已存在登录凭证
+        if not self._has_session():
+            raise RuntimeError("尚未登录抖音账号或登录凭证已失效，请先扫码或在浏览器窗口中登录")
 
         if video_source.startswith("http://") or video_source.startswith("https://"):
             _notify(0.05, "正在从云端下载视频文件...")
@@ -427,80 +678,314 @@ class DouyinUploader:
         clean_title = title.strip()
         tag_list = tags or RECOMMENDED_DOUYIN_TAGS
         tag_text = " ".join([f"#{t.strip('#')}" for t in tag_list if t.strip()])
-        final_desc = f"{clean_title} {desc.strip()} {tag_text}".strip()
+        final_desc = f"{desc.strip()} {tag_text}".strip()
 
-        self._load_cookies()
         _notify(0.15, "正在启动浏览器并连接抖音创作者中心...")
-
+        playwright_instance = None
+        browser_context = None
         try:
-            self._clean_locks()
-            with sync_playwright() as pw:
-                ctx = pw.chromium.launch_persistent_context(
-                    user_data_dir=str(self.profile_dir.resolve()),
-                    channel="chrome",
-                    headless=True,
-                    viewport={"width": 1280, "height": 850},
-                    user_agent=DEFAULT_USER_AGENT,
-                )
-                page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            playwright_instance = sync_playwright().start()
+            browser_context = playwright_instance.chromium.launch_persistent_context(
+                user_data_dir=str(self.profile_dir.resolve()),
+                channel="chrome",
+                headless=headless,
+                viewport={"width": 1280, "height": 900},
+                user_agent=DEFAULT_USER_AGENT,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                ],
+                ignore_default_args=["--enable-automation"],
+            )
+            browser_context.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+                window.chrome = {
+                    runtime: {},
+                    loadTimes: function() {},
+                    csi: function() {},
+                    app: {}
+                };
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['zh-CN', 'zh', 'en']
+                });
+            """)
 
-                _notify(0.25, "正在打开抖音视频发布页面...")
-                page.goto("https://creator.douyin.com/creator-micro/content/upload", wait_until="domcontentloaded", timeout=25000)
-                page.wait_for_timeout(3000)
 
-                # 检查是否未登录
-                if "creator-micro" not in page.url:
-                    raise RuntimeError("抖音未登录或登录态失效，请先扫码登录")
-
-                _notify(0.35, "正在等待抖音上传控件就绪...")
-                file_input = page.locator('input[type="file"]').first
+            # 注入所有抖音 Cookies 确保会话就绪
+            if self.cookies:
+                cookie_items = []
+                for k, v in self.cookies.items():
+                    if not v:
+                        continue
+                    cookie_items.append({
+                        "name": k,
+                        "value": str(v),
+                        "domain": ".douyin.com",
+                        "path": "/",
+                    })
+                    cookie_items.append({
+                        "name": k,
+                        "value": str(v),
+                        "domain": ".creator.douyin.com",
+                        "path": "/",
+                    })
                 try:
-                    file_input.wait_for(state="attached", timeout=30000)
+                    browser_context.add_cookies(cookie_items)
+                except Exception as ce:
+                    logger.warning(f"注入抖音 Cookies 异常: {ce}")
+
+            page = browser_context.pages[0] if browser_context.pages else browser_context.new_page()
+
+            _notify(0.25, "正在打开抖音视频发布页面...")
+            page.goto("https://creator.douyin.com/creator-micro/content/upload", wait_until="domcontentloaded", timeout=25000)
+            page.wait_for_timeout(3000)
+
+            # 检查是否展示登录表单
+            login_box = page.locator('.web-login-area-code-input, .login-panel, [class*="login-card"], [class*="login-panel"], :has-text("手机号登录")')
+            if login_box.count() > 0 and login_box.first.is_visible():
+                raise RuntimeError("抖音未登录或登录凭据已失效，请重新扫码登录")
+
+            # 自动关闭常见阻挡弹窗与提示
+            for btn_text in ["我知道了", "同意并继续", "同意", "好的", "知道了", "跳过"]:
+                try:
+                    btn = page.locator(f'button:has-text("{btn_text}"), div[role="button"]:has-text("{btn_text}")').first
+                    if btn.count() > 0 and btn.is_visible():
+                        btn.click()
+                        page.wait_for_timeout(800)
                 except Exception:
-                    inputs = page.locator('input[type="file"]').all()
-                    if not inputs:
-                        raise RuntimeError("未找到抖音视频上传控件，页面加载超时或尚未完成登录")
-                    file_input = inputs[0]
+                    pass
 
-                _notify(0.40, "正在上传视频文件到抖音...")
-                file_input.set_input_files(local_video_path)
-                page.wait_for_timeout(3000)
+            _notify(0.35, "正在等待抖音上传控件就绪...")
+            file_input = page.locator('input[type="file"]').first
+            try:
+                file_input.wait_for(state="attached", timeout=25000)
+            except Exception:
+                if login_box.count() > 0 and login_box.first.is_visible():
+                    raise RuntimeError("抖音未登录或登录凭据已失效，请重新扫码登录")
+                inputs = page.locator('input[type="file"]').all()
+                if not inputs:
+                    raise RuntimeError("未找到抖音视频上传控件，页面加载超时或尚未完成登录")
+                file_input = inputs[0]
 
-                _notify(0.55, "正在等待视频上传处理完成...")
-                upload_start = time.time()
-                while time.time() - upload_start < 120:
-                    # 检查是否有发布按钮
-                    submit_btn = page.locator('button:has-text("发布"), .button-primary:has-text("发布")').first
-                    if submit_btn.count() > 0 and not submit_btn.is_disabled():
-                        break
-                    page.wait_for_timeout(2000)
+            _notify(0.40, "正在上传视频文件到抖音并等待云端转码解析...")
+            file_input.set_input_files(local_video_path)
 
-                _notify(0.75, "正在填写作品标题与话题标签...")
-                title_input = page.locator('.zone-container, [contenteditable="true"], textarea, input[placeholder*="标题"]').first
-                if title_input.count() > 0:
+            upload_start = time.time()
+            upload_ready = False
+            while time.time() - upload_start < 180:
+                # 严格判定真实完成指标：“重新上传”按钮可见代表视频已 100% 成功解析
+                reupload_btn = page.locator(':text-is("重新上传")')
+                if reupload_btn.count() > 0 and reupload_btn.first.is_visible():
+                    upload_ready = True
+                    break
+                page.wait_for_timeout(1500)
+                elapsed = int(time.time() - upload_start)
+                if elapsed % 5 == 0:
+                    pct = min(0.40 + elapsed * 0.003, 0.70)
+                    _notify(pct, f"视频正在上传并解析中 ({elapsed}s)...")
+
+            if not upload_ready:
+                raise RuntimeError("抖音视频上传或转码超时 (超过180秒)")
+
+            _notify(0.75, "视频上传及解析完成！正在填写标题与描述标签...")
+            page.wait_for_timeout(1000)
+
+            # 填写标题 (优先独立的标题输入框)
+            title_input = page.locator('input[placeholder*="作品标题"], input[placeholder*="标题"]').first
+            if title_input.count() > 0 and title_input.is_visible():
+                try:
                     title_input.click()
-                    if title_input.evaluate('e => e.tagName') in ['TEXTAREA', 'INPUT']:
-                        title_input.fill(final_desc)
-                    else:
-                        page.keyboard.type(final_desc, delay=20)
+                    page.wait_for_timeout(200)
+                    page.keyboard.press("Meta+A")
+                    page.keyboard.press("Backspace")
+                    title_input.fill(clean_title[:30])
+                    page.wait_for_timeout(500)
+                except Exception as te:
+                    logger.warning(f"填写标题输入框异常: {te}")
+
+            # 填写作品描述与话题 (富文本区)
+            desc_input = page.locator('.zone-container, [contenteditable="true"]').first
+            if desc_input.count() > 0 and desc_input.is_visible():
+                try:
+                    desc_input.click()
+                    page.wait_for_timeout(300)
+                    page.keyboard.press("Meta+A")
+                    page.keyboard.press("Backspace")
+                    page.keyboard.type(final_desc, delay=15)
                     page.wait_for_timeout(1000)
+                except Exception as de:
+                    logger.warning(f"填写描述与话题异常: {de}")
 
-                _notify(0.92, "正在点击发布作品...")
-                publish_btn = page.locator('button:has-text("发布"), .button-primary:has-text("发布")').first
-                if publish_btn.count() == 0:
-                    raise RuntimeError("未找到抖音【发布】按钮")
+            # 再次清理可能弹出的新手引导或提醒气泡
+            for btn_text in ["我知道了", "好的", "知道了"]:
+                try:
+                    btn = page.locator(f'button:has-text("{btn_text}")').first
+                    if btn.count() > 0 and btn.is_visible():
+                        btn.click()
+                        page.wait_for_timeout(500)
+                except Exception:
+                    pass
 
-                publish_btn.click()
-                page.wait_for_timeout(4000)
+            _notify(0.88, "正在定位抖音【发布】提交按钮...")
+            # 严格筛选：排除导航栏的“作品发布”，精确定位表单底部的“发布”操作按钮
+            pub_btn = page.locator('button.button-dhlUZE:text-is("发布"), button:text-is("发布")').last
+            if pub_btn.count() == 0:
+                raise RuntimeError("未在抖音发布页面找到【发布】提交按钮")
 
-                _notify(1.0, f"🎉 抖音作品发布成功！标题: {clean_title}")
-                return {
-                    "success": True,
-                    "platform": "douyin",
-                    "title": clean_title,
-                    "message": "作品已成功提交至抖音！",
-                }
+            pub_btn.scroll_into_view_if_needed()
+            page.wait_for_timeout(500)
+
+            _notify(0.92, "正在点击提交发布...")
+            pub_btn.click()
+
+            # 监控提交后响应（防虚假成功，严格验证重定向、Toast 或风控验证弹窗）
+            _notify(0.94, "已提交发布，正在等待抖音平台确认处理结果...")
+            submit_start = time.time()
+            verified_success = False
+
+            while time.time() - submit_start < 60:
+                page.wait_for_timeout(1500)
+                cur_url = page.url
+
+                # 1. 成功重定向至作品管理页
+                if "creator-micro/content/manage" in cur_url:
+                    verified_success = True
+                    break
+
+                # 2. 检查轻提示 Toast (使用 text_content 兼容 SVG/各种节点，并做安全捕获)
+                try:
+                    toast_loc = page.locator('.semi-toast-content, .semi-toast, div[class*="toast"]')
+                    for idx in range(min(toast_loc.count(), 10)):
+                        try:
+                            t = toast_loc.nth(idx)
+                            if t.is_visible():
+                                tt = (t.text_content() or "").strip()
+                                if "发布成功" in tt or "作品发布成功" in tt:
+                                    verified_success = True
+                                    break
+                                elif any(k in tt for k in ["违规", "频繁", "错误", "失败"]):
+                                    raise RuntimeError(f"抖音发布拒绝: {tt}")
+                        except RuntimeError:
+                            raise
+                        except Exception:
+                            pass
+                except RuntimeError:
+                    raise
+                except Exception:
+                    pass
+
+                if verified_success:
+                    break
+
+                # 3. 检查是否触发安全风控二次验证弹窗
+                verify_modal = page.locator('.semi-modal, [class*="modal"], [class*="verify"]').first
+                is_modal_vis = False
+                try:
+                    is_modal_vis = verify_modal.count() > 0 and verify_modal.is_visible()
+                except Exception:
+                    pass
+
+                has_verify_text = False
+                try:
+                    has_verify_text = page.locator(':text-is("身份验证"), :text-is("接收短信验证码"), :text-is("使用原设备扫码"), :text-is("选择其他验证方式")').count() > 0
+                except Exception:
+                    pass
+
+                if is_modal_vis and has_verify_text:
+
+                    _notify(0.95, "⚠️ 触发抖音安全风控验证，正在准备扫码确认...")
+                    # 尝试切换为原设备扫码验证
+                    other_btn = page.locator('text=选择其他验证方式').first
+                    if other_btn.count() > 0 and other_btn.is_visible():
+                        try:
+                            other_btn.click()
+                            page.wait_for_timeout(1000)
+                            qr_opt = page.locator('text=扫码验证').first
+                            if qr_opt.count() > 0 and qr_opt.is_visible():
+                                qr_opt.click()
+                                page.wait_for_timeout(2000)
+                        except Exception:
+                            pass
+
+                    # 提取验证二维码图片
+                    qr_img_loc = page.locator('.uc-ui-verify_qr-verify_main_qr-img, .semi-modal img[src*="base64"], [class*="modal"] img[src*="base64"]').first
+                    qr_data_url = ""
+                    if qr_img_loc.count() > 0 and qr_img_loc.is_visible():
+                        qr_data_url = qr_img_loc.get_attribute("src") or ""
+
+                    _notify(
+                        0.95,
+                        "⚠️ 首次在此设备发布作品需安全授信：请使用【抖音APP】扫描屏幕二维码确认（仅需一次）",
+                        qr_image=qr_data_url,
+                        status="needs_verification",
+                    )
+
+                    # 循环等待用户在手机端扫码确认授信 (最多等待 120 秒)
+                    v_start = time.time()
+                    while time.time() - v_start < 120:
+                        page.wait_for_timeout(2000)
+                        try:
+                            if "creator-micro/content/manage" in page.url:
+                                verified_success = True
+                                break
+                            if verify_modal.count() == 0 or not verify_modal.is_visible():
+                                page.wait_for_timeout(3000)
+                                if "creator-micro/content/manage" in page.url or page.locator(':text-is("发布成功")').count() > 0:
+                                    verified_success = True
+                                    break
+                        except Exception:
+                            pass
+                    if verified_success:
+                        break
+
+                    raise RuntimeError("抖音安全风控验证超时 (未在120秒内完成扫码确认)。请点击【打开浏览器登录】在 Chrome 窗口中操作一次以授信当前设备。")
+
+
+            if not verified_success:
+                # 兜底访问作品管理页检查最新作品标题是否存在
+                try:
+                    page.goto("https://creator.douyin.com/creator-micro/content/manage", wait_until="domcontentloaded", timeout=15000)
+                    page.wait_for_timeout(2500)
+                    if clean_title in page.content():
+                        verified_success = True
+                except Exception:
+                    pass
+
+            if not verified_success:
+                raise RuntimeError("抖音未能确认发布结果，未在作品管理列表中检索到该视频。请重试或在浏览器窗口中发布。")
+
+            # 同步更新持久化 Cookies
+            try:
+                new_cookies = {c["name"]: c["value"] for c in browser_context.cookies()}
+                if new_cookies:
+                    self._save_cookies(new_cookies)
+            except Exception:
+                pass
+
+            _notify(1.0, f"🎉 抖音作品发布成功！标题: {clean_title}")
+            return {
+                "success": True,
+                "platform": "douyin",
+                "title": clean_title,
+                "message": "作品已成功发布至抖音创作者中心！",
+            }
         finally:
+            if browser_context:
+                try:
+                    browser_context.close()
+                except Exception:
+                    pass
+            if playwright_instance:
+                try:
+                    playwright_instance.stop()
+                except Exception:
+                    pass
             if temp_video_file and temp_video_file.exists():
                 try:
                     temp_video_file.unlink()
@@ -511,6 +996,7 @@ class DouyinUploader:
                     temp_cover_file.unlink()
                 except Exception:
                     pass
+
 
 
 # 单例实例
@@ -578,6 +1064,9 @@ def start_dy_publish_task(
     if not uploader.is_configured:
         raise HTTPException(400, "尚未登录抖音账号，请先扫码登录")
 
+    if not acquire_publish_lock(sid, "douyin", video_source=req.video_source):
+        raise HTTPException(409, "抖音已有任务正在发布中，请勿重复提交")
+
     task_id = uuid.uuid4().hex[:12]
     with dy_tasks_lock:
         dy_publish_tasks[task_id] = {
@@ -592,22 +1081,29 @@ def start_dy_publish_task(
         }
 
     def _worker():
-        def _cb(pct: float, msg: str):
+        def _cb(pct: float, msg: str, **kwargs):
             with dy_tasks_lock:
                 if task_id in dy_publish_tasks:
                     dy_publish_tasks[task_id]["progress"] = round(pct, 2)
                     dy_publish_tasks[task_id]["message"] = msg
-                    dy_publish_tasks[task_id]["status"] = "uploading" if pct < 0.95 else "submitting"
+                    qr = kwargs.get("qr_image") or kwargs.get("extra", {}).get("qr_image")
+                    if qr:
+                        dy_publish_tasks[task_id]["qr_image"] = qr
+                        dy_publish_tasks[task_id]["status"] = "needs_verification"
+                    else:
+                        dy_publish_tasks[task_id]["status"] = "uploading" if pct < 0.95 else "submitting"
+
 
         try:
-            res = uploader.publish_video(
-                video_source=req.video_source,
-                title=req.title,
-                desc=req.desc,
-                tags=req.tags,
-                cover_source=req.cover_source,
-                progress_callback=_cb,
-            )
+            with GLOBAL_PUBLISH_SEMAPHORE:
+                res = uploader.publish_video(
+                    video_source=req.video_source,
+                    title=req.title,
+                    desc=req.desc,
+                    tags=req.tags,
+                    cover_source=req.cover_source,
+                    progress_callback=_cb,
+                )
             res = res or {}
             is_failed = res.get("success") is False or res.get("status") == "error"
             is_review = (
@@ -636,15 +1132,23 @@ def start_dy_publish_task(
                 dy_publish_tasks[task_id]["status"] = "error"
                 dy_publish_tasks[task_id]["message"] = f"发布失败: {str(e)}"
                 dy_publish_tasks[task_id]["error"] = str(e)
+        finally:
+            release_publish_lock(sid, "douyin")
 
     background_tasks.add_task(_worker)
     return {"task_id": task_id, "status": "pending"}
 
 
 @douyin_router.get("/tasks/{task_id}")
-def get_dy_publish_task(task_id: str):
-    """获取抖音发布任务进度"""
+def get_dy_publish_task(task_id: str, sid: str = Depends(resolve_session_id)):
+    """获取抖音发布任务进度 (防越权访问)"""
     with dy_tasks_lock:
         if task_id not in dy_publish_tasks:
             raise HTTPException(404, "任务不存在")
-        return dy_publish_tasks[task_id]
+        task = dy_publish_tasks[task_id]
+        task_owner = task.get("session_id")
+        if task_owner and task_owner != sid and sid != "default":
+            raise HTTPException(404, "任务不存在或无权访问")
+        safe_copy = dict(task)
+        safe_copy.pop("session_id", None)
+        return safe_copy

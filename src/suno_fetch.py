@@ -963,6 +963,7 @@ def auto_process_suno(
     progress_callback: Any = None,
     skip_separation: bool | None = None,
     use_gpu: bool | None = None,
+    language: str | None = None,
 ) -> dict:
     """
     全自动流程:
@@ -1040,6 +1041,9 @@ def auto_process_suno(
         dev = "cuda" if use_gpu else "cpu"
         config.separator.device = dev
         config.aligner.device = dev
+
+    if language and language != "auto":
+        config.aligner.language = language
 
     if config.skip_separation:
         _safe_cb(35, "⚡ 极速模式：正在进行原曲词级时间轴对齐 (CTC Forced Alignment)...")

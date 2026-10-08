@@ -137,6 +137,17 @@ function bindLyricEvents() {
   if (dom.btnLineNudgeRightBig) dom.btnLineNudgeRightBig.addEventListener("click", () => { if (state.selectedLine >= 0) nudgeLine(state.selectedLine, 0.2); });
   if (dom.btnLineExpand) dom.btnLineExpand.addEventListener("click", () => { if (state.selectedLine >= 0) resizeLine(state.selectedLine, -0.05, 0.05); });
   if (dom.btnLineShrink) dom.btnLineShrink.addEventListener("click", () => { if (state.selectedLine >= 0) resizeLine(state.selectedLine, 0.05, -0.05); });
+  const btnSnapStart = $("#btn-snap-start-playhead");
+  if (btnSnapStart) btnSnapStart.addEventListener("click", () => {
+    if (state.selectedLine >= 0) snapFirstWordStartToPlayhead(state.selectedLine);
+  });
+  const btnSnapEnd = $("#btn-snap-end-playhead");
+  if (btnSnapEnd) btnSnapEnd.addEventListener("click", () => {
+    if (state.selectedLine >= 0) {
+      const line = state.alignment?.lines?.[state.selectedLine];
+      if (line && line.words?.length) snapSplitToPlayhead(state.selectedLine, line.words.length - 1);
+    }
+  });
 
   if (dom.btnMuteVocals) dom.btnMuteVocals.addEventListener("click", () => toggleMuteTrack("vocals"));
   if (dom.btnMuteInst) dom.btnMuteInst.addEventListener("click", () => toggleMuteTrack("instrumental"));
@@ -700,24 +711,57 @@ function renderWords(lineIdx) {
   const lineDurMs = ((line.end - line.start) * 1000).toFixed(0);
   dom.wordTitle.textContent = `第 ${lineIdx + 1} 行 [${fmtTimeShort(line.start)} → ${fmtTimeShort(line.end)}, ${lineDurMs}ms]: ${line.text}`;
   const words = line.words || [];
-  const lineStart = line.start, lineEnd = line.end, lineDur = lineEnd - lineStart || 1;
+  if (!words.length) { clearWordPanel(); return; }
+
+  const lines = state.alignment?.lines || [];
+  const prevLine = lineIdx > 0 ? lines[lineIdx - 1] : null;
+  const nextLine = lineIdx < lines.length - 1 ? lines[lineIdx + 1] : null;
+  const audioDur = (ws && ws.getDuration && ws.getDuration() > 0) ? ws.getDuration() : (line.end + 30);
+
+  const preGapSec = Math.max(0, prevLine ? (line.start - prevLine.end) : line.start);
+  const postGapSec = Math.max(0, nextLine ? (nextLine.start - line.end) : (audioDur - line.end));
+  const lineDur = Math.max(0.1, line.end - line.start);
 
   dom.wordTimeline.innerHTML = "";
   const container = document.createElement("div");
   container.className = "word-bar-container";
 
+  // 1. 前置紧凑标签 (只显示时间，不抢占歌词空间)
+  const prePill = document.createElement("div");
+  prePill.className = "gap-pill gap-pre";
+  const preLabel = preGapSec > 3.0 ? `间奏 ${preGapSec.toFixed(1)}s` : (preGapSec > 0.05 ? `空隙 ${preGapSec.toFixed(2)}s` : `紧接上句`);
+  prePill.title = `前置间奏/静音 (${preGapSec.toFixed(2)}s) | 双击或拖拽尾部手柄调节首字起唱时间`;
+  prePill.innerHTML = `
+    <span class="gap-text">◀ ${preLabel}</span>
+    <div class="edge-handle handle-line-start" title="拖拽调节首字起唱 | 双击获取当前播放头时间"></div>
+  `;
+  // 双击占位块本身直接获取播放头时间轴
+  prePill.addEventListener("dblclick", (e) => {
+    e.preventDefault(); e.stopPropagation();
+    snapFirstWordStartToPlayhead(lineIdx);
+  });
+  container.appendChild(prePill);
+
+  // 2. 歌词主体容器 (占满剩余所有开阔宽度，单词舒展开阔不挤压)
+  const wordsTrack = document.createElement("div");
+  wordsTrack.className = "words-track";
+
+  const totalWordsDur = words.reduce((acc, w) => acc + Math.max(0.05, w.end - w.start), 0) || 1.0;
+
   words.forEach((w, i) => {
-    const dur = w.end - w.start;
-    const widthPct = (dur / lineDur) * 100;
+    const dur = Math.max(0.02, w.end - w.start);
+    const flexGrow = (dur / totalWordsDur) * 100;
     const bar = document.createElement("div");
-    bar.className = "word-bar" + (isPunct(w.word) ? " punct" : "");
-    bar.style.width = `${Math.max(widthPct, 1)}%`;
+    bar.className = "word-bar" + (isPunct(w.word) ? " punct" : "") + (i === 0 ? " first-word" : "");
+    bar.style.flex = `${flexGrow.toFixed(2)} 1 ${isPunct(w.word) ? "18px" : "36px"}`;
     bar.dataset.idx = i;
     bar.title = `${w.word}  ${fmtTime(w.start)} → ${fmtTime(w.end)}  (${(dur * 1000).toFixed(0)}ms)`;
+    const isInternal = (i < words.length - 1);
     bar.innerHTML = `
       <span>${escHtml(w.word.trim() || w.word)}</span>
       <span class="word-dur">${(dur * 1000).toFixed(0)}</span>
-      <div class="drag-handle" title="拖拽调整 | 双击=设为当前播放位置"></div>`;
+      ${isInternal ? '<div class="drag-handle" title="拖拽分割点 | 双击=对齐至当前播放头"></div>' : ''}
+    `;
 
     bar.addEventListener("click", (e) => {
       if (e.target.classList.contains("drag-handle")) return;
@@ -738,19 +782,42 @@ function renderWords(lineIdx) {
       }
     });
 
-    setupDragHandle(bar, i, lineIdx);
-    const handle = bar.querySelector(".drag-handle");
-    if (handle) {
-      handle.addEventListener("dblclick", (e) => {
-        e.preventDefault(); e.stopPropagation();
-        snapSplitToPlayhead(lineIdx, i);
-      });
+    if (isInternal) {
+      setupDragHandle(bar, i, lineIdx, wordsTrack);
+      const handle = bar.querySelector(".drag-handle");
+      if (handle) {
+        handle.addEventListener("dblclick", (e) => {
+          e.preventDefault(); e.stopPropagation();
+          snapSplitToPlayhead(lineIdx, i);
+        });
+      }
     }
 
-    container.appendChild(bar);
+    wordsTrack.appendChild(bar);
   });
+  container.appendChild(wordsTrack);
+
+  // 3. 后置紧凑标签 (只显示时间)
+  const postPill = document.createElement("div");
+  postPill.className = "gap-pill gap-post";
+  const postLabel = postGapSec > 3.0 ? `间奏 ${postGapSec.toFixed(1)}s` : (postGapSec > 0.05 ? `空隙 ${postGapSec.toFixed(2)}s` : `紧接下句`);
+  postPill.title = `后置间歇 (${postGapSec.toFixed(2)}s) | 尾字收唱: ${fmtTimeShort(line.end)} | 双击或拖拽橙色手柄调节收唱点`;
+  postPill.innerHTML = `
+    <div class="edge-handle handle-line-end" title="拖拽调节尾字收唱 (${fmtTimeShort(line.end)}) | 双击对齐至播放头"></div>
+    <span class="gap-text" title="后置间歇时长: ${postGapSec.toFixed(2)}s">${postLabel} ▶</span>
+  `;
+  postPill.addEventListener("dblclick", (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const l = state.alignment?.lines?.[lineIdx];
+    if (l && l.words?.length) snapSplitToPlayhead(lineIdx, l.words.length - 1);
+  });
+  container.appendChild(postPill);
 
   dom.wordTimeline.appendChild(container);
+
+  // 绑定首尾边缘拖拽事件
+  setupLineEdgeDragHandle(prePill, postPill, lineIdx, wordsTrack);
+
   if (words.length > 0 && state.selectedWord < 0) selectWord(0);
 }
 
@@ -774,56 +841,246 @@ function selectAdjacentWord(delta) {
 // ---------------------------------------------------------------------------
 // Word Dragging & Nudging
 // ---------------------------------------------------------------------------
+function snapFirstWordStartToPlayhead(lineIdx) {
+  if (!ws) return;
+  const line = state.alignment?.lines?.[lineIdx];
+  if (!line || !line.words?.length) return;
+  const words = line.words;
+  const t = ws.getCurrentTime();
+  const lines = state.alignment.lines;
+  const prevLine = lineIdx > 0 ? lines[lineIdx - 1] : null;
+  const minStart = prevLine ? (prevLine.end + 0.01) : 0.0;
+  // 首字起唱点允许在上一句结束与第 2 个字开始之间任意自由调节
+  const maxStart = words.length > 1 ? (words[1].start - 0.05) : (line.end - 0.05);
+
+  let targetT = t;
+  if (targetT < minStart) {
+    status(`⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 早于上一句结束 (${fmtTimeShort(minStart)})，已自动约束在上一句后`, true);
+    targetT = minStart;
+  } else if (targetT > maxStart) {
+    status(`⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 晚于第 2 个字起唱 (${fmtTimeShort(maxStart)})，已自动约束在第 2 字前`, true);
+    targetT = maxStart;
+  }
+  const clamped = Math.round(targetT * 1000) / 1000;
+
+  pushUndo();
+  words[0].start = clamped;
+  line.start = clamped;
+
+  if (words.length > 1) {
+    if (words[0].end <= clamped || words[0].end > words[1].start) {
+      words[0].end = words[1].start;
+    }
+  } else {
+    if (words[0].end <= clamped) {
+      words[0].end = clamped + 0.5;
+      line.end = words[0].end;
+    }
+  }
+
+  syncLineFromWords(lineIdx);
+  renderLyrics();
+  renderWords(lineIdx);
+  selectLine(lineIdx);
+  selectWord(0);
+  markDirty();
+
+  const preGap = prevLine ? (line.start - prevLine.end) : line.start;
+  status(`🎯 首字起唱点已吸附至播放头: ${fmtTimeShort(clamped)}（前置间奏: ${preGap.toFixed(1)}s）`);
+}
+
 function snapSplitToPlayhead(lineIdx, wordIdx) {
   if (!ws) return;
-  const line = state.alignment.lines[lineIdx];
-  if (!line) return;
+  const line = state.alignment?.lines?.[lineIdx];
+  if (!line || !line.words?.length) return;
   const words = line.words;
   const isLast = (wordIdx === words.length - 1);
   const t = ws.getCurrentTime();
 
   if (isLast) {
-    const clamped = Math.round(Math.max(words[wordIdx].start + 0.01, t) * 1000) / 1000;
-    if (Math.abs(clamped - words[wordIdx].end) < 0.001) return;
+    const lines = state.alignment.lines;
+    const nextLine = lineIdx < lines.length - 1 ? lines[lineIdx + 1] : null;
+    const audioDur = (ws && ws.getDuration ? ws.getDuration() : 9999);
+    const maxEnd = nextLine ? (nextLine.start - 0.01) : audioDur;
+    const minEnd = words[wordIdx].start + 0.05;
+
+    let targetT = t;
+    if (targetT < minEnd) {
+      status(`⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 早于尾字起唱 (${fmtTimeShort(minEnd)})`, true);
+      targetT = minEnd;
+    } else if (targetT > maxEnd) {
+      status(`⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 晚于下一句起唱 (${fmtTimeShort(maxEnd)})，已约束在下一句前`, true);
+      targetT = maxEnd;
+    }
+    const clamped = Math.round(targetT * 1000) / 1000;
+
     pushUndo();
-    words[wordIdx].end = clamped; line.end = clamped;
-    renderLyrics(); selectLine(lineIdx); selectWord(wordIdx); markDirty();
-    status(`✂ 行尾 → ${fmtTimeShort(clamped)}`);
+    words[wordIdx].end = clamped;
+    line.end = clamped;
+    syncLineFromWords(lineIdx);
+    renderLyrics();
+    renderWords(lineIdx);
+    selectLine(lineIdx);
+    selectWord(wordIdx);
+    markDirty();
+
+    const postGap = nextLine ? (nextLine.start - line.end) : (audioDur - line.end);
+    status(`🎯 尾字收唱点已吸附至播放头: ${fmtTimeShort(clamped)}（后置间歇: ${postGap.toFixed(1)}s）`);
   } else {
-    const minVal = words[wordIdx].start + 0.01, maxVal = words[wordIdx + 1].end - 0.01;
+    const minVal = words[wordIdx].start + 0.01;
+    const maxVal = words[wordIdx + 1].end - 0.01;
     const clamped = Math.round(Math.max(minVal, Math.min(maxVal, t)) * 1000) / 1000;
     if (Math.abs(clamped - words[wordIdx].end) < 0.001) return;
     pushUndo();
-    words[wordIdx].end = clamped; words[wordIdx + 1].start = clamped;
-    syncLineFromWords(lineIdx); renderWords(lineIdx); selectWord(wordIdx); markDirty();
+    words[wordIdx].end = clamped;
+    words[wordIdx + 1].start = clamped;
+    syncLineFromWords(lineIdx);
+    renderWords(lineIdx);
+    selectWord(wordIdx);
+    markDirty();
     status(`✂ 分割点 ${wordIdx + 1}|${wordIdx + 2} → ${fmtTimeShort(clamped)}`);
   }
 }
 
-function setupDragHandle(bar, wordIdx, lineIdx) {
+function setupLineEdgeDragHandle(prePill, postPill, lineIdx, wordsTrack) {
+  const handleStart = prePill.querySelector(".handle-line-start");
+  const handleEnd = postPill.querySelector(".handle-line-end");
+
+  if (handleStart) {
+    handleStart.addEventListener("dblclick", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      snapFirstWordStartToPlayhead(lineIdx);
+    });
+
+    handleStart.addEventListener("mousedown", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const line = state.alignment?.lines?.[lineIdx];
+      if (!line || !line.words?.length) return;
+      pushUndo();
+      const startX = e.clientX;
+      const startStart = line.words[0].start;
+      const trackWidth = wordsTrack.getBoundingClientRect().width || 400;
+      const activeSpan = Math.max(0.1, line.words[line.words.length - 1].end - line.words[0].start);
+      const pxPerSec = trackWidth / activeSpan;
+      const lines = state.alignment.lines;
+      const prevLine = lineIdx > 0 ? lines[lineIdx - 1] : null;
+      const minStart = prevLine ? (prevLine.end + 0.01) : 0.0;
+      const maxStart = line.words.length > 1 ? (line.words[1].start - 0.05) : (line.end - 0.05);
+
+      document.body.style.cursor = "col-resize";
+      const onMove = (ev) => {
+        const dx = ev.clientX - startX;
+        const dt = dx / pxPerSec;
+        const newStart = Math.round((startStart + dt) * 1000) / 1000;
+        const clamped = Math.max(minStart, Math.min(maxStart, newStart));
+        line.words[0].start = clamped;
+        line.start = clamped;
+        if (line.words.length > 1 && line.words[0].end <= clamped) {
+          line.words[0].end = line.words[1].start;
+        }
+        renderWords(lineIdx);
+        selectWord(0);
+        markDirty();
+      };
+      const onUp = () => {
+        document.body.style.cursor = "";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        syncLineFromWords(lineIdx);
+        renderLyrics();
+        selectLine(lineIdx);
+        selectWord(0);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  }
+
+  if (handleEnd) {
+    handleEnd.addEventListener("dblclick", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const line = state.alignment?.lines?.[lineIdx];
+      if (line && line.words?.length) snapSplitToPlayhead(lineIdx, line.words.length - 1);
+    });
+
+    handleEnd.addEventListener("mousedown", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const line = state.alignment?.lines?.[lineIdx];
+      if (!line || !line.words?.length) return;
+      const lastIdx = line.words.length - 1;
+      pushUndo();
+      const startX = e.clientX;
+      const startEnd = line.words[lastIdx].end;
+      const trackWidth = wordsTrack.getBoundingClientRect().width || 400;
+      const activeSpan = Math.max(0.1, line.words[lastIdx].end - line.words[0].start);
+      const pxPerSec = trackWidth / activeSpan;
+      const lines = state.alignment.lines;
+      const nextLine = lineIdx < lines.length - 1 ? lines[lineIdx + 1] : null;
+      const audioDur = (ws && ws.getDuration && ws.getDuration() > 0) ? ws.getDuration() : 9999;
+      const maxEnd = nextLine ? (nextLine.start - 0.01) : audioDur;
+      const minEnd = line.words[lastIdx].start + 0.05;
+
+      document.body.style.cursor = "col-resize";
+      const onMove = (ev) => {
+        const dx = ev.clientX - startX;
+        const dt = dx / pxPerSec;
+        const newEnd = Math.round((startEnd + dt) * 1000) / 1000;
+        const clamped = Math.max(minEnd, Math.min(maxEnd, newEnd));
+        line.words[lastIdx].end = clamped;
+        line.end = clamped;
+        renderWords(lineIdx);
+        selectWord(lastIdx);
+        markDirty();
+      };
+      const onUp = () => {
+        document.body.style.cursor = "";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        syncLineFromWords(lineIdx);
+        renderLyrics();
+        selectLine(lineIdx);
+        selectWord(lastIdx);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  }
+}
+
+function setupDragHandle(bar, wordIdx, lineIdx, wordsTrack) {
   const handle = bar.querySelector(".drag-handle");
   if (!handle) return;
-  let startX = 0, startEnd = 0, containerWidth = 0, lineDur = 0;
 
   handle.addEventListener("mousedown", (e) => {
     e.preventDefault(); e.stopPropagation();
-    const line = state.alignment.lines[lineIdx];
+    const line = state.alignment?.lines?.[lineIdx];
+    if (!line || !line.words?.length) return;
     const words = line.words;
     if (wordIdx >= words.length - 1) return;
     pushUndo();
-    startX = e.clientX; startEnd = words[wordIdx].end;
-    containerWidth = bar.parentElement.getBoundingClientRect().width;
-    lineDur = line.end - line.start;
+    const startX = e.clientX;
+    const startEnd = words[wordIdx].end;
+    const trackWidth = wordsTrack.getBoundingClientRect().width || 400;
+    const activeSpan = Math.max(0.1, words[words.length - 1].end - words[0].start);
+    const pxPerSec = trackWidth / activeSpan;
 
+    const minEnd = words[wordIdx].start + 0.01;
+    const maxEnd = words[wordIdx + 1].end - 0.01;
+
+    document.body.style.cursor = "col-resize";
     const onMove = (ev) => {
-      const dx = ev.clientX - startX, dt = (dx / containerWidth) * lineDur;
+      const dx = ev.clientX - startX;
+      const dt = dx / pxPerSec;
       const newEnd = Math.round((startEnd + dt) * 1000) / 1000;
-      const minEnd = words[wordIdx].start + 0.01, maxEnd = words[wordIdx + 1].end - 0.01;
       const clamped = Math.max(minEnd, Math.min(maxEnd, newEnd));
-      words[wordIdx].end = clamped; words[wordIdx + 1].start = clamped;
-      renderWords(lineIdx); selectWord(wordIdx); markDirty();
+      words[wordIdx].end = clamped;
+      words[wordIdx + 1].start = clamped;
+      renderWords(lineIdx);
+      selectWord(wordIdx);
+      markDirty();
     };
     const onUp = () => {
+      document.body.style.cursor = "";
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
       syncLineFromWords(lineIdx);
@@ -838,12 +1095,17 @@ function nudgeWord(delta) {
   const line = state.alignment.lines[state.selectedLine];
   const words = line.words, idx = state.selectedWord;
   if (!words[idx]) return;
-  pushUndo();
+  const lines = state.alignment.lines;
+  const prevLine = state.selectedLine > 0 ? lines[state.selectedLine - 1] : null;
+  const nextLine = state.selectedLine < lines.length - 1 ? lines[state.selectedLine + 1] : null;
   const newStart = Math.round((words[idx].start + delta) * 1000) / 1000;
   const newEnd   = Math.round((words[idx].end + delta) * 1000) / 1000;
   if (newStart < 0 || newEnd < 0) return;
+  if (idx === 0 && prevLine && newStart < prevLine.end + 0.01) return;
   if (idx > 0 && newStart < words[idx - 1].start + 0.01) return;
   if (idx < words.length - 1 && newEnd > words[idx + 1].end - 0.01) return;
+  if (idx === words.length - 1 && nextLine && newEnd > nextLine.start - 0.01) return;
+  pushUndo();
   if (idx > 0) words[idx - 1].end = newStart;
   if (idx < words.length - 1) words[idx + 1].start = newEnd;
   words[idx].start = newStart; words[idx].end = newEnd;
@@ -946,12 +1208,44 @@ function handleLineTimeInput(e) {
   const input = e.target;
   const idx = Number(input.dataset.idx), field = input.dataset.field;
   const line = state.alignment?.lines?.[idx];
-  if (!line) return;
+  if (!line || !line.words?.length) return;
   const parsed = parseTimeInput(input.value);
   if (parsed === null) {
     input.value = fmtTimeShort(line[field]);
     status("时间格式错误，请输入 m:ss.xxx 或 秒数", true); return;
   }
-  if (field === "start") resizeLine(idx, parsed - line.start, 0);
-  else resizeLine(idx, 0, parsed - line.end);
+  const lines = state.alignment.lines;
+  if (field === "start") {
+    const prevLine = idx > 0 ? lines[idx - 1] : null;
+    const minStart = prevLine ? (prevLine.end + 0.01) : 0.0;
+    const maxStart = line.words.length > 1 ? (line.words[1].start - 0.05) : (line.end - 0.05);
+    if (parsed >= minStart && parsed <= maxStart) {
+      pushUndo();
+      line.words[0].start = Math.round(parsed * 1000) / 1000;
+      line.start = line.words[0].start;
+      if (line.words.length > 1 && line.words[0].end <= line.words[0].start) {
+        line.words[0].end = line.words[1].start;
+      }
+      syncLineFromWords(idx); renderLyrics(); renderWords(idx); selectLine(idx); markDirty();
+      const preGap = prevLine ? (line.start - prevLine.end) : line.start;
+      status(`🎯 首字起唱点已调整为 ${fmtTimeShort(line.start)}（前置间奏: ${preGap.toFixed(1)}s）`);
+    } else {
+      resizeLine(idx, parsed - line.start, 0);
+    }
+  } else {
+    const nextLine = idx < lines.length - 1 ? lines[idx + 1] : null;
+    const maxEnd = nextLine ? (nextLine.start - 0.01) : 9999;
+    const lastWord = line.words[line.words.length - 1];
+    const minEnd = lastWord.start + 0.05;
+    if (parsed >= minEnd && parsed <= maxEnd) {
+      pushUndo();
+      lastWord.end = Math.round(parsed * 1000) / 1000;
+      line.end = lastWord.end;
+      syncLineFromWords(idx); renderLyrics(); renderWords(idx); selectLine(idx); markDirty();
+      const postGap = nextLine ? (nextLine.start - line.end) : 0;
+      status(`🎯 尾字收唱点已调整为 ${fmtTimeShort(line.end)}（后置间歇: ${postGap.toFixed(1)}s）`);
+    } else {
+      resizeLine(idx, 0, parsed - line.end);
+    }
+  }
 }

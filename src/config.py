@@ -31,7 +31,7 @@ class AlignerConfig:
     whisper_model: str = "large-v3"
     device: str = "cuda"
     compute_type: str = "int8"        # int8 省显存，适合 8GB VRAM
-    language: str = "zh"
+    language: str = "auto"            # "auto" (自动判定全曲主语言) 或 "en" / "zh" / "ja" / "ko"
     batch_size: int = 8               # 8GB VRAM 建议 ≤8
     # 中文 wav2vec2 对齐模型（WhisperX 默认会自动选）
     align_model: str | None = None
