@@ -120,8 +120,20 @@ def test_uploader_submit_archive(tmp_path):
         assert "BV1MockTest999" in res["video_url"]
 
 
-def test_bilibili_fastapi_endpoints(monkeypatch):
-    from src.bilibili_uploader import bilibili_uploader
+def test_bilibili_fastapi_endpoints(monkeypatch, tmp_path):
+    import src.bilibili_uploader as module
+    from src.session_manager import resolve_session_id
+    bilibili_uploader = BilibiliUploader(cookies_path=tmp_path / "cookies.json")
+    session_id = "bilibili_test_session"
+    overrides = dict(app.dependency_overrides)
+    overrides[resolve_session_id] = lambda: session_id
+    monkeypatch.setattr(app, "dependency_overrides", overrides)
+
+    def lookup(platform, sid):
+        assert (platform, sid) == ("bilibili", session_id)
+        return bilibili_uploader
+
+    monkeypatch.setattr(module, "get_uploader_for_session", lookup)
 
     with TestClient(app) as client:
         # 1. /api/bilibili/tids

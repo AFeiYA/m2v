@@ -18,13 +18,14 @@ def test_lyric_video_options():
     assert "16:9" in ratio_ids
 
 
-def test_export_lyric_video_fast():
+@pytest.mark.local_only
+def test_export_lyric_video_fast(tmp_path):
     json_p = Path("output/BianHaoB-612DeGaoBie/BianHaoB-612DeGaoBie_alignment.json")
     audio_p = Path("input/BianHaoB-612DeGaoBie/BianHaoB-612DeGaoBie.mp3")
     if not json_p.exists() or not audio_p.exists():
         pytest.skip("测试音频或工程文件不存在，跳过合成测试")
 
-    out_mp4 = Path("output/BianHaoB-612DeGaoBie/unit_test_lyric.mp4")
+    out_mp4 = tmp_path / "unit_test_lyric.mp4"
     try:
         res = export_lyric_video(
             alignment_source=json_p,
@@ -47,8 +48,16 @@ def test_export_lyric_video_fast():
             ass_p.unlink(missing_ok=True)
 
 
-def test_api_lyric_video_endpoints():
-    app.state.scan_dir = Path("output").resolve()
+def test_api_lyric_video_templates():
+    with TestClient(app) as client:
+        res = client.get("/api/lyric_video/templates")
+        assert res.status_code == 200
+        assert len(res.json()["aspect_ratios"]) >= 2
+
+
+@pytest.mark.local_only
+def test_api_lyric_video_endpoints(monkeypatch):
+    monkeypatch.setattr(app.state, "scan_dir", Path("output").resolve(), raising=False)
     client = TestClient(app)
     # 1. 模板查询
     res = client.get("/api/lyric_video/templates")

@@ -30,6 +30,7 @@ def test_suite_manifest_structure():
 
 
 @pytest.mark.regression
+@pytest.mark.local_only
 @pytest.mark.parametrize("song_cfg", SONGS, ids=[s["id"] for s in SONGS])
 def test_song_baseline_invariants(song_cfg: dict):
     """

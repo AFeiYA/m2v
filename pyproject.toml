@@ -65,7 +65,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "regression: marks tests as alignment regression tests",
-    "local_only: heavy audio/model tests meant for local execution to save CI quota",
+    "local_only: tests requiring private local media, accounts, models or services; excluded from CI",
 ]
 
 # ── uv 配置: 指定 PyTorch CUDA 源 ──────────────────────

@@ -36,6 +36,20 @@ from src.bilibili_uploader import publish_tasks as bili_tasks, tasks_lock as bil
 from src.wechat_uploader import wx_publish_tasks, wx_tasks_lock
 
 
+@pytest.fixture(autouse=True)
+def isolated_session_storage(tmp_path, monkeypatch):
+    """Session deletion/expiry tests must never operate on real user sandboxes."""
+    import src.session_manager as manager
+    monkeypatch.setattr(manager, "_WORK_DIR", tmp_path / "work")
+    monkeypatch.setattr(manager, "_SESSIONS_ROOT", tmp_path / "sessions")
+    monkeypatch.setattr(manager, "_SECRET_FILE", tmp_path / "session_secret")
+    monkeypatch.setattr(manager, "_SESSION_SECRET", b"test-only-session-secret")
+    monkeypatch.setattr(manager, "_uploader_pool", {})
+    monkeypatch.setattr(manager, "_active_platform_locks", {})
+    for name in ("SPACE_ID", "M2V_MULTIUSER_MODE", "M2V_CLOUD_MODE"):
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def client():
     return TestClient(app)
