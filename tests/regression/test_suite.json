@@ -302,6 +302,83 @@
           "second_occurrence_min_start": 127.0
         }
       ]
+    },
+    {
+      "id": "circus",
+      "title": "Circus in my head",
+      "url": "https://suno.com/s/3PeLT56j07K4vjk8",
+      "suno_id": "5024805c-07ec-4f21-b3ef-937ee5aa3388",
+      "lyrics_path": "input/Circus in my head/Circus in my head.txt",
+      "vocals_path": "output/Circus in my head/Circus in my head_vocals.mp3",
+      "baseline_alignment_path": "output/Circus in my head/Circus in my head_alignment.json",
+      "expected_line_count": 33,
+      "tags": [
+        "english_pop_funk",
+        "fast_tempo",
+        "long_melisma",
+        "tight_verse_chorus_transitions",
+        "repeated_chorus"
+      ],
+      "critical_anchors": [
+        {
+          "line_idx": 0,
+          "expected_text": "Phone buzzing twice while I'm pouring my drink",
+          "min_start": 16.0,
+          "max_start": 17.5,
+          "max_end": 21.0
+        },
+        {
+          "line_idx": 4,
+          "expected_text": "Got a million moving parts on a Tuesday night",
+          "min_start": 32.0,
+          "max_start": 33.5,
+          "max_end": 37.0
+        },
+        {
+          "line_idx": 5,
+          "expected_text": "Looking unbothered while I'm holding the light",
+          "min_start": 35.8,
+          "max_start": 36.8,
+          "max_end": 40.5
+        },
+        {
+          "line_idx": 6,
+          "expected_text": "And it's funny how they think I'm gonna break",
+          "min_start": 39.8,
+          "max_start": 40.8,
+          "max_end": 42.8
+        },
+        {
+          "line_idx": 7,
+          "expected_text": "When this is just the shit that I gotta take",
+          "min_start": 42.0,
+          "max_start": 42.8,
+          "max_end": 45.0
+        },
+        {
+          "line_idx": 32,
+          "expected_text": "What a fucking show.",
+          "min_start": 154.0,
+          "max_start": 155.5,
+          "max_end": 157.0
+        }
+      ],
+      "instrumental_interludes": [
+        {
+          "description": "Intro instrumental beat before first verse onset",
+          "start": 0.0,
+          "end": 16.0,
+          "min_duration": 15.0,
+          "forbidden_lyric_overlap": true
+        }
+      ],
+      "repeated_choruses": [
+        {
+          "description": "Circus in my head hook occurrences",
+          "first_occurrence_max_end": 55.0,
+          "second_occurrence_min_start": 110.0
+        }
+      ]
     }
   ]
 }

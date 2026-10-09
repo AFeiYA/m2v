@@ -1565,7 +1565,8 @@ def align_lyrics_ctc(
                         continue
                     asr_s = cand_in_p[b.b]["start"]
                     # 确保当前块有足够的物理发音时长
-                    curr_block_toks = sum(len(tokenize_lyric_phonetic(ly.text)) for _, ly in p_lines[len(split_indices):li + 1])
+                    prev_li = split_indices[-1][0] if split_indices else 0
+                    curr_block_toks = sum(len(tokenize_lyric_phonetic(ly.text)) for _, ly in p_lines[prev_li:li + 1])
                     min_curr_dur = max(0.8, curr_block_toks * 0.30)
                     silence_dur = _max_continuous_silence(cur_min_t + min_curr_dur, asr_s)
                     if silence_dur >= 0.8 and asr_s > cur_min_t + min_curr_dur:
@@ -1592,18 +1593,19 @@ def align_lyrics_ctc(
             langs = [detect_line_lang(ly.text, song_lang=song_lang) for _, ly in sub_p_lines]
             if all(l == "en" for l in langs):
                 _dispatch_align("en", sub_p_lines, sub_s, sub_e)
+                continue
             elif all(l == "zh" for l in langs):
                 _dispatch_align("zh", sub_p_lines, sub_s, sub_e)
-            else:
-                # 混语言段落：拆分为连续同语言 sub_runs，由 ASR 锚点或发音单元比例吸附声学停顿切分
-                p_lines = sub_p_lines
-                p_s = sub_s
-                p_e = sub_e
+                continue
+            elif all(l not in ("en", "zh") for l in langs):
+                _dispatch_align("other", sub_p_lines, sub_s, sub_e)
+                continue
+
             # 混语言段落：拆分为连续同语言 sub_runs，由 ASR 锚点或发音单元比例吸附声学停顿切分
             runs: list[tuple[str, list[tuple[int, LyricLine]]]] = []
             cur_r: list[tuple[int, LyricLine]] = []
             cur_l = None
-            for idx_ly in p_lines:
+            for idx_ly in sub_p_lines:
                 ll = detect_line_lang(idx_ly[1].text, song_lang=song_lang)
                 if cur_l is None or ll == cur_l:
                     cur_r.append(idx_ly)
@@ -1616,20 +1618,20 @@ def align_lyrics_ctc(
                 runs.append((cur_l, cur_r))
 
             run_tok_counts = [sum(len(tokenize_lyric_phonetic(ly.text)) for _, ly in r_lines) for _, r_lines in runs]
-            c_s = p_s
+            c_s = sub_s
             for r_idx, (r_lang, r_lines) in enumerate(runs):
                 if r_idx == len(runs) - 1:
-                    c_e = p_e
+                    c_e = sub_e
                 else:
                     ideal_split, min_split, max_split = _mixed_run_split_bounds(
-                        c_s, p_e, run_tok_counts[r_idx:])
+                        c_s, sub_e, run_tok_counts[r_idx:])
                     next_run_lines = runs[r_idx + 1][1]
                     next_run_toks = [c["py"] for _, ly in next_run_lines for c in tokenize_lyric_phonetic(ly.text)]
                     
                     # 确定下一语言块第一句的 token 数量界限
                     first_line_tok_count = len(tokenize_lyric_phonetic(next_run_lines[0][1].text)) if next_run_lines else 0
                     
-                    cand_in_p = [w for w in asr_words if c_s - 0.5 <= w["start"] <= p_e + 0.5]
+                    cand_in_p = [w for w in asr_words if c_s - 0.5 <= w["start"] <= sub_e + 0.5]
                     found_next_s = None
                     if len(cand_in_p) >= len(next_run_toks):
                         c_in_toks = [w["py"] for w in cand_in_p]
