@@ -27,8 +27,8 @@ class SeparatorConfig:
 # ---------------------------------------------------------------------------
 @dataclass
 class AlignerConfig:
-    engine: str = "ctc"               # "ctc" (方案二: 纯 Wav2Vec2 CTC Forced Alignment) 或 "whisperx"
-    whisper_model: str = "large-v3"
+    engine: str = "stablets"          # "stablets" (stable-ts Whisper 对齐) 或 "ctc" (Wav2Vec2 Forced Alignment)
+    whisper_model: str = "base"       # CPU/轻量运行推荐 base，极高对齐精度与抗漏词能力
     device: str = "cuda"
     compute_type: str = "int8"        # int8 省显存，适合 8GB VRAM
     language: str = "auto"            # "auto" (自动判定全曲主语言) 或 "en" / "zh" / "ja" / "ko"

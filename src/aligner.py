@@ -1077,8 +1077,28 @@ def align_lyrics(
     allow_self_heal: bool = True,
 ) -> AlignmentResult:
     """
-    词级强约束声学对齐统一主入口 (默认且唯一标准: Wav2Vec2 CTC Forced Alignment)
+    词级强约束声学对齐统一主入口。
+    根据 config.engine 调度:
+    - "stablets": stable-ts Whisper 跨注意力对齐 (本分支默认)
+    - "ctc": 方案二 Wav2Vec2 CTC Forced Alignment 核心引擎
     """
+    if config is None:
+        config = AlignerConfig()
+
+    if config.engine == "stablets":
+        from src.align.stablets_adapter import align_lyrics_stablets
+
+        dev = "cuda" if (config.device == "cuda" and torch.cuda.is_available()) else "cpu"
+        lang = None if config.language in ("auto", "mixed", None) else config.language
+        model_name = config.whisper_model or "base"
+        return align_lyrics_stablets(
+            vocals_path=vocals_path,
+            lyrics=lyrics,
+            language=lang,
+            model_name=model_name,
+            device=dev,
+        )
+
     return align_lyrics_ctc(vocals_path, lyrics, config, allow_self_heal=allow_self_heal)
 
 
