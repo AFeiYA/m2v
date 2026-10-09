@@ -626,6 +626,22 @@ def _recover_asr_gaps(vocals_path: Path, asr_words: list[dict], singing_sections
     return merged
 
 
+def _mixed_run_split_bounds(start: float, end: float, remaining_counts: list[int]) -> tuple[float, float, float]:
+    """Allocate the remaining window; duration budgets are heuristics, not evidence."""
+    if end <= start or len(remaining_counts) < 2:
+        raise ValueError("混合语言切分需要有效窗口和至少两个语言块")
+    counts = [max(1, n) for n in remaining_counts]
+    duration = end - start
+    ideal = start + duration * counts[0] / sum(counts)
+    budgets = [max(0.8, n * 0.30) for n in counts]
+    if sum(budgets) > duration:
+        # Fast singing can be shorter than these nominal budgets. Never let an
+        # impossible lower bound move a split beyond the paragraph's end.
+        log.warning("混合语言窗口 %.2fs 不足建议时长 %.2fs，按剩余词量分配；需复核", duration, sum(budgets))
+        return ideal, ideal, ideal
+    return ideal, start + budgets[0], end - sum(budgets[1:])
+
+
 def find_silence_snap(
     t_ideal: float,
     wav_np: np.ndarray | None,
@@ -635,12 +651,16 @@ def find_silence_snap(
     max_t: float = float("inf"),
 ) -> float:
     """在给定时间附近寻找能量 (RMS) 极小值点，将段落或乐句边界吸附至声学停顿，避免切在发音中央。"""
+    if min_t > max_t:
+        raise ValueError("静音吸附边界冲突，不能在空窗口内定位")
+    def bounded(t: float) -> float:
+        return max(min_t, min(max_t, round(t, 2)))
     if wav_np is None or len(wav_np) == 0:
-        return round(max(min_t, min(max_t, t_ideal)), 2)
+        return bounded(t_ideal)
     t_min = max(min_t, t_ideal - window)
     t_max = min(max_t, min(len(wav_np) / sr, t_ideal + window))
     if t_max <= t_min:
-        return round(max(min_t, min(max_t, t_ideal)), 2)
+        return bounded(t_ideal)
     step = 0.05
     best_t = t_ideal
     best_rms = float("inf")
@@ -653,7 +673,7 @@ def find_silence_snap(
         if rms < best_rms:
             best_rms = rms
             best_t = t + step / 2
-    return round(best_t, 2)
+    return bounded(best_t)
 
 
 def _unique_phrase_anchors(paras: dict, asr_words: list[dict]) -> dict[int, tuple[float, float]]:
@@ -1461,16 +1481,99 @@ def align_lyrics_ctc(
     )
     log.info("乐段窗口定位完成: %d 个自然段（含估算窗口，不能视为全部高置信度）", len(para_bounds))
 
-    # 步骤 C: 逐段执行独立中/英文 CTC 精确打点 (同语言整段联合 Viterbi 解码，混语言声学停顿切分)
     for p in sorted(paras.keys()):
         p_s, p_e = para_bounds[p]
         p_lines = paras[p]
         langs = [detect_line_lang(ly.text, song_lang=song_lang) for _, ly in p_lines]
-        if all(l == "en" for l in langs):
-            _dispatch_align("en", p_lines, p_s, p_e)
-        elif all(l == "zh" for l in langs):
-            _dispatch_align("zh", p_lines, p_s, p_e)
-        else:
+        # 检查同语言段内是否存在由显著静音停顿分隔的独立乐句块 (Intra-stanza Silence-Gated Sub-runs)
+        # （混语言段落自带语言子块切分逻辑，此处仅对同语言段落防范 CTC 长静音贪婪漂移）
+        intra_runs: list[tuple[list[tuple[int, LyricLine]], float, float]] = []
+        is_homogeneous = len(set(langs)) == 1
+        if is_homogeneous and len(p_lines) >= 2:
+            def _max_continuous_silence(t1: float, t2: float, thresh: float = 0.012) -> float:
+                i1 = max(0, int(t1 * 16000))
+                i2 = min(len(wav_np), int(t2 * 16000))
+                if i2 <= i1:
+                    return 0.0
+                chunk = wav_np[i1:i2]
+                hop = int(16000 * 0.05)
+                if len(chunk) < hop:
+                    return 0.0
+                rms_arr = [float(np.sqrt(np.mean(chunk[i:i + hop] ** 2))) for i in range(0, len(chunk) - hop, hop)]
+                max_c = 0
+                cur_c = 0
+                for r in rms_arr:
+                    if r < thresh:
+                        cur_c += 1
+                        max_c = max(max_c, cur_c)
+                    else:
+                        cur_c = 0
+                return max_c * 0.05
+
+            def _occurrences(tokens: list[str], phrase: list[str]) -> int:
+                if not phrase or len(phrase) > len(tokens):
+                    return 0
+                k = len(phrase)
+                return sum(1 for i in range(len(tokens) - k + 1) if tokens[i:i + k] == phrase)
+
+            lyric_tokens_all = [[c["py"] for c in tokenize_lyric_phonetic(ly.text)] for _, ly in singing_lyrics]
+            asr_tokens_all = [w["py"] for w in asr_words]
+            cand_in_p = [w for w in asr_words if p_s - 0.5 <= w["start"] <= p_e + 0.5]
+            c_in_toks = [w["py"] for w in cand_in_p]
+
+            split_indices = []
+            cur_min_t = p_s
+            for li in range(len(p_lines) - 1):
+                next_ly = p_lines[li + 1][1]
+                next_toks = [c["py"] for c in tokenize_lyric_phonetic(next_ly.text)]
+                if len(next_toks) < 3:
+                    continue
+                m = SequenceMatcher(None, next_toks, c_in_toks)
+                blocks = [b for b in m.get_matching_blocks() if b.size >= 4 or (b.size >= 3 and b.size / len(next_toks) >= 0.5)]
+                for b in blocks:
+                    # 必须从首词附近匹配（最多漏检 1 个虚词），防止误把句中/句尾当起唱点
+                    if b.a > 1:
+                        continue
+                    phrase = next_toks[b.a:b.a + b.size]
+                    # 全曲唯一性校验，杜绝副歌重复或通假词导致跨时空吸附
+                    if _occurrences(asr_tokens_all, phrase) != 1 or sum(_occurrences(lt, phrase) for lt in lyric_tokens_all) != 1:
+                        continue
+                    asr_s = cand_in_p[b.b]["start"]
+                    # 确保当前块有足够的物理发音时长
+                    curr_block_toks = sum(len(tokenize_lyric_phonetic(ly.text)) for _, ly in p_lines[len(split_indices):li + 1])
+                    min_curr_dur = max(0.8, curr_block_toks * 0.30)
+                    silence_dur = _max_continuous_silence(cur_min_t + min_curr_dur, asr_s)
+                    if silence_dur >= 0.8 and asr_s > cur_min_t + min_curr_dur:
+                        # 在静音区做声学吸附切分
+                        split_t = find_silence_snap(asr_s - silence_dur / 2, wav_np, 16000, window=silence_dur / 2,
+                                                    min_t=cur_min_t + min_curr_dur, max_t=asr_s)
+                        split_indices.append((li + 1, split_t))
+                        cur_min_t = split_t
+                        break
+
+            if split_indices:
+                start_li = 0
+                start_t = p_s
+                for s_li, s_t in split_indices:
+                    intra_runs.append((p_lines[start_li:s_li], start_t, s_t))
+                    start_li = s_li
+                    start_t = s_t
+                intra_runs.append((p_lines[start_li:], start_t, p_e))
+
+        if not intra_runs:
+            intra_runs = [(p_lines, p_s, p_e)]
+
+        for sub_p_lines, sub_s, sub_e in intra_runs:
+            langs = [detect_line_lang(ly.text, song_lang=song_lang) for _, ly in sub_p_lines]
+            if all(l == "en" for l in langs):
+                _dispatch_align("en", sub_p_lines, sub_s, sub_e)
+            elif all(l == "zh" for l in langs):
+                _dispatch_align("zh", sub_p_lines, sub_s, sub_e)
+            else:
+                # 混语言段落：拆分为连续同语言 sub_runs，由 ASR 锚点或发音单元比例吸附声学停顿切分
+                p_lines = sub_p_lines
+                p_s = sub_s
+                p_e = sub_e
             # 混语言段落：拆分为连续同语言 sub_runs，由 ASR 锚点或发音单元比例吸附声学停顿切分
             runs: list[tuple[str, list[tuple[int, LyricLine]]]] = []
             cur_r: list[tuple[int, LyricLine]] = []
@@ -1487,16 +1590,14 @@ def align_lyrics_ctc(
             if cur_r:
                 runs.append((cur_l, cur_r))
 
-            sub_dur = p_e - p_s
             run_tok_counts = [sum(len(tokenize_lyric_phonetic(ly.text)) for _, ly in r_lines) for _, r_lines in runs]
-            tot_toks = max(1, sum(run_tok_counts))
             c_s = p_s
             for r_idx, (r_lang, r_lines) in enumerate(runs):
                 if r_idx == len(runs) - 1:
                     c_e = p_e
                 else:
-                    r_toks = run_tok_counts[r_idx]
-                    ideal_split = c_s + sub_dur * (r_toks / tot_toks)
+                    ideal_split, min_split, max_split = _mixed_run_split_bounds(
+                        c_s, p_e, run_tok_counts[r_idx:])
                     next_run_lines = runs[r_idx + 1][1]
                     next_run_toks = [c["py"] for _, ly in next_run_lines for c in tokenize_lyric_phonetic(ly.text)]
                     
@@ -1527,13 +1628,10 @@ def align_lyrics_ctc(
 
                     target_split = found_next_s if found_next_s is not None else ideal_split
                     
-                    # 双向时长保护：既要保证当前块时长，也要为后续所有块预留最小发音时长
-                    min_run_dur = max(0.8, r_toks * 0.30)
-                    rem_toks = sum(run_tok_counts[r_idx + 1:])
-                    min_rem_dur = max(0.8, rem_toks * 0.30)
-                    target_split = max(c_s + min_run_dur, min(target_split, p_e - min_rem_dur))
+                    # 保护剩余各块的建议时长；窗口不足时使用受界限约束的比例回退。
+                    target_split = max(min_split, min(target_split, max_split))
                     
-                    c_e = find_silence_snap(target_split, wav_np, 16000, 2.0, min_t=c_s + min_run_dur, max_t=p_e - min_rem_dur)
+                    c_e = find_silence_snap(target_split, wav_np, 16000, 2.0, min_t=min_split, max_t=max_split)
                 _dispatch_align(r_lang, r_lines, c_s, c_e)
                 c_s = c_e
 

@@ -35,6 +35,45 @@ class TestFallbackEvenSplit:
         assert len(words) == 2  # 空格被过滤
 
 
+def test_mixed_split_reallocates_remaining_time_after_evidence_boundary():
+    from src.aligner import _mixed_run_split_bounds
+    # First run used 8s instead of its proportional 6s. The next two runs must
+    # share the remaining 10s, rather than continue using the original 18s.
+    ideal, lower, upper = _mixed_run_split_bounds(8, 18, [10, 10])
+    assert ideal == 13
+    assert lower == 11 and upper == 15
+
+
+def test_mixed_split_reserves_each_remaining_run():
+    from src.aligner import _mixed_run_split_bounds
+    ideal, lower, upper = _mixed_run_split_bounds(0, 6, [8, 1, 1])
+    assert ideal == 4.8
+    assert lower == 2.4 and upper == 4.4
+
+
+def test_short_mixed_window_never_creates_reversed_or_outside_bounds():
+    from src.aligner import _mixed_run_split_bounds
+    start = 10
+    counts = [20, 20, 20]
+    for i in range(2):
+        ideal, lower, upper = _mixed_run_split_bounds(start, 11, counts[i:])
+        assert start < ideal < 11
+        assert lower == ideal == upper
+        start = ideal
+
+
+def test_silence_snap_preserves_exact_bounds_and_rejects_empty_window():
+    import numpy as np
+    import pytest
+    from src.aligner import find_silence_snap
+    with pytest.raises(ValueError, match="边界冲突"):
+        find_silence_snap(1, None, min_t=2, max_t=1)
+    for wav in (None, np.zeros(32000)):
+        assert find_silence_snap(1, wav, min_t=1.001, max_t=1.001) == 1.001
+        result = find_silence_snap(1.029, wav, min_t=1.001, max_t=1.029)
+        assert 1.001 <= result <= 1.029
+
+
 def test_asr_gap_windows_skip_instrumental_and_previous_verse_tail():
     from src.aligner import _asr_gap_windows
     words = [{"start": 67, "end": 68.48}, {"start": 98.48, "end": 101.56}]
