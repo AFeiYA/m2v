@@ -75,6 +75,6 @@ def test_old_asr_cache_is_refreshed_with_correct_language(tmp_path, monkeypatch)
     words = aligner.extract_asr_words(audio, config=AlignerConfig(whisper_model='base'), language='en')
     assert words[0]['raw'] == 'hello'
     assert transcribe.call_args.kwargs['language'] == 'en'
-    assert json.loads(cache.read_text())['version'] == 3
+    assert json.loads(cache.read_text())['version'] == 4
     assert aligner.extract_asr_words(audio, config=AlignerConfig(whisper_model='base'), language='en') == words
     assert transcribe.call_count == 1

@@ -467,6 +467,10 @@ def _clean_lyrics(prompt: str) -> str:
 
         # 过滤方括号标签，如 [Verse 1], [Chorus], [Intro], [Outro: ...], [End], [Solo]
         if stripped.startswith('[') and stripped.endswith(']'):
+            # The heading is not sung, but its stanza boundary is essential
+            # for acoustic anchoring, especially repeated choruses.
+            if result and result[-1] != '':
+                result.append('')
             continue
 
         # 过滤圆括号说明，如 (Warm analog synth pads swell...), (Ambient wind...)
@@ -492,6 +496,7 @@ def parse_suno_prompt_sections(prompt: str) -> list[dict]:
     识别 [Intro], [Verse 1], [Pre-Chorus], [Chorus: Style], [Bridge], [Outro], [End] 等标签，
     以及 (Ambient wind...), (Warm synth...) 等音效描述，归类各段包含的歌词文本。
     """
+    prompt = prompt.translate(str.maketrans("", "", "\u2060\u200b\ufeff"))
     sections_raw = []
     current_sec = None
 

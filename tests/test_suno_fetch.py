@@ -195,3 +195,20 @@ def test_clean_lyrics_preserves_invisible_stanza_separators():
     from src.suno_fetch import _clean_lyrics
     raw = "\u2060\nPhone buzzing twice\n\u2060\u2060\nYeah, a circus\n\u200b\nYeah, a circus\n\ufeff"
     assert _clean_lyrics(raw) == "Phone buzzing twice\n\nYeah, a circus\n\nYeah, a circus"
+
+
+def test_suno_section_headers_survive_cleaning_as_stanza_boundaries(tmp_path):
+    from src.suno_fetch import _clean_lyrics, download_song, SunoSong
+    from src.preprocessor import preprocess_lyrics
+    raw = "[Intro]\u2060\n(Disco bass)\n\u2060[Verse 1]\u2060\nPhone buzzing twice\nSecond line\n\u2060[Chorus]\u2060\nA whole circus\n\u2060[Chorus]\u2060\nA whole circus\n[Outro]"
+    clean = _clean_lyrics(raw)
+    assert clean == "Phone buzzing twice\nSecond line\n\nA whole circus\n\nA whole circus"
+    song = SunoSong(id="test", title="test", artist="artist", audio_url="", lyrics=clean, raw_prompt=raw, tags="", duration=0)
+    # Keep this regression offline but use the real metadata-to-TXT writer.
+    from unittest.mock import patch
+    with patch("src.suno_fetch.is_valid_audio_file", return_value=True):
+        (tmp_path / "test.mp3").write_bytes(b"existing audio")
+        _, lyrics_path, _, _ = download_song(song, tmp_path, song_name="test")
+    lines = preprocess_lyrics(lyrics_path)
+    assert [line.paragraph for line in lines] == [0, 0, 1, 2]
+    assert [line.occurrence for line in lines] == [0, 0, 0, 1]
