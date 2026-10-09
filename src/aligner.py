@@ -1499,6 +1499,10 @@ def align_lyrics_ctc(
                     ideal_split = c_s + sub_dur * (r_toks / tot_toks)
                     next_run_lines = runs[r_idx + 1][1]
                     next_run_toks = [c["py"] for _, ly in next_run_lines for c in tokenize_lyric_phonetic(ly.text)]
+                    
+                    # 确定下一语言块第一句的 token 数量界限
+                    first_line_tok_count = len(tokenize_lyric_phonetic(next_run_lines[0][1].text)) if next_run_lines else 0
+                    
                     cand_in_p = [w for w in asr_words if c_s - 0.5 <= w["start"] <= p_e + 0.5]
                     found_next_s = None
                     if len(cand_in_p) >= len(next_run_toks):
@@ -1507,10 +1511,29 @@ def align_lyrics_ctc(
                         if m.ratio() >= 0.40:
                             vbs = [b for b in m.get_matching_blocks() if b.size > 0]
                             if vbs:
-                                found_next_s = cand_in_p[vbs[0].b]["start"]
-                    target_split = found_next_s if found_next_s else ideal_split
+                                head_tok_idx = vbs[0].a
+                                # 如果匹配命中的是第一句之内（未跳过首句），可信度较高
+                                if head_tok_idx < first_line_tok_count:
+                                    matched_asr_s = cand_in_p[vbs[0].b]["start"]
+                                    if head_tok_idx == 0:
+                                        found_next_s = matched_asr_s
+                                    else:
+                                        # 第一句内个别首词缺失，做保守线性前推
+                                        found_next_s = matched_asr_s - head_tok_idx * 0.35
+                                else:
+                                    # 匹配位置已越过下一块的第一句（例如 L8 匹配而 L7 漏检）
+                                    # 不能将后续句起点作为块起点，回退到比例估算 ideal_split
+                                    found_next_s = ideal_split
+
+                    target_split = found_next_s if found_next_s is not None else ideal_split
+                    
+                    # 双向时长保护：既要保证当前块时长，也要为后续所有块预留最小发音时长
                     min_run_dur = max(0.8, r_toks * 0.30)
-                    c_e = find_silence_snap(target_split, wav_np, 16000, 2.0, min_t=c_s + min_run_dur)
+                    rem_toks = sum(run_tok_counts[r_idx + 1:])
+                    min_rem_dur = max(0.8, rem_toks * 0.30)
+                    target_split = max(c_s + min_run_dur, min(target_split, p_e - min_rem_dur))
+                    
+                    c_e = find_silence_snap(target_split, wav_np, 16000, 2.0, min_t=c_s + min_run_dur, max_t=p_e - min_rem_dur)
                 _dispatch_align(r_lang, r_lines, c_s, c_e)
                 c_s = c_e
 
