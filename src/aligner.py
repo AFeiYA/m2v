@@ -16,6 +16,7 @@ Auto-Karaoke MV Generator — 词级对齐模块
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import re
 import sys
@@ -396,6 +397,13 @@ def alignment_quality_issue(lines: list[AlignedLine]) -> str | None:
         collapsed = sum(word.end - word.start <= 0.035 for word in words)
         if collapsed / len(words) >= 0.4:
             return f"{collapsed}/{len(words)} 个字词不足 35 毫秒，存在大面积时间挤压"
+    for i, line in enumerate(lines):
+        if re.fullmatch(r'\[.*\]|[（(].*[）)]', line.text.strip()):
+            continue
+        vocal = [w for w in line.words if re.search(r"[\w\u4e00-\u9fff]", w.word)]
+        if len(vocal) >= 4 and (line.end - line.start < 0.25 or
+                               sum(w.end - w.start <= 0.035 for w in vocal) / len(vocal) >= 0.8):
+            return f"第 {i + 1} 行存在整句时间坍缩，需要重新定位，不能作为成功结果"
     stretched = [word for word in words if word.end - word.start > 20]
     if stretched:
         return "单个字词占用超过 20 秒，可能错误跨越间奏或匹配错区间"
@@ -540,6 +548,82 @@ def extract_asr_words(
     except Exception as e:
         log.warning("多语言 ASR 锚点提取失败 (不生成无锚点整曲估算结果): %s", e)
         return []
+
+
+def _asr_gap_windows(asr_words: list[dict], singing_sections: list, duration: float) -> list[tuple[float, float]]:
+    """Internal ASR omissions only: long gaps with substantial detected vocals.
+
+    A short tail of the preceding verse must not pull the retry into an
+    instrumental break. Retry the first substantial voiced interval instead.
+    """
+    ordered = sorted(asr_words, key=lambda w: (w["start"], w["end"]))
+    windows = []
+    covered_end = ordered[0]["end"] if ordered else 0.0
+    for word in ordered[1:]:
+        if word["start"] - covered_end >= 8.0:
+            voiced = [(max(s, covered_end), min(e, word["start"]))
+                      for s, e in singing_sections
+                      if min(e, word["start"]) - max(s, covered_end) >= 2.0]
+            if sum(e - s for s, e in voiced) >= 5.0:
+                start = max(covered_end, voiced[0][0] - 0.4)
+                end = min(duration, word["start"] + 4.0, start + 30.0)
+                windows.append((round(start, 3), round(end, 3)))
+        covered_end = max(covered_end, word["end"])
+    return windows[:2]  # Bounded work; no recursive full-song retries.
+
+
+def _recover_asr_gaps(vocals_path: Path, asr_words: list[dict], singing_sections: list,
+                      duration: float, config: AlignerConfig, language: str) -> list[dict]:
+    """Retry voiced internal gaps before estimating lyric windows; preserve source text."""
+    windows = _asr_gap_windows(asr_words, singing_sections, duration)
+    if not windows:
+        return asr_words
+    st = vocals_path.stat()
+    meta = {"version": 2, "mtime": st.st_mtime, "size": st.st_size,
+            "model": config.whisper_model, "language": language, "windows": windows,
+            "anchors": hashlib.sha256(json.dumps(asr_words, sort_keys=True).encode()).hexdigest()}
+    # JSON roundtrip makes tuple/list window representation consistent.
+    meta = json.loads(json.dumps(meta))
+    cache = vocals_path.parent / f".{vocals_path.stem}_asr_gap_recovery.json"
+    if cache.exists():
+        try:
+            saved = json.loads(cache.read_text())
+            if saved.get("meta") == meta and saved.get("words"):
+                log.info("复用 ASR 人声缺口局部恢复缓存: %d 个窗口", len(windows))
+                return saved["words"]
+        except (ValueError, OSError):
+            pass
+
+    import tempfile
+    wav, sr = sf.read(str(vocals_path), dtype="float32")
+    merged = list(asr_words)
+    recovered_any = False
+    for start, end in windows:
+        log.warning("ASR 在有人声区间存在长缺口，局部重识别 %.2f–%.2fs", start, end)
+        with tempfile.TemporaryDirectory(prefix="m2v_asr_gap_") as temp:
+            clip = Path(temp) / "vocals.wav"
+            sf.write(clip, wav[int(start * sr):int(end * sr)], sr)
+            local = extract_asr_words(clip, config=config, language=language)
+        valid = [w for w in local if 0 <= w["start"] < w["end"] <= end - start + 0.01]
+        # Recovery must add meaningful evidence inside the original empty region,
+        # rather than just recognizing its already-known trailing words again.
+        first_known = min((w["start"] for w in asr_words if w["start"] > start), default=end)
+        novel = [w for w in valid if start + w["end"] < first_known - 0.5]
+        if len(novel) < 4:
+            log.warning("ASR 缺口局部重识别未获得足够新证据，保留原结果待复核")
+            continue
+        shifted = [{**w, "start": round(start + w["start"], 3),
+                    "end": round(start + w["end"], 3)} for w in valid]
+        recovered_start = min(w["start"] for w in shifted)
+        recovered_end = max(w["end"] for w in shifted)
+        # A retry may only recognize part of the crop. Do not erase valid old
+        # trailing evidence merely because it was inside that crop.
+        merged = [w for w in merged if w["end"] <= recovered_start or w["start"] >= recovered_end] + shifted
+        recovered_any = True
+    merged.sort(key=lambda w: (w["start"], w["end"]))
+    if recovered_any:
+        cache.write_text(json.dumps({"meta": meta, "words": merged}, ensure_ascii=False))
+    return merged
 
 
 def find_silence_snap(
@@ -1353,6 +1437,7 @@ def align_lyrics_ctc(
     # 步骤 A: 提取全曲 ASR 词级时间戳锚点 (单曲一次，缓存复用)
     prompt_text = "\n".join(ly.text for _, ly in singing_lyrics)
     asr_words = extract_asr_words(vocals_path, lyrics_prompt=prompt_text, config=config, language=song_lang)
+    asr_words = _recover_asr_gaps(vocals_path, asr_words, singing_sections, total_audio_sec, config, song_lang)
     _validate_asr_evidence(asr_words, len(singing_lyrics), singing_sections)
     wav_np = wav_16k.squeeze(0).cpu().numpy()
 

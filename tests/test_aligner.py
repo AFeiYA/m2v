@@ -35,6 +35,49 @@ class TestFallbackEvenSplit:
         assert len(words) == 2  # 空格被过滤
 
 
+def test_asr_gap_windows_skip_instrumental_and_previous_verse_tail():
+    from src.aligner import _asr_gap_windows
+    words = [{"start": 67, "end": 68.48}, {"start": 98.48, "end": 101.56}]
+    assert _asr_gap_windows(words, [(59.3, 68.8), (85.2, 111.1)], 120) == [(84.8, 102.48)]
+    assert _asr_gap_windows(words, [(59.3, 68.8)], 120) == []
+
+
+def test_asr_gap_recovery_uses_offsets_and_invalidates_cache(tmp_path, monkeypatch):
+    import numpy as np
+    import soundfile as sf
+    import src.aligner as aligner
+    from src.config import AlignerConfig
+    path = tmp_path / "song.wav"
+    sf.write(path, np.zeros(30 * 16000, dtype=np.float32), 16000)
+    original = [{"py": "before", "start": 1, "end": 2},
+                {"py": "after", "start": 20, "end": 21}]
+    calls = []
+    def extract(*args, **kwargs):
+        calls.append(kwargs)
+        return [{"py": t, "start": 1 + i, "end": 1.5 + i}
+                for i, t in enumerate(["new", "lyrics", "now", "found"])]
+    monkeypatch.setattr(aligner, "extract_asr_words", extract)
+    config = AlignerConfig(device="cpu", whisper_model="base")
+    result = aligner._recover_asr_gaps(path, original, [(10, 23)], 30, config, "mixed")
+    assert result[0] == original[0]
+    assert result[1]["start"] == 10.6
+    assert [w["py"] for w in result[1:]] == ["new", "lyrics", "now", "found", "after"]
+    assert aligner._recover_asr_gaps(path, original, [(10, 23)], 30, config, "mixed") == result
+    assert len(calls) == 1
+    aligner._recover_asr_gaps(path, original, [(10, 23)], 30, config, "zh")
+    assert len(calls) == 2
+
+
+def test_local_collapsed_sentence_rejected_even_when_rest_of_song_is_healthy():
+    from src.aligner import alignment_quality_issue
+    normal = AlignedLine(text="normal words", start=1, end=40,
+                         words=[WordTimestamp(word="word", start=i, end=i + 0.5) for i in range(40)])
+    collapsed = AlignedLine(text="去的时候是逆风", start=41, end=41.14,
+                            words=[WordTimestamp(word=c, start=41 + i * .02, end=41 + (i + 1) * .02)
+                                   for i, c in enumerate("去的时候是逆风")])
+    assert "第 2 行" in alignment_quality_issue([normal, collapsed])
+
+
 class TestAlignmentResult:
     def _make_result(self) -> AlignmentResult:
         return AlignmentResult(lines=[
@@ -403,4 +446,3 @@ def test_align_en_token_spans_apostrophe_exact_mapping():
     assert dont_tok.strip() == "Don't"
     assert d_e - d_s == 5  # D, O, N, ', T
     assert l_s == 6  # 5 是 '|' 分隔符
-
