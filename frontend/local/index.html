@@ -15,10 +15,16 @@
       <h1 style="font-size: 14px; font-weight: bold; white-space: nowrap; margin: 0;">🎤 M2V 歌词</h1>
       <!-- 快捷 Suno 导入栏 -->
       <div id="suno-quick-bar" style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); flex-shrink: 0;">
-        <input id="suno-url-input" type="text" placeholder="粘贴 Suno / 网易云歌曲链接或 iframe..."
+        <input id="suno-url-input" list="suno-url-history" type="text" placeholder="粘贴 Suno / 网易云歌曲链接或 iframe..."
                style="width: 195px; min-width: 120px; height: 24px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; outline: none; transition: width 0.2s;"
                onfocus="this.style.width='250px'" onblur="this.style.width='195px'"
                onkeydown="if(event.key==='Enter') handleSunoImport()" />
+        <datalist id="suno-url-history"></datalist>
+        <select id="suno-url-history-select" title="最近 10 条测试 URL 历史记录"
+                style="height: 24px; max-width: 125px; font-size: 11px; background: #1a202c; color: #cbd5e1; border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; outline: none; cursor: pointer;"
+                onchange="if(this.value){ document.getElementById('suno-url-input').value = this.value; this.value=''; }">
+          <option value="">🕒 最近历史</option>
+        </select>
         <!-- 开发者调试选项 (默认隐藏，保证界面清爽与最高对齐准确率；可通过三击标题/Ctrl+Shift+D/?dev=1唤出) -->
         <div id="suno-dev-options" style="display: none; align-items: center; gap: 6px;">
           <label title="勾选：提取纯人声干音，适合流行/摇滚/电音等复杂伴奏，100%防止漏词跳句；取消勾选：极速模式直接对齐原曲" style="display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: #cbd5e1; cursor: pointer; user-select: none;">

@@ -299,6 +299,70 @@ async function loadSong(idx) {
 }
 
 // ---------------------------------------------------------------------------
+// Suno URL 10-Item Local History
+// ---------------------------------------------------------------------------
+const DEFAULT_URL_HISTORY = [
+  "https://suno.com/s/toVdvY4vNA3pRYbG", // Tailwind
+  "https://suno.com/s/3PeLT56j07K4vjk8", // Circus in my head
+  "https://suno.com/s/eNqSlezWB2i53tD3", // Road Closed, Door Open
+  "https://suno.com/s/gLAkLu9fiymSb0eV", // Look Up·抬头看
+];
+
+function getSunoUrlHistory() {
+  try {
+    const raw = localStorage.getItem("suno_url_history_v1");
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length > 0) return arr.slice(0, 10);
+    }
+  } catch (e) {}
+  return [...DEFAULT_URL_HISTORY];
+}
+
+function saveSunoUrlHistory(url) {
+  if (!url || typeof url !== "string") return;
+  const clean = url.trim();
+  if (!clean || clean.length < 5) return;
+  try {
+    const history = getSunoUrlHistory().filter((u) => u !== clean);
+    history.unshift(clean);
+    const top10 = history.slice(0, 10);
+    localStorage.setItem("suno_url_history_v1", JSON.stringify(top10));
+    renderSunoUrlHistory(top10);
+  } catch (e) {}
+}
+
+function renderSunoUrlHistory(list) {
+  const history = list || getSunoUrlHistory();
+  const datalist = document.getElementById("suno-url-history");
+  if (datalist) {
+    datalist.innerHTML = history.map((u) => `<option value="${u}"></option>`).join("");
+  }
+  const select = document.getElementById("suno-url-history-select");
+  if (select) {
+    const options = [
+      '<option value="">🕒 最近历史 (10条)</option>',
+      ...history.map((u, i) => {
+        let label = u;
+        if (u.includes("toVdvY4vNA3pRYbG")) label = "Tailwind (双语/吉他Solo)";
+        else if (u.includes("3PeLT56j07K4vjk8")) label = "Circus (快歌/气口)";
+        else if (u.includes("eNqSlezWB2i53tD3")) label = "Road Closed (尾奏复唱)";
+        else if (u.includes("gLAkLu9fiymSb0eV")) label = "Look Up (口哨间奏)";
+        else {
+          label = u.replace(/^https?:\/\/(www\.)?/, "");
+          if (label.length > 30) label = label.slice(0, 27) + "...";
+        }
+        return `<option value="${u}">#${i + 1} ${label}</option>`;
+      }),
+    ];
+    select.innerHTML = options.join("");
+  }
+}
+window.getSunoUrlHistory = getSunoUrlHistory;
+window.saveSunoUrlHistory = saveSunoUrlHistory;
+window.renderSunoUrlHistory = renderSunoUrlHistory;
+
+// ---------------------------------------------------------------------------
 // Suno One-Click Import
 // ---------------------------------------------------------------------------
 async function handleSunoImport() {
@@ -312,6 +376,7 @@ async function handleSunoImport() {
     alert("请输入有效的 Suno / 网易云歌曲链接、iframe 代码或歌曲 ID");
     return;
   }
+  saveSunoUrlHistory(url);
   if (btn) btn.disabled = true;
   if (prog) prog.style.display = "block";
 
@@ -450,6 +515,7 @@ async function downloadOriginalAudio() {
   );
 
   if (isImportUrl) {
+    saveSunoUrlHistory(rawUrl);
     const isNetEase = rawUrl.includes("163.com") || rawUrl.includes("163cn.tv") || rawUrl.includes("<iframe") || /^\d{5,}$/.test(rawUrl);
     status(isNetEase ? "⏳ [1/2] 正在连接网易云音乐解析歌曲音频..." : "⏳ [1/2] 正在连接 Suno 解析歌曲信息与歌词...");
     const dlUrl = `/api/suno/download_mp3?url=${encodeURIComponent(rawUrl)}`;
@@ -654,6 +720,7 @@ window.escHtml = escHtml;
 window.escapeHtml = escapeHtml;
 
 window.addEventListener("DOMContentLoaded", () => {
+  renderSunoUrlHistory();
   const chkSep = document.getElementById("chk-separate-vocals");
   const chkGpu = document.getElementById("chk-use-gpu");
   const devOpt = document.getElementById("suno-dev-options");
