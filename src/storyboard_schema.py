@@ -18,11 +18,25 @@ from pydantic import BaseModel, Field, model_validator
 # 1. 歌词与字级时间戳契约
 # ============================================================================
 
+class SyllableTimestamp(BaseModel):
+    """可选的词内音节时间戳 (支持卡拉OK/转音细粒度高亮)"""
+    text: str = Field(..., description="音节文本，如 'ne', 'ver'")
+    start: float = Field(..., ge=0, description="起始时间(秒)")
+    end: float = Field(..., ge=0, description="结束时间(秒)")
+
+    @model_validator(mode="after")
+    def validate_duration(self) -> SyllableTimestamp:
+        if self.end < self.start - 0.01:
+            raise ValueError(f"音节 '{self.text}' 结束时间 ({self.end}) 小于起始时间 ({self.start})")
+        return self
+
+
 class WordTimestamp(BaseModel):
     """单个字/词的时间戳 (毫秒级精度)"""
     word: str = Field(..., description="单个字或词的文本")
     start: float = Field(..., ge=0, description="起始时间(秒)")
     end: float = Field(..., ge=0, description="结束时间(秒)")
+    syllables: list[SyllableTimestamp] | None = Field(default=None, description="可选的音节级时间戳列表")
 
     @model_validator(mode="after")
     def validate_duration(self) -> WordTimestamp:
