@@ -715,6 +715,7 @@ def anchor_stanzas_with_asr(
     wav_np: np.ndarray | None = None,
     sr: int = 16000,
     song_lang: str | None = None,
+    start_is_explicit: bool = False,
 ) -> tuple[dict[int, list[tuple[int, LyricLine]]], dict[int, tuple[float, float]]]:
     """
     匹配证据优先、估算补缺的乐段定位。
@@ -766,7 +767,13 @@ def anchor_stanzas_with_asr(
         sig_counts[sig] = sig_counts.get(sig, 0) + 1
 
     c_tokens = [w["py"] for w in valid_asr]
-    phrase_anchors = _unique_phrase_anchors(paras, valid_asr)
+    evidence_words = [w for w in valid_asr if w["start"] >= min_start] if start_is_explicit else valid_asr
+    phrase_anchors = _unique_phrase_anchors(paras, evidence_words)
+    first_p = min(paras, default=0)
+    if not start_is_explicit and first_p in phrase_anchors and phrase_anchors[first_p][0] < min_start:
+        log.warning("自动开唱点 %.2fs 晚于连续词组证据 %.2fs，采用证据扩展首段窗口",
+                    min_start, phrase_anchors[first_p][0])
+        min_start = max(0.0, phrase_anchors[first_p][0])
     log.info("连续词组定位证据覆盖 %d/%d 个歌词段（非整段置信度）", len(phrase_anchors), len(paras))
 
     def constrain_window(p, start, end, lower, upper):
@@ -1450,6 +1457,7 @@ def align_lyrics_ctc(
         wav_np=wav_np,
         sr=16000,
         song_lang=song_lang,
+        start_is_explicit=config.lyrics_start_time > 0,
     )
     log.info("乐段窗口定位完成: %d 个自然段（含估算窗口，不能视为全部高置信度）", len(para_bounds))
 

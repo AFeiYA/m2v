@@ -292,6 +292,17 @@ def test_estimated_stanza_preserves_unique_phrase_evidence():
     assert bounds[0][1] <= bounds[1][0]
 
 
+def test_phrase_evidence_precedes_automatic_onset_but_not_manual_start():
+    from src.aligner import LyricLine, anchor_stanzas_with_asr
+    text = "riverside unrolls like bright ribbon"
+    lyrics = [(0, LyricLine(text=text))]
+    words = [{"py": t, "start": 10 + i, "end": 10.5 + i} for i, t in enumerate(text.split())]
+    _, automatic = anchor_stanzas_with_asr(lyrics, words, 20, min_start=10.9)
+    assert automatic[0][0] == 10
+    _, manual = anchor_stanzas_with_asr(lyrics, words, 20, min_start=10.9, start_is_explicit=True)
+    assert manual[0][0] >= 10.9
+
+
 def test_local_phrase_evidence_rejects_repeated_and_discontinuous_matches():
     from src.aligner import LyricLine, _unique_phrase_anchors
     phrase = "look at the bright sky"

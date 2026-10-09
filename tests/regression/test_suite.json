@@ -160,6 +160,13 @@
           "max_end": 88.8
         },
         {
+          "line_idx": 12,
+          "expected_text": "回来就成了顺风",
+          "min_start": 89.0,
+          "max_start": 90.8,
+          "max_end": 93.0
+        },
+        {
           "line_idx": 14,
           "expected_text": "Waiting for you to turn around",
           "min_start": 97.2,
