@@ -1020,9 +1020,34 @@ def anchor_stanzas_with_asr(
         s_next = para_bounds[p_next][0]
         gap = s_next - e_curr
         if 1.5 <= gap <= 4.0:
-            mid = (e_curr + s_next) / 2
-            snap_mid = find_silence_snap(mid, wav_np, sr, window=gap / 2, min_t=e_curr, max_t=s_next)
-            snap_mid = max(e_curr, min(s_next, snap_mid))
+            # 检查下一段首句是否有更早的 ASR 连续词组证据，防止盲目取中点将下一段首句侵入上一段
+            next_head_toks = [c["py"] for c in tokenize_lyric_phonetic(paras[p_next][0][1].text)]
+            cand_near_gap = [w for w in valid_asr if e_curr - 1.0 <= w["start"] <= s_next + 1.0]
+            cand_toks = [w["py"] for w in cand_near_gap]
+            head_onset = None
+            if len(next_head_toks) >= 2 and len(cand_toks) >= 2:
+                m_head = SequenceMatcher(None, next_head_toks, cand_toks)
+                blocks = [b for b in m_head.get_matching_blocks() if b.size >= 2]
+                for b in blocks:
+                    if b.a <= 1:
+                        head_onset = cand_near_gap[b.b]["start"]
+                        break
+
+            target_boundary = (e_curr + s_next) / 2
+            max_bound = s_next
+            if head_onset is not None and head_onset < s_next:
+                # 存在明确的首句起唱证据，下一段起点必须向前扩展至起唱点，上一段边界必须在起唱点之前闭合
+                max_bound = min(max_bound, head_onset)
+                target_boundary = min(target_boundary, head_onset)
+                if e_curr > max_bound:
+                    # 上一段当前估算结束时间偏晚，已侵入下一段起唱区，将其收缩至 head_onset 前的静音点
+                    e_curr = find_silence_snap(max_bound - 0.2, wav_np, sr, window=1.0, max_t=max_bound)
+
+            if e_curr < max_bound:
+                snap_mid = find_silence_snap(target_boundary, wav_np, sr, window=gap / 2, min_t=e_curr, max_t=max_bound)
+                snap_mid = max(e_curr, min(max_bound, snap_mid))
+            else:
+                snap_mid = max_bound
             para_bounds[p_curr] = (para_bounds[p_curr][0], snap_mid)
             para_bounds[p_next] = (snap_mid, para_bounds[p_next][1])
 
