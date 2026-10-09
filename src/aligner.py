@@ -572,6 +572,57 @@ def find_silence_snap(
     return round(best_t, 2)
 
 
+def _unique_phrase_anchors(paras: dict, asr_words: list[dict]) -> dict[int, tuple[float, float]]:
+    """Find conservative local evidence; repeated or out-of-order phrases are not anchors.
+
+    Require at least four consecutive phonetic tokens, covering half a line
+    (or six tokens), occurring exactly once in both lyrics and ASR. These
+    constrain windows, but do not establish the unmatched line's boundaries.
+    """
+    lyric_tokens = [(p, [t["py"] for t in tokenize_lyric_phonetic(ly.text)])
+                    for p, lines in paras.items() for _, ly in lines]
+    audio_tokens = [w["py"] for w in asr_words]
+
+    def occurrences(tokens, phrase):
+        n = len(phrase)
+        return sum(tokens[i:i + n] == phrase for i in range(len(tokens) - n + 1))
+
+    matches = []
+    for order, (p, tokens) in enumerate(lyric_tokens):
+        for block in SequenceMatcher(None, tokens, audio_tokens, autojunk=False).get_matching_blocks():
+            if block.size < 4 or (block.size < 6 and block.size * 2 < len(tokens)):
+                continue
+            phrase = tokens[block.a:block.a + block.size]
+            if occurrences(audio_tokens, phrase) != 1:
+                continue
+            if sum(occurrences(ts, phrase) for _, ts in lyric_tokens) != 1:
+                continue
+            words = asr_words[block.b:block.b + block.size]
+            if any(b["start"] < a["end"] or b["start"] - a["end"] > 1.5
+                   for a, b in zip(words, words[1:])):
+                continue
+            matches.append((order, block.a, p, words[0]["start"], words[-1]["end"], block.size))
+
+    # Choose the largest monotonic evidence chain instead of trusting the first
+    # textual match. This also keeps conflicting detections from crossing verses.
+    matches.sort(key=lambda m: (m[0], m[1]))
+    scores, paths = [], []
+    for i, match in enumerate(matches):
+        best, path = match[5], [i]
+        for j in range(i):
+            if matches[j][4] <= match[3] and scores[j] + match[5] > best:
+                best, path = scores[j] + match[5], paths[j] + [i]
+        scores.append(best)
+        paths.append(path)
+    anchors = {}
+    if scores:
+        for i in paths[max(range(len(scores)), key=scores.__getitem__)]:
+            _, _, p, start, end, _ = matches[i]
+            old = anchors.get(p, (start, end))
+            anchors[p] = (min(old[0], start), max(old[1], end))
+    return anchors
+
+
 def anchor_stanzas_with_asr(
     singing_lyrics: list[tuple[int, LyricLine]],
     asr_words: list[dict],
@@ -582,11 +633,12 @@ def anchor_stanzas_with_asr(
     song_lang: str | None = None,
 ) -> tuple[dict[int, list[tuple[int, LyricLine]]], dict[int, tuple[float, float]]]:
     """
-    两阶段岛驱动宏观乐段定位引擎 (Two-Pass Island-Driven Stanza Anchoring)。
-    1. 提取自然歌词段落与发音指纹，过滤 ASR 乱码/零时长伪字。
-    2. 基于词级序列模糊匹配，首先确立高置信度唯一段落作为时间里程碑岛屿 (Islands)。
-    3. 在相邻岛屿之间的闭合区间内，严格约束重复副歌和未锚定乐段，消除跨段落漂移。
-    4. 结合局部人声能量检测 (RMS)，将段落边界吸附至声学静音停顿。
+    匹配证据优先、估算补缺的乐段定位。
+    1. 原歌词决定段落、句界与顺序；过滤无效 ASR 时间戳。
+    2. 唯一且单调的连续词组匹配约束窗口，段落模糊匹配补充范围。
+    3. 重复副歌在相邻锚点之间单调分配，不能仅凭相似文本跨段取用。
+    4. 未匹配部分才按词量/静音估算；估算及静音吸附不能截掉已匹配词组。
+    局部证据只保护其覆盖区间，不代表整句或整段已准确定位。
     """
     has_explicit = any(ly.paragraph > 0 for _, ly in singing_lyrics)
     paras: dict[int, list[tuple[int, LyricLine]]] = {}
@@ -630,6 +682,20 @@ def anchor_stanzas_with_asr(
         sig_counts[sig] = sig_counts.get(sig, 0) + 1
 
     c_tokens = [w["py"] for w in valid_asr]
+    phrase_anchors = _unique_phrase_anchors(paras, valid_asr)
+    log.info("连续词组定位证据覆盖 %d/%d 个歌词段（非整段置信度）", len(phrase_anchors), len(paras))
+
+    def constrain_window(p, start, end, lower, upper):
+        previous = [e for pp, (_, e) in phrase_anchors.items() if pp < p]
+        following = [s for pp, (s, _) in phrase_anchors.items() if pp > p]
+        lower = max(lower, max(previous, default=lower))
+        upper = min(upper, min(following, default=upper))
+        if p in phrase_anchors:
+            evidence_s, evidence_e = phrase_anchors[p]
+            if evidence_s < lower or evidence_e > upper:
+                raise ValueError(f"乐段 {p} 的词组证据与相邻窗口冲突，需要重新定位，不能估算覆盖")
+            start, end = min(start, evidence_s), max(end, evidence_e)
+        return max(lower, start), min(upper, end)
 
     candidates = {}
     for p in sorted(paras.keys()):
@@ -659,6 +725,9 @@ def anchor_stanzas_with_asr(
                 missed_tail = len(l_toks) - (last_b.a + last_b.size)
                 raw_s = min_start if p == 0 else max(min_start, valid_asr[first_cand_idx]["start"] - missed_head * 0.45)
                 raw_e = min(total_audio_sec, valid_asr[last_cand_idx]["end"] + missed_tail * 0.45)
+                raw_s, raw_e = constrain_window(p, raw_s, raw_e, min_start, total_audio_sec)
+                if raw_e <= raw_s:
+                    continue
                 sig = "".join(l_toks)
                 candidates[p] = {
                     "score": best_sc,
@@ -738,7 +807,9 @@ def anchor_stanzas_with_asr(
                                 missed_tail = len(l_toks) - (last_b.a + last_b.size)
                                 raw_s = max(prev_e, valid_asr[first_cand_idx]["start"] - missed_head * 0.45)
                                 raw_e = min(next_s, valid_asr[last_cand_idx]["end"] + missed_tail * 0.45)
-                                p_matches.append((raw_s, raw_e, sc))
+                                raw_s, raw_e = constrain_window(p, raw_s, raw_e, prev_e, next_s)
+                                if raw_e > raw_s:
+                                    p_matches.append((raw_s, raw_e, sc))
 
             # 对重叠候选进行局部聚类，保留独立的时序候选段
             p_matches.sort(key=lambda m: (m[0], -m[2]))
@@ -821,9 +892,13 @@ def anchor_stanzas_with_asr(
                             snapped_end = find_silence_snap(next_anchor_t - 2.5, wav_np, sr, 2.0, min_t=sub_cur + 1.0)
                         else:
                             snapped_end = find_silence_snap(raw_end, wav_np, sr, 3.0, min_t=sub_cur + 1.0, max_t=total_audio_sec)
-                    log.warning("乐段 %d 缺少 ASR 声学锚点证据，采用估算窗口: [%.2fs - %.2fs]", gp, sub_cur, snapped_end)
-                    para_bounds[gp] = (round(sub_cur, 2), round(snapped_end, 2))
-                    sub_cur = snapped_end
+                    protected_start, protected_end = constrain_window(gp, sub_cur, snapped_end, cur_anchor_t, next_anchor_t)
+                    if protected_end <= protected_start:
+                        raise ValueError(f"乐段 {gp} 缺少可用的顺序窗口，需要重新定位，不能均匀挤入空区间")
+                    log.warning("乐段 %d 整段匹配不足，采用词组证据约束的估算窗口: [%.2fs - %.2fs]（词组证据=%s）",
+                                gp, protected_start, protected_end, gp in phrase_anchors)
+                    para_bounds[gp] = (round(protected_start, 3), round(protected_end, 3))
+                    sub_cur = protected_end
                 cur_anchor_t = next_anchor_t
                 i = j
 
@@ -1291,7 +1366,7 @@ def align_lyrics_ctc(
         sr=16000,
         song_lang=song_lang,
     )
-    log.info("乐段语义窗口锚定完成: %d 个自然段已确立声学边界", len(para_bounds))
+    log.info("乐段窗口定位完成: %d 个自然段（含估算窗口，不能视为全部高置信度）", len(para_bounds))
 
     # 步骤 C: 逐段执行独立中/英文 CTC 精确打点 (同语言整段联合 Viterbi 解码，混语言声学停顿切分)
     for p in sorted(paras.keys()):

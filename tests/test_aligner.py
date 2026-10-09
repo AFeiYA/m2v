@@ -230,6 +230,45 @@ def test_fine_blocks_and_dp_handles_tight_pauses():
     assert len(stanzas) == 6
 
 
+def test_estimated_stanza_preserves_unique_phrase_evidence():
+    """Weak overall ASR must not let silence snapping cut off a recognized line."""
+    from src.aligner import LyricLine, anchor_stanzas_with_asr
+    lyrics = [
+        (0, LyricLine(text=" ".join(f"unknown{i}" for i in range(70)), paragraph=0)),
+        (1, LyricLine(text="a million moving parts on tuesday", paragraph=0)),
+        (2, LyricLine(text="another unrecognized ending", paragraph=0)),
+        (3, LyricLine(text="watch me catch every ball before it hits the floor", paragraph=1)),
+    ]
+    phrases = [(34.0, "a million moving parts on tuesday"),
+               (40.0, "watch me catch every ball before it hits the floor")]
+    words = [{"py": token, "start": start + i, "end": start + i + 0.8}
+             for start, text in phrases for i, token in enumerate(text.split())]
+    _, bounds = anchor_stanzas_with_asr(lyrics, words, total_audio_sec=60)
+    assert bounds[0][0] <= 34
+    assert bounds[0][1] >= 39.8
+    assert bounds[0][1] <= bounds[1][0]
+
+
+def test_local_phrase_evidence_rejects_repeated_and_discontinuous_matches():
+    from src.aligner import LyricLine, _unique_phrase_anchors
+    phrase = "look at the bright sky"
+    paras = {0: [(0, LyricLine(text=phrase))], 1: [(1, LyricLine(text=phrase))]}
+    words = [{"py": t, "start": i, "end": i + 0.5} for i, t in enumerate(phrase.split())]
+    assert _unique_phrase_anchors(paras, words) == {}
+    unique = {0: [(0, LyricLine(text=phrase))]}
+    assert _unique_phrase_anchors(unique, words + [{**w, "start": w["start"] + 20, "end": w["end"] + 20} for w in words]) == {}
+    words[-1]["start"], words[-1]["end"] = 20, 21
+    assert _unique_phrase_anchors(unique, words) == {}
+
+
+def test_local_phrase_evidence_respects_chinese_tokens():
+    from src.aligner import LyricLine, _unique_phrase_anchors, tokenize_lyric_phonetic
+    text = "所有真理变成借口"
+    words = [{"py": t["py"], "start": i, "end": i + 0.5}
+             for i, t in enumerate(tokenize_lyric_phonetic(text))]
+    assert _unique_phrase_anchors({0: [(0, LyricLine(text=text))]}, words) == {0: (0, 7.5)}
+
+
 def test_anchor_stanzas_monotonic_repeated_chorus():
     """验证全局单调唯一分配：两段完全相同的重复副歌，必须分别匹配到先后两次独立的演唱，杜绝挤占同一区间"""
     from src.aligner import LyricLine, anchor_stanzas_with_asr
@@ -364,5 +403,4 @@ def test_align_en_token_spans_apostrophe_exact_mapping():
     assert dont_tok.strip() == "Don't"
     assert d_e - d_s == 5  # D, O, N, ', T
     assert l_s == 6  # 5 是 '|' 分隔符
-
 
