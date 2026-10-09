@@ -48,6 +48,14 @@ BENCHMARK_CASES = [
         "expected_line_count": 29,
     },
     {
+        "id": "look_up",
+        "title": "Look Up·抬头看",
+        "vocals_path": "output/Look Up·抬头看/Look Up·抬头看_vocals.mp3",
+        "lyrics_path": "input/Look Up·抬头看/Look Up·抬头看.txt",
+        "language": "mixed",
+        "from_suite": True,
+    },
+    {
         "id": "tailwind",
         "title": "Tailwind",
         "vocals_path": "output/Tailwind/Tailwind_vocals.mp3",

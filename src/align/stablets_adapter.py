@@ -42,6 +42,7 @@ def align_lyrics_stablets(
     device: str = "cpu",
     refine: bool = False,
     nonspeech_skip: float | None = 5.0,
+    guard_interludes: bool = True,
 ) -> AlignmentResult:
     """使用 stable-ts 对整曲歌词执行直接声学对齐。
 
@@ -53,8 +54,20 @@ def align_lyrics_stablets(
         device: 推理设备 ('cpu' 或 'cuda')
         refine: 是否在对齐后运行 model.refine()
         nonspeech_skip: 非语音跳过阈值 (秒)
+        guard_interludes: 是否启用宏观间奏硬保护屏障 (默认 True)
     """
     model = get_stablets_model(model_name=model_name, device=device)
+
+    if guard_interludes:
+        from src.align.interlude_guard import align_with_interlude_guard
+
+        return align_with_interlude_guard(
+            vocals_path=vocals_path,
+            lyrics=lyrics,
+            model=model,
+            language=language,
+        )
+
     lyrics_text = "\n".join(ly.text.strip() for ly in lyrics)
 
     import re
