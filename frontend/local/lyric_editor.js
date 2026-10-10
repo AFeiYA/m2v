@@ -595,9 +595,7 @@ function renderLyrics() {
     const row = document.createElement("div");
     row.className = "lyric-row";
     row.dataset.idx = i;
-    const charSpans = line.words.map((w, wi) =>
-      `<span class="lyric-char" data-line="${i}" data-word="${wi}">${escHtml(w.word)}</span>`
-    ).join("");
+    const charSpans = renderLineCharSpans(line, i);
     const dur = (line.end - line.start).toFixed(1);
     row.innerHTML = `
       <span class="lyric-num">${i + 1}</span>

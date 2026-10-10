@@ -344,10 +344,7 @@ function renderLyrics() {
     const row = document.createElement("div");
     row.className = "lyric-row";
     row.dataset.idx = i;
-    // 逐字渲染，便于播放时高亮当前字
-    const charSpans = line.words.map((w, wi) =>
-      `<span class="lyric-char" data-line="${i}" data-word="${wi}">${escHtml(w.word)}</span>`
-    ).join("");
+    const charSpans = renderLineCharSpans(line, i);
     const dur = (line.end - line.start).toFixed(1);
     row.innerHTML = `
       <span class="lyric-num">${i + 1}</span>
@@ -1041,6 +1038,49 @@ async function regen(mode) {
 // ---------------------------------------------------------------------------
 function escHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderLineCharSpans(line, lineIdx) {
+  if (!line || !line.words || line.words.length === 0) {
+    return escHtml(line ? line.text : "");
+  }
+
+  const text = line.text || "";
+  let searchIdx = 0;
+  const spans = [];
+
+  for (let wi = 0; wi < line.words.length; wi++) {
+    const w = line.words[wi];
+    const wordStr = w.word || "";
+    if (!wordStr) continue;
+
+    let foundIdx = text.indexOf(wordStr, searchIdx);
+    if (foundIdx === -1) {
+      foundIdx = text.toLowerCase().indexOf(wordStr.toLowerCase(), searchIdx);
+    }
+
+    if (foundIdx !== -1) {
+      if (foundIdx > searchIdx) {
+        spans.push(escHtml(text.slice(searchIdx, foundIdx)));
+      }
+      const matchedText = text.slice(foundIdx, foundIdx + wordStr.length);
+      spans.push(`<span class="lyric-char" data-line="${lineIdx}" data-word="${wi}">${escHtml(matchedText)}</span>`);
+      searchIdx = foundIdx + wordStr.length;
+    } else {
+      if (wi > 0) {
+        const prevW = line.words[wi - 1].word || "";
+        const needSpace = /[a-zA-Z0-9]/.test(prevW.slice(-1)) || /[a-zA-Z0-9]/.test(wordStr.slice(0, 1));
+        if (needSpace) spans.push(" ");
+      }
+      spans.push(`<span class="lyric-char" data-line="${lineIdx}" data-word="${wi}">${escHtml(wordStr)}</span>`);
+    }
+  }
+
+  if (searchIdx < text.length) {
+    spans.push(escHtml(text.slice(searchIdx)));
+  }
+
+  return spans.join("");
 }
 
 function isPunct(ch) {

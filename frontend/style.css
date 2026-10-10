@@ -143,7 +143,7 @@ main {
   line-height: 1;
 }
 .line-nudge-btn:hover { background: var(--accent); }
-.lyric-text { font-size: 15px; flex: 1; }
+.lyric-text { font-size: 15px; flex: 1; white-space: pre-wrap; }
 
 /* Line-level controls in word panel header */
 #line-edit-controls {
@@ -161,6 +161,7 @@ main {
 /* 逐字卡拉OK高亮 */
 .lyric-char {
   transition: color 0.05s, text-shadow 0.05s;
+  white-space: pre-wrap;
 }
 .lyric-char.sung {
   color: var(--accent);
