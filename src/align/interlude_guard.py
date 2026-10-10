@@ -183,7 +183,8 @@ def align_with_interlude_guard(
 
     full_text = "\n".join(prepare_line_for_alignment(ly.text) for ly in lyrics)
     has_zh = bool(_CHINESE_CHAR_RE.search(full_text))
-    default_lang = language or ("zh" if has_zh else "en")
+    norm_lang = None if (not language or language in ("mixed", "auto")) else language
+    default_lang = norm_lang or ("zh" if has_zh else "en")
 
     if not interludes:
         log.info("未检测到 >= %.1fs 的大间奏/Solo，走单次全局微观对齐", min_gap_sec)

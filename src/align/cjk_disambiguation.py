@@ -161,12 +161,16 @@ def trim_intra_line_silence_gaps(
         line_durs = [w.end - w.start for w in words]
         med_dur = float(np.median(line_durs)) if line_durs else 0.25
 
-        for i in range(1, len(words)):
+        for i in range(len(words)):
             w = words[i]
             dur = w.end - w.start
-            # 动态门槛：汉字为 max(0.40s, 1.6 * 中位字长)；西文为 max(0.70s, 2.0 * 中位字长)
-            is_cjk = any("\u4e00" <= c <= "\u9fff" for c in w.word)
-            char_thr = max(0.40, 1.6 * med_dur) if is_cjk else max(0.70, 2.0 * med_dur)
+            # 动态门槛：首词使用 max(0.35s, med_dur) 拦截乐句开头静音吞噬；
+            # 句内汉字为 max(0.40s, 1.6 * 中位字长)；句内西文为 max(0.70s, 2.0 * 中位字长)
+            if i == 0:
+                char_thr = max(0.35, med_dur)
+            else:
+                is_cjk = any("\u4e00" <= c <= "\u9fff" for c in w.word)
+                char_thr = max(0.40, 1.6 * med_dur) if is_cjk else max(0.70, 2.0 * med_dur)
             if dur < char_thr:
                 continue
 

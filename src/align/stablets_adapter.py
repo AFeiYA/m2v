@@ -56,6 +56,9 @@ def align_lyrics_stablets(
         nonspeech_skip: 非语音跳过阈值 (秒)
         guard_interludes: 是否启用宏观间奏硬保护屏障 (默认 True)
     """
+    if language in ("mixed", "auto", None):
+        language = None
+
     model = get_stablets_model(model_name=model_name, device=device)
 
     if guard_interludes:

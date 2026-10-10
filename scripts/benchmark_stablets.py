@@ -25,7 +25,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from src.align.stablets_adapter import align_lyrics_stablets
-from src.aligner import align_lyrics
+from src.aligner import align_lyrics_ctc
 from src.preprocessor import preprocess_lyrics
 from tests.regression.runner import load_test_suite, verify_alignment
 
@@ -98,43 +98,74 @@ def run_benchmark_for_song(case_cfg: dict, suite_cfg_map: dict):
     print(f"🎵 测试歌曲: {cfg['title']} ({len(lyrics)} 行歌词)")
     print(f"{'='*75}")
 
-    # 1. 运行 Current Engine
+    # 1. 运行 Current Engine (Wav2Vec2 + CTC)
     print("\n⏳ 正在运行 [Current Engine: Wav2Vec2 + CTC + 任务规划] ...")
     t0 = time.time()
-    res_current = align_lyrics(vocals_p, lyrics)
-    t_current = time.time() - t0
-    report_current = verify_alignment(cfg, res_current, baseline_alignment=res_current, tolerance_sec=0.8)
+    res_current = None
+    report_current = None
+    err_current = None
+    try:
+        res_current = align_lyrics_ctc(vocals_p, lyrics)
+        t_current = time.time() - t0
+        report_current = verify_alignment(cfg, res_current, baseline_alignment=None, tolerance_sec=0.8)
+    except Exception as e:
+        t_current = time.time() - t0
+        err_current = str(e)
+        print(f"  ❌ Current Engine 异常: {e}")
 
     # 2. 运行 stable-ts
     print("\n⏳ 正在运行 [stable-ts: Whisper base + Attention Alignment] ...")
     t0 = time.time()
-    res_stablets = align_lyrics_stablets(vocals_p, lyrics, language=cfg.get("language"))
-    t_stablets = time.time() - t0
-    report_stablets = verify_alignment(cfg, res_stablets, baseline_alignment=res_current, tolerance_sec=0.8)
+    res_stablets = None
+    report_stablets = None
+    err_stablets = None
+    try:
+        res_stablets = align_lyrics_stablets(vocals_p, lyrics, language=cfg.get("language"))
+        t_stablets = time.time() - t0
+        report_stablets = verify_alignment(cfg, res_stablets, baseline_alignment=None, tolerance_sec=0.8)
+    except Exception as e:
+        t_stablets = time.time() - t0
+        err_stablets = str(e)
+        print(f"  ❌ stable-ts 异常: {e}")
 
     # 打印对比分析
     print(f"\n📊 【{cfg['title']} 对比结果】")
     print("  指标                     | Current Engine          | stable-ts")
     print("  -------------------------+-------------------------+-------------------------")
-    print(f"  耗时                     | {t_current:6.2f}s                 | {t_stablets:6.2f}s")
-    
-    cur_anchors_pass = "✅ 通过" if report_current.passed else "❌ 失败"
-    st_anchors_pass = "✅ 通过" if report_stablets.passed else "❌ 失败"
-    print(f"  关键锚点约束             | {cur_anchors_pass:23s} | {st_anchors_pass:23s}")
-    
-    cur_qual = "✅ 优良" if report_current.quality_passed else "❌ 异常"
-    st_qual = "✅ 优良" if report_stablets.quality_passed else "❌ 异常"
+    cur_t_str = f"{t_current:6.2f}s" if err_current is None else f"{t_current:6.2f}s (崩溃)"
+    st_t_str = f"{t_stablets:6.2f}s" if err_stablets is None else f"{t_stablets:6.2f}s (异常)"
+    print(f"  耗时                     | {cur_t_str:23s} | {st_t_str:23s}")
+
+    total_anchors = len(cfg.get("critical_anchors", []))
+    cur_anch_passed = sum(1 for a in report_current.anchor_results if a.passed) if report_current else 0
+    st_anch_passed = sum(1 for a in report_stablets.anchor_results if a.passed) if report_stablets else 0
+    cur_anchors_str = f"{cur_anch_passed}/{total_anchors} 通过" if report_current else "0/0 崩溃"
+    st_anchors_str = f"{st_anch_passed}/{total_anchors} 通过" if report_stablets else "0/0 异常"
+    print(f"  关键锚点约束             | {cur_anchors_str:23s} | {st_anchors_str:23s}")
+
+    cur_inter_total = len(cfg.get("instrumental_interludes", []))
+    cur_inter_pass = sum(1 for i in report_current.interlude_results if i.passed) if report_current else 0
+    st_inter_pass = sum(1 for i in report_stablets.interlude_results if i.passed) if report_stablets else 0
+    cur_inter_str = f"{cur_inter_pass}/{cur_inter_total} 保护" if cur_inter_total > 0 and report_current else ("无间奏" if cur_inter_total == 0 else "0/0 崩溃")
+    st_inter_str = f"{st_inter_pass}/{cur_inter_total} 保护" if cur_inter_total > 0 and report_stablets else ("无间奏" if cur_inter_total == 0 else "0/0 异常")
+    print(f"  长间奏/Solo保护          | {cur_inter_str:23s} | {st_inter_str:23s}")
+
+    cur_qual = ("✅ 优良" if report_current.quality_passed else "❌ 异常") if report_current else "❌ 崩溃"
+    st_qual = ("✅ 优良" if report_stablets.quality_passed else "❌ 异常") if report_stablets else "❌ 异常"
     print(f"  声学挤压/重叠检查        | {cur_qual:23s} | {st_qual:23s}")
 
-    if not report_current.passed:
+    if report_current and not report_current.passed:
         print(f"    Current 失败原因: {report_current.failure_reasons}")
-    if not report_stablets.passed:
+    if report_stablets and not report_stablets.passed:
         print(f"    stable-ts 失败原因: {report_stablets.failure_reasons}")
 
     # 特殊观测点 (Circus never could)
     if song_id == "circus":
         print("\n  🔍 细粒度观测 [Circus 'never could']:")
         for name, res in [("Current Engine", res_current), ("stable-ts", res_stablets)]:
+            if not res:
+                print(f"    [{name}] 结果不可用")
+                continue
             l15 = res.lines[14] if len(res.lines) > 14 else None
             l31 = res.lines[30] if len(res.lines) > 30 else None
             w15_nc = [(w.word.strip(), round(w.start, 2), round(w.end, 2)) for w in l15.words if w.word.strip() in ("never", "could")] if l15 else []
@@ -147,8 +178,14 @@ def run_benchmark_for_song(case_cfg: dict, suite_cfg_map: dict):
         "title": cfg["title"],
         "t_current": t_current,
         "t_stablets": t_stablets,
-        "pass_current": report_current.passed,
-        "pass_stablets": report_stablets.passed,
+        "err_current": err_current,
+        "err_stablets": err_stablets,
+        "anchors_current": f"{cur_anch_passed}/{total_anchors}",
+        "anchors_stablets": f"{st_anch_passed}/{total_anchors}",
+        "interlude_current": f"{cur_inter_pass}/{cur_inter_total}" if cur_inter_total else "-",
+        "interlude_stablets": f"{st_inter_pass}/{cur_inter_total}" if cur_inter_total else "-",
+        "pass_current": report_current.passed if report_current else False,
+        "pass_stablets": report_stablets.passed if report_stablets else False,
     }
 
 
@@ -173,8 +210,14 @@ def run_missing_lyric_experiment():
 
     # 1. Current Engine
     t0 = time.time()
-    res_cur = align_lyrics(vocals_p, mutated_lyrics)
-    t_cur = time.time() - t0
+    res_cur = None
+    t_cur = 0.0
+    try:
+        res_cur = align_lyrics_ctc(vocals_p, mutated_lyrics)
+        t_cur = time.time() - t0
+    except Exception as e:
+        t_cur = time.time() - t0
+        print(f"  ❌ Current Engine 异常: {e}")
 
     # 2. stable-ts
     t0 = time.time()
@@ -182,17 +225,19 @@ def run_missing_lyric_experiment():
     t_st = time.time() - t0
 
     # 检验突变后第 4 行 (即原第 5 行) 的起始时间
-    cur_line_after_delete = res_cur.lines[4]
+    cur_line_after_delete = res_cur.lines[4] if res_cur else None
     st_line_after_delete = res_st.lines[4]
 
     print("\n📊 对抗实验结果:")
     print("  原第 5 行标准真值区间: [36.68s ~ 40.29s]")
-    print(f"  Current Engine 对齐区间: [{cur_line_after_delete.start:.2f}s ~ {cur_line_after_delete.end:.2f}s] (耗时 {t_cur:.2f}s)")
+    if cur_line_after_delete:
+        print(f"  Current Engine 对齐区间: [{cur_line_after_delete.start:.2f}s ~ {cur_line_after_delete.end:.2f}s] (耗时 {t_cur:.2f}s)")
+        cur_drift = abs(cur_line_after_delete.start - 36.68)
+        print(f"  -> Current Engine 起始偏差: {cur_drift:.2f}s")
+    else:
+        print(f"  Current Engine: 崩溃未完成 (耗时 {t_cur:.2f}s)")
     print(f"  stable-ts      对齐区间: [{st_line_after_delete.start:.2f}s ~ {st_line_after_delete.end:.2f}s] (耗时 {t_st:.2f}s)")
-
-    cur_drift = abs(cur_line_after_delete.start - 36.68)
     st_drift = abs(st_line_after_delete.start - 36.68)
-    print(f"  -> Current Engine 起始偏差: {cur_drift:.2f}s")
     print(f"  -> stable-ts      起始偏差: {st_drift:.2f}s")
 
 
@@ -218,9 +263,19 @@ def main():
     if not args.song and not args.skip_missing:
         run_missing_lyric_experiment()
 
-    print(f"\n{'='*75}")
-    print("🏁 全部基准对比测试执行完毕！")
-    print(f"{'='*75}")
+    print(f"\n{'='*85}")
+    print("📋 【全量回归基准对比统计总表】")
+    print(f"{'='*85}")
+    print(f"{'歌曲名称':<25} | {'耗时对比 (CTC vs stable-ts)':<26} | {'关键锚点 (CTC vs ST)':<20} | {'间奏保护 (CTC vs ST)':<18}")
+    print(f"{'-'*25}-+-{'-'*26}-+-{'-'*20}-+-{'-'*18}")
+    for r in results:
+        t_str = f"{r['t_current']:.1f}s vs {r['t_stablets']:.1f}s"
+        if r.get("err_current"):
+            t_str = f"💥Crash vs {r['t_stablets']:.1f}s"
+        anch_str = f"{r['anchors_current']} vs {r['anchors_stablets']}"
+        inter_str = f"{r['interlude_current']} vs {r['interlude_stablets']}"
+        print(f"{r['title']:<25} | {t_str:<26} | {anch_str:<20} | {inter_str:<18}")
+    print(f"{'='*85}\n")
 
 
 if __name__ == "__main__":
