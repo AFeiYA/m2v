@@ -821,14 +821,14 @@ window.addEventListener("DOMContentLoaded", () => {
   const titleEl = document.querySelector("header h1");
   if (titleEl && devOpt) {
     titleEl.style.cursor = "pointer";
-    titleEl.title = "三击标题可显示/隐藏开发者调试选项";
+    titleEl.title = "三击标题可显示/隐藏开发者调试选项（含URL测试历史）";
     titleEl.addEventListener("click", () => {
       clickCount++;
       clearTimeout(clickTimer);
       if (clickCount >= 3) {
         devOpt.style.display = devOpt.style.display === "none" ? "inline-flex" : "none";
         clickCount = 0;
-        status(devOpt.style.display === "inline-flex" ? "🛠 已开启开发者调试选项" : "🛠 已隐藏开发者调试选项");
+        status(devOpt.style.display === "inline-flex" ? "🛠 已开启开发者调试模式（包含URL测试历史）" : "🛠 已隐藏开发者调试选项");
       } else {
         clickTimer = setTimeout(() => { clickCount = 0; }, 500);
       }
@@ -840,7 +840,7 @@ window.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
       if (devOpt) {
         devOpt.style.display = devOpt.style.display === "none" ? "inline-flex" : "none";
-        status(devOpt.style.display === "inline-flex" ? "🛠 已开启开发者调试选项" : "🛠 已隐藏开发者调试选项");
+        status(devOpt.style.display === "inline-flex" ? "🛠 已开启开发者调试模式（包含URL测试历史）" : "🛠 已隐藏开发者调试选项");
       }
     }
   });

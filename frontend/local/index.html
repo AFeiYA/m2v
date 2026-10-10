@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>M2V 歌词与字幕对齐编辑器</title>
   <script src="/static/wavesurfer.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css?v=20261010_snap">
+  <link rel="stylesheet" href="/static/style.css?v=20261010_devhistory">
 </head>
 
 <body>
@@ -20,13 +20,13 @@
                onfocus="this.style.width='250px'" onblur="this.style.width='195px'"
                onkeydown="if(event.key==='Enter') handleSunoImport()" />
         <datalist id="suno-url-history"></datalist>
-        <select id="suno-url-history-select" title="最近 10 条测试 URL 历史记录"
-                style="height: 24px; max-width: 125px; font-size: 11px; background: #1a202c; color: #cbd5e1; border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; outline: none; cursor: pointer;"
-                onchange="if(this.value){ document.getElementById('suno-url-input').value = this.value; this.value=''; }">
-          <option value="">🕒 最近历史</option>
-        </select>
-        <!-- 开发者调试选项 (默认隐藏，保证界面清爽与最高对齐准确率；可通过三击标题/Ctrl+Shift+D/?dev=1唤出) -->
+        <!-- 开发者调试选项 (默认隐藏，保证界面清爽；可通过三击标题/Ctrl+Shift+D/?dev=1唤出，包含URL最近历史与算法调试项) -->
         <div id="suno-dev-options" style="display: none; align-items: center; gap: 6px;">
+          <select id="suno-url-history-select" title="最近 10 条测试 URL 历史记录"
+                  style="height: 24px; max-width: 125px; font-size: 11px; background: #1a202c; color: #cbd5e1; border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; outline: none; cursor: pointer;"
+                  onchange="if(this.value){ document.getElementById('suno-url-input').value = this.value; this.value=''; }">
+            <option value="">🕒 最近历史</option>
+          </select>
           <label title="勾选：提取纯人声干音，适合流行/摇滚/电音等复杂伴奏，100%防止漏词跳句；取消勾选：极速模式直接对齐原曲" style="display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: #cbd5e1; cursor: pointer; user-select: none;">
             <input type="checkbox" id="chk-separate-vocals" checked style="cursor: pointer; margin: 0; accent-color: #ff4b2b;">
             <span>分离伴奏</span>
@@ -354,8 +354,8 @@
     </div>
   </div>
 
-  <script src="/static/common.js?v=20261010_snap"></script>
-  <script src="/static/lyric_editor.js?v=20261010_snap"></script>
+  <script src="/static/common.js?v=20261010_devhistory"></script>
+  <script src="/static/lyric_editor.js?v=20261010_devhistory"></script>
 </body>
 
 </html>
