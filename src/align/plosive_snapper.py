@@ -138,6 +138,42 @@ def decompose_word_syllables(w: WordTimestamp) -> list[SyllableTimestamp] | None
     return res
 
 
+def _extract_burst_candidates(
+    clip: np.ndarray,
+    s_bound: float,
+    sr: int = 16000,
+    min_score: float = 30.0,
+) -> list[tuple[float, float, float]]:
+    """Extracts burst candidates sorted by score descending: (score, burst_time, closure_time)."""
+    if len(clip) < int(sr * 0.04):
+        return []
+    import librosa
+    hop = int(sr * 0.005)  # 5ms
+    win = int(sr * 0.015)  # 15ms
+    rms = librosa.feature.rms(y=clip, frame_length=win, hop_length=hop)[0]
+    n_fft = min(512, len(clip))
+    onset = librosa.onset.onset_strength(y=clip, sr=sr, hop_length=hop, n_fft=n_fft)
+    min_len = min(len(rms), len(onset))
+    rms = rms[:min_len]
+    onset = onset[:min_len]
+    times = s_bound + np.arange(min_len) * 0.005
+    pre_window = int(0.06 / 0.005)
+
+    candidates: list[tuple[float, float, float]] = []
+    for idx in range(1, min_len - 1):
+        o_curr = onset[idx]
+        pre_start = max(0, idx - pre_window)
+        pre_rms = np.min(rms[pre_start:idx]) if idx > pre_start else rms[idx]
+        if o_curr > 0.8:
+            score = o_curr / (pre_rms + 0.005)
+            if score >= min_score:
+                c_idx = pre_start + int(np.argmin(rms[pre_start:idx])) if idx > pre_start else idx
+                candidates.append((float(score), float(times[idx]), float(times[c_idx])))
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    return candidates
+
+
 def refine_plosives_and_melisma(
     words: list[WordTimestamp],
     wav_16k: np.ndarray,
@@ -162,68 +198,84 @@ def refine_plosives_and_melisma(
             continue
 
         w_start = w.start
-        prev_end = words[i - 1].end if i > 0 else w_start - 0.5
-        prev_start = words[i - 1].start if i > 0 else prev_end
+        w_end = w.end
+        dur = w_end - w_start
+        prev_w = words[i - 1] if i > 0 else None
+        is_mono = len(split_english_syllable_texts(w.word)) <= 1
 
-        # Search window for plosive burst near w.start: [w_start - 0.25, w_start + 0.20]
+        snapped = False
+        # 1. 针对被 Whisper 误将前置转音/长音划入本词的异常超长辅音词 (如 'never could' 中 could 被拉长至 1.3s)
+        # 如果是单音节词且 dur > 0.40s，或任意词 dur > 0.60s，且前词存在：
+        # 向后广域搜索是否存在真实的后置卡点爆破
+        if prev_w is not None and ((is_mono and dur > 0.40) or dur > 0.60):
+            s_wide = w_start + 0.15
+            e_wide = w_end - 0.05
+            s_idx = max(0, int((s_wide - clip_offset) * sr))
+            e_idx = min(len(wav_16k), int((e_wide - clip_offset) * sr))
+            if e_idx - s_idx >= int(sr * 0.05):
+                clip_wide = wav_16k[s_idx:e_idx]
+                late_cands = _extract_burst_candidates(clip_wide, s_wide, sr=sr, min_score=50.0)
+                late_cands = [c for c in late_cands if c[1] >= w_start + 0.25]
+                for sc, b_t, c_t in late_cands:
+                    # 检查从 prev_w.end 到该闭塞点之间是否为连续人声转音 (低静音率、高能量)
+                    m_s = max(0, int((prev_w.end - clip_offset) * sr))
+                    m_e = min(len(wav_16k), int((c_t - clip_offset) * sr))
+                    if m_e - m_s >= int(sr * 0.05):
+                        m_clip = wav_16k[m_s:m_e]
+                        m_rms = librosa.feature.rms(y=m_clip, frame_length=int(sr * 0.03), hop_length=int(sr * 0.01))[0]
+                        sil_ratio = np.mean(m_rms < 0.012)
+                        mean_r = np.mean(m_rms)
+                        if sil_ratio < 0.18 and mean_r > 0.025:
+                            burst_time = round(float(b_t), 3)
+                            closure_time = round(float(c_t), 3)
+                            log.info(
+                                "🎵 [爆破后移与转音贯通] '%s' 真实爆破在 %.3fs (闭塞点 %.3fs, 评分 %.1f)，将前词 '%s' 贯通至 %.3fs",
+                                w.word,
+                                burst_time,
+                                closure_time,
+                                sc,
+                                prev_w.word,
+                                closure_time,
+                            )
+                            w.start = burst_time
+                            w.end = max(w.end, round(w.start + 0.22, 3))
+                            prev_w.end = closure_time
+                            prev_w.syllables = None  # 重新触发音节时长拆解
+                            snapped = True
+                            break
+
+        if snapped:
+            continue
+
+        # 2. 常规近邻爆破搜索: [w_start - 0.25, w_start + 0.20]
+        prev_start = prev_w.start if prev_w else w_start - 0.5
         s_bound = max(prev_start + 0.10, w_start - 0.25)
-        e_bound = min(w.end - 0.05, w_start + 0.20)
-
+        e_bound = min(w_end - 0.05, w_start + 0.20)
         if e_bound <= s_bound + 0.04:
             continue
 
-        s_idx = int((s_bound - clip_offset) * sr)
-        e_idx = int((e_bound - clip_offset) * sr)
-        if s_idx < 0 or e_idx > len(wav_16k) or e_idx - s_idx < int(sr * 0.04):
+        s_idx = max(0, int((s_bound - clip_offset) * sr))
+        e_idx = min(len(wav_16k), int((e_bound - clip_offset) * sr))
+        if e_idx - s_idx < int(sr * 0.04):
             continue
 
         clip = wav_16k[s_idx:e_idx]
-        hop = int(sr * 0.005)  # 5ms
-        win = int(sr * 0.015)  # 15ms
-        rms = librosa.feature.rms(y=clip, frame_length=win, hop_length=hop)[0]
-        n_fft = min(512, len(clip))
-        onset = librosa.onset.onset_strength(y=clip, sr=sr, hop_length=hop, n_fft=n_fft)
-        times = s_bound + np.arange(len(rms)) * 0.005
-
-        best_burst_t: Optional[float] = None
-        best_burst_score = 0.0
-        best_closure_t: Optional[float] = None
-
-        for idx in range(1, len(times) - 1):
-            t_curr = times[idx]
-            o_curr = onset[idx]
-            pre_start = max(0, idx - int(0.06 / 0.005))
-            pre_rms = np.min(rms[pre_start:idx]) if idx > pre_start else rms[idx]
-
-            # Burst has significant onset and pre_rms is an acoustic dip
-            if o_curr > 0.8:
-                score = o_curr / (pre_rms + 0.005)
-                if score > best_burst_score:
-                    best_burst_score = score
-                    best_burst_t = t_curr
-                    c_idx = pre_start + int(np.argmin(rms[pre_start:idx]))
-                    best_closure_t = times[c_idx]
-
-        if best_burst_t is not None and best_burst_score > 30.0 and best_closure_t is not None:
-            burst_time = round(float(best_burst_t), 3)
-            closure_time = round(float(best_closure_t), 3)
-
-            # Snap word start to burst
+        local_cands = _extract_burst_candidates(clip, s_bound, sr=sr, min_score=30.0)
+        if local_cands:
+            sc, b_t, c_t = local_cands[0]
+            burst_time = round(float(b_t), 3)
+            closure_time = round(float(c_t), 3)
             w.start = burst_time
 
-            # Refine previous word if in the same phrase
-            if i > 0:
-                prev_w = words[i - 1]
+            if prev_w is not None:
                 gap = closure_time - prev_w.end
                 if gap > 0.15:
-                    # Check if there is vocal melisma / continuation in [prev_w.end, closure_time]
-                    g_s_idx = int((prev_w.end - clip_offset) * sr)
-                    g_e_idx = int((closure_time - clip_offset) * sr)
-                    if g_e_idx > g_s_idx + int(sr * 0.05):
-                        g_clip = wav_16k[g_s_idx:g_e_idx]
+                    g_s = max(0, int((prev_w.end - clip_offset) * sr))
+                    g_e = min(len(wav_16k), int((closure_time - clip_offset) * sr))
+                    if g_e - g_s >= int(sr * 0.05):
+                        g_clip = wav_16k[g_s:g_e]
                         g_rms = librosa.feature.rms(y=g_clip, frame_length=int(sr * 0.03), hop_length=int(sr * 0.01))[0]
-                        active_ratio = np.mean(g_rms > 0.02)
-                        if active_ratio > 0.40:
+                        if np.mean(g_rms > 0.02) > 0.40:
                             log.info(
                                 "🎵 [转音智能延续] 检测到 '%s' 延展转音 (%.2fs ~ %.2fs)，桥接至爆破闭塞点 %.3fs",
                                 prev_w.word,
@@ -232,9 +284,10 @@ def refine_plosives_and_melisma(
                                 closure_time,
                             )
                             prev_w.end = closure_time
+                            prev_w.syllables = None
                 elif prev_w.end > burst_time:
-                    # Overlapping with burst: pull back to before closure
                     prev_w.end = max(prev_w.start + 0.05, closure_time)
+                    prev_w.syllables = None
 
     # Populate syllable decomposition for all multi-syllable words in the line
     for w in words:
@@ -244,3 +297,4 @@ def refine_plosives_and_melisma(
                 w.syllables = syls
 
     return words
+

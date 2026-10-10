@@ -71,3 +71,38 @@ def test_plosive_snap_and_melisma_extension():
     # 'never' syllables created
     assert refined[0].syllables is not None
     assert len(refined[0].syllables) == 2
+
+
+def test_elongated_plosive_snap_and_melisma_bridging():
+    sr = 16000
+    # Synthetic audio where singer sings 'never' continuously from 0.2s to 1.80s
+    # Closure silence at 1.80 ~ 1.90s
+    # Plosive burst at 1.90s, followed by 'could' tone to 2.4s
+    t = np.linspace(0, 3.0, 3 * sr, endpoint=False)
+    wav = np.zeros_like(t, dtype=np.float32)
+    # Melisma unbroken tone
+    wav[int(0.2 * sr) : int(1.80 * sr)] = 0.08 * np.sin(2 * np.pi * 220 * t[int(0.2 * sr) : int(1.80 * sr)])
+    # Closure dip at 1.80 ~ 1.90s (silence)
+    # Burst at 1.90s
+    burst_idx = int(1.90 * sr)
+    wav[burst_idx : burst_idx + int(0.01 * sr)] = 0.5 * np.random.randn(int(0.01 * sr))
+    wav[burst_idx + int(0.01 * sr) : int(2.4 * sr)] = 0.08 * np.sin(2 * np.pi * 260 * t[burst_idx + int(0.01 * sr) : int(2.4 * sr)])
+
+    # Whisper erroneously split 'could' at 1.0s (dur=1.4s) instead of 1.90s
+    words = [
+        WordTimestamp(word="never", start=0.2, end=1.0),
+        WordTimestamp(word="could", start=1.0, end=2.4),
+    ]
+
+    refined = refine_plosives_and_melisma(words, wav, sr=sr)
+    assert len(refined) == 2
+    # 'could' onset must be snapped to the true burst (~1.90s), NOT left at 1.0s
+    assert abs(refined[1].start - 1.90) <= 0.03
+    # 'never' must be bridged to the closure dip (~1.80s ~ 1.88s)
+    assert refined[0].end >= 1.75
+    assert refined[0].end <= refined[1].start
+    # 'never' syllables must be re-decomposed
+    assert refined[0].syllables is not None
+    assert len(refined[0].syllables) == 2
+    assert refined[0].syllables[1].end == refined[0].end
+
