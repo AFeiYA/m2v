@@ -399,11 +399,11 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .word-bar.needs-review::after { content: "⚠待复核"; position: absolute; top: 1px; right: 2px; font-size: 8px; color: #fbbf24; opacity: 0.85; pointer-events: none; }
 .word-bar .word-dur { position: absolute; bottom: 2px; font-size: 9px; color: var(--text-dim); font-family: monospace; }
 .word-bar .drag-handle {
-  position: absolute; right: -4px; top: 0; bottom: 0;
-  width: 8px; cursor: col-resize; z-index: 4;
+  position: absolute; right: -6px; top: 0; bottom: 0;
+  width: 12px; cursor: col-resize; z-index: 5;
 }
-.word-bar .drag-handle:hover { background: var(--accent); opacity: 0.7; border-radius: 2px; }
-.word-bar .drag-handle:active { background: #ff0; opacity: 0.9; }
+.word-bar .drag-handle:hover { background: var(--accent); opacity: 0.75; border-radius: 2px; }
+.word-bar .drag-handle:active { background: #ff0; opacity: 0.95; }
 
 /* 紧凑的前后间歇/间奏占位块 (固定小宽度，保证歌词主体开阔舒展) */
 .gap-pill {

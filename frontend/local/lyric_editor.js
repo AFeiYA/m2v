@@ -767,14 +767,15 @@ function renderWords(lineIdx) {
     bar.innerHTML = `
       <span>${escHtml(w.word.trim() || w.word)}</span>
       <span class="word-dur">${(dur * 1000).toFixed(0)}</span>
-      ${isInternal ? '<div class="drag-handle" title="拖拽分割点 | 双击=对齐至当前播放头"></div>' : ''}
+      <div class="drag-handle" title="${isInternal ? '拖拽分割点 | 双击=对齐至当前播放头' : '拖拽尾字收唱 | 双击=对齐至当前播放头'}"></div>
     `;
 
     bar.addEventListener("click", (e) => {
       if (e.target.classList.contains("drag-handle")) return;
       selectWord(i);
     });
-    bar.addEventListener("dblclick", () => {
+    bar.addEventListener("dblclick", (e) => {
+      if (e.target.classList.contains("drag-handle")) return;
       if (ws) {
         ws.setTime(w.start); ws.play(); if (dom.btnPlayPause) dom.btnPlayPause.textContent = "⏸ 暂停";
         if (wsInst && instReady) { wsInst.setTime(w.start); wsInst.play(); }
@@ -789,16 +790,7 @@ function renderWords(lineIdx) {
       }
     });
 
-    if (isInternal) {
-      setupDragHandle(bar, i, lineIdx, wordsTrack);
-      const handle = bar.querySelector(".drag-handle");
-      if (handle) {
-        handle.addEventListener("dblclick", (e) => {
-          e.preventDefault(); e.stopPropagation();
-          snapSplitToPlayhead(lineIdx, i);
-        });
-      }
-    }
+    setupDragHandle(bar, i, lineIdx, wordsTrack);
 
     wordsTrack.appendChild(bar);
   });
@@ -957,6 +949,9 @@ function setupLineEdgeDragHandle(prePill, postPill, lineIdx, wordsTrack) {
   const handleStart = prePill.querySelector(".handle-line-start");
   const handleEnd = postPill.querySelector(".handle-line-end");
 
+  let lastStartClickTime = 0;
+  let lastEndClickTime = 0;
+
   if (handleStart) {
     handleStart.addEventListener("dblclick", (e) => {
       e.preventDefault(); e.stopPropagation();
@@ -965,9 +960,17 @@ function setupLineEdgeDragHandle(prePill, postPill, lineIdx, wordsTrack) {
 
     handleStart.addEventListener("mousedown", (e) => {
       e.preventDefault(); e.stopPropagation();
+
+      const now = Date.now();
+      if (now - lastStartClickTime < 350) {
+        lastStartClickTime = 0;
+        snapFirstWordStartToPlayhead(lineIdx);
+        return;
+      }
+      lastStartClickTime = now;
+
       const line = state.alignment?.lines?.[lineIdx];
       if (!line || !line.words?.length) return;
-      pushUndo();
       const startX = e.clientX;
       const startStart = line.words[0].start;
       const trackWidth = wordsTrack.getBoundingClientRect().width || 400;
@@ -978,9 +981,18 @@ function setupLineEdgeDragHandle(prePill, postPill, lineIdx, wordsTrack) {
       const minStart = prevLine ? (prevLine.end + 0.01) : 0.0;
       const maxStart = line.words.length > 1 ? (line.words[1].start - 0.05) : (line.end - 0.05);
 
+      let moved = false;
+      let hasPushedUndo = false;
+
       document.body.style.cursor = "col-resize";
       const onMove = (ev) => {
         const dx = ev.clientX - startX;
+        if (!moved && Math.abs(dx) < 3) return;
+        moved = true;
+        if (!hasPushedUndo) {
+          pushUndo();
+          hasPushedUndo = true;
+        }
         const dt = dx / pxPerSec;
         const newStart = Math.round((startStart + dt) * 1000) / 1000;
         const clamped = Math.max(minStart, Math.min(maxStart, newStart));
@@ -997,10 +1009,12 @@ function setupLineEdgeDragHandle(prePill, postPill, lineIdx, wordsTrack) {
         document.body.style.cursor = "";
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
-        syncLineFromWords(lineIdx);
-        renderLyrics();
-        selectLine(lineIdx);
-        selectWord(0);
+        if (moved) {
+          syncLineFromWords(lineIdx);
+          renderLyrics();
+          selectLine(lineIdx);
+          selectWord(0);
+        }
       };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
@@ -1016,10 +1030,19 @@ function setupLineEdgeDragHandle(prePill, postPill, lineIdx, wordsTrack) {
 
     handleEnd.addEventListener("mousedown", (e) => {
       e.preventDefault(); e.stopPropagation();
+
+      const now = Date.now();
+      if (now - lastEndClickTime < 350) {
+        lastEndClickTime = 0;
+        const line = state.alignment?.lines?.[lineIdx];
+        if (line && line.words?.length) snapSplitToPlayhead(lineIdx, line.words.length - 1);
+        return;
+      }
+      lastEndClickTime = now;
+
       const line = state.alignment?.lines?.[lineIdx];
       if (!line || !line.words?.length) return;
       const lastIdx = line.words.length - 1;
-      pushUndo();
       const startX = e.clientX;
       const startEnd = line.words[lastIdx].end;
       const trackWidth = wordsTrack.getBoundingClientRect().width || 400;
@@ -1031,9 +1054,18 @@ function setupLineEdgeDragHandle(prePill, postPill, lineIdx, wordsTrack) {
       const maxEnd = nextLine ? (nextLine.start - 0.01) : audioDur;
       const minEnd = line.words[lastIdx].start + 0.05;
 
+      let moved = false;
+      let hasPushedUndo = false;
+
       document.body.style.cursor = "col-resize";
       const onMove = (ev) => {
         const dx = ev.clientX - startX;
+        if (!moved && Math.abs(dx) < 3) return;
+        moved = true;
+        if (!hasPushedUndo) {
+          pushUndo();
+          hasPushedUndo = true;
+        }
         const dt = dx / pxPerSec;
         const newEnd = Math.round((startEnd + dt) * 1000) / 1000;
         const clamped = Math.max(minEnd, Math.min(maxEnd, newEnd));
@@ -1047,10 +1079,12 @@ function setupLineEdgeDragHandle(prePill, postPill, lineIdx, wordsTrack) {
         document.body.style.cursor = "";
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
-        syncLineFromWords(lineIdx);
-        renderLyrics();
-        selectLine(lineIdx);
-        selectWord(lastIdx);
+        if (moved) {
+          syncLineFromWords(lineIdx);
+          renderLyrics();
+          selectLine(lineIdx);
+          selectWord(lastIdx);
+        }
       };
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
@@ -1062,46 +1096,86 @@ function setupDragHandle(bar, wordIdx, lineIdx, wordsTrack) {
   const handle = bar.querySelector(".drag-handle");
   if (!handle) return;
 
+  let lastClickTime = 0;
+
+  handle.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    snapSplitToPlayhead(lineIdx, wordIdx);
+  });
+
   handle.addEventListener("mousedown", (e) => {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
+
+    const now = Date.now();
+    if (now - lastClickTime < 350) {
+      lastClickTime = 0;
+      snapSplitToPlayhead(lineIdx, wordIdx);
+      return;
+    }
+    lastClickTime = now;
+
     const line = state.alignment?.lines?.[lineIdx];
     if (!line || !line.words?.length) return;
     const words = line.words;
-    if (wordIdx >= words.length - 1) return;
-    pushUndo();
+    if (wordIdx < 0 || wordIdx >= words.length) return;
+
+    const isLastWord = (wordIdx === words.length - 1);
     const startX = e.clientX;
     const startEnd = words[wordIdx].end;
     const trackWidth = wordsTrack.getBoundingClientRect().width || 400;
     const activeSpan = Math.max(0.1, words[words.length - 1].end - words[0].start);
     const pxPerSec = trackWidth / activeSpan;
 
+    const lines = state.alignment.lines;
+    const nextLine = lineIdx < lines.length - 1 ? lines[lineIdx + 1] : null;
+    const audioDur = (ws && ws.getDuration && ws.getDuration() > 0) ? ws.getDuration() : 9999;
     const minEnd = words[wordIdx].start + 0.01;
-    const maxEnd = words[wordIdx + 1].end - 0.01;
+    const maxEnd = isLastWord ? (nextLine ? (nextLine.start - 0.01) : audioDur) : (words[wordIdx + 1].end - 0.01);
+
+    let moved = false;
+    let hasPushedUndo = false;
 
     document.body.style.cursor = "col-resize";
     const onMove = (ev) => {
       const dx = ev.clientX - startX;
+      if (!moved && Math.abs(dx) < 3) return;
+      moved = true;
+      if (!hasPushedUndo) {
+        pushUndo();
+        hasPushedUndo = true;
+      }
       const dt = dx / pxPerSec;
       const newEnd = Math.round((startEnd + dt) * 1000) / 1000;
       const clamped = Math.max(minEnd, Math.min(maxEnd, newEnd));
       words[wordIdx].end = clamped;
-      words[wordIdx + 1].start = clamped;
+      if (isLastWord) {
+        line.end = clamped;
+      } else {
+        words[wordIdx + 1].start = clamped;
+      }
       renderWords(lineIdx);
       selectWord(wordIdx);
       markDirty();
     };
+
     const onUp = () => {
       document.body.style.cursor = "";
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
-      delete words[wordIdx].needs_review;
-      delete words[wordIdx].unresolved_compound;
-      if (words[wordIdx + 1]) {
-        delete words[wordIdx + 1].needs_review;
-        delete words[wordIdx + 1].unresolved_compound;
+      if (moved) {
+        delete words[wordIdx].needs_review;
+        delete words[wordIdx].unresolved_compound;
+        if (!isLastWord && words[wordIdx + 1]) {
+          delete words[wordIdx + 1].needs_review;
+          delete words[wordIdx + 1].unresolved_compound;
+        }
+        syncLineFromWords(lineIdx);
+        renderLyrics();
+        renderWords(lineIdx);
+        selectWord(wordIdx);
       }
-      syncLineFromWords(lineIdx);
-      renderWords(lineIdx);
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
