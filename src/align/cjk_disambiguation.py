@@ -157,12 +157,16 @@ def trim_intra_line_silence_gaps(
             return words
         thr = float(np.percentile(active_rms, 25)) * 0.6
 
+        # 计算当前行中位字长，慢歌门槛自动宽容，快歌自动敏锐
+        line_durs = [w.end - w.start for w in words]
+        med_dur = float(np.median(line_durs)) if line_durs else 0.25
+
         for i in range(1, len(words)):
             w = words[i]
             dur = w.end - w.start
-            # 单个汉字大于 0.45s 或西文词大于 0.8s 视为疑似静音扩张候选
+            # 动态门槛：汉字为 max(0.40s, 1.6 * 中位字长)；西文为 max(0.70s, 2.0 * 中位字长)
             is_cjk = any("\u4e00" <= c <= "\u9fff" for c in w.word)
-            char_thr = 0.45 if is_cjk else 0.80
+            char_thr = max(0.40, 1.6 * med_dur) if is_cjk else max(0.70, 2.0 * med_dur)
             if dur < char_thr:
                 continue
 
