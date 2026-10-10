@@ -210,6 +210,26 @@ function range(start: number, end: number): number[] {
   return r;
 }
 
+export function joinWordsWithSpacing(words: { word: string }[], indices: number[]): string {
+  let text = '';
+  for (let k = 0; k < indices.length; k++) {
+    const idx = indices[k];
+    const w = words[idx].word;
+    text += w;
+    if (k < indices.length - 1 && !w.endsWith(' ') && idx < words.length - 1) {
+      const nextW = words[indices[k + 1]].word;
+      if (!nextW.startsWith(' ') && !/^[,.!?;:)\]}'"’”，。！？、；：]/u.test(nextW)) {
+        const pCJK = /[\p{Script=Han}]/u.test(w.slice(-1));
+        const nCJK = /[\p{Script=Han}]/u.test(nextW[0]);
+        if (!(pCJK && nCJK)) {
+          text += ' ';
+        }
+      }
+    }
+  }
+  return text;
+}
+
 export function segmentWordByWord(line: Line, maxBlocks = 8): { text: string; word_indices: number[] }[] {
   const hasHan = /[\p{Script=Han}]/u.test(line.text);
   let rawSegments: string[] = [];
@@ -249,7 +269,7 @@ export function segmentWordByWord(line: Line, maxBlocks = 8): { text: string; wo
     }
     if (indices.length) {
       blocks.push({
-        text: indices.map(i => line.words[i].word).join(''),
+        text: joinWordsWithSpacing(line.words, indices),
         word_indices: indices
       });
     }
@@ -264,7 +284,7 @@ export function segmentWordByWord(line: Line, maxBlocks = 8): { text: string; wo
       }
     } else {
       blocks.push({
-        text: line.words.map(w => w.word).join(''),
+        text: joinWordsWithSpacing(line.words, line.words.map((_, i) => i)),
         word_indices: line.words.map((_, i) => i)
       });
     }
@@ -311,7 +331,7 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
   }
   const N=line.words.length;
   const sliceWords=(indices:number[])=>({
-    text:indices.map(i=>line.words[i].word).join(''),
+    text:joinWordsWithSpacing(line.words, indices),
     word_indices:indices
   });
 

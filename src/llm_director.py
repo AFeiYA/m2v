@@ -970,7 +970,11 @@ def generate_llm_ass(alignment_path: Path, output_ass_path: Path, config_path: P
                         dur_cs = 0
                         
                     k_tag = "kf" if config.use_karaoke_gradient else "k"
-                    karaoke_text += f"{{\\{k_tag}{dur_cs}}}{word.word}"
+                    if word.word.startswith("\\N"):
+                        w_disp = word.word[2:]
+                        karaoke_text += f"\\N{{\\{k_tag}{dur_cs}}}{w_disp}"
+                    else:
+                        karaoke_text += f"{{\\{k_tag}{dur_cs}}}{word.word}"
                     current_t = max(word.end, current_t)
                 
                 tags_active = f"\\an4{pos_tag}{tag_steady}{anim_tag}"

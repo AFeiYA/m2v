@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from src.aligner import AlignmentResult, AlignedLine
+from src.aligner import AlignmentResult, AlignedLine, WordTimestamp
 from src.config import SubtitleConfig
 from src.utils import log, seconds_to_ass_time, seconds_to_centiseconds
 
@@ -123,6 +123,102 @@ def generate_ass(
     log.info("ASS 字幕已生成: %s (%d 行 Dialogue)", output_path.name, len(dialogue_lines))
     return output_path
 
+def is_cjk(ch: str) -> bool:
+    """判断字符中是否包含中日韩汉字"""
+    return any("\u4e00" <= c <= "\u9fff" or "\u3400" <= c <= "\u4dbf" for c in ch)
+
+
+def needs_space_between(prev_w: str, next_w: str) -> bool:
+    """判断两个词之间是否需要追加空格 (英文/数字边界补齐，连续 CJK 汉字不补)"""
+    if not prev_w or not next_w:
+        return False
+    if prev_w[-1].isspace() or next_w[0].isspace():
+        return False
+    # 若下一个词以标点开头（如逗号、句号、闭括号），前面不加空格
+    if next_w[0] in ",.!?;:)]}'\"’”，。！？、；：":
+        return False
+    # 若前一个词以开括号/开引号结尾，后面不加空格
+    if prev_w[-1] in "([{<“‘":
+        return False
+    # 两个都是汉字：不加空格
+    p_cjk = is_cjk(prev_w[-1])
+    n_cjk = is_cjk(next_w[0])
+    if p_cjk and n_cjk:
+        return False
+    return True
+
+
+def resolve_word_spacings(line_text: str, words: list[WordTimestamp]) -> list[str]:
+    """
+    根据原始歌词行文本 (line_text) 和字词列表 (words) 恢复英文单词间丢失的空格与标点，
+    同时确保 CJK 汉字不产生多余空格。
+    返回的 tokens 列表长度等于 len(words)，且每个 token 带有合适的尾随空格。
+    """
+    N = len(words)
+    if N == 0:
+        return []
+    raw_words = [w.word for w in words]
+    if N == 1:
+        return [raw_words[0]]
+
+    # 1. 优先尝试与原始整行 line_text 做精确位置映射
+    if line_text:
+        tokens: list[str] = []
+        pos = 0
+        success = True
+        for i, raw_w in enumerate(raw_words):
+            w_clean = raw_w.replace("\\N", "").strip()
+            if not w_clean:
+                tokens.append(raw_w)
+                continue
+            idx = line_text.find(w_clean, pos)
+            if idx == -1:
+                success = False
+                break
+
+            w_end = idx + len(w_clean)
+            pos = w_end
+
+            if i < N - 1:
+                next_clean = raw_words[i + 1].replace("\\N", "").strip()
+                next_idx = line_text.find(next_clean, pos) if next_clean else -1
+                if next_idx != -1:
+                    trailing = line_text[pos:next_idx]
+                    pos = next_idx
+                    if "\u3000" in trailing:
+                        trailing = trailing.replace("\u3000", " ")
+                    tokens.append(w_clean + trailing)
+                else:
+                    sep = " " if needs_space_between(raw_w, raw_words[i + 1]) else ""
+                    tokens.append(w_clean + sep)
+            else:
+                tokens.append(w_clean)
+
+        if success and len(tokens) == N:
+            return tokens
+
+    # 2. 若原始 words 已有空格，直接使用
+    if any(w.endswith(" ") for w in raw_words[:-1]):
+        return raw_words
+
+    # 3. 回退策略：基于语种边界启发式补全空格 (英文/数字加空格，中文不加)
+    tokens = []
+    for i in range(N):
+        curr_w = raw_words[i]
+        w_clean = curr_w.replace("\\N", "").strip()
+        if i < N - 1:
+            next_w = raw_words[i + 1].replace("\\N", "").strip()
+            if curr_w.endswith(" "):
+                tokens.append(curr_w)
+            elif needs_space_between(w_clean, next_w):
+                tokens.append(w_clean + " ")
+            else:
+                tokens.append(w_clean)
+        else:
+            tokens.append(w_clean)
+    return tokens
+
+
 def _wrap_lines(alignment: AlignmentResult, max_width: int, font_size: int, font_name: str) -> AlignmentResult:
     """使用 Pillow 计算文本宽度并在单行内插入 \\N 实现自动换行，避免产生新的物理行导致滚动抖动"""
     import platform
@@ -130,10 +226,31 @@ def _wrap_lines(alignment: AlignmentResult, max_width: int, font_size: int, font
     
     def get_fallback_font():
         system = platform.system()
+        candidates = []
+        if system == "Windows":
+            candidates = ["msyh.ttc", "simhei.ttf", "arial.ttf", "C:/Windows/Fonts/msyh.ttc"]
+        elif system == "Darwin":
+            candidates = [
+                "/System/Library/Fonts/Helvetica.ttc",
+                "/System/Library/Fonts/Supplemental/Arial.ttf",
+                "/System/Library/Fonts/Supplemental/Songti.ttc",
+                "/Library/Fonts/Arial Unicode.ttf",
+                "Helvetica.ttc",
+            ]
+        else:
+            candidates = [
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "NotoSansCJK-Regular.ttc",
+            ]
+        for c in candidates:
+            try:
+                return ImageFont.truetype(c, font_size)
+            except:
+                pass
         try:
-            if system == "Windows": return ImageFont.truetype("msyh.ttc", font_size)
-            elif system == "Darwin": return ImageFont.truetype("PingFang.ttc", font_size)
-            else: return ImageFont.truetype("NotoSansCJK-Regular.ttc", font_size)
+            return ImageFont.load_default(size=font_size)
         except:
             return ImageFont.load_default()
             
@@ -146,26 +263,31 @@ def _wrap_lines(alignment: AlignmentResult, max_width: int, font_size: int, font
             font = get_fallback_font()
             
     for line in alignment.lines:
+        tokens = resolve_word_spacings(line.text, line.words)
         current_width = 0.0
-        for word in line.words:
+        for i, word in enumerate(line.words):
+            token = tokens[i] if i < len(tokens) else word.word
             # 清理可能存在的旧换行符
-            w_text = word.word.replace("\\N", "")
+            token_clean = token.replace("\\N", "")
             try:
-                w_len = font.getlength(w_text)
+                w_len = font.getlength(token_clean)
             except AttributeError:
                 try:
-                    w_len = font.getsize(w_text)[0]
+                    w_len = font.getsize(token_clean)[0]
                 except:
-                    w_len = len(w_text) * font_size
+                    w_len = len(token_clean) * font_size
             
             if current_width + w_len > max_width and current_width > 0:
-                word.word = "\\N" + w_text
+                # 换行前去除上一词末尾的多余空格，保持排版优雅
+                if i > 0:
+                    line.words[i - 1].word = line.words[i - 1].word.rstrip(" ")
+                word.word = "\\N" + token_clean
                 current_width = w_len
             else:
-                word.word = w_text
+                word.word = token
                 current_width += w_len
                 
-        # 更新行的总文本
+        # 更新行的总文本 (保留正确的空格和换行符)
         line.text = "".join(w.word for w in line.words)
         
     return alignment
@@ -387,7 +509,11 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
                         
                     # 根据配置决定使用平滑过光 (\kf) 还是逐字跳跃 (\k)
                     k_tag = "kf" if config.use_karaoke_gradient else "k"
-                    karaoke_text += f"{{\\{k_tag}{dur_cs}}}{word.word}"
+                    if word.word.startswith("\\N"):
+                        w_disp = word.word[2:]
+                        karaoke_text += f"\\N{{\\{k_tag}{dur_cs}}}{w_disp}"
+                    else:
+                        karaoke_text += f"{{\\{k_tag}{dur_cs}}}{word.word}"
                     current_t = max(word.end, current_t)
                 
                 # Active line uses tag_steady as its base!
@@ -475,7 +601,11 @@ def _generate_tv_events(
                 dur_cs = 0
 
             k_tag = "kf" if config.use_karaoke_gradient else "k"
-            parts.append(f"{{\\{k_tag}{dur_cs}}}{word.word}")
+            if word.word.startswith("\\N"):
+                w_disp = word.word[2:]
+                parts.append(f"\\N{{\\{k_tag}{dur_cs}}}{w_disp}")
+            else:
+                parts.append(f"{{\\{k_tag}{dur_cs}}}{word.word}")
             current_t = max(word.end, current_t)
 
         return "".join(parts)
@@ -581,7 +711,11 @@ def _generate_center_bounce_events(
             if gap_cs > 0:
                 karaoke_parts.append(f"{{\\k{gap_cs}}}")
             dur_cs = max(0, int((w.end - max(w.start, c_time)) * 100))
-            karaoke_parts.append(f"{{\\{k_tag}{dur_cs}}}{w.word}")
+            if w.word.startswith("\\N"):
+                w_disp = w.word[2:]
+                karaoke_parts.append(f"\\N{{\\{k_tag}{dur_cs}}}{w_disp}")
+            else:
+                karaoke_parts.append(f"{{\\{k_tag}{dur_cs}}}{w.word}")
             c_time = max(w.end, c_time)
         karaoke_text = "".join(karaoke_parts)
 
@@ -672,7 +806,10 @@ def _create_dialogue_line(
     karaoke_parts = []
     current_t = line.start
 
-    for word in line.words:
+    tokens = resolve_word_spacings(line.text, line.words) if line.words else []
+
+    for i, word in enumerate(line.words):
+        token = tokens[i] if i < len(tokens) else word.word
         gap_cs = round((word.start - current_t) * 100)
         if gap_cs > 0:
             karaoke_parts.append(f"{{\\k{gap_cs}}}")
@@ -680,7 +817,11 @@ def _create_dialogue_line(
         dur_cs = max(0, round((word.end - max(word.start, current_t)) * 100))
         anim = _get_beat_effect(word.start, word.end, beat_times or [], config)
         prefix = f"{{{anim}}}" if anim else ""
-        karaoke_parts.append(f"{prefix}{{\\{k_tag}{dur_cs}}}{word.word}")
+        if token.startswith("\\N"):
+            w_disp = token[2:]
+            karaoke_parts.append(f"\\N{prefix}{{\\{k_tag}{dur_cs}}}{w_disp}")
+        else:
+            karaoke_parts.append(f"{prefix}{{\\{k_tag}{dur_cs}}}{token}")
         current_t = max(word.end, current_t)
 
     karaoke_text = "".join(karaoke_parts)

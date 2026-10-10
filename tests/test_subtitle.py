@@ -105,3 +105,119 @@ class TestGenerateAss:
             assert "[Events]" in content
             assert "Dialogue:" in content
             assert "\\k50" in content or "\\kf50" in content  # 每个字 0.5s = 50cs
+
+    def test_english_word_spacings_preserved(self):
+        """验证英文歌词生成 ASS 时单词间空格完整保留，不粘连"""
+        alignment = AlignmentResult(lines=[
+            AlignedLine(
+                text="The riverside unrolls like ribbon",
+                start=1.0,
+                end=4.0,
+                words=[
+                    WordTimestamp(word="The", start=1.0, end=1.5),
+                    WordTimestamp(word="riverside", start=1.5, end=2.2),
+                    WordTimestamp(word="unrolls", start=2.2, end=2.8),
+                    WordTimestamp(word="like", start=2.8, end=3.1),
+                    WordTimestamp(word="ribbon", start=3.1, end=4.0),
+                ],
+            ),
+        ])
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "test_en.ass"
+            result = generate_ass(alignment, output)
+            content = result.read_text(encoding="utf-8-sig")
+
+            # 验证活动行卡拉OK标签中英文单词后含有空格
+            assert "The " in content
+            assert "riverside " in content
+            assert "unrolls " in content
+            assert "like " in content
+            assert "ribbon" in content
+
+            # 验证未唱/静态文本中不是无空格粘连
+            assert "Theriverside" not in content
+            assert "unrollslike" not in content
+            assert alignment.lines[0].text == "The riverside unrolls like ribbon"
+
+    def test_chinese_word_spacings_not_polluted(self):
+        """验证连续中文歌词不会被错误地插入英文空格"""
+        alignment = AlignmentResult(lines=[
+            AlignedLine(
+                text="月亮在云层里",
+                start=1.0,
+                end=3.0,
+                words=[
+                    WordTimestamp(word="月", start=1.0, end=1.3),
+                    WordTimestamp(word="亮", start=1.3, end=1.6),
+                    WordTimestamp(word="在", start=1.6, end=2.0),
+                    WordTimestamp(word="云", start=2.0, end=2.3),
+                    WordTimestamp(word="层", start=2.3, end=2.6),
+                    WordTimestamp(word="里", start=2.6, end=3.0),
+                ],
+            ),
+        ])
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "test_zh.ass"
+            result = generate_ass(alignment, output)
+            content = result.read_text(encoding="utf-8-sig")
+
+            assert "月 " not in content
+            assert "亮 " not in content
+            assert "{\\kf30}月{\\kf30}亮" in content or "{\\k30}月{\\k30}亮" in content
+            assert alignment.lines[0].text == "月亮在云层里"
+
+    def test_mixed_chinese_english_spacings(self):
+        """验证中英混排歌词中，中英边界和英文间空格正常保留"""
+        alignment = AlignmentResult(lines=[
+            AlignedLine(
+                text="在 Suno 上写歌 Hello World",
+                start=1.0,
+                end=5.0,
+                words=[
+                    WordTimestamp(word="在", start=1.0, end=1.4),
+                    WordTimestamp(word="Suno", start=1.4, end=2.0),
+                    WordTimestamp(word="上", start=2.0, end=2.4),
+                    WordTimestamp(word="写", start=2.4, end=2.8),
+                    WordTimestamp(word="歌", start=2.8, end=3.2),
+                    WordTimestamp(word="Hello", start=3.2, end=4.0),
+                    WordTimestamp(word="World", start=4.0, end=5.0),
+                ],
+            ),
+        ])
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "test_mixed.ass"
+            result = generate_ass(alignment, output)
+            content = result.read_text(encoding="utf-8-sig")
+
+            assert "Suno " in content
+            assert "Hello " in content
+            assert "World" in content
+            assert alignment.lines[0].text == "在 Suno 上写歌 Hello World"
+
+    def test_tv_and_center_bounce_modes_spacing(self):
+        """验证 TV 与 center_bounce 模式下英文空格亦完整保留"""
+        alignment = AlignmentResult(lines=[
+            AlignedLine(
+                text="The riverside unrolls like ribbon",
+                start=1.0,
+                end=4.0,
+                words=[
+                    WordTimestamp(word="The", start=1.0, end=1.5),
+                    WordTimestamp(word="riverside", start=1.5, end=2.2),
+                    WordTimestamp(word="unrolls", start=2.2, end=2.8),
+                    WordTimestamp(word="like", start=2.8, end=3.1),
+                    WordTimestamp(word="ribbon", start=3.1, end=4.0),
+                ],
+            ),
+        ])
+        with tempfile.TemporaryDirectory() as td:
+            for mode in ["tv", "center_bounce"]:
+                cfg = SubtitleConfig(render_mode=mode)
+                output = Path(td) / f"test_{mode}.ass"
+                res_align = alignment.model_copy(deep=True)
+                generate_ass(res_align, output, config=cfg)
+                content = output.read_text(encoding="utf-8-sig")
+                assert "The " in content
+                assert "riverside " in content
+                assert "Theriverside" not in content
+
