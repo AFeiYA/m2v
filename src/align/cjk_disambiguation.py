@@ -128,6 +128,80 @@ def find_acoustic_split_points(
     return splits, all_confident
 
 
+def trim_intra_line_silence_gaps(
+    words: list[WordTimestamp],
+    wav_16k: Optional[np.ndarray],
+    sr: int = 16000,
+    clip_offset: float = 0.0,
+    min_gap_sec: float = 0.15,
+) -> list[WordTimestamp]:
+    """探测并修剪句内连续重复词或长字之间的静音气口（如'失重 失重 失重'）。
+
+    Whisper 贪婪注意力常将词间 0.5s~1.5s 的伴奏空白/换气气口错误挂在后一个词的 start 前端，
+    导致后一个词被异常拉长并在静音区提前亮起。
+    本算法自字词 end 处逆向扫描 RMS 能量，精确寻找发音起唱点，释放词间静音气口。
+    """
+    if not words or wav_16k is None or len(words) < 2:
+        return words
+
+    try:
+        import librosa
+
+        hop = int(sr * 0.005)  # 5ms 步长
+        win = int(sr * 0.020)  # 20ms 窗口
+        rms = librosa.feature.rms(y=wav_16k, frame_length=win, hop_length=hop)[0]
+        times = clip_offset + np.arange(len(rms)) * 0.005
+
+        active_rms = rms[rms > 0.015]
+        if len(active_rms) == 0:
+            return words
+        thr = float(np.percentile(active_rms, 25)) * 0.6
+
+        for i in range(1, len(words)):
+            w = words[i]
+            dur = w.end - w.start
+            # 单个汉字大于 0.45s 或西文词大于 0.8s 视为疑似静音扩张候选
+            is_cjk = any("\u4e00" <= c <= "\u9fff" for c in w.word)
+            char_thr = 0.45 if is_cjk else 0.80
+            if dur < char_thr:
+                continue
+
+            mask = (times >= w.start) & (times <= w.end)
+            t_clip = times[mask]
+            r_clip = rms[mask]
+            if len(r_clip) < 20:
+                continue
+
+            # 从词尾逆向往前扫描
+            idx = len(r_clip) - 1
+            while idx >= 0 and r_clip[idx] < thr:
+                idx -= 1
+            if idx < 0:
+                continue
+
+            silence_count = 0
+            onset_idx = idx
+            while idx >= 0:
+                if r_clip[idx] < thr:
+                    silence_count += 1
+                    if silence_count >= 16:  # 持续 80ms 低能量视为静音断层
+                        break
+                else:
+                    silence_count = 0
+                    onset_idx = idx
+                idx -= 1
+
+            true_onset = float(t_clip[onset_idx])
+            # 若真实起唱点明显晚于当前 start，则修正起唱点
+            if true_onset - w.start >= min_gap_sec:
+                w.start = round(true_onset, 3)
+
+    except Exception as e:
+        log.warning("句内气口探测失败: %s", e)
+
+    return words
+
+
 def reconcile_aligned_words(
     target_text: str,
     whisper_words: list[WordTimestamp],
@@ -166,9 +240,9 @@ def reconcile_aligned_words(
                     word=target,
                     start=cur_w.start,
                     end=cur_w.end,
-                    syllables=cur_w.syllables,
-                    needs_review=cur_w.needs_review,
-                    unresolved_compound=cur_w.unresolved_compound,
+                    syllables=getattr(cur_w, "syllables", None),
+                    needs_review=getattr(cur_w, "needs_review", None),
+                    unresolved_compound=getattr(cur_w, "unresolved_compound", None),
                 )
             )
             t_idx += 1
@@ -250,7 +324,7 @@ def reconcile_aligned_words(
                 word=target,
                 start=cur_w.start,
                 end=cur_w.end,
-                needs_review=cur_w.needs_review,
+                needs_review=getattr(cur_w, "needs_review", None),
             )
         )
         t_idx += 1
@@ -261,5 +335,14 @@ def reconcile_aligned_words(
         prev_e = out_words[-1].end if out_words else 0.0
         out_words.append(WordTimestamp(word=targets[t_idx], start=prev_e, end=prev_e + 0.3))
         t_idx += 1
+
+    # 6. 句内静音气口逆向探测与修剪 (解决重复词 '失重 失重 失重' 之间的换气伴奏空白)
+    if wav_16k is not None:
+        out_words = trim_intra_line_silence_gaps(
+            words=out_words,
+            wav_16k=wav_16k,
+            sr=sr,
+            clip_offset=clip_offset,
+        )
 
     return out_words

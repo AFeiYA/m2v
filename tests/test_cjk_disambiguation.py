@@ -95,3 +95,30 @@ def test_find_acoustic_split_points_sine_wave():
     assert len(splits) == 1
     assert 0.35 <= splits[0] <= 0.55
     assert confident is True
+
+
+def test_trim_intra_line_silence_gaps():
+    from src.align.cjk_disambiguation import trim_intra_line_silence_gaps
+
+    sr = 16000
+    total_len = int(sr * 3.0)
+    y = np.zeros(total_len, dtype=np.float32)
+
+    # Burst 1: 0.0s to 0.5s (失重 1)
+    y[0:int(0.5*sr)] = np.sin(2 * np.pi * 440 * np.linspace(0, 0.5, int(0.5*sr)))
+    # Silence: 0.5s to 1.5s (1.0s gap)
+    # Burst 2: 1.5s to 2.0s (失重 2)
+    y[int(1.5*sr):int(2.0*sr)] = np.sin(2 * np.pi * 440 * np.linspace(0, 0.5, int(0.5*sr)))
+
+    # Suppose word 2 was bloated to start at 0.5s covering the silence
+    words = [
+        WordTimestamp(word="失", start=0.0, end=0.25),
+        WordTimestamp(word="重", start=0.25, end=0.5),
+        WordTimestamp(word="失", start=0.5, end=1.75),  # bloated duration 1.25s
+        WordTimestamp(word="重", start=1.75, end=2.0),
+    ]
+
+    trimmed = trim_intra_line_silence_gaps(words, y, sr=sr)
+    # Word 2 ('失') should have its start trimmed from 0.5s to ~1.5s!
+    assert trimmed[2].start >= 1.4
+    assert trimmed[2].end == 1.75
