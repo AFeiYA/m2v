@@ -122,3 +122,25 @@ def test_trim_intra_line_silence_gaps():
     # Word 2 ('失') should have its start trimmed from 0.5s to ~1.5s!
     assert trimmed[2].start >= 1.4
     assert trimmed[2].end == 1.75
+
+
+def test_trim_sentence_initial_silence_gap():
+    from src.align.cjk_disambiguation import trim_intra_line_silence_gaps
+
+    sr = 16000
+    total_len = int(sr * 2.0)
+    y = np.zeros(total_len, dtype=np.float32)
+
+    # Word 0 ('所'): starts with 150ms breath silence [1.0s ~ 1.15s], then voice [1.15s ~ 1.25s]
+    # Total duration is only 250ms (0.25s)
+    y[int(1.15*sr):int(1.25*sr)] = np.sin(2 * np.pi * 440 * np.linspace(0, 0.1, int(0.1*sr)))
+
+    words = [
+        WordTimestamp(word="所", start=1.0, end=1.25),  # dur=250ms, swallows 150ms silence
+        WordTimestamp(word="有", start=1.25, end=1.50),
+    ]
+
+    trimmed = trim_intra_line_silence_gaps(words, y, sr=sr)
+    # Word 0 ('所') start should be snapped from 1.0s to ~1.15s, freeing leading breath gap
+    assert trimmed[0].start >= 1.12
+    assert trimmed[0].end == 1.25

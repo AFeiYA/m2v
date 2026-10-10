@@ -164,20 +164,27 @@ def trim_intra_line_silence_gaps(
         for i in range(len(words)):
             w = words[i]
             dur = w.end - w.start
-            # 动态门槛：首词使用 max(0.35s, med_dur) 拦截乐句开头静音吞噬；
-            # 句内汉字为 max(0.40s, 1.6 * 中位字长)；句内西文为 max(0.70s, 2.0 * 中位字长)
+            is_cjk = any("\u4e00" <= c <= "\u9fff" for c in w.word)
+
+            # 动态门槛：
+            # 首词（i == 0）前面通常是伴奏留白或大吸气口，放宽门槛（dur >= 0.15s）防止首字（如“所”）被误过滤；
+            # 句内词（i > 0）汉字为 max(0.40s, 1.6 * 中位字长)；句内西文为 max(0.70s, 2.0 * 中位字长)
             if i == 0:
-                char_thr = max(0.35, med_dur)
+                char_thr = 0.15
+                min_silence_frames = 12  # 持续 60ms 低能量视为静音/弱呼吸气口
+                min_gap = 0.10          # 修正幅度至少 100ms
             else:
-                is_cjk = any("\u4e00" <= c <= "\u9fff" for c in w.word)
                 char_thr = max(0.40, 1.6 * med_dur) if is_cjk else max(0.70, 2.0 * med_dur)
+                min_silence_frames = 16  # 持续 80ms 低能量视为静音断层
+                min_gap = min_gap_sec   # 默认 0.15s (150ms)
+
             if dur < char_thr:
                 continue
 
             mask = (times >= w.start) & (times <= w.end)
             t_clip = times[mask]
             r_clip = rms[mask]
-            if len(r_clip) < 20:
+            if len(r_clip) < 15:
                 continue
 
             # 从词尾逆向往前扫描
@@ -192,17 +199,18 @@ def trim_intra_line_silence_gaps(
             while idx >= 0:
                 if r_clip[idx] < thr:
                     silence_count += 1
-                    if silence_count >= 16:  # 持续 80ms 低能量视为静音断层
+                    if silence_count >= min_silence_frames:  # 低能量视为气口断层
                         break
                 else:
                     silence_count = 0
                     onset_idx = idx
                 idx -= 1
 
-            true_onset = float(t_clip[onset_idx])
-            # 若真实起唱点明显晚于当前 start，则修正起唱点
-            if true_onset - w.start >= min_gap_sec:
-                w.start = round(true_onset, 3)
+            if silence_count >= min_silence_frames:
+                true_onset = float(t_clip[onset_idx])
+                # 若真实起唱点明显晚于当前 start，且修剪后保留至少 50ms 发音，则修正起唱点
+                if (true_onset - w.start >= min_gap) and (w.end - true_onset >= 0.05):
+                    w.start = round(true_onset, 3)
 
     except Exception as e:
         log.warning("句内气口探测失败: %s", e)
