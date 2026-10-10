@@ -4,6 +4,82 @@
   "created_at": "2026-10-06T08:35:00Z",
   "songs": [
     {
+      "id": "tuzidong",
+      "title": "兔子洞 (04tuZiDongV1)",
+      "url": "https://suno.com/s/c6OyuU94fdszFi6o",
+      "suno_id": "c6OyuU94fdszFi6o",
+      "lyrics_path": "input/04tuZiDongV1/04tuZiDongV1.txt",
+      "vocals_path": "output/04tuZiDongV1/04tuZiDongV1_vocals.mp3",
+      "baseline_alignment_path": "tests/regression/baselines/04tuZiDongV1_alignment.json",
+      "expected_line_count": 29,
+      "tags": [
+        "chinese_pop",
+        "electronic_bass",
+        "long_intro",
+        "repeated_chorus"
+      ],
+      "critical_anchors": [
+        {
+          "line_idx": 0,
+          "expected_text": "天花板在脚下　地板在云端抽离",
+          "min_start": 26.0,
+          "max_start": 29.5,
+          "max_end": 33.0
+        },
+        {
+          "line_idx": 13,
+          "expected_text": "只有无穷的　失重　失重　失重",
+          "min_start": 81.0,
+          "max_start": 84.0,
+          "max_end": 89.0
+        },
+        {
+          "line_idx": 14,
+          "expected_text": "所有的规则　都像泡沫　被晚风敲动",
+          "min_start": 89.0,
+          "max_start": 92.0,
+          "max_end": 97.0
+        },
+        {
+          "line_idx": 15,
+          "expected_text": "别试图呼救　你的声音　本身就是一种　幻梦",
+          "min_start": 96.0,
+          "max_start": 99.5,
+          "max_end": 105.0
+        },
+        {
+          "line_idx": 24,
+          "expected_text": "只有无穷的　失重　失重　失重",
+          "min_start": 143.0,
+          "max_start": 146.5,
+          "max_end": 152.0
+        },
+        {
+          "line_idx": 28,
+          "expected_text": "只有...更深...更美的...空。",
+          "min_start": 175.0,
+          "max_start": 179.0,
+          "max_end": 183.0
+        }
+      ],
+      "instrumental_interludes": [
+        {
+          "description": "Intro electronic beat before first verse onset",
+          "start": 0.0,
+          "end": 26.0,
+          "min_duration": 25.0,
+          "forbidden_lyric_overlap": true
+        }
+      ],
+      "repeated_choruses": [
+        {
+          "description": "Rabbit hole chorus 1 must precede second verse, and chorus 2 must follow bridge",
+          "first_occurrence_max_end": 105.0,
+          "second_occurrence_min_start": 136.0
+        }
+      ]
+    },
+    {
       "id": "look_up",
       "title": "Look Up·抬头看",
       "url": "https://suno.com/s/gLAkLu9fiymSb0eV",

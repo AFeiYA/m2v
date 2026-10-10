@@ -36,16 +36,7 @@ BENCHMARK_CASES = [
         "vocals_path": "output/04tuZiDongV1/04tuZiDongV1_vocals.mp3",
         "lyrics_path": "input/04tuZiDongV1/04tuZiDongV1.txt",
         "language": "zh",
-        "critical_anchors": [
-            {"line_idx": 0, "expected_text": "天花板在脚下", "min_start": 26.0, "max_start": 29.5, "max_end": 33.0},
-            {"line_idx": 15, "expected_text": "别试图呼救", "min_start": 96.0, "max_start": 99.5, "max_end": 105.0},
-            {"line_idx": 28, "expected_text": "只有...更深...更美的...空。", "min_start": 175.0, "max_start": 179.0, "max_end": 183.0},
-        ],
-        "instrumental_interludes": [
-            {"description": "Intro beat", "start": 0.0, "end": 26.0, "min_duration": 25.0, "forbidden_lyric_overlap": True}
-        ],
-        "repeated_choruses": [],
-        "expected_line_count": 29,
+        "from_suite": True,
     },
     {
         "id": "look_up",
