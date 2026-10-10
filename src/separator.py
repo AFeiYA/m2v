@@ -68,20 +68,12 @@ def separate_vocals(
     # 智能设备检测: CUDA -> Apple Silicon MPS -> CPU
     device = config.device
 
-    def _is_cuda_ready() -> bool:
-        if not torch.cuda.is_available():
-            return False
-        try:
-            t = torch.zeros(1, device="cuda")
-            del t
-            return True
-        except Exception:
-            return False
+    from src.aligner import is_safe_cuda_available
 
     is_zerogpu = _run_demucs_zerogpu is not None and device in ("cuda", "auto")
 
     if not is_zerogpu:
-        if device in ("cuda", "auto") and not _is_cuda_ready():
+        if device in ("cuda", "auto") and not is_safe_cuda_available():
             if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
                 device = "mps"
                 log.info("🎯 检测到 macOS Apple Silicon GPU，启用 Metal (MPS) 硬件加速分离")

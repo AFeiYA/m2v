@@ -254,6 +254,7 @@ def api_get_suno_task_status(task_id: str):
 def api_get_gpu_status():
     """实时检测当前环境的 GPU 算力状态、型号与 ZeroGPU 配额健康度"""
     import torch
+    from src.aligner import is_safe_cuda_available
 
     try:
         import spaces
@@ -272,12 +273,18 @@ def api_get_gpu_status():
         device_name = "Hugging Face ZeroGPU (Dynamic A100)"
         gpu_available = True
         details = "云端动态共享 GPU 算力 (已配置 35s 轻量预占模式，节省 70% 配额并支持自动平滑回退 CPU)"
-    elif torch.cuda.is_available():
-        device_type = "cuda"
-        device_name = torch.cuda.get_device_name(0)
-        gpu_available = True
-        mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-        details = f"物理 CUDA 显卡 (显存: {mem:.1f} GB)"
+    elif is_safe_cuda_available():
+        try:
+            device_type = "cuda"
+            device_name = torch.cuda.get_device_name(0)
+            gpu_available = True
+            mem = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            details = f"物理 CUDA 显卡 (显存: {mem:.1f} GB)"
+        except Exception:
+            device_type = "cpu"
+            device_name = "CPU"
+            gpu_available = False
+            details = "物理 CUDA 设备初始化异常，回退至 CPU"
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         device_type = "mps"
         device_name = "Apple Silicon GPU (Metal MPS)"

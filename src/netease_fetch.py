@@ -334,9 +334,10 @@ def auto_process_netease(
     if skip_separation is not None:
         config.skip_separation = skip_separation
     if use_gpu is not None:
-        dev = "cuda" if use_gpu else "cpu"
-        config.separator.device = dev
-        config.aligner.device = dev
+        config.separator.device = "cuda" if use_gpu else "cpu"
+        from src.aligner import is_safe_cuda_available
+
+        config.aligner.device = "cuda" if (use_gpu and is_safe_cuda_available()) else "cpu"
 
     if config.skip_separation:
         _safe_cb(35, "⚡ 极速模式：正在进行原曲词级时间轴对齐 (CTC Forced Alignment)...")

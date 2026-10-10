@@ -23,14 +23,26 @@ _CACHED_MODELS: dict[tuple[str, str], any] = {}
 
 
 def get_stablets_model(model_name: str = "base", device: str = "cpu"):
-    import torch
+    from src.aligner import is_safe_cuda_available
 
-    if device == "cuda" and not torch.cuda.is_available():
+    if device == "cuda" and not is_safe_cuda_available():
+        log.info("当前环境无物理 CUDA 或位于云端容器，stable-ts 自动采用 CPU 运行")
         device = "cpu"
+
     key = (model_name, device)
     if key not in _CACHED_MODELS:
         log.info("加载 stable-ts Whisper 模型: %s (device=%s)", model_name, device)
-        _CACHED_MODELS[key] = stable_whisper.load_model(model_name, device=device)
+        try:
+            _CACHED_MODELS[key] = stable_whisper.load_model(model_name, device=device)
+        except Exception as err:
+            if device != "cpu":
+                log.warning("使用设备 %s 加载 Whisper 失败 (%s)，自动降级至 CPU 重试...", device, err)
+                device = "cpu"
+                key = (model_name, "cpu")
+                if key not in _CACHED_MODELS:
+                    _CACHED_MODELS[key] = stable_whisper.load_model(model_name, device="cpu")
+            else:
+                raise
     return _CACHED_MODELS[key]
 
 
@@ -59,17 +71,33 @@ def align_lyrics_stablets(
     if language in ("mixed", "auto", None):
         language = None
 
-    model = get_stablets_model(model_name=model_name, device=device)
+    try:
+        model = get_stablets_model(model_name=model_name, device=device)
 
-    if guard_interludes:
-        from src.align.interlude_guard import align_with_interlude_guard
+        if guard_interludes:
+            from src.align.interlude_guard import align_with_interlude_guard
 
-        return align_with_interlude_guard(
-            vocals_path=vocals_path,
-            lyrics=lyrics,
-            model=model,
-            language=language,
-        )
+            return align_with_interlude_guard(
+                vocals_path=vocals_path,
+                lyrics=lyrics,
+                model=model,
+                language=language,
+            )
+    except Exception as exc:
+        err_str = str(exc).lower()
+        if device != "cpu" and any(k in err_str for k in ("cuda", "cublas", "cudnn", "zerogpu", "torch._c._cuda_init", "init")):
+            log.warning("⚠️ stable-ts 在 %s 设备运行失败 (%s)，自动回退到 CPU 模式重试...", device, exc)
+            return align_lyrics_stablets(
+                vocals_path=vocals_path,
+                lyrics=lyrics,
+                language=language,
+                model_name=model_name,
+                device="cpu",
+                refine=refine,
+                nonspeech_skip=nonspeech_skip,
+                guard_interludes=guard_interludes,
+            )
+        raise
 
     from src.align.cjk_disambiguation import prepare_line_for_alignment, reconcile_aligned_words
 

@@ -43,13 +43,43 @@ from src.utils import log
 _whisper_cache: dict[tuple[str, str, str], Any] = {}
 
 
+def is_safe_cuda_available() -> bool:
+    """检查当前环境是否拥有可以直接使用的真实物理 CUDA 设备。
+    在 Hugging Face Spaces (含 ZeroGPU 容器) 中，未在 @spaces.GPU 装饰器内部直接访问 CUDA
+    会触发 ZeroGPU 底层拦截崩溃 ('torch._C._cuda_init reached')，或因无物理 GPU 而报错。
+    在此类云端或容器环境下统一返回 False，指示轻量对齐走 CPU。
+    """
+    import os
+
+    if os.environ.get("SPACE_ID") or os.environ.get("SPACES_ZERO_GPU"):
+        return False
+    try:
+        import spaces
+
+        if hasattr(spaces, "GPU"):
+            return False
+    except ImportError:
+        pass
+
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return False
+        _probe = torch.zeros(1, device="cuda")
+        del _probe
+        return True
+    except Exception:
+        return False
+
+
 def _get_whisper(config: AlignerConfig | None = None) -> Any:
     from faster_whisper import WhisperModel
 
     if config is None:
         config = AlignerConfig()
     device = config.device
-    if device == "cuda" and not torch.cuda.is_available():
+    if device == "cuda" and not is_safe_cuda_available():
         device = "cpu"
     compute_type = "int8" if device == "cpu" else "float16"
     model_size = config.whisper_model or "base"
@@ -70,7 +100,7 @@ def _get_whisper(config: AlignerConfig | None = None) -> Any:
 
 
 def _is_cuda_failure(error: Exception) -> bool:
-    return any(word in str(error).lower() for word in ("cuda", "cublas", "cudnn"))
+    return any(word in str(error).lower() for word in ("cuda", "cublas", "cudnn", "zerogpu", "torch._c._cuda_init"))
 
 
 def _transcribe_whisper(audio_path: str, config: AlignerConfig | None = None, **options):
@@ -1089,7 +1119,8 @@ def align_lyrics(
         try:
             from src.align.stablets_adapter import align_lyrics_stablets
 
-            dev = "cuda" if (config.device == "cuda" and torch.cuda.is_available()) else "cpu"
+            # 云端 HF Spaces / ZeroGPU 容器内不可直接占用 CUDA，必须走 CPU (base 模型对齐仅需 ~1.5s 且极其稳健)
+            dev = "cuda" if (config.device == "cuda" and is_safe_cuda_available()) else "cpu"
             lang = None if config.language in ("auto", "mixed", None) else config.language
             model_name = config.whisper_model or "base"
             return align_lyrics_stablets(
@@ -1102,6 +1133,12 @@ def align_lyrics(
         except (ImportError, ModuleNotFoundError) as err:
             log.warning(
                 "⚠️ 未检测到 stable-ts 依赖 (%s)，自动降级为 Wav2Vec2 CTC 强约束对齐引擎",
+                err,
+            )
+            return align_lyrics_ctc(vocals_path, lyrics, config, allow_self_heal=allow_self_heal)
+        except Exception as err:
+            log.warning(
+                "⚠️ stable-ts 对齐执行异常 (%s)，自动平滑降级为 Wav2Vec2 CTC 强约束对齐引擎",
                 err,
             )
             return align_lyrics_ctc(vocals_path, lyrics, config, allow_self_heal=allow_self_heal)
