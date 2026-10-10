@@ -1086,18 +1086,25 @@ def align_lyrics(
         config = AlignerConfig()
 
     if config.engine == "stablets":
-        from src.align.stablets_adapter import align_lyrics_stablets
+        try:
+            from src.align.stablets_adapter import align_lyrics_stablets
 
-        dev = "cuda" if (config.device == "cuda" and torch.cuda.is_available()) else "cpu"
-        lang = None if config.language in ("auto", "mixed", None) else config.language
-        model_name = config.whisper_model or "base"
-        return align_lyrics_stablets(
-            vocals_path=vocals_path,
-            lyrics=lyrics,
-            language=lang,
-            model_name=model_name,
-            device=dev,
-        )
+            dev = "cuda" if (config.device == "cuda" and torch.cuda.is_available()) else "cpu"
+            lang = None if config.language in ("auto", "mixed", None) else config.language
+            model_name = config.whisper_model or "base"
+            return align_lyrics_stablets(
+                vocals_path=vocals_path,
+                lyrics=lyrics,
+                language=lang,
+                model_name=model_name,
+                device=dev,
+            )
+        except (ImportError, ModuleNotFoundError) as err:
+            log.warning(
+                "⚠️ 未检测到 stable-ts 依赖 (%s)，自动降级为 Wav2Vec2 CTC 强约束对齐引擎",
+                err,
+            )
+            return align_lyrics_ctc(vocals_path, lyrics, config, allow_self_heal=allow_self_heal)
 
     return align_lyrics_ctc(vocals_path, lyrics, config, allow_self_heal=allow_self_heal)
 
