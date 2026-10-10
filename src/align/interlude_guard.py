@@ -179,7 +179,9 @@ def align_with_interlude_guard(
 
     interludes, _clusters = detect_macro_interludes(wav_16k, sr=16000, min_gap_sec=min_gap_sec)
 
-    full_text = "\n".join(ly.text.strip() for ly in lyrics)
+    from src.align.cjk_disambiguation import prepare_line_for_alignment, reconcile_aligned_words
+
+    full_text = "\n".join(prepare_line_for_alignment(ly.text) for ly in lyrics)
     has_zh = bool(_CHINESE_CHAR_RE.search(full_text))
     default_lang = language or ("zh" if has_zh else "en")
 
@@ -194,7 +196,7 @@ def align_with_interlude_guard(
                 sec = f"Paragraph {ly.paragraph}"
             if idx < len(segments):
                 seg = segments[idx]
-                words = [
+                raw_words = [
                     WordTimestamp(
                         word=str(w.word),
                         start=max(0.0, round(float(w.start), 3)),
@@ -202,8 +204,17 @@ def align_with_interlude_guard(
                     )
                     for w in seg.words
                 ]
-                if not words:
-                    words = [WordTimestamp(word=ly.text, start=round(float(seg.start), 3), end=round(float(seg.end), 3))]
+                if not raw_words:
+                    raw_words = [WordTimestamp(word=ly.text, start=round(float(seg.start), 3), end=round(float(seg.end), 3))]
+                
+                # 运行字词消歧与声学下凹校验层
+                words = reconcile_aligned_words(
+                    target_text=ly.text,
+                    whisper_words=raw_words,
+                    wav_16k=wav_16k,
+                    sr=16000,
+                    clip_offset=0.0,
+                )
                 l_start = words[0].start
                 l_end = max(l_start, words[-1].end)
                 aligned_lines.append(AlignedLine(text=ly.text, start=l_start, end=l_end, words=words, section=sec))
@@ -240,7 +251,7 @@ def align_with_interlude_guard(
         clip = wav_16k[s_sample:e_sample]
         clip_offset = s_sample / 16000.0
 
-        p_text = "\n".join(ly.text.strip() for ly in p_lyrics)
+        p_text = "\n".join(prepare_line_for_alignment(ly.text) for ly in p_lyrics)
         p_has_zh = bool(_CHINESE_CHAR_RE.search(p_text))
         p_lang = "zh" if p_has_zh else "en"
 
@@ -254,15 +265,25 @@ def align_with_interlude_guard(
 
             if idx < len(p_segs):
                 seg = p_segs[idx]
-                words: list[WordTimestamp] = []
+                raw_words: list[WordTimestamp] = []
                 for w in seg.words:
                     w_s = max(0.0, round(clip_offset + float(w.start), 3))
                     w_e = max(w_s, round(clip_offset + float(w.end), 3))
-                    words.append(WordTimestamp(word=str(w.word), start=w_s, end=w_e))
-                if not words:
+                    raw_words.append(WordTimestamp(word=str(w.word), start=w_s, end=w_e))
+                if not raw_words:
                     s_s = max(0.0, round(clip_offset + float(seg.start), 3))
                     s_e = max(s_s, round(clip_offset + float(seg.end), 3))
-                    words = [WordTimestamp(word=ly.text, start=s_s, end=s_e)]
+                    raw_words = [WordTimestamp(word=ly.text, start=s_s, end=s_e)]
+
+                # 字词消歧与声学下凹校验层
+                words = reconcile_aligned_words(
+                    target_text=ly.text,
+                    whisper_words=raw_words,
+                    wav_16k=clip,
+                    sr=16000,
+                    clip_offset=clip_offset,
+                )
+
                 l_start = words[0].start
                 l_end = max(l_start, words[-1].end)
                 all_aligned_lines.append(AlignedLine(text=ly.text, start=l_start, end=l_end, words=words, section=sec))

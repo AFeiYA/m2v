@@ -68,7 +68,9 @@ def align_lyrics_stablets(
             language=language,
         )
 
-    lyrics_text = "\n".join(ly.text.strip() for ly in lyrics)
+    from src.align.cjk_disambiguation import prepare_line_for_alignment, reconcile_aligned_words
+
+    lyrics_text = "\n".join(prepare_line_for_alignment(ly.text) for ly in lyrics)
 
     import re
     has_zh = bool(re.search(r"[\u4e00-\u9fff]", lyrics_text))
@@ -103,16 +105,18 @@ def align_lyrics_stablets(
 
         if idx < len(segments):
             seg = segments[idx]
-            words: list[WordTimestamp] = []
+            raw_words: list[WordTimestamp] = []
             if seg.words:
                 for w in seg.words:
                     w_s = max(0.0, round(float(w.start), 3))
                     w_e = max(w_s, round(float(w.end), 3))
-                    words.append(WordTimestamp(word=str(w.word), start=w_s, end=w_e))
-            if not words:
+                    raw_words.append(WordTimestamp(word=str(w.word), start=w_s, end=w_e))
+            if not raw_words:
                 s_s = max(0.0, round(float(seg.start), 3))
                 s_e = max(s_s, round(float(seg.end), 3))
-                words = [WordTimestamp(word=ly.text, start=s_s, end=s_e)]
+                raw_words = [WordTimestamp(word=ly.text, start=s_s, end=s_e)]
+
+            words = reconcile_aligned_words(target_text=ly.text, whisper_words=raw_words)
             l_start = words[0].start if words else max(0.0, round(float(seg.start), 3))
             l_end = max(l_start, words[-1].end if words else round(float(seg.end), 3))
             aligned_lines.append(

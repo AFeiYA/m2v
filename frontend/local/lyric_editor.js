@@ -751,11 +751,12 @@ function renderWords(lineIdx) {
   words.forEach((w, i) => {
     const dur = Math.max(0.02, w.end - w.start);
     const flexGrow = (dur / totalWordsDur) * 100;
+    const isNeedsReview = Boolean(w.needs_review || w.unresolved_compound);
     const bar = document.createElement("div");
-    bar.className = "word-bar" + (isPunct(w.word) ? " punct" : "") + (i === 0 ? " first-word" : "");
+    bar.className = "word-bar" + (isPunct(w.word) ? " punct" : "") + (i === 0 ? " first-word" : "") + (isNeedsReview ? " needs-review" : "");
     bar.style.flex = `${flexGrow.toFixed(2)} 1 ${isPunct(w.word) ? "18px" : "36px"}`;
     bar.dataset.idx = i;
-    bar.title = `${w.word}  ${fmtTime(w.start)} → ${fmtTime(w.end)}  (${(dur * 1000).toFixed(0)}ms)`;
+    bar.title = `${w.word}  ${fmtTime(w.start)} → ${fmtTime(w.end)}  (${(dur * 1000).toFixed(0)}ms)${isNeedsReview ? " [声学边界较弱/连音，建议人工复核]" : ""}`;
     const isInternal = (i < words.length - 1);
     bar.innerHTML = `
       <span>${escHtml(w.word.trim() || w.word)}</span>
@@ -933,7 +934,11 @@ function snapSplitToPlayhead(lineIdx, wordIdx) {
     if (Math.abs(clamped - words[wordIdx].end) < 0.001) return;
     pushUndo();
     words[wordIdx].end = clamped;
+    delete words[wordIdx].needs_review;
+    delete words[wordIdx].unresolved_compound;
     words[wordIdx + 1].start = clamped;
+    delete words[wordIdx + 1].needs_review;
+    delete words[wordIdx + 1].unresolved_compound;
     syncLineFromWords(lineIdx);
     renderWords(lineIdx);
     selectWord(wordIdx);
@@ -1083,7 +1088,14 @@ function setupDragHandle(bar, wordIdx, lineIdx, wordsTrack) {
       document.body.style.cursor = "";
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
+      delete words[wordIdx].needs_review;
+      delete words[wordIdx].unresolved_compound;
+      if (words[wordIdx + 1]) {
+        delete words[wordIdx + 1].needs_review;
+        delete words[wordIdx + 1].unresolved_compound;
+      }
       syncLineFromWords(lineIdx);
+      renderWords(lineIdx);
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);

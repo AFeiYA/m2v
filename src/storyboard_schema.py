@@ -37,6 +37,8 @@ class WordTimestamp(BaseModel):
     start: float = Field(..., ge=0, description="起始时间(秒)")
     end: float = Field(..., ge=0, description="结束时间(秒)")
     syllables: list[SyllableTimestamp] | None = Field(default=None, description="可选的音节级时间戳列表")
+    needs_review: bool | None = Field(default=None, description="是否需要人工复核/细分 (如声学边界不清晰或连音)")
+    unresolved_compound: bool | None = Field(default=None, description="多字复合词未完全分离标记")
 
     @model_validator(mode="after")
     def validate_duration(self) -> WordTimestamp:
