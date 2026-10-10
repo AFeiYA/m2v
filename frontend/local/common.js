@@ -693,12 +693,34 @@ function renderLineCharSpans(line, lineIdx) {
       foundIdx = text.toLowerCase().indexOf(wordStr.toLowerCase(), searchIdx);
     }
 
+    const formatWordWithSyllables = (matchedStr) => {
+      if (w.syllables && w.syllables.length > 1) {
+        let sylSearch = 0;
+        const sylSpans = [];
+        for (let si = 0; si < w.syllables.length; si++) {
+          const syl = w.syllables[si];
+          const sText = syl.text || "";
+          const sFound = matchedStr.toLowerCase().indexOf(sText.toLowerCase(), sylSearch);
+          if (sFound !== -1) {
+            if (sFound > sylSearch) sylSpans.push(escHtml(matchedStr.slice(sylSearch, sFound)));
+            sylSpans.push(`<span class="lyric-syl" data-line="${lineIdx}" data-word="${wi}" data-syl="${si}" data-start="${syl.start}" data-end="${syl.end}">${escHtml(matchedStr.slice(sFound, sFound + sText.length))}</span>`);
+            sylSearch = sFound + sText.length;
+          } else {
+            sylSpans.push(`<span class="lyric-syl" data-line="${lineIdx}" data-word="${wi}" data-syl="${si}" data-start="${syl.start}" data-end="${syl.end}">${escHtml(sText)}</span>`);
+          }
+        }
+        if (sylSearch < matchedStr.length) sylSpans.push(escHtml(matchedStr.slice(sylSearch)));
+        return `<span class="lyric-char has-syl" data-line="${lineIdx}" data-word="${wi}">${sylSpans.join("")}</span>`;
+      }
+      return `<span class="lyric-char" data-line="${lineIdx}" data-word="${wi}">${escHtml(matchedStr)}</span>`;
+    };
+
     if (foundIdx !== -1) {
       if (foundIdx > searchIdx) {
         spans.push(escHtml(text.slice(searchIdx, foundIdx)));
       }
       const matchedText = text.slice(foundIdx, foundIdx + wordStr.length);
-      spans.push(`<span class="lyric-char" data-line="${lineIdx}" data-word="${wi}">${escHtml(matchedText)}</span>`);
+      spans.push(formatWordWithSyllables(matchedText));
       searchIdx = foundIdx + wordStr.length;
     } else {
       if (wi > 0) {
@@ -706,7 +728,7 @@ function renderLineCharSpans(line, lineIdx) {
         const needSpace = /[a-zA-Z0-9]/.test(prevW.slice(-1)) || /[a-zA-Z0-9]/.test(wordStr.slice(0, 1));
         if (needSpace) spans.push(" ");
       }
-      spans.push(`<span class="lyric-char" data-line="${lineIdx}" data-word="${wi}">${escHtml(wordStr)}</span>`);
+      spans.push(formatWordWithSyllables(wordStr));
     }
   }
 

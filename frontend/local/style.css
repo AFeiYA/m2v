@@ -338,6 +338,12 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .lyric-char { transition: color 0.05s, text-shadow 0.05s; white-space: pre-wrap; }
 .lyric-char.sung { color: var(--accent); }
 .lyric-char.singing { color: #ffdd57; text-shadow: 0 0 8px #ffdd57aa; }
+.lyric-char.has-syl { color: inherit; }
+.lyric-char.has-syl.singing { color: inherit; text-shadow: none; }
+.lyric-syl { transition: color 0.05s, text-shadow 0.05s; display: inline; }
+.lyric-syl.sung { color: var(--accent); }
+.lyric-syl.singing { color: #ffdd57; text-shadow: 0 0 8px #ffdd57aa; }
+
 #line-edit-controls { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
 #line-edit-controls button {
   background: var(--bg-hover); color: var(--text);

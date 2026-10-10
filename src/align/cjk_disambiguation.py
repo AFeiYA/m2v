@@ -499,4 +499,16 @@ def reconcile_aligned_words(
             clip_offset=clip_offset,
         )
 
+    # 8. 辅音爆破卡点吸附、转音拖音智能桥接与英文多音节拆解
+    if wav_16k is not None:
+        from src.align.plosive_snapper import refine_plosives_and_melisma
+
+        out_words = refine_plosives_and_melisma(
+            words=out_words,
+            wav_16k=wav_16k,
+            sr=sr,
+            clip_offset=clip_offset,
+        )
+
     return out_words
+

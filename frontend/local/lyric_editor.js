@@ -680,6 +680,14 @@ function highlightPlayingLine() {
     else { span.classList.remove("sung","singing"); }
   });
 
+  $$(".lyric-syl").forEach((span) => {
+    const sStart = Number(span.dataset.start), sEnd = Number(span.dataset.end);
+    if (t >= sEnd) { span.classList.add("sung"); span.classList.remove("singing"); }
+    else if (t >= sStart) { span.classList.add("singing"); span.classList.remove("sung"); }
+    else { span.classList.remove("sung","singing"); }
+  });
+
+
   if (activeLineIdx >= 0 && activeLineIdx !== state.selectedLine) {
     selectLine(activeLineIdx, { seek: false, scroll: true });
   }

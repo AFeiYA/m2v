@@ -170,6 +170,25 @@ main {
   color: #ffdd57;
   text-shadow: 0 0 8px #ffdd57aa;
 }
+.lyric-char.has-syl {
+  color: inherit;
+}
+.lyric-char.has-syl.singing {
+  color: inherit;
+  text-shadow: none;
+}
+.lyric-syl {
+  transition: color 0.05s, text-shadow 0.05s;
+  display: inline;
+}
+.lyric-syl.sung {
+  color: var(--accent);
+}
+.lyric-syl.singing {
+  color: #ffdd57;
+  text-shadow: 0 0 8px #ffdd57aa;
+}
+
 
 /* --- Word panel (right) --- */
 #word-panel {
