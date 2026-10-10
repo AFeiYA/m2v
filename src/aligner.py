@@ -79,7 +79,7 @@ def _get_whisper(config: AlignerConfig | None = None) -> Any:
     if config is None:
         config = AlignerConfig()
     device = config.device
-    if device == "cuda" and not is_safe_cuda_available():
+    if device == "cuda" and not torch.cuda.is_available():
         device = "cpu"
     compute_type = "int8" if device == "cpu" else "float16"
     model_size = config.whisper_model or "base"
