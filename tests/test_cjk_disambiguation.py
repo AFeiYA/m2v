@@ -144,3 +144,55 @@ def test_trim_sentence_initial_silence_gap():
     # Word 0 ('所') start should be snapped from 1.0s to ~1.15s, freeing leading breath gap
     assert trimmed[0].start >= 1.12
     assert trimmed[0].end == 1.25
+
+
+def test_prepare_line_for_alignment_preserves_pauses():
+    assert prepare_line_for_alignment("只有...更深...更美的...空。") == "只 有 ... 更 深 ... 更 美 的 ... 空 。"
+    assert prepare_line_for_alignment("往下掉...这里没有出口...") == "往 下 掉 ... 这 里 没 有 出 口 ..."
+    assert prepare_line_for_alignment('喝下一瓶 名为"现实"的药水') == "喝 下 一 瓶 名 为 现 实 的 药 水"
+
+
+def test_reconcile_skips_pure_punctuation_and_absorbs_final_punct():
+    raw_whisper = [
+        WordTimestamp(word=" 只", start=10.0, end=10.2),
+        WordTimestamp(word=" 有", start=10.2, end=10.5),
+        WordTimestamp(word=" ...", start=10.5, end=10.6),  # pure pause punct
+        WordTimestamp(word=" 空", start=11.5, end=11.8),
+        WordTimestamp(word=" 。", start=11.8, end=11.95), # sentence ending punct
+    ]
+    reconciled = reconcile_aligned_words("只有...空。", raw_whisper)
+    assert len(reconciled) == 3
+    assert reconciled[0].word == "只"
+    assert reconciled[0].start == 10.0
+    assert reconciled[1].word == "有"
+    assert reconciled[1].start == 10.2
+    assert reconciled[2].word == "空"
+    assert reconciled[2].start == 11.5
+    # Ending punct '。' absorbed into final character '空'
+    assert reconciled[2].end == 11.95
+
+
+def test_recover_trailing_clipped_word():
+    from src.align.cjk_disambiguation import recover_trailing_clipped_word
+
+    sr = 16000
+    total_len = int(sr * 3.0)
+    y = np.zeros(total_len, dtype=np.float32)
+
+    # Word '的' is at 0.0 ~ 0.5s
+    y[0:int(0.5 * sr)] = np.sin(2 * np.pi * 440 * np.linspace(0, 0.5, int(0.5 * sr)))
+    # Silence: 0.5s to 1.5s (1.0s gap)
+    # Burst for '空': 1.5s to 1.9s
+    y[int(1.5 * sr):int(1.9 * sr)] = np.sin(2 * np.pi * 440 * np.linspace(0, 0.4, int(0.4 * sr)))
+
+    # Suppose Whisper clipped '空' to 0.50s ~ 0.58s (dur=0.08s) at the tail of '的'
+    words = [
+        WordTimestamp(word="的", start=0.0, end=0.50),
+        WordTimestamp(word="空", start=0.50, end=0.58),
+    ]
+
+    recovered = recover_trailing_clipped_word(words, y, sr=sr)
+    # '空' should be recovered to 1.5s ~ 1.9s!
+    assert recovered[-1].start >= 1.45
+    assert recovered[-1].end >= 1.85
+

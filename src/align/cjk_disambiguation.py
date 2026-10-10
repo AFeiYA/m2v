@@ -37,13 +37,23 @@ def parse_target_units(text: str) -> list[str]:
 def prepare_line_for_alignment(text: str) -> str:
     """对单行歌词进行事前 Token 展开，以便送入 Whisper/stable-ts 对齐。
 
-    CJK 单字之间插入空格，使 BPE 分词器强制将其分词为单个字符 Token；
-    西文单词保持完整，避免被截断成音节碎片。
+    - CJK 单字之间插入空格，使 BPE 分词器强制将其分词为单个字符 Token；
+    - 西文单词保持完整，避免被截断成音节碎片；
+    - 保留省略号与关键停顿标点（...、…、、，、。等），为 Whisper 注意力提供跨静音停顿锚点，
+      防止句末长停顿前提前截断尾字。
     """
-    units = parse_target_units(text)
-    if not units:
+    tokens = []
+    text = text.strip()
+    pattern = re.compile(
+        r"([a-zA-Z0-9_\'\-]+|[\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff]|\.{2,}|…+|[，,、。\.！？!\?～~—\-；;：:])"
+    )
+    for m in pattern.finditer(text):
+        tok = m.group(1).strip()
+        if tok:
+            tokens.append(tok)
+    if not tokens:
         return text.strip()
-    return " ".join(units)
+    return " ".join(tokens)
 
 
 def clean_token(token: str) -> str:
@@ -218,6 +228,94 @@ def trim_intra_line_silence_gaps(
     return words
 
 
+def recover_trailing_clipped_word(
+    words: list[WordTimestamp],
+    wav_16k: Optional[np.ndarray],
+    sr: int = 16000,
+    clip_offset: float = 0.0,
+    max_search_sec: float = 2.5,
+) -> list[WordTimestamp]:
+    """探测并修复因 Whisper 贪婪截断导致的句尾字异常压缩/遗漏。
+
+    场景：
+    当一句话末尾有较长停顿且最后一个字被 Whisper 错误地压缩在前一个字的衰减尾巴中
+    （如 '只有...更深...更美的...空。' 或未加省略号时中的 '空' 仅分配了 100ms 并紧粘着 '的'，
+    而真值在 1 秒后的 181.1s~181.4s 处），本函数在词尾后搜索静音区与随后的独立发音能量脉冲，
+    并将尾字起止时间重新召回至真实发音位置。
+    """
+    if not words or wav_16k is None or len(words) < 2:
+        return words
+
+    last_w = words[-1]
+    prev_w = words[-2]
+    dur = last_w.end - last_w.start
+
+    # 门槛：尾字时长异常短 (<= 0.16s)，且与前一词之间几乎无缝隙 (<= 0.05s)
+    if dur > 0.16 or (last_w.start - prev_w.end > 0.05):
+        return words
+
+    search_start = last_w.end
+    total_audio_sec = clip_offset + len(wav_16k) / sr
+    search_end = min(search_start + max_search_sec, total_audio_sec)
+
+    if search_end <= search_start + 0.35:
+        return words
+
+    try:
+        import librosa
+
+        rel_s = max(0.0, search_start - clip_offset)
+        rel_e = min(len(wav_16k) / sr, search_end - clip_offset)
+        s_idx = int(rel_s * sr)
+        e_idx = int(rel_e * sr)
+        clip = wav_16k[s_idx:e_idx]
+        if len(clip) < int(sr * 0.1):
+            return words
+
+        hop = int(sr * 0.005)  # 5ms
+        win = int(sr * 0.020)  # 20ms
+        rms = librosa.feature.rms(y=clip, frame_length=win, hop_length=hop)[0]
+        times = search_start + np.arange(len(rms)) * 0.005
+
+        thr = 0.025
+        active_mask = rms > thr
+        if not np.any(active_mask):
+            return words
+
+        first_active_idx = int(np.argmax(active_mask))
+        first_active_t = float(times[first_active_idx])
+        silence_gap = first_active_t - search_start
+
+        # 必须存在至少 200ms 的空白/气口留白，才认为是跨停顿孤立尾字
+        if silence_gap < 0.20:
+            return words
+
+        # 寻找该能量脉冲的尾端
+        end_idx = first_active_idx
+        while end_idx < len(rms) and rms[end_idx] > 0.018:
+            end_idx += 1
+        burst_end_t = float(times[min(end_idx, len(times) - 1)])
+        burst_dur = burst_end_t - first_active_t
+
+        if 0.08 <= burst_dur <= 1.5:
+            log.info(
+                "🎯 成功召回句尾孤立字 '%s': 原 [%.3fs ~ %.3fs] -> 真实声学脉冲 [%.3fs ~ %.3fs] (停顿留白 %.2fs)",
+                last_w.word,
+                last_w.start,
+                last_w.end,
+                first_active_t,
+                burst_end_t,
+                silence_gap,
+            )
+            last_w.start = round(first_active_t, 3)
+            last_w.end = round(burst_end_t, 3)
+
+    except Exception as e:
+        log.warning("尾字声学脉冲召回失败: %s", e)
+
+    return words
+
+
 def reconcile_aligned_words(
     target_text: str,
     whisper_words: list[WordTimestamp],
@@ -230,7 +328,9 @@ def reconcile_aligned_words(
     功能：
     1. 还原西文复合单词（Whisper 将 `riverside` 拆为 `rivers` 和 `ide` 时自动合并恢复，并保留起止区间）；
     2. 拆解中文多字词（Whisper 将 `世界` 合并为单个 token 时，利用声学谷底或标记 needs_review 拆解为 `世` 和 `界`）；
-    3. 清洗多余空格和标点符号粘连，保证时间戳与 `line.text` 字词一一对应。
+    3. 清洗多余空格和标点符号粘连，保证时间戳与 `line.text` 字词一一对应；
+    4. 纯标点符号/停顿 Token 智能透传与句尾吸收，防止吞没正常字词；
+    5. 句尾字断层声学脉冲召回。
     """
     targets = parse_target_units(target_text)
     if not targets:
@@ -245,9 +345,22 @@ def reconcile_aligned_words(
     w_idx = 0
 
     while t_idx < len(targets) and w_idx < len(whisper_words):
-        target = targets[t_idx]
         cur_w = whisper_words[w_idx]
         cur_clean = clean_token(cur_w.word)
+
+        # 0. 纯标点符号/停顿 Token 处理 (如 '...'、'，'、'。' 等不包含有效文字的 Whisper 输出)
+        if not cur_clean or not _WORD_OR_CJK_RE.search(cur_w.word):
+            # 若是句末标点符号且紧邻前一词（<= 0.05s），吸收其声音衰减时长
+            if (
+                out_words
+                and abs(cur_w.start - out_words[-1].end) <= 0.05
+                and cur_w.word.strip() in ("。", ".", "！", "!", "？", "?")
+            ):
+                out_words[-1].end = cur_w.end
+            w_idx += 1
+            continue
+
+        target = targets[t_idx]
 
         # 1. 精确匹配 (最常见情形)
         if cur_clean.lower() == target.lower():
@@ -322,7 +435,11 @@ def reconcile_aligned_words(
         accum_words: list[WordTimestamp] = []
         temp_w = w_idx
         while temp_w < len(whisper_words) and len(accum) < len(target):
-            accum += clean_token(whisper_words[temp_w].word)
+            clean_sub = clean_token(whisper_words[temp_w].word)
+            if not clean_sub or not _WORD_OR_CJK_RE.search(whisper_words[temp_w].word):
+                temp_w += 1
+                continue
+            accum += clean_sub
             accum_words.append(whisper_words[temp_w])
             temp_w += 1
 
@@ -352,9 +469,30 @@ def reconcile_aligned_words(
         out_words.append(WordTimestamp(word=targets[t_idx], start=prev_e, end=prev_e + 0.3))
         t_idx += 1
 
+    # 句末残留纯标点符号吸收
+    while w_idx < len(whisper_words):
+        cur_w = whisper_words[w_idx]
+        if not clean_token(cur_w.word) or not _WORD_OR_CJK_RE.search(cur_w.word):
+            if (
+                out_words
+                and abs(cur_w.start - out_words[-1].end) <= 0.05
+                and cur_w.word.strip() in ("。", ".", "！", "!", "？", "?")
+            ):
+                out_words[-1].end = cur_w.end
+        w_idx += 1
+
     # 6. 句内静音气口逆向探测与修剪 (解决重复词 '失重 失重 失重' 之间的换气伴奏空白)
     if wav_16k is not None:
         out_words = trim_intra_line_silence_gaps(
+            words=out_words,
+            wav_16k=wav_16k,
+            sr=sr,
+            clip_offset=clip_offset,
+        )
+
+    # 7. 尾字异常压缩/断层声学召回 (解决 Whisper 贪婪截断导致句尾字误截断在前一字衰减区的问题)
+    if wav_16k is not None:
+        out_words = recover_trailing_clipped_word(
             words=out_words,
             wav_16k=wav_16k,
             sr=sr,
