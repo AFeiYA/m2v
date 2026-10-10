@@ -49,7 +49,7 @@ function initWaveSurfer() {
   ws.on("ready", () => {
     vocalsReady = true;
     updateTimeDisplay();
-    status("人声轨已加载");
+    status(window.t ? t("msg_vocals_loaded") : "人声轨已加载");
   });
 
   ws.on("audioprocess", () => {
@@ -70,22 +70,22 @@ function initWaveSurfer() {
 
   ws.on("finish", () => {
     if (wsInst && instReady) wsInst.pause();
-    if (dom.btnPlayPause) dom.btnPlayPause.textContent = "▶ 播放";
+    updatePlayPauseBtn(false);
   });
 
   if (wsInst) {
     wsInst.on("ready", () => {
       instReady = true;
-      status("伴奏轨已加载");
+      status(window.t ? t("msg_inst_loaded") : "伴奏轨已加载");
     });
   }
 }
 
 function syncInstToVocals() {
   if (!wsInst || !instReady || !vocalsReady) return;
-  const t = ws.getCurrentTime();
+  const tTime = ws.getCurrentTime();
   const instT = wsInst.getCurrentTime();
-  if (Math.abs(t - instT) > 0.15) wsInst.setTime(t);
+  if (Math.abs(tTime - instT) > 0.15) wsInst.setTime(tTime);
 }
 
 function toggleMuteTrack(track) {
@@ -101,7 +101,18 @@ function toggleMuteTrack(track) {
   if (row) {
     row.classList.toggle("muted", trackMuted[track]);
   }
-  status(trackMuted[track] ? `${track} 已静音` : `${track} 已取消静音`);
+  const trackName = track === "vocals"
+    ? (window.t ? t("track_vocals") : "人声")
+    : (window.t ? t("track_inst") : "伴奏");
+  const msgKey = trackMuted[track] ? "msg_muted" : "msg_unmuted";
+  status(window.t ? t(msgKey, null, { track: trackName }) : (trackMuted[track] ? `${track} 已静音` : `${track} 已取消静音`));
+}
+
+function updatePlayPauseBtn(playing) {
+  if (!dom.btnPlayPause) return;
+  dom.btnPlayPause.textContent = playing
+    ? (window.t ? t("btn_pause", "⏸ 暂停") : "⏸ 暂停")
+    : (window.t ? t("btn_play", "▶ 播放") : "▶ 播放");
 }
 
 function setTrackLoadingState(trackType, isLoading, trackName, errorMsg) {
@@ -153,11 +164,11 @@ function togglePlay() {
   if (ws.isPlaying()) {
     ws.pause();
     if (wsInst && instReady) wsInst.pause();
-    if (dom.btnPlayPause) dom.btnPlayPause.textContent = "▶ 播放";
+    updatePlayPauseBtn(false);
   } else {
     if (wsInst && instReady) { wsInst.setTime(ws.getCurrentTime()); wsInst.play(); }
     ws.play();
-    if (dom.btnPlayPause) dom.btnPlayPause.textContent = "⏸ 暂停";
+    updatePlayPauseBtn(true);
   }
 }
 
@@ -167,14 +178,14 @@ function playSelectedLine() {
   if (!line) return;
   ws.setTime(line.start);
   ws.play();
-  if (dom.btnPlayPause) dom.btnPlayPause.textContent = "⏸ 暂停";
+  updatePlayPauseBtn(true);
   if (wsInst && instReady) { wsInst.setTime(line.start); wsInst.play(); }
   const stopAt = line.end;
   const check = () => {
     if (ws.getCurrentTime() >= stopAt) {
       ws.pause();
       if (wsInst && instReady) wsInst.pause();
-      if (dom.btnPlayPause) dom.btnPlayPause.textContent = "▶ 播放";
+      updatePlayPauseBtn(false);
     } else if (ws.isPlaying()) {
       requestAnimationFrame(check);
     }
@@ -251,8 +262,8 @@ async function loadSong(idx) {
   const origUrl = file.audio_path ? "/api/audio?path=" + encodeURIComponent(file.audio_path) : null;
 
   const primaryUrl = vocalsUrl || origUrl;
-  const primaryTitle = vocalsUrl ? "🎤 人声" : "🎵 原声";
-  const instTitle = "🎸 伴奏";
+  const primaryTitle = vocalsUrl ? (window.t ? t("track_vocals") : "🎤 人声") : (window.t ? t("track_orig") : "🎵 原声");
+  const instTitle = window.t ? t("track_inst") : "🎸 伴奏";
 
   if (dom.trackVocals) dom.trackVocals.classList.remove("muted");
   if (dom.trackInst) dom.trackInst.classList.remove("muted");
@@ -267,7 +278,7 @@ async function loadSong(idx) {
           setTrackLoadingState("vocals", false, primaryTitle);
         })
         .catch((e) => {
-          status("人声轨加载失败: " + e, true);
+          status((window.t ? t("msg_vocals_load_failed") : "人声轨加载失败: ") + e, true);
           setTrackLoadingState("vocals", false, primaryTitle, "加载失败");
         })
     );
@@ -282,7 +293,7 @@ async function loadSong(idx) {
           setTrackLoadingState("instrumental", false, instTitle);
         })
         .catch((e) => {
-          status("伴奏轨加载失败: " + e, true);
+          status((window.t ? t("msg_inst_load_failed") : "伴奏轨加载失败: ") + e, true);
           setTrackLoadingState("instrumental", false, instTitle, "加载失败");
         })
     );
@@ -292,9 +303,16 @@ async function loadSong(idx) {
   }
 
   Promise.allSettled(loadTasks).then(() => {
-    const trackInfo = [vocalsUrl ? "人声" : null, instUrl ? "伴奏" : null, (!vocalsUrl && origUrl) ? "原声" : null].filter(Boolean).join("+");
-    status(`✅ 全部就绪: ${file.name} (${state.alignment.lines.length} 行, 音轨: ${trackInfo || "无"})`);
-    document.title = `${file.name} — M2V`;
+    const trackInfo = [
+      vocalsUrl ? (window.t ? t("msg_track_vocals") : "人声") : null,
+      instUrl ? (window.t ? t("msg_track_inst") : "伴奏") : null,
+      (!vocalsUrl && origUrl) ? (window.t ? t("msg_track_orig") : "原声") : null
+    ].filter(Boolean).join("+");
+    const msg = window.t
+      ? t("msg_all_ready", null, { name: file.name, count: state.alignment.lines.length, tracks: trackInfo || t("msg_track_none") })
+      : `✅ 全部就绪: ${file.name} (${state.alignment.lines.length} 行, 音轨: ${trackInfo || "无"})`;
+    status(msg);
+    document.title = `${file.name} — ${window.t ? t("app_title") : "M2V"}`;
   });
 }
 
@@ -340,14 +358,15 @@ function renderSunoUrlHistory(list) {
   }
   const select = document.getElementById("suno-url-history-select");
   if (select) {
+    const defaultLabel = window.t ? t("url_history_default") : "🕒 最近历史";
     const options = [
-      '<option value="">🕒 最近历史 (10条)</option>',
+      `<option value="" data-i18n="url_history_default">${defaultLabel} (10条)</option>`,
       ...history.map((u, i) => {
         let label = u;
-        if (u.includes("toVdvY4vNA3pRYbG")) label = "Tailwind (双语/吉他Solo)";
-        else if (u.includes("3PeLT56j07K4vjk8")) label = "Circus (快歌/气口)";
-        else if (u.includes("eNqSlezWB2i53tD3")) label = "Road Closed (尾奏复唱)";
-        else if (u.includes("gLAkLu9fiymSb0eV")) label = "Look Up (口哨间奏)";
+        if (u.includes("toVdvY4vNA3pRYbG")) label = window.currentLocale === "en" ? "Tailwind (Bilingual/Solo)" : "Tailwind (双语/吉他Solo)";
+        else if (u.includes("3PeLT56j07K4vjk8")) label = window.currentLocale === "en" ? "Circus (Fast/Breathing)" : "Circus (快歌/气口)";
+        else if (u.includes("eNqSlezWB2i53tD3")) label = window.currentLocale === "en" ? "Road Closed (Outro repeat)" : "Road Closed (尾奏复唱)";
+        else if (u.includes("gLAkLu9fiymSb0eV")) label = window.currentLocale === "en" ? "Look Up (Whistling)" : "Look Up (口哨间奏)";
         else {
           label = u.replace(/^https?:\/\/(www\.)?/, "");
           if (label.length > 30) label = label.slice(0, 27) + "...";
@@ -373,7 +392,7 @@ async function handleSunoImport() {
   const url = input ? input.value.trim() : "";
 
   if (!url) {
-    alert("请输入有效的 Suno / 网易云歌曲链接、iframe 代码或歌曲 ID");
+    alert(window.t ? t("msg_enter_valid_url") : "请输入有效的 Suno / 网易云歌曲链接、iframe 代码或歌曲 ID");
     return;
   }
   saveSunoUrlHistory(url);
@@ -396,12 +415,17 @@ async function handleSunoImport() {
   const isNetEase = url.includes("163.com") || url.includes("163cn.tv") || url.includes("<iframe") || /^\d{5,}$/.test(url);
   let importSec = 0;
   const updateProgressMessage = () => {
-    let stage = isNetEase ? "正在从网易云音乐提取歌曲、LRC 歌词与音频..." : "正在从 Suno 提取歌曲信息与歌词...";
+    let stage = isNetEase
+      ? (window.t ? t("msg_netease_extracting") : "正在从网易云音乐提取歌曲、LRC 歌词与音频...")
+      : (window.t ? t("msg_suno_extracting") : "正在从 Suno 提取歌曲信息与歌词...");
     if (importSec > 5) {
-      stage = separateVocals ? "正在进行人声与伴奏分离及时间轴对齐..." : "正在进行原曲词级时间轴对齐 (CTC / WhisperX)...";
+      stage = separateVocals
+        ? (window.t ? t("msg_aligning_vocals") : "正在进行人声与伴奏分离及时间轴对齐...")
+        : (window.t ? t("msg_aligning_direct") : "正在进行原曲词级时间轴对齐 (CTC / WhisperX)...");
     }
     if (progText) {
-      progText.textContent = `${stage} (已耗时 ${importSec}s)`;
+      const elapsedText = window.currentLocale === "en" ? `(elapsed ${importSec}s)` : `(已耗时 ${importSec}s)`;
+      progText.textContent = `${stage} ${elapsedText}`;
     }
   };
   updateProgressMessage();
@@ -463,11 +487,14 @@ async function handleSunoImport() {
         // 步骤 1 拿到歌词后，提前在左侧列表渲染歌词预览，避免用户干等
         if (task.title && task.lyrics && !previewLyricsShown) {
           previewLyricsShown = true;
-          status(`📝 已提前获取《${task.title}》歌词，后台正在进行时间轴对齐...`);
+          const rawLines = task.lyrics.split("\n").filter(Boolean);
+          status(window.t ? t("msg_lyrics_ready", null, { count: rawLines.length }) : `📝 已提前获取《${task.title}》歌词，后台正在进行时间轴对齐...`);
           const listEl = document.getElementById("lyrics-list");
           if (listEl) {
-            const rawLines = task.lyrics.split("\n").filter(Boolean);
-            listEl.innerHTML = `<div style="padding: 10px 14px; font-size: 11px; color: #10b981; background: rgba(16,185,129,0.08); border-bottom: 1px solid var(--border); border-radius: 4px 4px 0 0;">✨ 已提前解析《${escHtml(task.title)}》(${rawLines.length} 行歌词)，后台正在进行字级时间轴对齐：</div>` +
+            const previewHeader = window.currentLocale === "en"
+              ? `✨ Lyrics parsed for "${escHtml(task.title)}" (${rawLines.length} lines), aligning in background:`
+              : `✨ 已提前解析《${escHtml(task.title)}》(${rawLines.length} 行歌词)，后台正在进行字级时间轴对齐：`;
+            listEl.innerHTML = `<div style="padding: 10px 14px; font-size: 11px; color: #10b981; background: rgba(16,185,129,0.08); border-bottom: 1px solid var(--border); border-radius: 4px 4px 0 0;">${previewHeader}</div>` +
               rawLines.map((l, i) => `<div class="lyric-line-item" style="opacity: 0.85;"><span class="line-index">${i+1}</span><span class="line-text">${escHtml(l)}</span></div>`).join("");
           }
         }
@@ -484,7 +511,7 @@ async function handleSunoImport() {
 
     if (dom.sunoModal) dom.sunoModal.style.display = "none";
     if (input) input.value = "";
-    status(`🎉 导入成功: ${data.title}`);
+    status(window.t ? t("msg_import_success", null, { title: data.title }) : `🎉 导入成功: ${data.title}`);
     await loadFileList(data.title);
   } catch (err) {
     alert("Suno 导入失败: " + err.message);
@@ -534,7 +561,7 @@ async function downloadOriginalAudio() {
   if (state.currentFile) {
     const songName = state.currentFile.name;
     const jsonPath = state.currentFile.json_path || "";
-    status(`正在下载《${songName}》原曲 MP3...`);
+    status(window.t ? t("msg_downloading_mp3", null, { song: songName }) : `正在下载《${songName}》原曲 MP3...`);
 
     const url = `/api/download/original_mp3?song=${encodeURIComponent(songName)}&json_path=${encodeURIComponent(jsonPath)}`;
     const a = document.createElement("a");
@@ -543,11 +570,11 @@ async function downloadOriginalAudio() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(() => status(`已触发下载: ${songName}.mp3`), 800);
+    setTimeout(() => status(window.t ? t("msg_download_triggered", null, { song: songName }) : `已触发下载: ${songName}.mp3`), 800);
     return;
   }
 
-  alert("请在左上方输入框粘贴 Suno 歌曲链接，或者在下拉列表中选择已导入的项目！");
+  alert(window.t ? t("msg_enter_valid_url") : "请在左上方输入框粘贴 Suno 歌曲链接，或者在下拉列表中选择已导入的项目！");
 }
 window.downloadOriginalAudio = downloadOriginalAudio;
 
@@ -557,7 +584,7 @@ window.downloadOriginalAudio = downloadOriginalAudio;
 // ---------------------------------------------------------------------------
 async function saveAlignment() {
   if (!state.currentFile || !state.alignment) return;
-  status("保存中…");
+  status(window.t ? t("msg_saving") : "保存中…");
   try {
     const r = await fetch("/api/alignment?path=" + encodeURIComponent(state.currentFile.json_path), {
       method: "PUT",
@@ -581,11 +608,11 @@ async function saveAlignment() {
       status(msg, true);
     } else {
       state.dirty = false;
-      document.title = (state.currentFile?.name || "M2V") + " — 编辑器";
-      status("✅ 已保存");
+      document.title = (state.currentFile?.name || "M2V") + " — " + (window.t ? t("app_title") : "编辑器");
+      status(window.t ? t("msg_saved") : "✅ 已保存");
     }
   } catch (e) {
-    status("保存失败: " + e, true);
+    status((window.t ? t("msg_save_failed") : "保存失败: ") + e, true);
   }
 }
 
@@ -637,21 +664,21 @@ function pushUndo() {
 }
 
 function undo() {
-  if (!state.undoStack.length) { status("无可撤销操作"); return; }
+  if (!state.undoStack.length) { status(window.t ? t("msg_no_undo") : "无可撤销操作"); return; }
   state.redoStack.push(JSON.stringify(state.alignment));
   state.alignment = JSON.parse(state.undoStack.pop());
   if (window.onAlignmentChanged) window.onAlignmentChanged();
   markDirty();
-  status("已撤销");
+  status(window.t ? t("msg_undone") : "已撤销");
 }
 
 function redo() {
-  if (!state.redoStack.length) { status("无可重做操作"); return; }
+  if (!state.redoStack.length) { status(window.t ? t("msg_no_redo") : "无可重做操作"); return; }
   state.undoStack.push(JSON.stringify(state.alignment));
   state.alignment = JSON.parse(state.redoStack.pop());
   if (window.onAlignmentChanged) window.onAlignmentChanged();
   markDirty();
-  status("已重做");
+  status(window.t ? t("msg_redone") : "已重做");
 }
 
 function markDirty() {
@@ -821,14 +848,14 @@ window.addEventListener("DOMContentLoaded", () => {
   const titleEl = document.querySelector("header h1");
   if (titleEl && devOpt) {
     titleEl.style.cursor = "pointer";
-    titleEl.title = "三击标题可显示/隐藏开发者调试选项（含URL测试历史）";
+    titleEl.title = window.t ? t("header_title_title") : "三击标题可显示/隐藏开发者调试选项（含URL测试历史）";
     titleEl.addEventListener("click", () => {
       clickCount++;
       clearTimeout(clickTimer);
       if (clickCount >= 3) {
         devOpt.style.display = devOpt.style.display === "none" ? "inline-flex" : "none";
         clickCount = 0;
-        status(devOpt.style.display === "inline-flex" ? "🛠 已开启开发者调试模式（包含URL测试历史）" : "🛠 已隐藏开发者调试选项");
+        status(devOpt.style.display === "inline-flex" ? (window.t ? t("msg_dev_enabled") : "🛠 已开启开发者调试模式（包含URL测试历史）") : (window.t ? t("msg_dev_disabled") : "🛠 已隐藏开发者调试选项"));
       } else {
         clickTimer = setTimeout(() => { clickCount = 0; }, 500);
       }
@@ -840,7 +867,7 @@ window.addEventListener("DOMContentLoaded", () => {
       e.preventDefault();
       if (devOpt) {
         devOpt.style.display = devOpt.style.display === "none" ? "inline-flex" : "none";
-        status(devOpt.style.display === "inline-flex" ? "🛠 已开启开发者调试模式（包含URL测试历史）" : "🛠 已隐藏开发者调试选项");
+        status(devOpt.style.display === "inline-flex" ? (window.t ? t("msg_dev_enabled") : "🛠 已开启开发者调试模式（包含URL测试历史）") : (window.t ? t("msg_dev_disabled") : "🛠 已隐藏开发者调试选项"));
       }
     }
   });
@@ -854,11 +881,11 @@ window.addEventListener("DOMContentLoaded", () => {
   const button = document.getElementById("btn-analyze-audio");
   if (!button) return;
   button.addEventListener("click", async () => {
-    if (!state.currentFile || !state.alignment) return status("请先选择歌曲", true);
+    if (!state.currentFile || !state.alignment) return status(window.t ? t("msg_select_song_first") : "请先选择歌曲", true);
     const song = state.currentFile;
     button.disabled = true;
     try {
-      status("正在分析原曲节拍、能量和频段变化…");
+      status(window.t ? t("msg_analyzing_audio") : "正在分析原曲节拍、能量和频段变化…");
       const response = await fetch("/api/audio/analyze", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({json_path: song.json_path})});
       if (!response.ok) throw new Error(await response.text());
       const task = await response.json();
@@ -880,9 +907,11 @@ window.addEventListener("DOMContentLoaded", () => {
         state.alignment.duration = project.duration;
         updateAudioAnalysisSummary();
       }
-      status(`音频分析完成：${result.bpm ? result.bpm + " BPM" : "未检测到稳定节拍"}，${result.beats} 个拍点，100Hz 特征${result.cache_hit ? "（缓存）" : ""}；重拍和鼓点类别为估计值`);
+      const cacheNote = result.cache_hit ? (window.currentLocale === "en" ? " (cache)" : "（缓存）") : "";
+      const bpmStr = result.bpm ? (result.bpm + " BPM") : (window.currentLocale === "en" ? "No stable BPM" : "未检测到稳定节拍");
+      status(window.t ? t("msg_audio_analysis_done", null, { bpm: bpmStr, beats: result.beats, cache: cacheNote }) : `音频分析完成：${bpmStr}，${result.beats} 个拍点，100Hz 特征${cacheNote}；重拍和鼓点类别为估计值`);
     } catch (error) {
-      status("音频分析失败：" + error.message, true);
+      status((window.t ? t("msg_audio_analysis_failed") : "音频分析失败：") + error.message, true);
     } finally { button.disabled = false; }
   });
 });
@@ -892,8 +921,19 @@ function updateAudioAnalysisSummary() {
   if (!panel) return;
   const analysis = state.alignment?.analysis;
   if (!analysis?.envelopes?.length) {
-    panel.textContent = "音频特征尚未分析 · 点击“分析音频”即可补做，无需重新对齐歌词";
+    panel.textContent = window.t ? t("audio_feat_not_analyzed_hint") : "音频特征尚未分析 · 点击“分析音频”即可补做，无需重新对齐歌词";
     return;
   }
-  panel.textContent = `音频特征已就绪 · ${analysis.duration.toFixed(1)} 秒 · ${analysis.bpm ? "估算 " + analysis.bpm + " BPM" : "未检测到稳定节拍"} · ${analysis.beats.length} 个拍点 · ${analysis.feature_rate_hz}Hz / ${analysis.envelopes.length} 个采样点 · 重拍和鼓点类别为估计值`;
+  const bpmText = analysis.bpm ? (window.currentLocale === "en" ? `Est. ${analysis.bpm} BPM` : `估算 ${analysis.bpm} BPM`) : (window.currentLocale === "en" ? "No stable BPM" : "未检测到稳定节拍");
+  panel.textContent = window.currentLocale === "en"
+    ? `Audio features ready · ${analysis.duration.toFixed(1)}s · ${bpmText} · ${analysis.beats.length} beats · ${analysis.feature_rate_hz}Hz / ${analysis.envelopes.length} samples · Downbeats & drum types are estimates`
+    : `音频特征已就绪 · ${analysis.duration.toFixed(1)} 秒 · ${bpmText} · ${analysis.beats.length} 个拍点 · ${analysis.feature_rate_hz}Hz / ${analysis.envelopes.length} 个采样点 · 重拍和鼓点类别为估计值`;
 }
+
+window.addEventListener("languagechange", () => {
+  if (typeof renderSunoUrlHistory === "function") renderSunoUrlHistory();
+  updateAudioAnalysisSummary();
+  if (ws) updatePlayPauseBtn(ws.isPlaying());
+  const titleEl = document.querySelector("header h1");
+  if (titleEl && window.t) titleEl.title = t("header_title_title");
+});

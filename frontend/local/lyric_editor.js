@@ -88,10 +88,10 @@ function bindLyricEvents() {
   if (dom.btnRegenAss) {
     dom.btnRegenAss.addEventListener("click", async () => {
       if (!state.currentFile) {
-        alert("请先选择或加载一首歌曲");
+        alert(window.t ? t("msg_select_song_first") : "请先选择或加载一首歌曲");
         return;
       }
-      status("正在重新生成 ASS 字幕...");
+      status(window.t ? t("msg_generating_ass") : "正在重新生成 ASS 字幕...");
       try {
         const res = await fetch("/api/regen", {
           method: "POST",
@@ -105,11 +105,12 @@ function bindLyricEvents() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "生成失败");
-        status(`🎉 ASS 字幕已生成: ${data.ass_path}`);
-        alert(`ASS 字幕生成成功！\n保存路径: ${data.ass_path}`);
+        status(window.t ? t("msg_ass_generated", null, { path: data.ass_path }) : `🎉 ASS 字幕已生成: ${data.ass_path}`);
+        const pathLabel = window.currentLocale === "en" ? "ASS subtitles generated successfully!\nPath: " : "ASS 字幕生成成功！\n保存路径: ";
+        alert(pathLabel + data.ass_path);
       } catch (err) {
-        status("生成 ASS 失败: " + err.message, true);
-        alert("生成 ASS 失败: " + err.message);
+        status((window.t ? t("msg_ass_failed") : "生成 ASS 失败: ") + err.message, true);
+        alert((window.t ? t("msg_ass_failed") : "生成 ASS 失败: ") + err.message);
       }
     });
   }
@@ -187,7 +188,7 @@ function initLyricExportModal() {
 
   const openModal = () => {
     if (!state.currentFile) {
-      alert("请先选择或加载一首歌曲");
+      alert(window.t ? t("msg_select_song_first") : "请先选择或加载一首歌曲");
       return;
     }
     modal.style.display = "flex";
@@ -265,15 +266,19 @@ function initLyricExportModal() {
     const et = parseTimeString($("#export-end-time")?.value);
     if (et && et > st) {
       const dur = (et - st).toFixed(1);
-      badge.textContent = `片段截取: ${dur}秒 (${formatTimeSec(st)} - ${formatTimeSec(et)})`;
+      badge.textContent = window.t
+        ? t("segment_clip", null, { dur, st: formatTimeSec(st), et: formatTimeSec(et) })
+        : `片段截取: ${dur}秒 (${formatTimeSec(st)} - ${formatTimeSec(et)})`;
       badge.style.background = "rgba(59, 130, 246, 0.2)";
       badge.style.color = "#60a5fa";
     } else if (st > 0) {
-      badge.textContent = `从 ${formatTimeSec(st)} 起直至全曲结束`;
+      badge.textContent = window.t
+        ? t("segment_from_start", null, { st: formatTimeSec(st) })
+        : `从 ${formatTimeSec(st)} 起直至全曲结束`;
       badge.style.background = "rgba(59, 130, 246, 0.2)";
       badge.style.color = "#60a5fa";
     } else {
-      badge.textContent = "全曲完整导出";
+      badge.textContent = window.t ? t("preset_full_badge") : "全曲完整导出";
       badge.style.background = "rgba(16, 185, 129, 0.15)";
       badge.style.color = "#10b981";
     }
@@ -414,13 +419,13 @@ function initLyricExportModal() {
       const durLimit = (et && et > st) ? (et - st) : null;
 
       btnStart.disabled = true;
-      btnStart.textContent = "⏳ 合成中，请稍候...";
+      btnStart.textContent = window.t ? t("btn_modal_rendering") : "⏳ 合成中，请稍候...";
       btnStart.style.opacity = "0.6";
 
       progressBox.style.display = "block";
       resultBox.style.display = "none";
       progressBar.style.width = "5%";
-      progressText.textContent = "正在提交短视频任务...";
+      progressText.textContent = window.currentLocale === "en" ? "Submitting video task..." : "正在提交短视频任务...";
       progressPct.textContent = "5%";
 
       try {
@@ -454,19 +459,20 @@ function initLyricExportModal() {
             const prog = Math.round(task.progress || 0);
             progressBar.style.width = `${prog}%`;
             progressPct.textContent = `${prog}%`;
-            progressText.textContent = task.message || "视频渲染中...";
+            progressText.textContent = task.message || (window.currentLocale === "en" ? "Rendering video..." : "视频渲染中...");
 
             if (task.status === "completed") {
               clearInterval(pollInterval);
               btnStart.disabled = false;
-              btnStart.textContent = "🚀 立即开始合成短视频";
+              btnStart.textContent = window.t ? t("btn_modal_start") : "🚀 立即开始合成短视频";
               btnStart.style.opacity = "1";
               progressBox.style.display = "none";
 
               // 展示结果
               const result = task.result || {};
               resultBox.style.display = "flex";
-              resultMeta.textContent = `${result.resolution ? result.resolution.join('x') : ''} · ${result.size_mb || 0}MB · 耗时 ${result.elapsed_seconds || 0}s`;
+              const elapsedLabel = window.currentLocale === "en" ? "Elapsed" : "耗时";
+              resultMeta.textContent = `${result.resolution ? result.resolution.join('x') : ''} · ${result.size_mb || 0}MB · ${elapsedLabel} ${result.elapsed_seconds || 0}s`;
 
               if (resultVideo && result.video_url) {
                 resultVideo.src = result.video_url;
@@ -477,15 +483,15 @@ function initLyricExportModal() {
                 btnDownload.href = result.video_url;
                 btnDownload.download = result.video_url.split("/").pop() || "lyric_video.mp4";
               }
-              status("🎉 动效短视频已生成完成！");
+              status(window.t ? t("msg_video_success") : "🎉 动效短视频已生成完成！");
             } else if (task.status === "failed") {
               clearInterval(pollInterval);
               btnStart.disabled = false;
-              btnStart.textContent = "🚀 立即开始合成短视频";
+              btnStart.textContent = window.t ? t("btn_modal_start") : "🚀 立即开始合成短视频";
               btnStart.style.opacity = "1";
               progressBox.style.display = "none";
-              alert("短视频合成失败: " + (task.error || task.message));
-              status("短视频合成失败", true);
+              alert((window.currentLocale === "en" ? "Synthesis failed: " : "短视频合成失败: ") + (task.error || task.message));
+              status(window.t ? t("msg_video_failed") : "短视频合成失败", true);
             }
           } catch (e) {
             console.error("轮询异常:", e);
@@ -494,11 +500,11 @@ function initLyricExportModal() {
 
       } catch (err) {
         btnStart.disabled = false;
-        btnStart.textContent = "🚀 立即开始合成短视频";
+        btnStart.textContent = window.t ? t("btn_modal_start") : "🚀 立即开始合成短视频";
         btnStart.style.opacity = "1";
         progressBox.style.display = "none";
-        alert("短视频任务异常: " + err.message);
-        status("导出短视频失败: " + err.message, true);
+        alert((window.currentLocale === "en" ? "Video task failed: " : "短视频任务异常: ") + err.message);
+        status((window.t ? t("msg_export_video_failed") : "导出短视频失败: ") + err.message, true);
       }
     });
   }
@@ -541,7 +547,7 @@ function renderLyrics() {
   if (introSec) {
     const introDiv = document.createElement("div");
     introDiv.className = "section-header section-intro";
-    introDiv.title = "双击从前奏开始播放";
+    introDiv.title = window.t ? t("sec_intro_dblclick") : "双击从前奏开始播放";
     introDiv.innerHTML = `
       <div class="sec-left">
         <span class="sec-badge">🎵 ${escHtml(introSec.label || introSec.name)}</span>
@@ -551,7 +557,7 @@ function renderLyrics() {
     `;
     introDiv.addEventListener("dblclick", () => {
       if (ws) {
-        ws.setTime(introSec.start); ws.play(); if (dom.btnPlayPause) dom.btnPlayPause.textContent = "⏸ 暂停";
+        ws.setTime(introSec.start); ws.play(); if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(true);
         if (wsInst && instReady) { wsInst.setTime(introSec.start); wsInst.play(); }
       }
     });
@@ -575,7 +581,7 @@ function renderLyrics() {
 
       const secDiv = document.createElement("div");
       secDiv.className = `section-header ${isOutro ? "section-outro" : ""}`;
-      secDiv.title = "双击从本乐段开始播放";
+      secDiv.title = window.t ? t("sec_dblclick") : "双击从本乐段开始播放";
       secDiv.innerHTML = `
         <div class="sec-left">
           <span class="sec-badge">🔖 ${escHtml(secLabel)}</span>
@@ -585,7 +591,7 @@ function renderLyrics() {
       `;
       secDiv.addEventListener("dblclick", () => {
         if (ws) {
-          ws.setTime(secStart); ws.play(); if (dom.btnPlayPause) dom.btnPlayPause.textContent = "⏸ 暂停";
+          ws.setTime(secStart); ws.play(); if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(true);
           if (wsInst && instReady) { wsInst.setTime(secStart); wsInst.play(); }
         }
       });
@@ -597,16 +603,20 @@ function renderLyrics() {
     row.dataset.idx = i;
     const charSpans = renderLineCharSpans(line, i);
     const dur = (line.end - line.start).toFixed(1);
+    const startTitle = window.t ? t("line_row_start_title") : "行起始时间";
+    const endTitle = window.t ? t("line_row_end_title") : "行结束时间";
+    const nudgeLTitle = window.t ? t("line_nudge_left_title") : "整行前移100ms";
+    const nudgeRTitle = window.t ? t("line_nudge_right_title") : "整行后移100ms";
     row.innerHTML = `
       <span class="lyric-num">${i + 1}</span>
       <span class="lyric-text">${charSpans}</span>
       <span class="lyric-time-edit">
-        <input type="text" class="time-input line-start-input" value="${fmtTimeShort(line.start)}" data-field="start" data-idx="${i}" title="行起始时间">
+        <input type="text" class="time-input line-start-input" value="${fmtTimeShort(line.start)}" data-field="start" data-idx="${i}" title="${startTitle}">
         <span class="time-arrow">→</span>
-        <input type="text" class="time-input line-end-input" value="${fmtTimeShort(line.end)}" data-field="end" data-idx="${i}" title="行结束时间">
+        <input type="text" class="time-input line-end-input" value="${fmtTimeShort(line.end)}" data-field="end" data-idx="${i}" title="${endTitle}">
         <span class="line-dur">${dur}s</span>
-        <button class="line-nudge-btn" data-idx="${i}" data-delta="-0.1" title="整行前移100ms">◁</button>
-        <button class="line-nudge-btn" data-idx="${i}" data-delta="0.1" title="整行后移100ms">▷</button>
+        <button class="line-nudge-btn" data-idx="${i}" data-delta="-0.1" title="${nudgeLTitle}">◁</button>
+        <button class="line-nudge-btn" data-idx="${i}" data-delta="0.1" title="${nudgeRTitle}">▷</button>
       </span>`;
     row.addEventListener("click", (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
@@ -615,7 +625,7 @@ function renderLyrics() {
     row.addEventListener("dblclick", (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
       if (ws) {
-        ws.setTime(line.start); ws.play(); if (dom.btnPlayPause) dom.btnPlayPause.textContent = "⏸ 暂停";
+        ws.setTime(line.start); ws.play(); if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(true);
         if (wsInst && instReady) { wsInst.setTime(line.start); wsInst.play(); }
       }
     });
@@ -715,7 +725,10 @@ function renderWords(lineIdx) {
   if (!line) { clearWordPanel(); return; }
 
   const lineDurMs = ((line.end - line.start) * 1000).toFixed(0);
-  dom.wordTitle.textContent = `第 ${lineIdx + 1} 行 [${fmtTimeShort(line.start)} → ${fmtTimeShort(line.end)}, ${lineDurMs}ms]: ${line.text}`;
+  const lineLabel = window.t
+    ? (window.currentLocale === "en" ? `Line ${lineIdx + 1}` : `第 ${lineIdx + 1} 行`)
+    : `第 ${lineIdx + 1} 行`;
+  dom.wordTitle.textContent = `${lineLabel} [${fmtTimeShort(line.start)} → ${fmtTimeShort(line.end)}, ${lineDurMs}ms]: ${line.text}`;
   const words = line.words || [];
   if (!words.length) { clearWordPanel(); return; }
 
@@ -735,11 +748,16 @@ function renderWords(lineIdx) {
   // 1. 前置紧凑标签 (只显示时间，不抢占歌词空间)
   const prePill = document.createElement("div");
   prePill.className = "gap-pill gap-pre";
-  const preLabel = preGapSec > 3.0 ? `间奏 ${preGapSec.toFixed(1)}s` : (preGapSec > 0.05 ? `空隙 ${preGapSec.toFixed(2)}s` : `紧接上句`);
-  prePill.title = `前置间奏/静音 (${preGapSec.toFixed(2)}s) | 双击或拖拽尾部手柄调节首字起唱时间`;
+  const preLabel = preGapSec > 3.0
+    ? `${window.t ? t("interlude") : "间奏"} ${preGapSec.toFixed(1)}s`
+    : (preGapSec > 0.05 ? `${window.t ? t("gap") : "空隙"} ${preGapSec.toFixed(2)}s` : (window.t ? t("prev_line_connected") : "紧接上句"));
+  const preGapTitle = window.t ? t("pre_gap_title") : "前置间奏/静音";
+  const preGapHint = window.t ? t("pre_gap_hint") : "双击或拖拽尾部手柄调节首字起唱时间";
+  prePill.title = `${preGapTitle} (${preGapSec.toFixed(2)}s) | ${preGapHint}`;
+  const handleStartTitle = window.t ? t("handle_start_title") : "拖拽调节首字起唱 | 双击获取当前播放头时间";
   prePill.innerHTML = `
     <span class="gap-text">◀ ${preLabel}</span>
-    <div class="edge-handle handle-line-start" title="拖拽调节首字起唱 | 双击获取当前播放头时间"></div>
+    <div class="edge-handle handle-line-start" title="${handleStartTitle}"></div>
   `;
   // 双击占位块本身直接获取播放头时间轴
   prePill.addEventListener("dblclick", (e) => {
@@ -762,12 +780,16 @@ function renderWords(lineIdx) {
     bar.className = "word-bar" + (isPunct(w.word) ? " punct" : "") + (i === 0 ? " first-word" : "") + (isNeedsReview ? " needs-review" : "");
     bar.style.flex = `${flexGrow.toFixed(2)} 1 ${isPunct(w.word) ? "18px" : "36px"}`;
     bar.dataset.idx = i;
-    bar.title = `${w.word}  ${fmtTime(w.start)} → ${fmtTime(w.end)}  (${(dur * 1000).toFixed(0)}ms)${isNeedsReview ? " [声学边界较弱/连音，建议人工复核]" : ""}`;
+    const reviewText = isNeedsReview ? (window.t ? t("word_needs_review") : " [声学边界较弱/连音，建议人工复核]") : "";
+    bar.title = `${w.word}  ${fmtTime(w.start)} → ${fmtTime(w.end)}  (${(dur * 1000).toFixed(0)}ms)${reviewText}`;
     const isInternal = (i < words.length - 1);
+    const handleTitle = isInternal
+      ? (window.t ? t("handle_split_title") : "拖拽分割点 | 双击=对齐至当前播放头")
+      : (window.t ? t("handle_end_title") : "拖拽尾字收唱 | 双击=对齐至当前播放头");
     bar.innerHTML = `
       <span>${escHtml(w.word.trim() || w.word)}</span>
       <span class="word-dur">${(dur * 1000).toFixed(0)}</span>
-      <div class="drag-handle" title="${isInternal ? '拖拽分割点 | 双击=对齐至当前播放头' : '拖拽尾字收唱 | 双击=对齐至当前播放头'}"></div>
+      <div class="drag-handle" title="${handleTitle}"></div>
     `;
 
     bar.addEventListener("click", (e) => {
@@ -777,13 +799,13 @@ function renderWords(lineIdx) {
     bar.addEventListener("dblclick", (e) => {
       if (e.target.classList.contains("drag-handle")) return;
       if (ws) {
-        ws.setTime(w.start); ws.play(); if (dom.btnPlayPause) dom.btnPlayPause.textContent = "⏸ 暂停";
+        ws.setTime(w.start); ws.play(); if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(true);
         if (wsInst && instReady) { wsInst.setTime(w.start); wsInst.play(); }
         const stopAt = w.end;
         const check = () => {
           if (ws.getCurrentTime() >= stopAt) {
             ws.pause(); if (wsInst && instReady) wsInst.pause();
-            if (dom.btnPlayPause) dom.btnPlayPause.textContent = "▶ 播放";
+            if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(false);
           } else if (ws.isPlaying()) requestAnimationFrame(check);
         };
         requestAnimationFrame(check);
@@ -799,11 +821,18 @@ function renderWords(lineIdx) {
   // 3. 后置紧凑标签 (只显示时间)
   const postPill = document.createElement("div");
   postPill.className = "gap-pill gap-post";
-  const postLabel = postGapSec > 3.0 ? `间奏 ${postGapSec.toFixed(1)}s` : (postGapSec > 0.05 ? `空隙 ${postGapSec.toFixed(2)}s` : `紧接下句`);
-  postPill.title = `后置间歇 (${postGapSec.toFixed(2)}s) | 尾字收唱: ${fmtTimeShort(line.end)} | 双击或拖拽橙色手柄调节收唱点`;
+  const postLabel = postGapSec > 3.0
+    ? `${window.t ? t("interlude") : "间奏"} ${postGapSec.toFixed(1)}s`
+    : (postGapSec > 0.05 ? `${window.t ? t("gap") : "空隙"} ${postGapSec.toFixed(2)}s` : (window.t ? t("next_line_connected") : "紧接下句"));
+  const postGapTitle = window.t ? t("post_gap_title") : "后置间歇";
+  const endSingLabel = window.t ? t("post_gap_end_sing") : "尾字收唱";
+  const postGapHint = window.t ? t("post_gap_hint") : "双击或拖拽橙色手柄调节收唱点";
+  postPill.title = `${postGapTitle} (${postGapSec.toFixed(2)}s) | ${endSingLabel}: ${fmtTimeShort(line.end)} | ${postGapHint}`;
+  const handleEndTitle = window.t ? t("handle_end_edge_title") : "拖拽调节尾字收唱";
+  const handleEndHint = window.t ? t("handle_end_edge_hint") : "双击对齐至播放头";
   postPill.innerHTML = `
-    <div class="edge-handle handle-line-end" title="拖拽调节尾字收唱 (${fmtTimeShort(line.end)}) | 双击对齐至播放头"></div>
-    <span class="gap-text" title="后置间歇时长: ${postGapSec.toFixed(2)}s">${postLabel} ▶</span>
+    <div class="edge-handle handle-line-end" title="${handleEndTitle} (${fmtTimeShort(line.end)}) | ${handleEndHint}"></div>
+    <span class="gap-text" title="${postGapTitle}: ${postGapSec.toFixed(2)}s">${postLabel} ▶</span>
   `;
   postPill.addEventListener("dblclick", (e) => {
     e.preventDefault(); e.stopPropagation();
@@ -821,7 +850,7 @@ function renderWords(lineIdx) {
 }
 
 function clearWordPanel() {
-  if (dom.wordTitle) dom.wordTitle.textContent = "点击左侧歌词行查看字级时间";
+  if (dom.wordTitle) dom.wordTitle.textContent = window.t ? t("word_panel_placeholder") : "点击左侧歌词行查看字级时间";
   if (dom.wordTimeline) dom.wordTimeline.innerHTML = "";
 }
 
@@ -854,10 +883,10 @@ function snapFirstWordStartToPlayhead(lineIdx) {
 
   let targetT = t;
   if (targetT < minStart) {
-    status(`⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 早于上一句结束 (${fmtTimeShort(minStart)})，已自动约束在上一句后`, true);
+    status(window.t ? t("bound_early_prev", null, { time: fmtTimeShort(targetT), bound: fmtTimeShort(minStart) }) : `⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 早于上一句结束 (${fmtTimeShort(minStart)})，已自动约束在上一句后`, true);
     targetT = minStart;
   } else if (targetT > maxStart) {
-    status(`⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 晚于第 2 个字起唱 (${fmtTimeShort(maxStart)})，已自动约束在第 2 字前`, true);
+    status(window.t ? t("bound_late_second", null, { time: fmtTimeShort(targetT), bound: fmtTimeShort(maxStart) }) : `⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 晚于第 2 个字起唱 (${fmtTimeShort(maxStart)})，已自动约束在第 2 字前`, true);
     targetT = maxStart;
   }
   const clamped = Math.round(targetT * 1000) / 1000;
@@ -885,7 +914,7 @@ function snapFirstWordStartToPlayhead(lineIdx) {
   markDirty();
 
   const preGap = prevLine ? (line.start - prevLine.end) : line.start;
-  status(`🎯 首字起唱点已吸附至播放头: ${fmtTimeShort(clamped)}（前置间奏: ${preGap.toFixed(1)}s）`);
+  status(window.t ? t("snap_start_msg", null, { time: fmtTimeShort(clamped), gap: preGap.toFixed(1) }) : `🎯 首字起唱点已吸附至播放头: ${fmtTimeShort(clamped)}（前置间奏: ${preGap.toFixed(1)}s）`);
 }
 
 function snapSplitToPlayhead(lineIdx, wordIdx) {
@@ -905,10 +934,10 @@ function snapSplitToPlayhead(lineIdx, wordIdx) {
 
     let targetT = t;
     if (targetT < minEnd) {
-      status(`⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 早于尾字起唱 (${fmtTimeShort(minEnd)})`, true);
+      status(window.t ? t("bound_early_last", null, { time: fmtTimeShort(targetT), bound: fmtTimeShort(minEnd) }) : `⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 早于尾字起唱 (${fmtTimeShort(minEnd)})`, true);
       targetT = minEnd;
     } else if (targetT > maxEnd) {
-      status(`⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 晚于下一句起唱 (${fmtTimeShort(maxEnd)})，已约束在下一句前`, true);
+      status(window.t ? t("bound_late_next", null, { time: fmtTimeShort(targetT), bound: fmtTimeShort(maxEnd) }) : `⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 晚于下一句起唱 (${fmtTimeShort(maxEnd)})，已约束在下一句前`, true);
       targetT = maxEnd;
     }
     const clamped = Math.round(targetT * 1000) / 1000;
@@ -924,7 +953,7 @@ function snapSplitToPlayhead(lineIdx, wordIdx) {
     markDirty();
 
     const postGap = nextLine ? (nextLine.start - line.end) : (audioDur - line.end);
-    status(`🎯 尾字收唱点已吸附至播放头: ${fmtTimeShort(clamped)}（后置间歇: ${postGap.toFixed(1)}s）`);
+    status(window.t ? t("snap_end_msg", null, { time: fmtTimeShort(clamped), gap: postGap.toFixed(1) }) : `🎯 尾字收唱点已吸附至播放头: ${fmtTimeShort(clamped)}（后置间歇: ${postGap.toFixed(1)}s）`);
   } else {
     const minVal = words[wordIdx].start + 0.01;
     const maxVal = words[wordIdx + 1].end - 0.01;
@@ -941,7 +970,7 @@ function snapSplitToPlayhead(lineIdx, wordIdx) {
     renderWords(lineIdx);
     selectWord(wordIdx);
     markDirty();
-    status(`✂ 分割点 ${wordIdx + 1}|${wordIdx + 2} → ${fmtTimeShort(clamped)}`);
+    status(window.t ? t("split_snapped_msg", null, { idx1: wordIdx + 1, idx2: wordIdx + 2, time: fmtTimeShort(clamped) }) : `✂ 分割点 ${wordIdx + 1}|${wordIdx + 2} → ${fmtTimeShort(clamped)}`);
   }
 }
 
@@ -1304,7 +1333,7 @@ function handleLineTimeInput(e) {
   const parsed = parseTimeInput(input.value);
   if (parsed === null) {
     input.value = fmtTimeShort(line[field]);
-    status("时间格式错误，请输入 m:ss.xxx 或 秒数", true); return;
+    status(window.t ? t("time_format_error") : "时间格式错误，请输入 m:ss.xxx 或 秒数", true); return;
   }
   const lines = state.alignment.lines;
   if (field === "start") {
@@ -1320,7 +1349,7 @@ function handleLineTimeInput(e) {
       }
       syncLineFromWords(idx); renderLyrics(); renderWords(idx); selectLine(idx); markDirty();
       const preGap = prevLine ? (line.start - prevLine.end) : line.start;
-      status(`🎯 首字起唱点已调整为 ${fmtTimeShort(line.start)}（前置间奏: ${preGap.toFixed(1)}s）`);
+      status(window.t ? t("snap_start_msg", null, { time: fmtTimeShort(line.start), gap: preGap.toFixed(1) }) : `🎯 首字起唱点已调整为 ${fmtTimeShort(line.start)}（前置间奏: ${preGap.toFixed(1)}s）`);
     } else {
       resizeLine(idx, parsed - line.start, 0);
     }
@@ -1335,9 +1364,18 @@ function handleLineTimeInput(e) {
       line.end = lastWord.end;
       syncLineFromWords(idx); renderLyrics(); renderWords(idx); selectLine(idx); markDirty();
       const postGap = nextLine ? (nextLine.start - line.end) : 0;
-      status(`🎯 尾字收唱点已调整为 ${fmtTimeShort(line.end)}（后置间歇: ${postGap.toFixed(1)}s）`);
+      status(window.t ? t("snap_end_msg", null, { time: fmtTimeShort(line.end), gap: postGap.toFixed(1) }) : `🎯 尾字收唱点已调整为 ${fmtTimeShort(line.end)}（后置间歇: ${postGap.toFixed(1)}s）`);
     } else {
       resizeLine(idx, 0, parsed - line.end);
     }
   }
 }
+
+window.addEventListener("languagechange", () => {
+  renderLyrics();
+  if (state.selectedLine >= 0) {
+    renderWords(state.selectedLine);
+  } else {
+    clearWordPanel();
+  }
+});
