@@ -8,11 +8,15 @@
     },
     {
       "source": "/motion_studio",
-      "destination": "/motion_studio_director.html"
+      "destination": "/motion_studio.html"
+    },
+    {
+      "source": "/motion_studio_director",
+      "destination": "/motion_studio.html"
     },
     {
       "source": "/motion",
-      "destination": "/motion_studio_director.html"
+      "destination": "/motion_studio.html"
     },
     {
       "source": "/motion_lab",

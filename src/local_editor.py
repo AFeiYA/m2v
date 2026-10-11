@@ -2322,8 +2322,12 @@ def storyboard():
 
 @app.get("/motion", response_class=HTMLResponse)
 @app.get("/motion_studio", response_class=HTMLResponse)
+@app.get("/motion_studio.html", response_class=HTMLResponse)
+@app.get("/motion_studio_director.html", response_class=HTMLResponse)
 def motion_studio():
     ms_file = _FRONTEND_DIR / "motion_studio_director.html"
+    if not ms_file.exists():
+        ms_file = _FRONTEND_DIR / "motion_studio.html"
     if ms_file.exists():
         html = ms_file.read_text(encoding="utf-8")
         for url, asset in (("/motion/studio.js", _FRONTEND_DIR / "motion" / "studio.js"),
