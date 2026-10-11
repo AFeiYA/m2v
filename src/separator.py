@@ -7,6 +7,7 @@ Module 2: 人声分离器
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -41,17 +42,20 @@ if spaces and hasattr(spaces, "GPU"):
     @spaces.GPU(duration=55)
     def _run_demucs_and_align_zerogpu(
         opts: list[str],
-        output_dir: Path,
+        output_dir_str: str,
         stem: str,
-        separator_config: SeparatorConfig,
-        lyrics: list[Any] | None,
-        aligner_config: Any,
-        status_cb: callable | None = None,
-    ) -> tuple[Path, Path, list[Any] | None, Any]:
-        """单次 ZeroGPU 租约内连续执行 Demucs 分离 + stable-ts 词级对齐，避免释放后再降级。"""
+        separator_model: str,
+        output_format: str,
+        lyrics_json: str | None,
+        aligner_language: str | None,
+        whisper_model_name: str,
+    ) -> tuple[str, str, str | None, str]:
+        """单次 ZeroGPU 租约内连续执行 Demucs 分离 + stable-ts 词级对齐，参数与返回值均限定为基础类型以确保跨进程 pickle 安全。"""
         import demucs.separate
         import torch
         from src.aligner import set_inside_zerogpu_context
+        from src.preprocessor import LyricLine
+        from src.storyboard_schema import AlignmentResult
 
         dev_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "GPU"
         mem_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if torch.cuda.is_available() else 0
@@ -60,8 +64,12 @@ if spaces and hasattr(spaces, "GPU"):
             dev_name,
             mem_gb,
         )
-        if status_cb:
-            status_cb("🎯 [ZeroGPU] 成功借调 GPU，执行伴奏分离与词级对齐一体化流水线…")
+
+        output_dir = Path(output_dir_str)
+        lyrics: list[LyricLine] | None = None
+        if lyrics_json is not None:
+            raw_lines = json.loads(lyrics_json)
+            lyrics = [LyricLine(**item) for item in raw_lines]
 
         set_inside_zerogpu_context(True)
         try:
@@ -70,12 +78,10 @@ if spaces and hasattr(spaces, "GPU"):
             demucs.separate.main(opts)
             cost_demucs = time.time() - t0
             log.info("⚡ [ZeroGPU] 步骤 1/2: Demucs 伴奏分离完成 (耗时: %.1fs)", cost_demucs)
-            if status_cb:
-                status_cb(f"⚡ [ZeroGPU] 伴奏分离完成 ({cost_demucs:.1f}s)，正在当前 GPU 极速对齐歌词…")
 
             # 整理分离音频文件
-            demucs_out = output_dir / separator_config.model / stem
-            ext = f".{separator_config.output_format.lstrip('.')}"
+            demucs_out = output_dir / separator_model / stem
+            ext = f".{output_format.lstrip('.')}"
             vocals_src = demucs_out / f"vocals{ext}"
             instrumental_src = demucs_out / f"no_vocals{ext}"
             if not vocals_src.exists():
@@ -91,7 +97,7 @@ if spaces and hasattr(spaces, "GPU"):
             instrumental_dst = output_dir / f"{stem}_instrumental{ext}"
             shutil.move(str(vocals_src), str(vocals_dst))
             shutil.move(str(instrumental_src), str(instrumental_dst))
-            shutil.rmtree(output_dir / separator_config.model, ignore_errors=True)
+            shutil.rmtree(output_dir / separator_model, ignore_errors=True)
 
             # 释放 Demucs 显存碎片，为 Whisper 准备充足连续显存
             torch.cuda.empty_cache()
@@ -100,16 +106,25 @@ if spaces and hasattr(spaces, "GPU"):
             if lyrics is None:
                 log.info("⚡ [ZeroGPU] 未提供歌词文件，正在当前 GPU 极速听写歌词文本…")
                 from src.aligner import transcribe_audio
+                from src.config import AlignerConfig
 
-                lyrics, _ = transcribe_audio(vocals_dst, aligner_config)
+                temp_aligner_cfg = AlignerConfig(whisper_model=whisper_model_name, language=aligner_language, device="cuda")
+                lyrics, _ = transcribe_audio(vocals_dst, temp_aligner_cfg)
+                if lyrics:
+                    import dataclasses
+
+                    lyrics_json = json.dumps(
+                        [dataclasses.asdict(line) if hasattr(line, "__dataclass_fields__") else dict(line) for line in lyrics],
+                        ensure_ascii=False,
+                    )
 
             # 3. 执行 stable-ts 词级对齐 (CUDA)
             t1 = time.time()
             log.info("⚡ [ZeroGPU] 步骤 2/2: 在同一 GPU 上启动 stable-ts 歌词对齐…")
             from src.align.stablets_adapter import align_lyrics_stablets
 
-            lang = None if aligner_config.language in ("auto", "mixed", None) else aligner_config.language
-            model_name = aligner_config.whisper_model or "base"
+            lang = None if aligner_language in ("auto", "mixed", None) else aligner_language
+            model_name = whisper_model_name or "base"
             alignment = align_lyrics_stablets(
                 vocals_path=vocals_dst,
                 lyrics=lyrics,
@@ -127,11 +142,13 @@ if spaces and hasattr(spaces, "GPU"):
                 cost_align,
                 cost_total,
             )
-            if status_cb:
-                status_cb(f"⚡ [ZeroGPU] 一体化对齐完成 (分离 {cost_demucs:.1f}s + 对齐 {cost_align:.1f}s)")
+
+            # 将对齐结果持久化至本地 JSON 文件
+            align_json_path = output_dir / f"{stem}_alignment.json"
+            alignment.save_json(align_json_path)
 
             torch.cuda.empty_cache()
-            return vocals_dst, instrumental_dst, lyrics, alignment
+            return str(vocals_dst), str(instrumental_dst), lyrics_json, str(align_json_path)
         finally:
             set_inside_zerogpu_context(False)
 else:
@@ -323,15 +340,42 @@ def separate_and_align(
         if status_callback:
             status_callback("⏳ 正在申请云端 GPU 算力 (预占 55s 一体化额度)...")
         try:
-            return _run_demucs_and_align_zerogpu(
+            lyrics_json_str: str | None = None
+            if lyrics is not None:
+                import dataclasses
+
+                lyrics_json_str = json.dumps(
+                    [dataclasses.asdict(l) if hasattr(l, "__dataclass_fields__") else dict(l) for l in lyrics],
+                    ensure_ascii=False,
+                )
+
+            whisper_model_name = getattr(aligner_config, "whisper_model", "base") or "base"
+            aligner_lang = getattr(aligner_config, "language", None)
+
+            vocals_dst_str, instrumental_dst_str, lyrics_json_out, align_json_path_str = _run_demucs_and_align_zerogpu(
                 opts=opts,
-                output_dir=output_dir,
+                output_dir_str=str(output_dir),
                 stem=stem,
-                separator_config=separator_config,
-                lyrics=lyrics,
-                aligner_config=aligner_config,
-                status_cb=status_callback,
+                separator_model=separator_config.model,
+                output_format=separator_config.output_format,
+                lyrics_json=lyrics_json_str,
+                aligner_language=aligner_lang,
+                whisper_model_name=whisper_model_name,
             )
+
+            from src.storyboard_schema import AlignmentResult
+
+            alignment = AlignmentResult.load_json(Path(align_json_path_str))
+
+            if lyrics is None and lyrics_json_out is not None:
+                from src.preprocessor import LyricLine
+
+                lyrics = [LyricLine(**item) for item in json.loads(lyrics_json_out)]
+
+            if status_callback:
+                status_callback("⚡ [ZeroGPU] 一体化伴奏分离与歌词对齐圆满完成！")
+
+            return Path(vocals_dst_str), Path(instrumental_dst_str), lyrics, alignment
         except Exception as exc:
             err_name = type(exc).__name__
             err_desc = str(exc)

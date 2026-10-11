@@ -146,3 +146,70 @@ def test_can_run_zerogpu_composite_flag(monkeypatch):
 
     monkeypatch.setattr(separator, "_run_demucs_and_align_zerogpu", None)
     assert separator.can_run_zerogpu_composite() is False
+
+
+def test_zerogpu_composite_runner_ipc_safety_and_serialization(tmp_path, monkeypatch):
+    import pickle
+    from src import separator
+    from src.preprocessor import LyricLine
+    from src.storyboard_schema import AlignmentResult, AlignedLine
+
+    mp3_file = tmp_path / "track.mp3"
+    mp3_file.write_bytes(b"dummy")
+
+    fake_vocals = tmp_path / "track_vocals.mp3"
+    fake_inst = tmp_path / "track_instrumental.mp3"
+    fake_vocals.write_bytes(b"voc")
+    fake_inst.write_bytes(b"inst")
+
+    align_obj = AlignmentResult(lines=[AlignedLine(text="hello world", start=1.0, end=2.5)])
+    align_json = tmp_path / "track_alignment.json"
+    align_obj.save_json(align_json)
+
+    recorded_kwargs = {}
+
+    def mock_zerogpu_runner(**kwargs):
+        # 1. 严格断言：传入 @spaces.GPU 的所有实参必须 100% 支持 pickle 跨进程序列化！
+        for k, v in kwargs.items():
+            try:
+                pickled = pickle.dumps(v)
+                assert isinstance(pickled, bytes)
+            except Exception as e:
+                pytest.fail(f"ZeroGPU runner argument '{k}' cannot be pickled: {e}")
+        recorded_kwargs.update(kwargs)
+        return str(fake_vocals), str(fake_inst), kwargs.get("lyrics_json"), str(align_json)
+
+    monkeypatch.setattr(separator, "spaces", SimpleNamespace(GPU=lambda **kw: lambda f: f))
+    monkeypatch.setattr(separator, "_run_demucs_and_align_zerogpu", mock_zerogpu_runner)
+    monkeypatch.setattr(
+        "src.separator.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stderr=""),
+    )
+
+    lyrics_input = [LyricLine(text="hello world", timestamp=1.0)]
+
+    callback_messages = []
+    # 模拟前端/Worker 传入 local lambda 回调（此前正是此 lambda 触发了 PicklingError）
+    status_lambda = lambda msg: callback_messages.append(msg)
+
+    voc, inst, ly, res = separator.separate_and_align(
+        mp3_path=mp3_file,
+        output_dir=tmp_path,
+        lyrics=lyrics_input,
+        status_callback=status_lambda,
+    )
+
+    # 验证返回对象与解析
+    assert voc == fake_vocals
+    assert inst == fake_inst
+    assert ly == lyrics_input
+    assert len(res.lines) == 1
+    assert res.lines[0].text == "hello world"
+
+    # 验证回调在 host 进程内正常接收，未传入 worker RPC
+    assert len(callback_messages) >= 2
+    assert "status_cb" not in recorded_kwargs
+    assert "status_callback" not in recorded_kwargs
+    assert isinstance(recorded_kwargs["lyrics_json"], str)
+    assert isinstance(recorded_kwargs["output_dir_str"], str)
+
