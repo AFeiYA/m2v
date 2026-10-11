@@ -53,7 +53,7 @@ def align_lyrics_stablets(
     model_name: str = "base",
     device: str = "cpu",
     refine: bool = False,
-    nonspeech_skip: float | None = 5.0,
+    nonspeech_skip: float | None = None,
     guard_interludes: bool = True,
 ) -> AlignmentResult:
     """使用 stable-ts 对整曲歌词执行直接声学对齐。
@@ -65,7 +65,7 @@ def align_lyrics_stablets(
         model_name: Whisper 模型名称 ('base', 'small', 'medium', 'large-v3')
         device: 推理设备 ('cpu' 或 'cuda')
         refine: 是否在对齐后运行 model.refine()
-        nonspeech_skip: 非语音跳过阈值 (秒)
+        nonspeech_skip: 非语音跳过阈值 (秒，默认 None 保持整块连续对齐，避免分块回滚时张量尺寸不一致)
         guard_interludes: 是否启用宏观间奏硬保护屏障 (默认 True)
     """
     if language in ("mixed", "auto", None):
@@ -82,6 +82,7 @@ def align_lyrics_stablets(
                 lyrics=lyrics,
                 model=model,
                 language=language,
+                nonspeech_skip=nonspeech_skip,
             )
     except Exception as exc:
         err_str = str(exc).lower()
