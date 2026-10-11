@@ -47,7 +47,7 @@
           </label>
         </div>
         <button id="btn-quick-download-mp3" onclick="downloadOriginalAudio()" title="从粘贴的链接仅提取下载原曲 MP3 (执行步骤 1，跳过分离对齐)" data-i18n="btn_quick_mp3" data-i18n-title="btn_quick_mp3_title"
-                style="background: #2a313d; color: #e2e8f0; font-weight: 500; border: none; height: 24px; padding: 0 6px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⬇ 仅下 MP3</button>
+                style="display: none; background: #2a313d; color: #e2e8f0; font-weight: 500; border: none; height: 24px; padding: 0 6px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⬇ 仅下 MP3</button>
         <button id="btn-start-suno-import" onclick="handleSunoImport()" title="一键抓取并字级对齐" data-i18n="btn_import" data-i18n-title="btn_import_title"
                 style="background: linear-gradient(135deg, #ff416c, #ff4b2b); color: #fff; font-weight: 600; border: none; height: 24px; padding: 0 8px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⚡ 导入对齐</button>
       </div>
@@ -64,8 +64,6 @@
       <button id="btn-analyze-audio" title="提取原曲节拍、能量和频段变化；已有结果会复用缓存" data-i18n="btn_analyze_audio" data-i18n-title="btn_analyze_audio_title">🎵 分析音频</button>
       <button id="btn-undo" title="Ctrl+Z" data-i18n="btn_undo" data-i18n-title="btn_undo_title">↩ 撤销</button>
       <button id="btn-redo" title="Ctrl+Y" data-i18n="btn_redo" data-i18n-title="btn_redo_title">↪ 重做</button>
-      <span class="sep">|</span>
-      <button id="btn-download-mp3" onclick="downloadOriginalAudio()" title="一键下载当前歌曲的原曲 MP3" data-i18n="btn_orig_mp3" data-i18n-title="btn_orig_mp3_title">⬇ 原曲 MP3</button>
       <span class="sep">|</span>
       <button id="btn-regen-ass" style="background: linear-gradient(135deg, #3b82f6, #2563eb); font-weight: 600;" title="从当前字级时间戳重新生成 ASS 字幕" data-i18n="btn_regen_ass" data-i18n-title="btn_regen_ass_title">📝 生成 ASS</button>
       <span class="sep">|</span>

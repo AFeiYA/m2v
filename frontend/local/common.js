@@ -937,3 +937,43 @@ window.addEventListener("languagechange", () => {
   const titleEl = document.querySelector("header h1");
   if (titleEl && window.t) titleEl.title = t("header_title_title");
 });
+
+// ---------------------------------------------------------------------------
+// 开发者模式控制器 (Dev Mode Controller)
+// 默认不可见；通过 URL 参数 (?dev=1 或 ?mode=dev)、快捷键 (Ctrl+Shift+D) 或控制台开启
+// ---------------------------------------------------------------------------
+function checkAndApplyDevMode() {
+  const params = new URLSearchParams(window.location.search);
+  const isDev = params.has("dev") || params.get("mode") === "dev" || localStorage.getItem("suno2mv_dev_mode") === "true";
+  const quickMp3Btn = document.getElementById("btn-quick-download-mp3");
+  if (quickMp3Btn) {
+    quickMp3Btn.style.display = isDev ? "inline-block" : "none";
+  }
+}
+
+window.toggleDevMode = function(forceState) {
+  const current = localStorage.getItem("suno2mv_dev_mode") === "true";
+  const next = typeof forceState === "boolean" ? forceState : !current;
+  localStorage.setItem("suno2mv_dev_mode", next ? "true" : "false");
+  checkAndApplyDevMode();
+  console.log(`[Suno2MV] 开发者模式已${next ? "开启" : "关闭"}`);
+  if (typeof status === "function") {
+    status(`🛠️ 开发者模式已${next ? "开启 (已显示仅下MP3)" : "关闭 (已隐藏开发调试项)"}`);
+  }
+  return next;
+};
+
+// 快捷键 Ctrl+Shift+D 切换开发模式
+window.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
+    e.preventDefault();
+    window.toggleDevMode();
+  }
+});
+
+// 页面加载完成后应用 Dev 状态
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", checkAndApplyDevMode);
+} else {
+  checkAndApplyDevMode();
+}
