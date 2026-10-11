@@ -41,6 +41,13 @@ from src.preprocessor import LyricLine
 from src.utils import log
 
 _whisper_cache: dict[tuple[str, str, str], Any] = {}
+_INSIDE_ZEROGPU_CONTEXT: bool = False
+
+
+def set_inside_zerogpu_context(active: bool) -> None:
+    """设置当前线程/进程是否处于已被 @spaces.GPU 装饰器授权的 ZeroGPU 租约上下文中"""
+    global _INSIDE_ZEROGPU_CONTEXT
+    _INSIDE_ZEROGPU_CONTEXT = active
 
 
 def is_safe_cuda_available() -> bool:
@@ -48,7 +55,16 @@ def is_safe_cuda_available() -> bool:
     在 Hugging Face Spaces (含 ZeroGPU 容器) 中，未在 @spaces.GPU 装饰器内部直接访问 CUDA
     会触发 ZeroGPU 底层拦截崩溃 ('torch._C._cuda_init reached')，或因无物理 GPU 而报错。
     在此类云端或容器环境下统一返回 False，指示轻量对齐走 CPU。
+    但当在一体化 @spaces.GPU 上下文中执行时 (_INSIDE_ZEROGPU_CONTEXT=True)，放行并返回 True。
     """
+    if _INSIDE_ZEROGPU_CONTEXT:
+        try:
+            import torch
+
+            return torch.cuda.is_available()
+        except Exception:
+            return False
+
     import os
 
     if os.environ.get("SPACE_ID") or os.environ.get("SPACES_ZERO_GPU"):

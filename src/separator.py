@@ -13,6 +13,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from src.config import SeparatorConfig
 from src.utils import log
@@ -31,12 +32,116 @@ if spaces and hasattr(spaces, "GPU"):
     def _run_demucs_zerogpu(opts: list[str]) -> None:
         import demucs.separate
         import torch
+
         dev_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "GPU"
         mem_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if torch.cuda.is_available() else 0
         log.info("🎯 [ZeroGPU] 成功借调 GPU 硬件: %s (显存: %.1f GB)，开始极速分离…", dev_name, mem_gb)
         demucs.separate.main(opts)
+
+    @spaces.GPU(duration=55)
+    def _run_demucs_and_align_zerogpu(
+        opts: list[str],
+        output_dir: Path,
+        stem: str,
+        separator_config: SeparatorConfig,
+        lyrics: list[Any] | None,
+        aligner_config: Any,
+        status_cb: callable | None = None,
+    ) -> tuple[Path, Path, list[Any] | None, Any]:
+        """单次 ZeroGPU 租约内连续执行 Demucs 分离 + stable-ts 词级对齐，避免释放后再降级。"""
+        import demucs.separate
+        import torch
+        from src.aligner import set_inside_zerogpu_context
+
+        dev_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "GPU"
+        mem_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3) if torch.cuda.is_available() else 0
+        log.info(
+            "🎯 [ZeroGPU] 成功借调 GPU 硬件: %s (显存: %.1f GB)，启动一体化流水线 (Demucs伴奏分离 + stable-ts词级对齐)…",
+            dev_name,
+            mem_gb,
+        )
+        if status_cb:
+            status_cb("🎯 [ZeroGPU] 成功借调 GPU，执行伴奏分离与词级对齐一体化流水线…")
+
+        set_inside_zerogpu_context(True)
+        try:
+            # 1. 运行 Demucs 分离
+            t0 = time.time()
+            demucs.separate.main(opts)
+            cost_demucs = time.time() - t0
+            log.info("⚡ [ZeroGPU] 步骤 1/2: Demucs 伴奏分离完成 (耗时: %.1fs)", cost_demucs)
+            if status_cb:
+                status_cb(f"⚡ [ZeroGPU] 伴奏分离完成 ({cost_demucs:.1f}s)，正在当前 GPU 极速对齐歌词…")
+
+            # 整理分离音频文件
+            demucs_out = output_dir / separator_config.model / stem
+            ext = f".{separator_config.output_format.lstrip('.')}"
+            vocals_src = demucs_out / f"vocals{ext}"
+            instrumental_src = demucs_out / f"no_vocals{ext}"
+            if not vocals_src.exists():
+                found_vocals = list(demucs_out.glob("vocals.*"))
+                if found_vocals:
+                    vocals_src = found_vocals[0]
+                    ext = vocals_src.suffix
+                    instrumental_src = demucs_out / f"no_vocals{ext}"
+                else:
+                    raise FileNotFoundError(f"Demucs 输出未找到: {vocals_src}")
+
+            vocals_dst = output_dir / f"{stem}_vocals{ext}"
+            instrumental_dst = output_dir / f"{stem}_instrumental{ext}"
+            shutil.move(str(vocals_src), str(vocals_dst))
+            shutil.move(str(instrumental_src), str(instrumental_dst))
+            shutil.rmtree(output_dir / separator_config.model, ignore_errors=True)
+
+            # 释放 Demucs 显存碎片，为 Whisper 准备充足连续显存
+            torch.cuda.empty_cache()
+
+            # 2. 若歌词为空，执行 Whisper ASR 文本听写 (CUDA)
+            if lyrics is None:
+                log.info("⚡ [ZeroGPU] 未提供歌词文件，正在当前 GPU 极速听写歌词文本…")
+                from src.aligner import transcribe_audio
+
+                lyrics, _ = transcribe_audio(vocals_dst, aligner_config)
+
+            # 3. 执行 stable-ts 词级对齐 (CUDA)
+            t1 = time.time()
+            log.info("⚡ [ZeroGPU] 步骤 2/2: 在同一 GPU 上启动 stable-ts 歌词对齐…")
+            from src.align.stablets_adapter import align_lyrics_stablets
+
+            lang = None if aligner_config.language in ("auto", "mixed", None) else aligner_config.language
+            model_name = aligner_config.whisper_model or "base"
+            alignment = align_lyrics_stablets(
+                vocals_path=vocals_dst,
+                lyrics=lyrics,
+                language=lang,
+                model_name=model_name,
+                device="cuda",
+                refine=False,
+                nonspeech_skip=None,
+                guard_interludes=True,
+            )
+            cost_align = time.time() - t1
+            cost_total = time.time() - t0
+            log.info(
+                "⚡ [ZeroGPU] 词级对齐完成 (耗时: %.1fs)！一体化 GPU 任务圆满完成 (实际总占用: %.1fs)，算力已释放归还集群",
+                cost_align,
+                cost_total,
+            )
+            if status_cb:
+                status_cb(f"⚡ [ZeroGPU] 一体化对齐完成 (分离 {cost_demucs:.1f}s + 对齐 {cost_align:.1f}s)")
+
+            torch.cuda.empty_cache()
+            return vocals_dst, instrumental_dst, lyrics, alignment
+        finally:
+            set_inside_zerogpu_context(False)
 else:
     _run_demucs_zerogpu = None
+    _run_demucs_and_align_zerogpu = None
+
+
+def can_run_zerogpu_composite() -> bool:
+    """检查当前环境是否支持 ZeroGPU 复合一体化借调执行"""
+    return bool(spaces and hasattr(spaces, "GPU") and _run_demucs_and_align_zerogpu is not None)
 
 
 def separate_vocals(
@@ -148,6 +253,108 @@ def separate_vocals(
 
     log.info("人声分离完成: %s, %s", vocals_dst.name, instrumental_dst.name)
     return vocals_dst, instrumental_dst
+
+
+def separate_and_align(
+    mp3_path: Path,
+    output_dir: Path,
+    lyrics: list[Any] | None = None,
+    separator_config: SeparatorConfig | None = None,
+    aligner_config: Any | None = None,
+    status_callback: callable | None = None,
+) -> tuple[Path, Path, list[Any] | None, Any]:
+    """
+    一体化执行 Demucs 人声/伴奏分离与歌词词级对齐。
+    在 ZeroGPU 云端环境下，通过单次 @spaces.GPU 申请在同一块 GPU 租约内连续完成两项任务，
+    彻底避免二次借调或被迫降级 CPU，端到端极速完成。
+    """
+    if separator_config is None:
+        separator_config = SeparatorConfig()
+    if aligner_config is None:
+        from src.config import AlignerConfig
+
+        aligner_config = AlignerConfig()
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = mp3_path.stem
+
+    is_zerogpu = can_run_zerogpu_composite() and separator_config.device in ("cuda", "auto")
+
+    # 构建 demucs 参数列表
+    device_opt = "cuda" if is_zerogpu else separator_config.device
+    opts = [
+        "--name", separator_config.model,
+        "--two-stems", separator_config.two_stems,
+        "--out", str(output_dir),
+        "--device", device_opt,
+        "--shifts", str(separator_config.shifts),
+    ]
+    if separator_config.output_format != "wav":
+        opts.extend(["--mp3"])
+    opts.append(str(mp3_path))
+
+    # 前置音频有效性探测
+    from src.utils import get_ffprobe_binary
+
+    probe_cmd = [
+        get_ffprobe_binary(),
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(mp3_path),
+    ]
+    try:
+        probe_res = subprocess.run(probe_cmd, capture_output=True, text=True)
+        if probe_res.returncode != 0:
+            err_msg = probe_res.stderr.strip() or "无法被 FFmpeg 解码"
+            raise ValueError(
+                f"音频文件损坏或格式无效 ({mp3_path.name})。\n"
+                f"可能原因为网络下载不完整或受防盗链保护。\n"
+                f"底层探测错误: {err_msg}"
+            )
+    except FileNotFoundError:
+        pass
+
+    if is_zerogpu and _run_demucs_and_align_zerogpu is not None:
+        log.info("⏳ [ZeroGPU] 正在向 Hugging Face 调度中心申请 GPU 算力 (一体化租约: 55s)...")
+        if status_callback:
+            status_callback("⏳ 正在申请云端 GPU 算力 (预占 55s 一体化额度)...")
+        try:
+            return _run_demucs_and_align_zerogpu(
+                opts=opts,
+                output_dir=output_dir,
+                stem=stem,
+                separator_config=separator_config,
+                lyrics=lyrics,
+                aligner_config=aligner_config,
+                status_cb=status_callback,
+            )
+        except Exception as exc:
+            err_name = type(exc).__name__
+            err_desc = str(exc)
+            log.warning("⚠️ [ZeroGPU] 一体化借调 GPU 未成功 (%s: %s)，已自动平滑降级至常规流程！", err_name, err_desc)
+            if status_callback:
+                status_callback("🟡 云端 GPU 额度耗尽或排队，平滑切换常规模式完成...")
+
+    # 常规执行分支 (非 ZeroGPU 或降级)
+    vocals_dst, instrumental_dst = separate_vocals(
+        mp3_path=mp3_path,
+        output_dir=output_dir,
+        config=separator_config,
+        status_callback=status_callback,
+    )
+    if lyrics is None:
+        from src.aligner import transcribe_audio
+
+        lyrics, _ = transcribe_audio(vocals_dst, aligner_config)
+
+    from src.aligner import align_lyrics
+
+    alignment = align_lyrics(vocals_dst, lyrics, aligner_config)
+    return vocals_dst, instrumental_dst, lyrics, alignment
 
 
 def _run_demucs_execution(

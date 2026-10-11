@@ -74,3 +74,21 @@ def prepare_motion_runtime(root: Path = ROOT) -> None:
     subprocess.run(['node', '--input-type=module', '-e', 'import "@remotion/renderer";'],
                    cwd=motion, check=True)
     print('Motion Studio 渲染环境就绪（Gradio 入口保持不变）', flush=True)
+    warmup_ai_models()
+
+
+def warmup_ai_models() -> None:
+    """在后台异步预缓存 Whisper 基础模型，杜绝在借调 ZeroGPU 期间耗用网络下载时间。"""
+    import threading
+
+    def _preload():
+        try:
+            import stable_whisper
+
+            print('🚀 [预热] 正在预缓存 stable-ts Whisper base 模型…', flush=True)
+            stable_whisper.load_model('base', device='cpu')
+            print('✅ [预热] stable-ts Whisper base 模型预热就绪！', flush=True)
+        except Exception as e:
+            print(f'⚠️ [预热] Whisper 模型预热跳过: {e}', flush=True)
+
+    threading.Thread(target=_preload, daemon=True).start()

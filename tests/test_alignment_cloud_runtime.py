@@ -78,3 +78,71 @@ def test_old_asr_cache_is_refreshed_with_correct_language(tmp_path, monkeypatch)
     assert json.loads(cache.read_text())['version'] == 4
     assert aligner.extract_asr_words(audio, config=AlignerConfig(whisper_model='base'), language='en') == words
     assert transcribe.call_count == 1
+
+
+def test_zerogpu_context_toggle_enables_cuda(monkeypatch):
+    monkeypatch.setenv("SPACE_ID", "test-space")
+    monkeypatch.setattr(aligner.torch.cuda, "is_available", lambda: True)
+
+    # Outside context: should block CUDA on Spaces
+    aligner.set_inside_zerogpu_context(False)
+    assert aligner.is_safe_cuda_available() is False
+
+    # Inside context: should allow CUDA
+    aligner.set_inside_zerogpu_context(True)
+    assert aligner.is_safe_cuda_available() is True
+
+    # After exit: safely revert to False
+    aligner.set_inside_zerogpu_context(False)
+    assert aligner.is_safe_cuda_available() is False
+
+
+def test_separate_and_align_fallback_when_not_zerogpu(tmp_path, monkeypatch):
+    from src.separator import separate_and_align
+    from src.storyboard_schema import AlignmentResult, AlignedLine
+
+    mp3_file = tmp_path / "song.mp3"
+    mp3_file.write_bytes(b"dummy")
+
+    fake_vocals = tmp_path / "song_vocals.mp3"
+    fake_inst = tmp_path / "song_instrumental.mp3"
+    fake_vocals.write_bytes(b"vocals")
+    fake_inst.write_bytes(b"inst")
+
+    monkeypatch.setattr(
+        "src.separator.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0, stderr=""),
+    )
+    monkeypatch.setattr(
+        "src.separator.separate_vocals",
+        lambda *args, **kwargs: (fake_vocals, fake_inst),
+    )
+    monkeypatch.setattr(
+        "src.aligner.align_lyrics",
+        lambda *args, **kwargs: AlignmentResult(lines=[AlignedLine(text="hello", start=0.0, end=1.0)]),
+    )
+
+    from src.preprocessor import LyricLine
+
+    lyrics_input = [LyricLine(text="hello")]
+    voc, inst, ly, res = separate_and_align(
+        mp3_path=mp3_file,
+        output_dir=tmp_path,
+        lyrics=lyrics_input,
+    )
+    assert voc == fake_vocals
+    assert inst == fake_inst
+    assert ly == lyrics_input
+    assert len(res.lines) == 1
+    assert res.lines[0].text == "hello"
+
+
+def test_can_run_zerogpu_composite_flag(monkeypatch):
+    from src import separator
+
+    monkeypatch.setattr(separator, "_run_demucs_and_align_zerogpu", lambda *a, **k: None)
+    monkeypatch.setattr(separator, "spaces", SimpleNamespace(GPU=lambda **kw: lambda f: f))
+    assert separator.can_run_zerogpu_composite() is True
+
+    monkeypatch.setattr(separator, "_run_demucs_and_align_zerogpu", None)
+    assert separator.can_run_zerogpu_composite() is False

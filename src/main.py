@@ -262,6 +262,7 @@ def process_one(
         # ---------------------------------------------------------------
         # Step 1 & 2: 只有在不对齐 JSON 时才需要
         # ---------------------------------------------------------------
+        alignment = None
         if config.alignment_json:
             log.info("检测到对齐 JSON，将跳过预处理和人声分离…")
             vocals_path = mp3_path  # 占位，Step 3 会直接跳过对齐
@@ -292,7 +293,46 @@ def process_one(
                         existing_inst = output_dir / f"{stem}_instrumental{alt_ext}"
                         break
 
-            if not config.skip_separation and existing_vocals.exists() and existing_vocals.stat().st_size > 100_000:
+            # 判定是否满足 ZeroGPU 一体化单租借流水线条件
+            from src.separator import can_run_zerogpu_composite, separate_and_align
+
+            aligner_engine = getattr(config.aligner, "engine", "stablets")
+            should_composite = (
+                not config.skip_separation
+                and not (existing_vocals.exists() and existing_vocals.stat().st_size > 100_000)
+                and aligner_engine == "stablets"
+                and can_run_zerogpu_composite()
+            )
+
+            if should_composite:
+                _progress("separating", 15, "正在申请云端 GPU 执行伴奏分离与词级对齐一体化流水线…")
+                log.info("[2-3/5] 启动 ZeroGPU 一体化流水线: 伴奏分离 + stable-ts 对齐 (单次 GPU 借调)…")
+                vocals_path, instrumental_path, lyrics, alignment = separate_and_align(
+                    mp3_path=mp3_path,
+                    output_dir=temp_dir,
+                    lyrics=lyrics,
+                    separator_config=config.separator,
+                    aligner_config=config.aligner,
+                    status_callback=lambda msg: _progress("separating", 25, msg),
+                )
+                v_ext = vocals_path.suffix
+                output_vocals = output_dir / f"{stem}_vocals{v_ext}"
+                shutil.copy2(vocals_path, output_vocals)
+                log.info("人声文件已保存: %s", output_vocals.name)
+                if instrumental_path and instrumental_path.exists():
+                    i_ext = instrumental_path.suffix
+                    output_inst = output_dir / f"{stem}_instrumental{i_ext}"
+                    shutil.copy2(instrumental_path, output_inst)
+                    log.info("伴奏文件已保存: %s", output_inst.name)
+                _progress("separating", 30, "人声分离完成")
+                _progress("aligning", 60, "词级对齐完成")
+
+                # 保存对齐 JSON (方便调试/复用)
+                json_path = temp_dir / f"{stem}_alignment.json"
+                alignment.save_json(json_path)
+                output_json = output_dir / f"{stem}_alignment.json"
+                shutil.copy2(json_path, output_json)
+            elif not config.skip_separation and existing_vocals.exists() and existing_vocals.stat().st_size > 100_000:
                 log.info("[2/5] 检测到已有分离人声文件: %s，直接复用…", existing_vocals.name)
                 vocals_path = existing_vocals
                 instrumental_path = existing_inst if existing_inst.exists() else None
@@ -323,8 +363,8 @@ def process_one(
                     log.info("伴奏文件已保存: %s", output_inst.name)
                 _progress("separating", 30, "人声分离完成")
 
-            # 若无歌词，使用干净人声音轨调用 Whisper 听写纯歌词文本 (ASR)
-            if lyrics is None:
+            # 若无歌词且尚未对齐，使用干净人声音轨调用 Whisper 听写纯歌词文本 (ASR)
+            if lyrics is None and alignment is None:
                 _progress("preprocessing", 32, "使用 Whisper 进行歌词文本识别 (ASR)…")
                 log.info("[2.5/5] 使用 Whisper 进行纯文本听写 (ASR)…")
                 from src.aligner import transcribe_audio
@@ -336,6 +376,8 @@ def process_one(
         # ---------------------------------------------------------------
         from src.aligner import AlignmentResult
 
+        output_json = (output_dir / f"{stem}_alignment.json").resolve()
+
         if config.alignment_json:
             alignment_json = _resolve_alignment_json_path(config.alignment_json, mp3_path)
             if not alignment_json.exists():
@@ -345,10 +387,9 @@ def process_one(
             _progress("aligning", 60, "复用已有对齐结果")
 
             # 复制一份到输出目录，保持产物一致
-            output_json = (output_dir / f"{stem}_alignment.json").resolve()
             if alignment_json.resolve() != output_json:
                 shutil.copy2(alignment_json, output_json)
-        else:
+        elif alignment is None:
             aligner_engine = getattr(config.aligner, "engine", "stablets")
             if aligner_engine == "stablets":
                 engine_name = "stable-ts Whisper"
@@ -367,7 +408,6 @@ def process_one(
             alignment.save_json(json_path)
 
             # 同时复制一份到输出目录
-            output_json = output_dir / f"{stem}_alignment.json"
             shutil.copy2(json_path, output_json)
 
         # Original mix drives motion; vocal/instrumental stems are not drum stems.
