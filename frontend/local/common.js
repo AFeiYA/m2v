@@ -911,9 +911,14 @@ function checkAndApplyDevMode() {
   if (devOpt) {
     devOpt.style.display = isDev ? "inline-flex" : "none";
   }
+  // 导入对齐与仅下 MP3 均为默认常驻可见操作按钮
   const quickMp3Btn = document.getElementById("btn-quick-download-mp3");
-  if (quickMp3Btn && (!devOpt || !devOpt.contains(quickMp3Btn))) {
-    quickMp3Btn.style.display = isDev ? "inline-block" : "none";
+  if (quickMp3Btn) {
+    quickMp3Btn.style.display = "inline-block";
+  }
+  const importBtn = document.getElementById("btn-start-suno-import");
+  if (importBtn) {
+    importBtn.style.display = "inline-block";
   }
   return isDev;
 }
@@ -926,8 +931,8 @@ window.toggleDevMode = function(forceState) {
   console.log(`[Suno2MV] 开发者调试模式已${next ? "开启" : "关闭"}`);
   if (typeof status === "function") {
     status(next
-      ? (window.t ? t("msg_dev_enabled") : "🛠 已开启开发者调试模式（包含URL测试历史与仅下MP3）")
-      : (window.t ? t("msg_dev_disabled") : "🛠 已隐藏开发者调试选项"));
+      ? (window.t ? t("msg_dev_enabled") : "🛠 已开启开发者模式（已显示最近 URL 历史）")
+      : (window.t ? t("msg_dev_disabled") : "🛠 已隐藏开发者选项"));
   }
   return next;
 };

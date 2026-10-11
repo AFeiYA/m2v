@@ -21,15 +21,17 @@
                onfocus="this.style.width='250px'" onblur="this.style.width='195px'"
                onkeydown="if(event.key==='Enter') handleSunoImport()" />
         <datalist id="suno-url-history"></datalist>
-        <!-- 开发者调试选项 (默认隐藏，保证界面清爽；可通过三击标题/Ctrl+Shift+D/?dev=1唤出，包含URL最近历史与算法调试项) -->
+        <!-- 开发者调试选项 (默认隐藏；可通过三击标题/Ctrl+Shift+D/?dev=1唤出，仅包含URL最近测试历史) -->
         <div id="suno-dev-options" style="display: none; align-items: center; gap: 6px;">
           <select id="suno-url-history-select" title="最近 10 条测试 URL 历史记录" data-i18n-title="url_history_title"
                   style="height: 24px; max-width: 125px; font-size: 11px; background: #1a202c; color: #cbd5e1; border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; outline: none; cursor: pointer;"
                   onchange="if(this.value){ document.getElementById('suno-url-input').value = this.value; this.value=''; }">
             <option value="" data-i18n="url_history_default">🕒 最近历史</option>
-          <button id="btn-quick-download-mp3" onclick="downloadOriginalAudio()" title="从粘贴的链接仅提取下载原曲 MP3 (执行步骤 1，跳过分离对齐)" data-i18n="btn_quick_mp3" data-i18n-title="btn_quick_mp3_title"
-                  style="background: #2a313d; color: #e2e8f0; font-weight: 500; border: 1px solid #4a5568; height: 24px; padding: 0 8px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⬇ 仅下 MP3</button>
+          </select>
         </div>
+        <!-- 默认可见操作按钮：仅下 MP3 与 导入对齐 -->
+        <button id="btn-quick-download-mp3" onclick="downloadOriginalAudio()" title="从粘贴的链接仅提取下载原曲 MP3 (执行步骤 1，跳过分离对齐)" data-i18n="btn_quick_mp3" data-i18n-title="btn_quick_mp3_title"
+                style="background: #2a313d; color: #e2e8f0; font-weight: 500; border: 1px solid #4a5568; height: 24px; padding: 0 8px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⬇ 仅下 MP3</button>
         <button id="btn-start-suno-import" onclick="handleSunoImport()" title="一键抓取并字级对齐" data-i18n="btn_import" data-i18n-title="btn_import_title"
                 style="background: linear-gradient(135deg, #ff416c, #ff4b2b); color: #fff; font-weight: 600; border: none; height: 24px; padding: 0 8px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⚡ 导入对齐</button>
       </div>
@@ -337,8 +339,8 @@
     </div>
   </div>
 
-  <script src="/static/common.js?v=20261011_clean"></script>
-  <script src="/static/lyric_editor.js?v=20261011_clean"></script>
+  <script src="/static/common.js?v=20261011_v3"></script>
+  <script src="/static/lyric_editor.js?v=20261011_v3"></script>
 </body>
 
 </html>
