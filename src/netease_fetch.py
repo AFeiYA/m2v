@@ -338,10 +338,10 @@ def auto_process_netease(
         config.aligner.device = "cuda" if use_gpu else "cpu"
 
     if config.skip_separation:
-        _safe_cb(35, "⚡ 极速模式：正在进行原曲词级时间轴对齐 (CTC Forced Alignment)...")
+        _safe_cb(35, "⚡ 极速模式：正在进行原曲词级时间轴对齐 (stable-ts Whisper)...")
     else:
         dev_label = "GPU" if (use_gpu or config.separator.device in ("cuda", "mps")) else "CPU"
-        _safe_cb(35, f"正在进行人声与伴奏分离及时间轴对齐 (Demucs[{dev_label}] + CTC)...")
+        _safe_cb(35, f"正在进行人声与伴奏分离及时间轴对齐 (Demucs[{dev_label}] + stable-ts)...")
 
     log.info(">>> 自动执行网易云歌曲音频处理与时间轴对齐 (输出至 %s)...", song_output_dir.name)
     from src.main import process_one

@@ -27,16 +27,12 @@ class SeparatorConfig:
 # ---------------------------------------------------------------------------
 @dataclass
 class AlignerConfig:
-    engine: str = "stablets"          # "stablets" (stable-ts Whisper 对齐) 或 "ctc" (Wav2Vec2 Forced Alignment)
+    engine: str = "stablets"          # "stablets" (基于 stable-ts Whisper 跨注意力时间戳对齐)
     whisper_model: str = "base"       # CPU/轻量运行推荐 base，极高对齐精度与抗漏词能力
     device: str = "cuda"
     compute_type: str = "int8"        # int8 省显存，适合 8GB VRAM
     language: str = "auto"            # "auto" (自动判定全曲主语言) 或 "en" / "zh" / "ja" / "ko"
     batch_size: int = 8               # 8GB VRAM 建议 ≤8
-    # 中文 wav2vec2 对齐模型（WhisperX 默认会自动选）
-    align_model: str | None = None
-    # 拼音对齐：将中文转拼音后做 wav2vec2 对齐，然后映射回汉字
-    use_pinyin: bool = True
     # 歌词起始时间(秒): 前奏/拟声词之后的实际开唱时间点
     # 此时间之前的 Whisper segment 会被丢弃
     lyrics_start_time: float = 0.0

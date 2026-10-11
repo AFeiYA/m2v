@@ -1,16 +1,15 @@
 """
 Auto-Karaoke MV Generator — 词级对齐模块
-采用方案二: 纯 Wav2Vec2 CTC Forced Alignment (音素/字符级强约束声学对齐)
+采用 stable-ts (Whisper 跨注意力与非语音抑制) 词级强约束声学对齐引擎
 
 核心架构与职责分工:
 1. 有歌词场景 (自带 TXT/LRC 或 Suno 导入, 占比 95%+):
-   - 100% 走纯 Wav2Vec2 CTC Forced Alignment 引擎;
-   - 使用原歌词做强制对齐，并检测异常压缩与跨间奏错误;
-   - 中英文双语分流声学模型 (WAV2VEC2_ASR_BASE_960H + XLSR-53 Chinese);
+   - 基于 stable-ts Whisper 跨注意力机制完成词级与字级时间戳高精对齐;
+   - 内置间奏硬保护 (Interlude Guard)、爆破音闭塞点微调 (Plosive Snapper) 与双语鲁棒匹配;
    - 毫秒级字级/音素级时间轴打点。
 2. 无歌词场景 (纯音频导入):
    - 两步走架构: 先调用 transcribe_audio() (faster-whisper) 听写纯歌词文本;
-   - 再将生成的歌词文本无缝送入 align_lyrics() 完成高精度 CTC 时间轴打点。
+   - 再将生成的歌词文本送入 align_lyrics() 完成高精度时间轴打点。
 """
 
 from __future__ import annotations
@@ -30,12 +29,8 @@ from pydantic import BaseModel, Field
 import numpy as np
 import soundfile as sf
 import torch
-import torchaudio
-from torchaudio.functional import forced_align, merge_tokens
-from transformers import AutoModelForCTC, AutoProcessor
 import pypinyin
 
-from src.align import build_alignment_tasks, execute_all_tasks
 from src.config import AlignerConfig
 from src.preprocessor import LyricLine
 from src.utils import log
@@ -1113,7 +1108,7 @@ def anchor_stanzas_with_asr(
 
 
 # ---------------------------------------------------------------------------
-# 方案二: 纯 Wav2Vec2 CTC Forced Alignment 核心引擎
+# 词级强约束声学对齐核心引擎 (基于 stable-ts Whisper 跨注意力机制)
 # ---------------------------------------------------------------------------
 
 def align_lyrics(
@@ -1124,42 +1119,24 @@ def align_lyrics(
 ) -> AlignmentResult:
     """
     词级强约束声学对齐统一主入口。
-    根据 config.engine 调度:
-    - "stablets": stable-ts Whisper 跨注意力对齐 (本分支默认)
-    - "ctc": 方案二 Wav2Vec2 CTC Forced Alignment 核心引擎
+    基于 stable-ts Whisper 跨注意力时间戳对齐引擎，内置间奏硬保护与爆破音微调。
     """
     if config is None:
         config = AlignerConfig()
 
-    if config.engine == "stablets":
-        try:
-            from src.align.stablets_adapter import align_lyrics_stablets
+    from src.align.stablets_adapter import align_lyrics_stablets
 
-            # 云端 HF Spaces / ZeroGPU 容器内不可直接占用 CUDA，必须走 CPU (base 模型对齐仅需 ~1.5s 且极其稳健)
-            dev = "cuda" if (config.device == "cuda" and is_safe_cuda_available()) else "cpu"
-            lang = None if config.language in ("auto", "mixed", None) else config.language
-            model_name = config.whisper_model or "base"
-            return align_lyrics_stablets(
-                vocals_path=vocals_path,
-                lyrics=lyrics,
-                language=lang,
-                model_name=model_name,
-                device=dev,
-            )
-        except (ImportError, ModuleNotFoundError) as err:
-            log.warning(
-                "⚠️ 未检测到 stable-ts 依赖 (%s)，自动降级为 Wav2Vec2 CTC 强约束对齐引擎",
-                err,
-            )
-            return align_lyrics_ctc(vocals_path, lyrics, config, allow_self_heal=allow_self_heal)
-        except Exception as err:
-            log.warning(
-                "⚠️ stable-ts 对齐执行异常 (%s)，自动平滑降级为 Wav2Vec2 CTC 强约束对齐引擎",
-                err,
-            )
-            return align_lyrics_ctc(vocals_path, lyrics, config, allow_self_heal=allow_self_heal)
-
-    return align_lyrics_ctc(vocals_path, lyrics, config, allow_self_heal=allow_self_heal)
+    # 云端 HF Spaces / ZeroGPU 容器内不可直接占用 CUDA，必须走 CPU (base 模型对齐仅需 ~1.5s 且极其稳健)
+    dev = "cuda" if (config.device == "cuda" and is_safe_cuda_available()) else "cpu"
+    lang = None if config.language in ("auto", "mixed", None) else config.language
+    model_name = config.whisper_model or "base"
+    return align_lyrics_stablets(
+        vocals_path=vocals_path,
+        lyrics=lyrics,
+        language=lang,
+        model_name=model_name,
+        device=dev,
+    )
 
 
 def align_lyrics_ctc(
@@ -1168,205 +1145,8 @@ def align_lyrics_ctc(
     config: AlignerConfig | None = None,
     allow_self_heal: bool = True,
 ) -> AlignmentResult:
-    """
-    方案二: 纯 Wav2Vec2 CTC Forced Alignment 词级对齐引擎:
-    - 使用原歌词的 CTC 强制对齐，失败时明确报告，不能保证任意唱法均匹配
-    - 英文声学模型: torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
-    - 中文声学模型: jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn
-    - 结合开唱点检测 (Vocal Onset) 与 RMS 能量间奏隔离机制，乐句级强约束精确打点
-    """
-    if config is None:
-        config = AlignerConfig()
-
-    log.info("【方案二: 纯 CTC Forced Alignment】启动词级声学对齐: %s (%d 行歌词)", vocals_path.name, len(lyrics))
-
-    # 1. 开唱点检测
-    min_start = config.lyrics_start_time if config else 0.0
-    if min_start <= 0:
-        min_start = detect_vocal_onset(vocals_path)
-        if min_start > 0:
-            log.info("自动检测到开唱点: %.2fs (已锁死前奏区间)", min_start)
-
-    # 2. 读取音频并重采样为 16kHz
-    wav, sr = sf.read(str(vocals_path), dtype="float32", always_2d=False)
-    if wav.ndim > 1:
-        wav = wav.mean(axis=1)
-
-    wav_t = torch.from_numpy(wav).unsqueeze(0)
-    wav_16k = torchaudio.functional.resample(wav_t, orig_freq=sr, new_freq=16000)
-    total_audio_sec = wav_16k.size(1) / 16000.0
-
-    # 3. RMS 能量扫描，识别有效人声大段落
-    hop = int(sr * 0.1)
-    rms_vals = [float(np.sqrt(np.mean(wav[i:i + hop] ** 2))) for i in range(0, len(wav) - hop, hop)]
-    times = [i / sr for i in range(0, len(wav) - hop, hop)]
-    is_voiced = [r > 0.015 for r in rms_vals]
-
-    raw_blocks = []
-    in_voice = False
-    start_t = 0.0
-    for i, v in enumerate(is_voiced):
-        t = times[i]
-        if v and not in_voice:
-            in_voice = True
-            start_t = t
-        elif not v and in_voice:
-            in_voice = False
-            if t - start_t >= 0.5:
-                raw_blocks.append((round(start_t, 2), round(t, 2)))
-    if in_voice:
-        raw_blocks.append((round(start_t, 2), round(times[-1], 2)))
-
-    # 合并相隔 < 2.8s 的小停顿，保留大间奏与 Solo
-    singing_sections = []
-    for b in raw_blocks:
-        if b[1] < min_start:
-            continue
-        if not singing_sections:
-            singing_sections.append(b)
-        else:
-            prev_s, prev_e = singing_sections[-1]
-            if b[0] - prev_e < 2.8:
-                singing_sections[-1] = (prev_s, b[1])
-            else:
-                singing_sections.append(b)
-
-    log.info("人声检测发现 %d 个主要歌唱乐段: %s", len(singing_sections), singing_sections)
-
-    # 4. 全曲主语言先验判定与歌词按语言分流
-    singing_lyrics: list[tuple[int, LyricLine]] = [(idx, ly) for idx, ly in enumerate(lyrics) if not ly.is_annotation]
-    forced_lang = config.language if (config and config.language and config.language != "auto") else None
-    song_lang = forced_lang or detect_song_language([ly for _, ly in singing_lyrics])
-    log.info("全曲主语言先验判定: %s (配置指定: %s)", song_lang, forced_lang)
-
-    lang_runs: list[tuple[str, list[tuple[int, LyricLine]]]] = []
-    cur_run: list[tuple[int, LyricLine]] = []
-    cur_lang = None
-    for item in singing_lyrics:
-        idx, ly = item
-        lang = detect_line_lang(ly.text, song_lang=song_lang)
-        if cur_lang is None or lang == cur_lang:
-            cur_run.append(item)
-            cur_lang = lang
-        else:
-            lang_runs.append((cur_lang, cur_run))
-            cur_run = [item]
-            cur_lang = lang
-    if cur_run:
-        lang_runs.append((cur_lang, cur_run))
-
-    log.info("歌词分为 %d 个语言乐句块: %s", len(lang_runs), [(lang, len(lines)) for lang, lines in lang_runs])
-
-    # 5. 加载声学模型 (按需加载)
-    has_en = any(lang == "en" for lang, _ in lang_runs)
-    has_zh = any(lang == "zh" for lang, _ in lang_runs)
-
-    model_en, dict_en = None, None
-    if has_en:
-        log.info("加载英文 Wav2Vec2 声学模型 (WAV2VEC2_ASR_BASE_960H)…")
-        bundle_en = torchaudio.pipelines.WAV2VEC2_ASR_BASE_960H
-        model_en = bundle_en.get_model()
-        labels_en = bundle_en.get_labels()
-        dict_en = {c: i for i, c in enumerate(labels_en)}
-
-    model_zh, proc_zh, blank_zh = None, None, 0
-    if has_zh:
-        log.info("加载中文 Wav2Vec2 声学模型 (jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn)…")
-        model_zh_name = "jonatasgrosman/wav2vec2-large-xlsr-53-chinese-zh-cn"
-        hub_dir = Path.home() / ".cache/huggingface/hub/models--jonatasgrosman--wav2vec2-large-xlsr-53-chinese-zh-cn/snapshots"
-        local_target = None
-        if hub_dir.exists():
-            for snap in hub_dir.iterdir():
-                if snap.is_dir() and (snap / "preprocessor_config.json").exists() and (snap / "vocab.json").exists():
-                    local_target = str(snap)
-                    break
-        load_source = local_target or model_zh_name
-        try:
-            proc_zh = AutoProcessor.from_pretrained(load_source, local_files_only=True)
-            model_zh = AutoModelForCTC.from_pretrained(load_source, local_files_only=True)
-        except Exception:
-            proc_zh = AutoProcessor.from_pretrained(load_source)
-            model_zh = AutoModelForCTC.from_pretrained(load_source)
-        model_zh.eval()
-        blank_zh = proc_zh.tokenizer.pad_token_id or 0
-
-    models = {
-        "model_en": model_en,
-        "dict_en": dict_en,
-        "model_zh": model_zh,
-        "proc_zh": proc_zh,
-        "blank_zh": blank_zh,
-        "whisper_model": None,
-        "transcribe_whisper_func": _transcribe_whisper,
-    }
-
-    # 6. 多语言语义 ASR 粗定位与可信任务规划 (Task Planning)
-    prompt_text = "\n".join(ly.text for _, ly in singing_lyrics)
-    asr_words = extract_asr_words(vocals_path, lyrics_prompt=prompt_text, config=config, language=song_lang)
-    asr_words = _recover_asr_gaps(vocals_path, asr_words, singing_sections, total_audio_sec, config, song_lang)
-    _validate_asr_evidence(asr_words, len(singing_lyrics), singing_sections)
-    wav_np = wav_16k.squeeze(0).cpu().numpy()
-
-    tasks = build_alignment_tasks(
-        singing_lyrics=singing_lyrics,
-        asr_words=asr_words,
-        total_audio_sec=total_audio_sec,
-        min_start=min_start,
-        wav_np=wav_np,
-        sr=16000,
-        song_lang=song_lang,
-        start_is_explicit=config.lyrics_start_time > 0,
-    )
-
-    # 7. 纯无状态对齐执行 (Task Execution)
-    aligned_line_map = execute_all_tasks(
-        tasks=tasks,
-        wav_16k=wav_16k,
-        models=models,
-        singing_sections=singing_sections,
-        total_audio_sec=total_audio_sec,
-        config=config,
-    )
-
-    aligned_lines = []
-    for li, ly in enumerate(lyrics):
-        if ly.is_annotation:
-            aligned_lines.append(AlignedLine(
-                text=ly.text,
-                start=0.0,
-                end=0.0,
-                words=[WordTimestamp(word=ly.text, start=0.0, end=0.0)]
-            ))
-        elif li in aligned_line_map:
-            aligned_lines.append(aligned_line_map[li])
-
-    if len(aligned_line_map) != len(singing_lyrics):
-        raise ValueError("声学对齐未覆盖全部演唱歌词，请检查字词与音频区间")
-
-    # 回填编曲说明行的时间
-    _fill_annotation_times(aligned_lines)
-
-    # 审计时间戳单调性
-    aligned_lines = _audit_alignment(aligned_lines)
-
-    # 自动异常检测与局部自愈 (Self-Healing Anomaly Detector)
-    if allow_self_heal and len(aligned_lines) >= 2:
-        aligned_lines = _self_heal_alignment(
-            vocals_path=vocals_path,
-            aligned_lines=aligned_lines,
-            singing_sections=singing_sections,
-            total_audio_sec=total_audio_sec,
-            config=config,
-        )
-        aligned_lines = _audit_alignment(aligned_lines)
-
-    issue = alignment_quality_issue(aligned_lines)
-    if issue:
-        raise ValueError("声学对齐失败，未将异常时间轴视为成功结果：" + issue)
-    result = AlignmentResult(lines=aligned_lines)
-    log.info("【方案二: CTC Forced Alignment】对齐完成: %d 行, %d 个词",
-             len(result.lines), sum(len(line.words) for line in result.lines))
-    return result
+    """【已弃用】CTC 引擎已废弃并移除，自动重定向至 stable-ts Whisper 词级对齐。"""
+    return align_lyrics(vocals_path, lyrics, config, allow_self_heal=allow_self_heal)
 
 
 # ---------------------------------------------------------------------------
@@ -1418,7 +1198,7 @@ def transcribe_audio(
 ) -> tuple[list[LyricLine], str]:
     """
     无歌词场景: 使用轻量 faster-whisper 仅转写音频文本 (ASR)，返回 (歌词行列表, 检测到的语言代码)。
-    后续统一交给 align_lyrics (CTC Forced Alignment) 进行声学高精度时间戳打点。
+    后续统一交给 align_lyrics 进行声学高精度时间戳打点。
     """
     anchors, detected_lang = transcribe_audio_with_anchors(vocals_path, config)
     lines = [LyricLine(text=a.text) for a in anchors if a.text.strip()]
@@ -1438,7 +1218,7 @@ def realign_lines(
     buffer: float = 2.0,
 ) -> list[AlignedLine]:
     """
-    对指定时间段内的几行歌词进行局部重对齐 (底层复用 CTC 声学对齐)。
+    对指定时间段内的几行歌词进行局部重对齐 (底层复用 stable-ts 声学对齐)。
     """
     import tempfile
 
@@ -1510,7 +1290,7 @@ def _self_heal_alignment(
     config: AlignerConfig | None = None,
 ) -> list[AlignedLine]:
     """
-    自动检测 CTC 对齐结果中的异常压缩/提前坍缩 (Premature Collapse / Over-compression)，
+    自动检测对齐结果中的异常压缩/提前坍缩 (Premature Collapse / Over-compression)，
     并针对受影响乐段区间自动触发局部声学重对齐自愈。
     """
     indexed_lines = [(i, l) for i, l in enumerate(aligned_lines) if not getattr(l, "is_annotation", False)]

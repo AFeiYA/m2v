@@ -390,13 +390,7 @@ def process_one(
             if alignment_json.resolve() != output_json:
                 shutil.copy2(alignment_json, output_json)
         elif alignment is None:
-            aligner_engine = getattr(config.aligner, "engine", "stablets")
-            if aligner_engine == "stablets":
-                engine_name = "stable-ts Whisper"
-            elif aligner_engine == "ctc":
-                engine_name = "CTC Forced Alignment"
-            else:
-                engine_name = aligner_engine
+            engine_name = "stable-ts Whisper"
             _progress("aligning", 35, f"词级对齐中 ({engine_name})…")
             log.info(f"[3/5] 词级对齐 ({engine_name})…")
             from src.aligner import align_lyrics
