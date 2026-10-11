@@ -264,24 +264,53 @@ def align_with_interlude_guard(
 
         # 独立运行每个簇
         all_aligned_lines: list[AlignedLine] = []
-        for p in partitions:
+        cur_lyric_offset = 0
+        rough_segments = rough_res.segments if rough_res is not None else []
+
+        for p_i, p in enumerate(partitions):
             p_lyrics = p["lyrics"]
             if not p_lyrics:
                 continue
-            p_s = max(0.0, p["window_start"] - buffer_sec)
-            p_e = min(total_audio_sec, p["window_end"] + buffer_sec)
-            s_sample = int(p_s * 16000)
-            e_sample = int(p_e * 16000)
-            clip = wav_16k[s_sample:e_sample]
-            clip_offset = s_sample / 16000.0
+            n_lyrics = len(p_lyrics)
+            p_rough_segs = rough_segments[cur_lyric_offset : cur_lyric_offset + n_lyrics]
 
-            p_text = "\n".join(prepare_line_for_alignment(ly.text) for ly in p_lyrics)
-            p_has_zh = bool(_CHINESE_CHAR_RE.search(p_text))
-            p_lang = "zh" if p_has_zh else "en"
+            # 优化：若当前簇位于首个间奏前，且所有行均在间奏起始前闭合，直接复用首轮结果，避免弱 CPU 重复对齐
+            can_reuse = (
+                p_i == 0
+                and len(p_rough_segs) == n_lyrics
+                and all(
+                    float(s.end) <= p["window_end"] + 0.35
+                    for s in p_rough_segs
+                    if getattr(s, "end", None) is not None
+                )
+            )
 
-            cluster_opts: dict[str, Any] = {"language": p_lang, "original_split": True, "nonspeech_skip": nonspeech_skip}
-            p_res = model.align(clip, p_text, **cluster_opts)
-            p_segs = p_res.segments if p_res is not None else []
+            if can_reuse:
+                log.info(
+                    "  ⚡ 簇 %d [0.00s ~ %.2fs] 位于首个间奏前且声学边界安全，直接复用首轮对齐 (跳过重复运算)",
+                    p_i + 1,
+                    p["window_end"],
+                )
+                p_segs = p_rough_segs
+                clip_offset = 0.0
+                clip = wav_16k
+            else:
+                p_s = max(0.0, p["window_start"] - buffer_sec)
+                p_e = min(total_audio_sec, p["window_end"] + buffer_sec)
+                s_sample = int(p_s * 16000)
+                e_sample = int(p_e * 16000)
+                clip = wav_16k[s_sample:e_sample]
+                clip_offset = s_sample / 16000.0
+
+                p_text = "\n".join(prepare_line_for_alignment(ly.text) for ly in p_lyrics)
+                p_has_zh = bool(_CHINESE_CHAR_RE.search(p_text))
+                p_lang = "zh" if p_has_zh else "en"
+
+                cluster_opts: dict[str, Any] = {"language": p_lang, "original_split": True, "nonspeech_skip": nonspeech_skip}
+                p_res = model.align(clip, p_text, **cluster_opts)
+                p_segs = p_res.segments if p_res is not None else []
+
+            cur_lyric_offset += n_lyrics
 
             for idx, ly in enumerate(p_lyrics):
                 sec = getattr(ly, "section", "")
