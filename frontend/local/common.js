@@ -835,42 +835,27 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   } catch (e) {}
 
-  // 开发者调试模式显隐控制:
-  // 1. URL 含有 ?dev=1 或 ?debug=1 时自动显现
-  const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get("dev") === "1" || urlParams.get("debug") === "1") {
-    if (devOpt) devOpt.style.display = "inline-flex";
-  }
+  // 开发者调试模式初始化
+  checkAndApplyDevMode();
 
-  // 2. 连续点击 3 次左上角标题，或者按下快捷键 Ctrl+Shift+D / Cmd+Shift+D 切换显隐
+  // 连续点击 3 次左上角标题切换显隐
   let clickCount = 0;
   let clickTimer = null;
   const titleEl = document.querySelector("header h1");
-  if (titleEl && devOpt) {
+  if (titleEl) {
     titleEl.style.cursor = "pointer";
-    titleEl.title = window.t ? t("header_title_title") : "三击标题可显示/隐藏开发者调试选项（含URL测试历史）";
+    titleEl.title = window.t ? t("header_title_title") : "三击标题可显示/隐藏开发者调试选项（含URL测试历史与仅下MP3）";
     titleEl.addEventListener("click", () => {
       clickCount++;
       clearTimeout(clickTimer);
       if (clickCount >= 3) {
-        devOpt.style.display = devOpt.style.display === "none" ? "inline-flex" : "none";
+        window.toggleDevMode();
         clickCount = 0;
-        status(devOpt.style.display === "inline-flex" ? (window.t ? t("msg_dev_enabled") : "🛠 已开启开发者调试模式（包含URL测试历史）") : (window.t ? t("msg_dev_disabled") : "🛠 已隐藏开发者调试选项"));
       } else {
         clickTimer = setTimeout(() => { clickCount = 0; }, 500);
       }
     });
   }
-
-  window.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "D" || e.key === "d")) {
-      e.preventDefault();
-      if (devOpt) {
-        devOpt.style.display = devOpt.style.display === "none" ? "inline-flex" : "none";
-        status(devOpt.style.display === "inline-flex" ? (window.t ? t("msg_dev_enabled") : "🛠 已开启开发者调试模式（包含URL测试历史）") : (window.t ? t("msg_dev_disabled") : "🛠 已隐藏开发者调试选项"));
-      }
-    }
-  });
 });
 
 window.addEventListener("beforeunload", (e) => {
@@ -939,16 +924,27 @@ window.addEventListener("languagechange", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 开发者模式控制器 (Dev Mode Controller)
-// 默认不可见；通过 URL 参数 (?dev=1 或 ?mode=dev)、快捷键 (Ctrl+Shift+D) 或控制台开启
+// 开发者模式控制器 (Dev / Debug Mode Controller)
+// 默认不可见；可通过 URL 参数 (?debug=1 / ?dev=1 / ?mode=dev)、三击标题、快捷键 (Ctrl+Shift+D / Cmd+Shift+D) 切换
 // ---------------------------------------------------------------------------
 function checkAndApplyDevMode() {
   const params = new URLSearchParams(window.location.search);
-  const isDev = params.has("dev") || params.get("mode") === "dev" || localStorage.getItem("suno2mv_dev_mode") === "true";
+  const isDev = params.has("dev") ||
+                params.has("debug") ||
+                params.get("dev") === "1" ||
+                params.get("debug") === "1" ||
+                params.get("mode") === "dev" ||
+                localStorage.getItem("suno2mv_dev_mode") === "true";
+
+  const devOpt = document.getElementById("suno-dev-options");
+  if (devOpt) {
+    devOpt.style.display = isDev ? "inline-flex" : "none";
+  }
   const quickMp3Btn = document.getElementById("btn-quick-download-mp3");
-  if (quickMp3Btn) {
+  if (quickMp3Btn && (!devOpt || !devOpt.contains(quickMp3Btn))) {
     quickMp3Btn.style.display = isDev ? "inline-block" : "none";
   }
+  return isDev;
 }
 
 window.toggleDevMode = function(forceState) {
@@ -956,16 +952,18 @@ window.toggleDevMode = function(forceState) {
   const next = typeof forceState === "boolean" ? forceState : !current;
   localStorage.setItem("suno2mv_dev_mode", next ? "true" : "false");
   checkAndApplyDevMode();
-  console.log(`[Suno2MV] 开发者模式已${next ? "开启" : "关闭"}`);
+  console.log(`[Suno2MV] 开发者调试模式已${next ? "开启" : "关闭"}`);
   if (typeof status === "function") {
-    status(`🛠️ 开发者模式已${next ? "开启 (已显示仅下MP3)" : "关闭 (已隐藏开发调试项)"}`);
+    status(next
+      ? (window.t ? t("msg_dev_enabled") : "🛠 已开启开发者调试模式（包含URL测试历史与仅下MP3）")
+      : (window.t ? t("msg_dev_disabled") : "🛠 已隐藏开发者调试选项"));
   }
   return next;
 };
 
-// 快捷键 Ctrl+Shift+D 切换开发模式
+// 快捷键 Ctrl+Shift+D / Cmd+Shift+D (Mac) 切换开发模式
 window.addEventListener("keydown", (e) => {
-  if (e.ctrlKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "D" || e.key === "d")) {
     e.preventDefault();
     window.toggleDevMode();
   }

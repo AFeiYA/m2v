@@ -2313,6 +2313,7 @@ def index():
 
 
 @app.get("/storyboard", response_class=HTMLResponse)
+@app.get("/storyboard.html", response_class=HTMLResponse)
 def storyboard():
     sb_file = _FRONTEND_DIR / "storyboard.html"
     if sb_file.exists():
