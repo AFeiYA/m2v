@@ -378,17 +378,19 @@ def reconcile_aligned_words(
             w_idx += 1
             continue
 
-        # 2. Whisper token 包含了连续多个目标单元 (如 Whisper 输出 '世界'，目标为 ['世', '界'])
-        if cur_clean.lower().startswith(target.lower()) and len(cur_clean) > len(target):
+        # 2. Whisper token 包含了连续多个目标单元 (如 Whisper 输出 '世界'，目标为 ['世', '界']；或输出 'dust of'，目标为 ['dust', 'of'])
+        cur_clean_norm = re.sub(r"\s+", "", cur_clean).lower()
+        target_norm = re.sub(r"\s+", "", target).lower()
+        if cur_clean_norm.startswith(target_norm) and len(cur_clean_norm) > len(target_norm):
             accum = ""
             matching_targets: list[str] = []
             temp_t = t_idx
-            while temp_t < len(targets) and len(accum) < len(cur_clean):
-                accum += targets[temp_t]
+            while temp_t < len(targets) and len(accum) < len(cur_clean_norm):
+                accum += re.sub(r"\s+", "", targets[temp_t]).lower()
                 matching_targets.append(targets[temp_t])
                 temp_t += 1
 
-            if accum.lower() == cur_clean.lower():
+            if accum == cur_clean_norm:
                 num_splits = len(matching_targets) - 1
                 if num_splits > 0:
                     dur = max(0.05, cur_w.end - cur_w.start)
@@ -434,16 +436,17 @@ def reconcile_aligned_words(
         accum = ""
         accum_words: list[WordTimestamp] = []
         temp_w = w_idx
-        while temp_w < len(whisper_words) and len(accum) < len(target):
+        target_norm = re.sub(r"\s+", "", target).lower()
+        while temp_w < len(whisper_words) and len(accum) < len(target_norm):
             clean_sub = clean_token(whisper_words[temp_w].word)
             if not clean_sub or not _WORD_OR_CJK_RE.search(whisper_words[temp_w].word):
                 temp_w += 1
                 continue
-            accum += clean_sub
+            accum += re.sub(r"\s+", "", clean_sub).lower()
             accum_words.append(whisper_words[temp_w])
             temp_w += 1
 
-        if accum.lower() == target.lower():
+        if accum == target_norm:
             s = accum_words[0].start
             e = accum_words[-1].end
             out_words.append(WordTimestamp(word=target, start=s, end=e))

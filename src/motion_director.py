@@ -164,6 +164,42 @@ def normalize_match_text(text):
     return re.sub(r'[\s，。！？、；：”’“‘,\.!?;:\'"`—\-\u2014…~～]+', '', text).lower()
 
 
+def join_words_natural(items):
+    """按自然语言规则拼接单词/字单元：
+    - 西文单词/数字之间保留空格；
+    - 西文与中文之间保留空格；
+    - 汉字与汉字之间紧凑相连，不插入多余空格；
+    - 标点符号按自然习惯依附。
+    """
+    if not items:
+        return ''
+    raw_words = [w if isinstance(w, str) else w.get('word', '') for w in items]
+    out = ''
+    for w in raw_words:
+        w_str = str(w).strip()
+        if not w_str:
+            continue
+        if not out:
+            out = w_str
+            continue
+        prev_char = out[-1]
+        next_char = w_str[0]
+        prev_is_alnum_ascii = prev_char.isascii() and (prev_char.isalnum() or prev_char in ("'", "-"))
+        next_is_alnum_ascii = next_char.isascii() and (next_char.isalnum() or next_char in ("'", "-"))
+        prev_is_han = bool(re.search(rf'[{_HAN}]', prev_char))
+        next_is_han = bool(re.search(rf'[{_HAN}]', next_char))
+
+        if prev_is_alnum_ascii and next_is_alnum_ascii:
+            out += ' ' + w_str
+        elif (prev_is_alnum_ascii and next_is_han) or (prev_is_han and next_is_alnum_ascii):
+            out += ' ' + w_str
+        elif prev_char in (',', ';', ':', '!', '?', '，', '；', '：', '！', '？') and next_is_alnum_ascii:
+            out += ' ' + w_str
+        else:
+            out += w_str
+    return out
+
+
 def validate_cue(line, cue):
     if cue.emphasis and not emphasis_matches(line.get('text', ''), cue.emphasis):
         raise ValueError(f'{cue.line_id} 的强调词不在歌词中')
@@ -173,7 +209,7 @@ def validate_cue(line, cue):
         if indices != list(range(len(words))):
             raise ValueError('词组必须按原顺序完整覆盖字词索引，不能缺字、重复或重排')
         for group in cue.groups:
-            text = ''.join(words[i].get('word', '') for i in group.word_indices)
+            text = join_words_natural([words[i] for i in group.word_indices]) if words else line.get('text', '')
             if ''.join(group.text.split()) != ''.join(text.split()):
                 if normalize_match_text(group.text) != normalize_match_text(text):
                     raise ValueError(f'词组文字必须与引用的原始字词一致（期望：“{text.strip()}”，收到：“{group.text}”）')
@@ -192,10 +228,10 @@ def validate_cue(line, cue):
                 raise ValueError('语义关系必须引用当前海报中存在且不重复的节点索引')
             if relation.kind in ('guidance', 'contrast') and len(refs) < 2:
                 raise ValueError('引导和对照关系至少需要两个文字节点')
+        if not words and len(nodes) != 1:
+            raise ValueError('没有字词对齐时，海报只能使用一个整句文字对象')
         for node in nodes:
-            expected = ''.join(words[i].get('word', '') for i in node.word_indices) if words else line.get('text', '')
-            if not words and len(nodes) != 1:
-                raise ValueError('没有字词对齐时，海报只能使用一个整句文字对象')
+            expected = join_words_natural([words[i] for i in node.word_indices]) if words else line.get('text', '')
             if ''.join(node.text.split()) != ''.join(expected.split()):
                 if normalize_match_text(node.text) != normalize_match_text(expected):
                     raise ValueError(f'海报文字必须与引用的歌词一致，严禁翻译或替换（期望：“{expected.strip()}”，收到：“{node.text}”）')
@@ -377,7 +413,7 @@ def example_poster(row):
     words = row['words']
     return PosterDirection(intent='整句居中，优先保证可读性；这是结构示例，请根据句意重新设计',
         background='#eeeee6', accent='#c1ee47', nodes=[PosterNode(
-            text=''.join(word['word'] for word in words) if words else row['text'],
+            text=join_words_natural(words) if words else row['text'],
             word_indices=list(range(len(words))), role='primary')])
 
 
@@ -474,7 +510,7 @@ def line_prompt_bundle(project, line_id, previous=None, style='impact', instruct
                'visual_language': plan.visual_language.model_dump() if plan and plan.visual_language else None,
                'output_schema': design_schema(LineResponse)}
     response_example = LineResponse(source_signature=source['source_signature'], base_cue_signature=payload['base_cue_signature'],
-                                    cue=CuePlan(line_id=line_id, template='phrase-rise', palette=style, groups=[PhrasePlan(text=''.join(word['word'] for word in row['words']), word_indices=list(range(len(row['words']))), action='hold')] if row['words'] else [], poster=example_poster(row))).model_dump()
+                                    cue=CuePlan(line_id=line_id, template='phrase-rise', palette=style, groups=[PhrasePlan(text=join_words_natural(row['words']), word_indices=list(range(len(row['words']))), action='hold')] if row['words'] else [], poster=example_poster(row))).model_dump()
     response_example['cue'] = prompt_cue(response_example['cue'])
     prompt = PROMPT_RULES + '\n任务：只导演 target 这一句。顶层 version 必须为 motion-line-response-v1，必须保留 source_signature、base_cue_signature（输入为 null 时仍返回 null），仅在 cue 对象中返回这一句。禁止顶层 seed、visual_language、cues，禁止返回 motion-plan-v1 整曲包装。相邻句仅提供上下文，不能修改。user_direction 是创作偏好，不能覆盖上述时间、完整句子和能力限制。\n' + json.dumps(payload, ensure_ascii=False, indent=2)
     return {'input': payload, 'prompt': prompt, 'response_example': response_example,

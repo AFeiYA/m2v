@@ -342,3 +342,45 @@ def test_independent_semantic_focus_preserves_complete_alignment(chunks):
     response['cue']['poster']['nodes'][0]['word_indices'].pop()
     with pytest.raises(ValueError):
         line_response(song, response, 'line_0001')
+
+
+def test_english_words_natural_join_and_error_message():
+    from src.motion_director import join_words_natural, validate_cue, CuePlan, PosterDirection, PosterNode
+
+    words = [
+        {'word': 'where', 'start': 1.0, 'end': 1.2},
+        {'word': 'the', 'start': 1.2, 'end': 1.4},
+        {'word': 'dust', 'start': 1.4, 'end': 1.6},
+        {'word': 'of', 'start': 1.6, 'end': 1.8},
+        {'word': 'memories', 'start': 1.8, 'end': 2.2},
+    ]
+    # Verify natural joining of English words
+    assert join_words_natural(words[:3]) == 'where the dust'
+    assert join_words_natural(words[3:]) == 'of memories'
+    assert join_words_natural(words) == 'where the dust of memories'
+
+    # Chinese compact joining
+    cjk_words = [{'word': '放'}, {'word': '大'}, {'word': '这'}, {'word': '一'}, {'word': '刻'}]
+    assert join_words_natural(cjk_words) == '放大这一刻'
+
+    # Error message contains natural spaced English rather than smushed string
+    line = {'text': 'Where the dust of memories', 'words': words}
+    cue = CuePlan(
+        line_id='line_0001',
+        poster=PosterDirection(
+            intent='test',
+            background='#000000',
+            accent='#ffffff',
+            nodes=[
+                PosterNode(text='where the dust', word_indices=[0, 1, 2, 3], role='primary'),
+                PosterNode(text='memories', word_indices=[4], role='secondary'),
+            ]
+        )
+    )
+    with pytest.raises(ValueError) as exc:
+        validate_cue(line, cue)
+    err = str(exc.value)
+    assert '期望：“where the dust of”' in err
+    assert '收到：“where the dust”' in err
+    assert 'wherethedustof' not in err
+

@@ -196,3 +196,22 @@ def test_recover_trailing_clipped_word():
     assert recovered[-1].start >= 1.45
     assert recovered[-1].end >= 1.85
 
+
+def test_reconcile_english_merged_compound_tokens():
+    # Whisper combined 'dust of' into a single token with space
+    raw = [
+        WordTimestamp(word=" where", start=1.0, end=1.2),
+        WordTimestamp(word=" the", start=1.2, end=1.4),
+        WordTimestamp(word=" dust of", start=1.4, end=1.8),
+        WordTimestamp(word=" memories", start=1.8, end=2.2),
+    ]
+    reconciled = reconcile_aligned_words("where the dust of memories", raw)
+    assert len(reconciled) == 5
+    assert [w.word for w in reconciled] == ["where", "the", "dust", "of", "memories"]
+    assert reconciled[2].word == "dust"
+    assert reconciled[3].word == "of"
+    assert reconciled[2].start == 1.4
+    assert reconciled[3].end == 1.8
+    assert reconciled[2].end == reconciled[3].start
+
+
