@@ -27,26 +27,8 @@
                   style="height: 24px; max-width: 125px; font-size: 11px; background: #1a202c; color: #cbd5e1; border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; outline: none; cursor: pointer;"
                   onchange="if(this.value){ document.getElementById('suno-url-input').value = this.value; this.value=''; }">
             <option value="" data-i18n="url_history_default">🕒 最近历史</option>
-          </select>
-          <label title="勾选：提取纯人声干音，适合流行/摇滚/电音等复杂伴奏，100%防止漏词跳句；取消勾选：极速模式直接对齐原曲" data-i18n-title="chk_sep_title" style="display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: #cbd5e1; cursor: pointer; user-select: none;">
-            <input type="checkbox" id="chk-separate-vocals" checked style="cursor: pointer; margin: 0; accent-color: #ff4b2b;">
-            <span data-i18n="chk_sep_label">分离伴奏</span>
-          </label>
-          <label title="勾选：优先调用 GPU 硬件加速 (云端 ZeroGPU A100 / 本地 MPS)；取消勾选：使用 CPU 运行" data-i18n-title="chk_gpu_title" style="display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: #cbd5e1; cursor: pointer; user-select: none;">
-            <input type="checkbox" id="chk-use-gpu" checked style="cursor: pointer; margin: 0; accent-color: #3b82f6;">
-            <span data-i18n="chk_gpu_label">GPU加速</span>
-          </label>
-          <label title="语言模式：默认自动识别；英文歌若遇复杂伴奏或嘶吼，强制指定英文可大幅提升对齐精度" data-i18n-title="lang_select_title" style="display: inline-flex; align-items: center; gap: 2px; font-size: 11px; color: #cbd5e1; cursor: pointer; user-select: none;">
-            <select id="select-import-lang" style="height: 22px; font-size: 11px; background: #1e2430; color: #e2e8f0; border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; outline: none; cursor: pointer;">
-              <option value="auto" data-i18n="lang_auto">🌐 语言: 自动识别</option>
-              <option value="en" data-i18n="lang_en">🇬🇧 强制英文 (EN)</option>
-              <option value="zh" data-i18n="lang_zh">🇨🇳 强制中文 (ZH)</option>
-              <option value="ja" data-i18n="lang_ja">🇯🇵 日语 (JA)</option>
-              <option value="ko" data-i18n="lang_ko">🇰🇷 韩语 (KO)</option>
-            </select>
-          </label>
           <button id="btn-quick-download-mp3" onclick="downloadOriginalAudio()" title="从粘贴的链接仅提取下载原曲 MP3 (执行步骤 1，跳过分离对齐)" data-i18n="btn_quick_mp3" data-i18n-title="btn_quick_mp3_title"
-                  style="background: #2a313d; color: #e2e8f0; font-weight: 500; border: 1px solid #4a5568; height: 22px; padding: 0 6px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⬇ 仅下 MP3</button>
+                  style="background: #2a313d; color: #e2e8f0; font-weight: 500; border: 1px solid #4a5568; height: 24px; padding: 0 8px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⬇ 仅下 MP3</button>
         </div>
         <button id="btn-start-suno-import" onclick="handleSunoImport()" title="一键抓取并字级对齐" data-i18n="btn_import" data-i18n-title="btn_import_title"
                 style="background: linear-gradient(135deg, #ff416c, #ff4b2b); color: #fff; font-weight: 600; border: none; height: 24px; padding: 0 8px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⚡ 导入对齐</button>
@@ -355,8 +337,8 @@
     </div>
   </div>
 
-  <script src="/static/common.js?v=20261011_dev"></script>
-  <script src="/static/lyric_editor.js?v=20261011_dev"></script>
+  <script src="/static/common.js?v=20261011_clean"></script>
+  <script src="/static/lyric_editor.js?v=20261011_clean"></script>
 </body>
 
 </html>

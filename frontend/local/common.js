@@ -399,18 +399,9 @@ async function handleSunoImport() {
   if (btn) btn.disabled = true;
   if (prog) prog.style.display = "block";
 
-  const chkSep = document.getElementById("chk-separate-vocals");
-  const chkGpu = document.getElementById("chk-use-gpu");
-  const selLang = document.getElementById("select-import-lang");
-  const separateVocals = chkSep ? chkSep.checked : true;
-  const useGpu = chkGpu ? chkGpu.checked : true;
-  const importLang = selLang ? selLang.value : "auto";
-
-  try {
-    localStorage.setItem("suno_chk_sep", separateVocals ? "1" : "0");
-    localStorage.setItem("suno_chk_gpu", useGpu ? "1" : "0");
-    if (selLang) localStorage.setItem("suno_import_lang", importLang);
-  } catch (e) {}
+  const separateVocals = true;
+  const useGpu = true;
+  const importLang = "auto";
 
   const isNetEase = url.includes("163.com") || url.includes("163cn.tv") || url.includes("<iframe") || /^\d{5,}$/.test(url);
   let importSec = 0;
@@ -421,7 +412,7 @@ async function handleSunoImport() {
     if (importSec > 5) {
       stage = separateVocals
         ? (window.t ? t("msg_aligning_vocals") : "正在进行人声与伴奏分离及时间轴对齐...")
-        : (window.t ? t("msg_aligning_direct") : "正在进行原曲词级时间轴对齐 (CTC / WhisperX)...");
+        : (window.t ? t("msg_aligning_direct") : "正在进行原曲词级时间轴对齐 (WhisperX)...");
     }
     if (progText) {
       const elapsedText = window.currentLocale === "en" ? `(elapsed ${importSec}s)` : `(已耗时 ${importSec}s)`;
@@ -814,26 +805,6 @@ window.renderLineCharSpans = renderLineCharSpans;
 
 window.addEventListener("DOMContentLoaded", () => {
   renderSunoUrlHistory();
-  const chkSep = document.getElementById("chk-separate-vocals");
-  const chkGpu = document.getElementById("chk-use-gpu");
-  const devOpt = document.getElementById("suno-dev-options");
-
-  // 默认启用分离与 GPU 加速 (保证最高准确率与防跳句)
-  if (chkSep) chkSep.checked = true;
-  if (chkGpu) chkGpu.checked = true;
-
-  try {
-    if (chkSep && localStorage.getItem("suno_chk_sep") !== null) {
-      chkSep.checked = localStorage.getItem("suno_chk_sep") === "1";
-    }
-    if (chkGpu && localStorage.getItem("suno_chk_gpu") !== null) {
-      chkGpu.checked = localStorage.getItem("suno_chk_gpu") === "1";
-    }
-    const selLang = document.getElementById("select-import-lang");
-    if (selLang && localStorage.getItem("suno_import_lang") !== null) {
-      selLang.value = localStorage.getItem("suno_import_lang");
-    }
-  } catch (e) {}
 
   // 开发者调试模式初始化
   checkAndApplyDevMode();
