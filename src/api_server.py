@@ -506,6 +506,8 @@ if frontend_dir.exists():
         """返回时间轴编辑器 (task_id 由前端路由处理)"""
         return FileResponse(frontend_dir / "index.html")
 
+    app.mount("/", StaticFiles(directory=str(frontend_dir)), name="frontend_root")
+
 
 # ======================================================================
 # 辅助函数

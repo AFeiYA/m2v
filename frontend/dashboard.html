@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>M2V — 卡拉OK视频生成器</title>
-  <link rel="stylesheet" href="/static/dashboard.css">
+  <link rel="stylesheet" href="/dashboard.css">
 </head>
 <body>
 
@@ -12,6 +12,17 @@
   <div id="auth-overlay" class="overlay">
     <div class="auth-card">
       <h2 id="auth-title">🎤 M2V 登录</h2>
+      <div class="google-auth-section" style="margin-bottom: 16px;">
+        <button type="button" id="btn-google-login" class="btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; background: #fff; color: #3c4043; border: 1px solid #dadce0; border-radius: 6px; padding: 10px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgba(60,64,67,0.2);">
+          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/><path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.347 2.825.957 4.039l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z"/></svg>
+          Google 账号一键登录
+        </button>
+        <div style="display: flex; align-items: center; margin: 14px 0 8px 0; color: #888;">
+          <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.15);"></div>
+          <span style="padding: 0 10px; font-size: 12px; color: #aaa;">或使用账号密码</span>
+          <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.15);"></div>
+        </div>
+      </div>
       <form id="auth-form">
         <input id="auth-username" type="text" placeholder="用户名" autocomplete="username" style="display:none">
         <input id="auth-email" type="email" placeholder="邮箱" required autocomplete="email">
@@ -88,6 +99,10 @@
     </section>
   </div>
 
-  <script src="/static/dashboard.js"></script>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="/firebase-config.js"></script>
+  <script src="/dashboard.js"></script>
 </body>
 </html>

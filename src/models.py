@@ -70,15 +70,15 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=_uuid
+        String(64), primary_key=True, default=_uuid
     )
     email: Mapped[str] = mapped_column(
         String(255), unique=True, index=True, nullable=False
     )
     username: Mapped[str] = mapped_column(
-        String(64), unique=True, index=True, nullable=False
+        String(128), unique=True, index=True, nullable=False
     )
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False, default="FIREBASE_AUTH")
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     plan: Mapped[UserPlan] = mapped_column(
         SAEnum(UserPlan), default=UserPlan.FREE, nullable=False
@@ -106,7 +106,10 @@ class Task(Base):
         String(36), primary_key=True, default=_uuid
     )
     user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id"), nullable=False, index=True
+        String(64), ForeignKey("users.id"), nullable=False, index=True
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String(64), unique=True, nullable=True, index=True
     )
     title: Mapped[str] = mapped_column(
         String(255), nullable=False, default=""
@@ -120,6 +123,7 @@ class Task(Base):
         SAEnum(TaskStep), default=TaskStep.QUEUED, nullable=False
     )
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
+    cost_credits: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
     # 输入文件 (存储 key 或本地路径)
     input_mp3_key: Mapped[str] = mapped_column(String(512), nullable=False)

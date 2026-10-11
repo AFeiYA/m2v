@@ -48,6 +48,7 @@ assets/
 frontend/player/songs/
 work/
 frontend/motion/node_modules
+.firebase/
 frontend/local/motion/
 
 frontend/local/remotion/

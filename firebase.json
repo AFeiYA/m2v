@@ -1,0 +1,23 @@
+{
+  "hosting": {
+    "public": "frontend",
+    "cleanUrls": true,
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/.*/**",
+      "**/node_modules/**",
+      "node_modules/**",
+      "motion/node_modules/**",
+      "motion/**/node_modules/**",
+      "motion/src/**",
+      "motion/scripts/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

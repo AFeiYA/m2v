@@ -71,6 +71,26 @@ let isLoginMode = true;
 function initAuth() {
   const form = $("#auth-form");
   const toggle = $("#auth-toggle");
+  const googleBtn = $("#btn-google-login");
+
+  if (googleBtn) {
+    googleBtn.addEventListener("click", async () => {
+      $("#auth-error").textContent = "";
+      try {
+        if (!window.m2vAuth) {
+          throw new Error("Firebase 授权服务初始化中，请稍候");
+        }
+        const { user, idToken } = await window.m2vAuth.loginWithGoogle();
+        token = idToken;
+        localStorage.setItem("m2v_token", token);
+        await loadUser();
+        showApp();
+      } catch (err) {
+        console.error("Google 登录异常:", err);
+        $("#auth-error").textContent = err.message || "Google 登录失败，请重试";
+      }
+    });
+  }
 
   toggle.addEventListener("click", (e) => {
     e.preventDefault();

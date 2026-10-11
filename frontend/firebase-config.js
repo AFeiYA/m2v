@@ -1,0 +1,98 @@
+// Firebase Web App Configuration & Auth Client
+// Project: dc-test-731fa
+// App: M2V Web (1:961193736563:web:7b77569a14b8b9b4322d06)
+
+const firebaseConfig = {
+  projectId: "dc-test-731fa",
+  appId: "1:961193736563:web:7b77569a14b8b9b4322d06",
+  databaseURL: "https://dc-test-731fa.firebaseio.com",
+  storageBucket: "dc-test-731fa.firebasestorage.app",
+  apiKey: "AIzaSyCtyu4zxTfgpCnxmqv2u5APw61XlNW1AmI",
+  authDomain: "dc-test-731fa.firebaseapp.com",
+  messagingSenderId: "961193736563",
+  measurementId: "G-TSXRFYJQ6L"
+};
+
+// Initialize Firebase if not already initialized
+if (typeof firebase !== "undefined" && !firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+
+// M2V Authentication Helper
+window.m2vAuth = {
+  config: firebaseConfig,
+
+  /**
+   * Google 一键登录
+   */
+  async loginWithGoogle() {
+    if (typeof firebase === "undefined" || !firebase.auth) {
+      throw new Error("Firebase Auth SDK 尚未加载");
+    }
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.addScope("profile");
+    provider.addScope("email");
+
+    const result = await firebase.auth().signInWithPopup(provider);
+    const user = result.user;
+    const idToken = await user.getIdToken();
+
+    // 持久化存储供 API 调用
+    localStorage.setItem("m2v_token", idToken);
+    localStorage.setItem("m2v_user", JSON.stringify({
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+    }));
+
+    return { user, idToken };
+  },
+
+  /**
+   * 获取当前有效 ID Token (必要时自动刷新)
+   */
+  async getIdToken() {
+    if (typeof firebase !== "undefined" && firebase.auth().currentUser) {
+      const token = await firebase.auth().currentUser.getIdToken(true);
+      localStorage.setItem("m2v_token", token);
+      return token;
+    }
+    return localStorage.getItem("m2v_token");
+  },
+
+  /**
+   * 退出登录
+   */
+  async logout() {
+    if (typeof firebase !== "undefined" && firebase.auth) {
+      await firebase.auth().signOut();
+    }
+    localStorage.removeItem("m2v_token");
+    localStorage.removeItem("m2v_user");
+  },
+
+  /**
+   * 监听登录状态变化
+   */
+  onAuthStateChanged(callback) {
+    if (typeof firebase !== "undefined" && firebase.auth) {
+      return firebase.auth().onAuthStateChanged(async (user) => {
+        if (user) {
+          const token = await user.getIdToken();
+          localStorage.setItem("m2v_token", token);
+          localStorage.setItem("m2v_user", JSON.stringify({
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName,
+            photoURL: user.photoURL,
+          }));
+        } else {
+          localStorage.removeItem("m2v_token");
+          localStorage.removeItem("m2v_user");
+        }
+        callback(user);
+      });
+    }
+  }
+};
