@@ -2,7 +2,7 @@
    M2V Dashboard — 前端逻辑
    ========================================================== */
 
-const API = "";  // 同源, 无需前缀
+let API = window.M2V_API_BASE || localStorage.getItem("m2v_api_base") || "";
 
 // ── State ────────────────────────────────────────────────
 let token = localStorage.getItem("m2v_token") || null;
@@ -27,6 +27,12 @@ async function api(path, options = {}) {
   options.headers = headers;
 
   const res = await fetch(`${API}${path}`, options);
+
+  // 防护：如果返回的是 HTML 页面（例如纯静态前端未配置后端反向代理），避免 JSON 解析崩溃
+  const contentType = res.headers.get("content-type") || "";
+  if (contentType.includes("text/html")) {
+    throw new Error("后端 API 尚未连通：当前域名仅为纯前端静态页面，未检测到运行中的 Python 后端服务。");
+  }
 
   if (res.status === 401 && refreshToken) {
     // 尝试刷新 token
@@ -460,11 +466,50 @@ function escapeHtml(str) {
 }
 
 
+function initApiConfig() {
+  const updateLabel = () => {
+    const cur = localStorage.getItem("m2v_api_base");
+    const el = $("#btn-config-api");
+    if (el) {
+      if (cur) {
+        try {
+          const u = new URL(cur);
+          el.textContent = `已连接: ${u.host}`;
+        } catch (e) {
+          el.textContent = cur;
+        }
+      } else {
+        el.textContent = (location.hostname.includes("localhost") || location.hostname.includes("127.0.0.1")) ? "同源 (默认)" : "未配置 (点击设置)";
+      }
+    }
+  };
+
+  const configure = (e) => {
+    e?.preventDefault();
+    const current = localStorage.getItem("m2v_api_base") || (location.hostname.includes("pages.dev") ? "http://127.0.0.1:8000" : "");
+    const input = prompt("请输入 Python 后端 API 服务地址：\n(本地开发填 http://localhost:8000；云端部署填你的后端服务公网域名)", current);
+    if (input !== null) {
+      const trimmed = input.trim().replace(/\/+$/, "");
+      if (trimmed) {
+        localStorage.setItem("m2v_api_base", trimmed);
+      } else {
+        localStorage.removeItem("m2v_api_base");
+      }
+      location.reload();
+    }
+  };
+
+  $("#btn-config-api")?.addEventListener("click", configure);
+  $("#btn-config-api-app")?.addEventListener("click", configure);
+  updateLabel();
+}
+
 // ======================================================================
 // Init
 // ======================================================================
 
 document.addEventListener("DOMContentLoaded", async () => {
+  initApiConfig();
   initAuth();
   initUpload();
 
