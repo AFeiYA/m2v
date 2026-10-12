@@ -76,3 +76,12 @@ Settings 支持 PostgreSQL 连接串规范化，已转义的 `%40` 不会再次�
 Cloudflare Pages 发布目录是 `frontend`。Motion 页面依赖构建后的 JavaScript，不能使用空构建命令。Pages 的构建命令设置为 `cd frontend/motion && npm ci && npm run build:pages`，根目录为仓库根目录，输出目录仍为 `frontend`。构建只生成浏览器播放器与实验室脚本，不构建后端 Remotion 渲染包。
 
 `frontend/_redirects` 为 `/motion-lab.css`、`/motion/*` 与 Motion 页面别名提供明确映射，必须位于首页兜底规则之前。部署后资源应返回 CSS/JavaScript；HTTP 200 但内容为首页 HTML 仍属于资源加载失败。
+
+
+### 由 GitHub CI 统一部署前端（替代 Pages 自行构建）
+
+现有 CI 已构建并测试 Motion 资源，`deploy-to-pages` 下载同一份 `motion-assets` 产物，将静态前端直接部署至现有 Pages 项目，不重复安装依赖或构建。部署包排除 Motion 源码、测试、node_modules 和后端 Remotion 渲染包。
+
+一次性在 GitHub Actions 配置 Secrets `CLOUDFLARE_API_TOKEN`（选定账户的 Cloudflare Pages Edit 权限）和 `CLOUDFLARE_ACCOUNT_ID`，以及 Variable `CLOUDFLARE_PAGES_PROJECT_NAME`（现有 Pages 项目的真实名称，不是域名或 R2 bucket）。未设置项目名时该部署 job 不启用。
+
+启用 CI 部署后，关闭该 Pages 项目 Git 集成的生产及预览自动部署，避免未构建的 Git 源文件覆盖 CI 上传的产物；无需修改现有域名或新建 Pages 项目。之后 push main → CI 检查与构建 → HF 和 Pages 分别自动部署。
