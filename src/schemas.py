@@ -51,7 +51,7 @@ class UserResponse(BaseModel):
 
 class TaskCreateRequest(BaseModel):
     """创建任务时的可选配置"""
-    language: str = "zh"
+    language: str = "auto"
     skip_separation: bool = False
     ass_only: bool = False
     beat_effects: bool = False
@@ -63,7 +63,7 @@ class SunoTaskRequest(BaseModel):
     """通过 Suno 链接直接创建任务"""
     suno_url: str
     song_title: str | None = None
-    language: str = "zh"
+    language: str = "auto"
     skip_separation: bool = False
     ass_only: bool = False
     beat_effects: bool = False

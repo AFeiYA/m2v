@@ -11,6 +11,31 @@ from src.utils import is_valid_audio_file
 from src.suno_fetch import fetch_song, resolve_or_find_audio, download_song, SunoSong
 
 
+@pytest.mark.parametrize("video_ok", [True, False])
+def test_cloud_download_retries_public_video_without_local_media(tmp_path, monkeypatch, video_ok):
+    from src import suno_fetch
+    import subprocess
+    song = SunoSong(id="test", title="test", artist="artist",
+                    audio_url="https://example.invalid/source.mp3",
+                    video_url="https://example.invalid/source.mp4",
+                    lyrics="Hello world", raw_prompt="", tags="", duration=3)
+    monkeypatch.setattr(suno_fetch.requests, "get", lambda *a, **kw: MagicMock(status_code=403))
+    monkeypatch.setattr(suno_fetch, "is_valid_audio_file", lambda p: p.exists() and p.read_bytes() == b"decoded")
+    def extract(cmd, **kwargs):
+        assert song.video_url in cmd
+        if video_ok:
+            Path(cmd[-1]).write_bytes(b"decoded")
+        return types.SimpleNamespace(returncode=0 if video_ok else 1, stderr="unavailable")
+    import types
+    monkeypatch.setattr(subprocess, "run", extract)
+    local = MagicMock(side_effect=AssertionError("Cloud import must not search shared local files"))
+    monkeypatch.setattr(suno_fetch, "resolve_or_find_audio", local)
+    audio, lyrics, _, _ = download_song(song, tmp_path, save_json=False, allow_local_fallback=False)
+    assert bool(audio) is video_ok
+    assert lyrics.read_text() == "Hello world"
+    local.assert_not_called()
+
+
 def test_is_valid_audio_file_nonexistent(tmp_path):
     assert is_valid_audio_file(tmp_path / "nonexistent.mp3") is False
 

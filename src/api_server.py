@@ -269,7 +269,7 @@ async def upload_and_create_task(
     lyrics: UploadFile = File(..., description="歌词文件 (.txt / .lrc)"),
     song_title: str | None = Query(None, description="歌曲名称"),
     suno_url: str | None = Query(None, description="Suno 歌曲链接"),
-    language: str = Query("zh", description="语言代码"),
+    language: str = Query("auto", description="语言代码，默认自动检测"),
     skip_separation: bool = Query(False, description="跳过人声分离"),
     ass_only: bool = Query(False, description="只生成 ASS"),
     beat_effects: bool = Query(False, description="节奏动画"),
@@ -401,9 +401,9 @@ async def create_task_from_suno(
             message=f"该歌曲任务已在处理中 ({existing_task.id[:8]}…)",
         )
 
-    from src.suno_fetch import fetch_song
+    from src.suno_fetch import fetch_song, download_song
     try:
-        song = fetch_song(clean_url)
+        song = await asyncio.to_thread(fetch_song, clean_url)
     except Exception as e:
         raise HTTPException(400, f"提取 Suno 歌曲失败: {e}")
 
@@ -416,33 +416,27 @@ async def create_task_from_suno(
     if not audio_url:
         raise HTTPException(400, "未能获取 Suno 音频直链")
 
-    import httpx
     import tempfile
 
     storage = get_storage()
     task_id = str(uuid.uuid4())
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f_mp3, \
-         tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="w", encoding="utf-8") as f_lyr:
-        mp3_tmp = Path(f_mp3.name)
-        lyrics_tmp = Path(f_lyr.name)
-        f_lyr.write(lyrics_text)
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            resp = await client.get(audio_url)
-            if resp.status_code != 200:
-                raise HTTPException(400, f"下载 Suno 音频流失败 (HTTP {resp.status_code})")
-            mp3_tmp.write_bytes(resp.content)
-
-        mp3_key = f"uploads/{user.id}/{task_id}/{final_title}.mp3"
-        lyrics_key = f"uploads/{user.id}/{task_id}/{final_title}.txt"
-
+    # Reuse the validated downloader, including public-video audio extraction.
+    # A fresh task directory must never search other users' local media.
+    with tempfile.TemporaryDirectory(prefix="m2v-suno-") as download_dir:
+        try:
+            mp3_tmp, lyrics_tmp, _, _ = await asyncio.to_thread(
+                download_song, song, Path(download_dir), song_name="source",
+                save_json=False, allow_local_fallback=False,
+            )
+        except Exception as e:
+            raise HTTPException(400, f"下载 Suno 音频失败: {e}") from e
+        if mp3_tmp is None:
+            raise HTTPException(400, "Suno 音频及公开视频音轨均无法读取，请上传有权使用的音频文件")
+        mp3_key = f"uploads/{user.id}/{task_id}/source{mp3_tmp.suffix}"
+        lyrics_key = f"uploads/{user.id}/{task_id}/source.txt"
         await storage.save(mp3_key, mp3_tmp)
         await storage.save(lyrics_key, lyrics_tmp)
-    finally:
-        mp3_tmp.unlink(missing_ok=True)
-        lyrics_tmp.unlink(missing_ok=True)
 
     task = Task(
         id=task_id,

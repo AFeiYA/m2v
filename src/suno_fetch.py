@@ -663,12 +663,15 @@ def download_song(
     save_json: bool = True,
     cookie: str | None = None,
     token: str | None = None,
+    allow_local_fallback: bool = True,
 ) -> tuple[Path | None, Path, Path, SunoSong]:
     """
     从 Suno 获取歌曲信息，并下载保存：
       1. {name}_suno.json (完整元数据 JSON)
       2. {name}.txt (纯歌词文本)
       3. {name}.mp3 或 {name}.m4a (音频源文件，如不可下载则为 None)
+
+    allow_local_fallback=False 用于云端隔离任务，禁止搜索本地共享音频。
 
     Returns:
         (audio_path, lyrics_path, json_path, song)
@@ -781,7 +784,7 @@ def download_song(
                 dest_audio.unlink(missing_ok=True)
 
     # 5. 若下载失败或流不可用，自动从本地环境/系统 Downloads 智能查找已下载的音频 (优先 .mp3)
-    if not audio_path or not audio_path.exists() or not is_valid_audio_file(audio_path):
+    if allow_local_fallback and (not audio_path or not audio_path.exists() or not is_valid_audio_file(audio_path)):
         alt_titles = []
         if song.title and song.title != name:
             alt_titles.append(song.title)

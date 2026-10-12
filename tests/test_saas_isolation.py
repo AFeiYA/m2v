@@ -152,13 +152,14 @@ def submit(sandbox, monkeypatch, source):
     from src import suno_fetch
     monkeypatch.setattr(suno_fetch, "fetch_song", lambda url: types.SimpleNamespace(
         title="test", lyrics="lyrics", raw_prompt="", audio_url="https://example.invalid/audio", video_url=""))
-    import httpx
-    class Download:
-        def __init__(self, **kwargs): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *args): pass
-        async def get(self, url): return types.SimpleNamespace(status_code=200, content=b"audio")
-    monkeypatch.setattr(httpx, "AsyncClient", Download)
+    def download(song, output_dir, **kwargs):
+        assert kwargs["allow_local_fallback"] is False
+        audio = output_dir / "source.mp3"
+        lyrics = output_dir / "source.txt"
+        audio.write_bytes(b"audio")
+        lyrics.write_text(song.lyrics)
+        return audio, lyrics, output_dir / "source.json", song
+    monkeypatch.setattr(suno_fetch, "download_song", download)
     return sandbox.client.post("/api/tasks/from-suno", headers=headers(), json={"suno_url": "https://suno.com/s/test"})
 
 
@@ -175,6 +176,7 @@ def test_thread_worker_sees_committed_task_and_refunds_failure_once(sandbox, mon
     assert credits == (5 if fail else 4)
     assert len(observed) == 1  # Real worker invoked the pipeline: no missing-self failure.
     assert observed[0].skip_separation is False
+    assert observed[0].aligner.language == "auto"
     if fail:
         assert task["error_message"] == "pipeline regression failure"
     else:
