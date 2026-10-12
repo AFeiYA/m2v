@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from src.settings import get_settings
 
@@ -22,6 +23,9 @@ settings = get_settings()
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
+    # Gradio initializes tables in a separate asyncio.run() from its ASGI loop.
+    # asyncpg connections cannot cross event loops; never retain those connections.
+    poolclass=NullPool,
     # SQLite 需要 check_same_thread=False
     connect_args=(
         {"check_same_thread": False}

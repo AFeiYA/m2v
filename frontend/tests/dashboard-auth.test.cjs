@@ -94,3 +94,12 @@ test('downloads refresh expired access tokens and never put credentials in URLs'
   assert.equal(s.stats().downloads, 1);
   assert.deepEqual(s.alerts, []);
 });
+
+test('backend failure is reported as a server error instead of invalid identity', async () => {
+  const s = setup();
+  s.context.fetch = async () => ({status: 500, ok: false, headers: {get: () => 'text/plain'}});
+  s.run('initAuth()');
+  await s.element('#btn-google-login').handlers.click();
+  assert.match(s.element('#auth-error').textContent, /HTTP 500/);
+  assert.match(s.element('#auth-error').textContent, /后端读取账户信息失败/);
+});

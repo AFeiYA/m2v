@@ -53,6 +53,7 @@ let token = localStorage.getItem("m2v_token") || null;
 let refreshToken = localStorage.getItem("m2v_refresh") || null;
 let authProvider = localStorage.getItem("m2v_auth_provider") || null;
 let currentUser = null;
+let userLoadError = "";
 let pollTimer = null;
 
 // ── DOM Helpers ──────────────────────────────────────────
@@ -170,7 +171,7 @@ function initAuth() {
           showApp();
         } else {
           logout();
-          throw new Error("云端用户身份校验未通过，请重试");
+          throw new Error(userLoadError || "云端用户身份校验未通过，请重试");
         }
       } catch (err) {
         console.error("Google 登录异常:", err);
@@ -306,6 +307,7 @@ function showApp() {
 }
 
 async function loadUser() {
+  userLoadError = "";
   try {
     const res = await api("/api/auth/me");
     if (res.ok) {
@@ -314,7 +316,11 @@ async function loadUser() {
       $("#user-credits").textContent = `剩余 ${currentUser.credits} 次`;
       return true;
     }
+    userLoadError = res.status >= 500
+      ? `后端读取账户信息失败（HTTP ${res.status}），请检查云端数据库与服务日志`
+      : `云端用户身份校验未通过（HTTP ${res.status}），请重新登录`;
   } catch (e) {
+    userLoadError = `无法读取云端账户信息：${e.message}`;
     console.error("[M2V] 加载用户信息失败:", e);
   }
   currentUser = null;
