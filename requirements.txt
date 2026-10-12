@@ -1,16 +1,23 @@
-# M2V 轻量歌词动效服务依赖 (Hugging Face Spaces 友好)
+# M2V 核心服务依赖
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 python-multipart>=0.0.9
 pydantic>=2.0.0
+pydantic-settings>=2.0.0
+sqlalchemy[asyncio]>=2.0.0
+aiosqlite>=0.20.0
+firebase-admin>=6.5.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+boto3>=1.35.0
 pillow>=10.0.0
 requests>=2.31.0
+httpx>=0.27.0
 pyyaml>=6.0
 pypinyin>=0.50.0
 cn2an>=0.5.22
 opencc-python-reimplemented>=0.1.7
 chardet>=5.0.0
-httpx>=0.27.0
 python-dotenv>=1.0.0
 demucs>=4.0.0
 librosa>=0.10.0
@@ -18,5 +25,5 @@ moviepy>=2.0.0
 tomli>=2.0.0
 whisperx==3.8.7rc1
 stable-ts>=2.19.0
-boto3>=1.35.0
 playwright>=1.40.0
+gradio>=4.0.0

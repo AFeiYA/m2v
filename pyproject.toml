@@ -7,49 +7,58 @@ requires-python = ">=3.11"
 license = {text = "MIT"}
 
 dependencies = [
-    # ⚠️ torch + torchaudio 需从 PyTorch CUDA 源单独安装，不在此声明
-    # pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
-    "pyyaml>=6.0",
+    # ── 音视频与 AI 对齐引擎 ──
     "whisperx>=3.8.4",
+    "stable-ts>=2.19.0",
     "demucs>=4.0.0",
     "librosa>=0.11.0",
+    "moviepy>=2.0.0",
+    "pillow>=10.0.0",
+
+    # ── 文本与字幕处理 ──
+    "pyyaml>=6.0",
     "cn2an>=0.5.22",
     "opencc-python-reimplemented>=0.1.7",
     "chardet>=5.0.0",
-    "moviepy>=2.0.0",
     "pypinyin>=0.50.0",
-    "pydantic>=2.0",
+
+    # ── Web API 与服务 ──
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "httpx>=0.27.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+
+    # ── 数据库与商业授权 ──
+    "sqlalchemy[asyncio]>=2.0.0",
+    "aiosqlite>=0.20.0",
+    "firebase-admin>=6.5.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+
+    # ── 对象存储 (R2 / S3) ──
+    "boto3>=1.35.0",
+
+    # ── 动效渲染 (Playwright) 与 Gradio ──
     "playwright>=1.40.0",
-    "stable-ts>=2.19.0",
+    "gradio>=4.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
-    "httpx>=0.27",
+    "ruff>=0.1.0",
 ]
-editor = [
-    "httpx>=0.27",
-    "python-dotenv>=1.0",
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.32",
-    "python-multipart>=0.0.9",
-]
-web = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.32",
-    "sqlalchemy[asyncio]>=2.0",
-    "aiosqlite>=0.20",
-    "asyncpg>=0.30",
-    "python-jose[cryptography]>=3.3",
-    "passlib[bcrypt]>=1.7",
-    "python-multipart>=0.0.9",
-    "pydantic[email]>=2.0",
-    "pydantic-settings>=2.0",
+celery = [
     "celery[redis]>=5.4",
     "redis>=5.0",
-    "boto3>=1.35",
+]
+postgres = [
+    "asyncpg>=0.30",
     "alembic>=1.13",
 ]
 
@@ -70,7 +79,6 @@ markers = [
 ]
 
 # ── uv 配置: 指定 PyTorch CUDA 源 ──────────────────────
-# 确保 torch/torchaudio 从 CUDA 126 索引安装，而非 PyPI 的 CPU 版
 [[tool.uv.index]]
 name = "pytorch-cu126"
 url = "https://download.pytorch.org/whl/cu126"
