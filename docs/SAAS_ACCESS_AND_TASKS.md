@@ -69,3 +69,10 @@ Settings 支持 PostgreSQL 连接串规范化，已转义的 `%40` 不会再次�
 
 
 编辑器媒体读取：人声、伴奏、原曲和编辑器视频下载在检查任务归属后，由后端读取私有存储并返回文件；不向浏览器重定向到 R2，不依赖 bucket 的 CORS 或公开域名。媒体临时副本在响应完成后删除。此方式会经过后端传输文件，当前尚未实现远端逐块流式读取。
+
+
+### Cloudflare Pages 的 Motion Studio 静态资源
+
+Cloudflare Pages 发布目录是 `frontend`。Motion 页面依赖构建后的 JavaScript，不能使用空构建命令。Pages 的构建命令设置为 `cd frontend/motion && npm ci && npm run build:pages`，根目录为仓库根目录，输出目录仍为 `frontend`。构建只生成浏览器播放器与实验室脚本，不构建后端 Remotion 渲染包。
+
+`frontend/_redirects` 为 `/motion-lab.css`、`/motion/*` 与 Motion 页面别名提供明确映射，必须位于首页兜底规则之前。部署后资源应返回 CSS/JavaScript；HTTP 200 但内容为首页 HTML 仍属于资源加载失败。

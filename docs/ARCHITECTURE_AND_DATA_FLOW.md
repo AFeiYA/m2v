@@ -223,7 +223,7 @@ sequenceDiagram
 
 | 组件 | 生产托管环境 | 访问入口 / 域名 | 核心配置项与环境变量 |
 | :--- | :--- | :--- | :--- |
-| **前端站点** | Cloudflare Pages | `https://m2v-bdb.pages.dev`<br>`https://mv.fovea.si` | 构建命令: *无 (纯静态)*<br>发布目录: `frontend`<br>重写路由: `frontend/_redirects`<br>安全头: `frontend/_headers` |
+| **前端站点** | Cloudflare Pages | `https://m2v-bdb.pages.dev`<br>`https://mv.fovea.si` | 构建命令: `cd frontend/motion && npm ci && npm run build:pages`<br>发布目录: `frontend`<br>重写路由: `frontend/_redirects`<br>安全头: `frontend/_headers` |
 | **AI 算力后端** | Hugging Face Spaces | `https://lucazhou-suno2mv-api.hf.space` | 运行环境: Python 3.11 + ZeroGPU<br>`DATABASE_URL`: Supabase 连接串<br>`STORAGE_BACKEND`: `r2`<br>`R2_*`: Cloudflare 凭证<br>`GEMINI_API_KEY`: 导演模型密钥 |
 | **本地开发后端** | macOS 本地进程 | `http://127.0.0.1:8000` | 配置文件: 本地 [`.env`](file:///Users/luca/suno2MV/.env)<br>启动命令: `.venv/bin/python -m src.api_server` |
 | **云端关系库** | Supabase Cloud | `aws-0-us-east-1.pooler.supabase.com:5432` | 数据库类型: PostgreSQL 17.11<br>连接模式: Session Pooler (兼容 IPv4/IPv6)<br>项目 Ref: `ixbtwrntrskxeeoymcqy` |
