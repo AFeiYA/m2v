@@ -55,11 +55,25 @@ class TaskCreateRequest(BaseModel):
     skip_separation: bool = False
     ass_only: bool = False
     beat_effects: bool = False
+    song_title: str | None = None
+    suno_url: str | None = None
+
+
+class SunoTaskRequest(BaseModel):
+    """通过 Suno 链接直接创建任务"""
+    suno_url: str
+    song_title: str | None = None
+    language: str = "zh"
+    skip_separation: bool = False
+    ass_only: bool = False
+    beat_effects: bool = False
 
 
 class TaskResponse(BaseModel):
     id: str
     title: str
+    song_title: str | None = None
+    suno_url: str | None = None
     status: str
     current_step: str
     progress: int

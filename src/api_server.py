@@ -57,6 +57,7 @@ from src.schemas import (
     MessageResponse,
     RefreshRequest,
     RegisterRequest,
+    SunoTaskRequest,
     TaskCreateRequest,
     TaskListResponse,
     TaskProgressEvent,
@@ -199,6 +200,8 @@ async def get_me(user: User = Depends(get_current_user)):
 async def upload_and_create_task(
     mp3: UploadFile = File(..., description="MP3 音频文件"),
     lyrics: UploadFile = File(..., description="歌词文件 (.txt / .lrc)"),
+    song_title: str | None = Query(None, description="歌曲名称"),
+    suno_url: str | None = Query(None, description="Suno 歌曲链接"),
     language: str = Query("zh", description="语言代码"),
     skip_separation: bool = Query(False, description="跳过人声分离"),
     ass_only: bool = Query(False, description="只生成 ASS"),
@@ -254,11 +257,17 @@ async def upload_and_create_task(
         mp3_tmp.unlink(missing_ok=True)
         lyrics_tmp.unlink(missing_ok=True)
 
+    # 歌名与 Suno 链接
+    final_title = song_title.strip() if song_title and song_title.strip() else Path(mp3.filename).stem
+    clean_suno_url = suno_url.strip() if suno_url and suno_url.strip() else None
+
     # 创建 Task 记录（所有 NOT NULL 字段已就绪）
     task = Task(
         id=task_id,
         user_id=user.id,
-        title=Path(mp3.filename).stem,
+        title=final_title,
+        song_title=final_title,
+        suno_url=clean_suno_url,
         input_mp3_key=mp3_key,
         input_lyrics_key=lyrics_key,
         config_snapshot={
@@ -294,6 +303,109 @@ async def upload_and_create_task(
         lyrics_key=lyrics_key,
         task_id=task.id,
     )
+
+
+@app.post("/api/tasks/from-suno", response_model=UploadResponse, tags=["Tasks"])
+async def create_task_from_suno(
+    req: SunoTaskRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """从 Suno 链接自动拉取歌名、歌词、音频并创建生成任务"""
+    if user.credits <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="配额不足，请升级套餐",
+        )
+
+    clean_url = req.suno_url.strip()
+    if not clean_url:
+        raise HTTPException(400, "请提供有效的 Suno 链接")
+
+    from src.suno_fetch import fetch_song
+    try:
+        song = fetch_song(clean_url)
+    except Exception as e:
+        raise HTTPException(400, f"提取 Suno 歌曲失败: {e}")
+
+    final_title = (req.song_title or song.title or "Suno_Track").strip()
+    lyrics_text = (song.lyrics or song.raw_prompt or "").strip()
+    if not lyrics_text:
+        raise HTTPException(400, "未能从 Suno 页面提取到有效歌词，请检查该歌曲")
+
+    audio_url = song.audio_url or song.video_url
+    if not audio_url:
+        raise HTTPException(400, "未能获取 Suno 音频直链")
+
+    import httpx
+    import tempfile
+
+    storage = get_storage()
+    task_id = str(uuid.uuid4())
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f_mp3, \
+         tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="w", encoding="utf-8") as f_lyr:
+        mp3_tmp = Path(f_mp3.name)
+        lyrics_tmp = Path(f_lyr.name)
+        f_lyr.write(lyrics_text)
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            resp = await client.get(audio_url)
+            if resp.status_code != 200:
+                raise HTTPException(400, f"下载 Suno 音频流失败 (HTTP {resp.status_code})")
+            mp3_tmp.write_bytes(resp.content)
+
+        mp3_key = f"uploads/{user.id}/{task_id}/{final_title}.mp3"
+        lyrics_key = f"uploads/{user.id}/{task_id}/{final_title}.txt"
+
+        await storage.save(mp3_key, mp3_tmp)
+        await storage.save(lyrics_key, lyrics_tmp)
+    finally:
+        mp3_tmp.unlink(missing_ok=True)
+        lyrics_tmp.unlink(missing_ok=True)
+
+    task = Task(
+        id=task_id,
+        user_id=user.id,
+        title=final_title,
+        song_title=final_title,
+        suno_url=clean_url,
+        input_mp3_key=mp3_key,
+        input_lyrics_key=lyrics_key,
+        config_snapshot={
+            "language": req.language,
+            "skip_separation": req.skip_separation,
+            "ass_only": req.ass_only,
+            "beat_effects": req.beat_effects,
+        },
+    )
+    db.add(task)
+    await db.flush()
+
+    user.credits -= 1
+
+    try:
+        from src.worker import process_song_task
+        celery_result = process_song_task.delay(
+            task_id=task.id,
+            mp3_key=mp3_key,
+            lyrics_key=lyrics_key,
+            config_dict=task.config_snapshot,
+        )
+        task.celery_task_id = celery_result.id
+    except Exception as e:
+        log.warning("Celery 不可用，任务将保持 pending 状态: %s", e)
+
+    await db.flush()
+
+    return UploadResponse(
+        mp3_key=mp3_key,
+        lyrics_key=lyrics_key,
+        task_id=task.id,
+        message=f"Suno 歌曲《{final_title}》解析成功，任务已创建",
+    )
+
 
 
 # ======================================================================
@@ -529,6 +641,8 @@ def _task_to_response(task: Task) -> TaskResponse:
     return TaskResponse(
         id=task.id,
         title=task.title,
+        song_title=task.song_title or task.title,
+        suno_url=task.suno_url,
         status=task.status.value if isinstance(task.status, TaskStatus) else task.status,
         current_step=task.current_step.value if isinstance(task.current_step, TaskStep) else task.current_step,
         progress=task.progress,

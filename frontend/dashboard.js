@@ -226,52 +226,126 @@ async function loadUser() {
 // ======================================================================
 
 function initUpload() {
-  $("#upload-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
+  const tabSuno = $("#tab-suno");
+  const tabLocal = $("#tab-local");
+  const sunoForm = $("#suno-form");
+  const uploadForm = $("#upload-form");
 
-    const mp3File = $("#file-mp3").files[0];
-    const lyricsFile = $("#file-lyrics").files[0];
-    if (!mp3File || !lyricsFile) return;
+  if (tabSuno && tabLocal && sunoForm && uploadForm) {
+    tabSuno.addEventListener("click", () => {
+      tabSuno.classList.add("active");
+      tabLocal.classList.remove("active");
+      sunoForm.style.display = "";
+      uploadForm.style.display = "none";
+    });
+    tabLocal.addEventListener("click", () => {
+      tabLocal.classList.add("active");
+      tabSuno.classList.remove("active");
+      uploadForm.style.display = "";
+      sunoForm.style.display = "none";
+    });
+  }
 
-    const btn = $("#btn-upload");
-    btn.disabled = true;
-    btn.textContent = "⏳ 上传中…";
+  // 1. Suno 链接直接生成
+  if (sunoForm) {
+    sunoForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const sunoUrl = $("#input-suno-url").value.trim();
+      const songTitle = $("#input-suno-title").value.trim();
+      if (!sunoUrl) return;
 
-    const form = new FormData();
-    form.append("mp3", mp3File);
-    form.append("lyrics", lyricsFile);
+      const btn = $("#btn-suno-submit");
+      btn.disabled = true;
+      btn.textContent = "⏳ 解析 Suno 歌曲与音频…";
 
-    // Query params
-    const params = new URLSearchParams();
-    params.set("language", $("#opt-lang").value);
-    if ($("#opt-skip-sep").checked) params.set("skip_separation", "true");
-    if ($("#opt-ass-only").checked) params.set("ass_only", "true");
-    if ($("#opt-beat").checked) params.set("beat_effects", "true");
+      try {
+        const payload = {
+          suno_url: sunoUrl,
+          song_title: songTitle || undefined,
+          language: $("#suno-opt-lang").value,
+          skip_separation: $("#suno-opt-skip-sep").checked,
+          ass_only: $("#suno-opt-ass-only").checked,
+          beat_effects: $("#suno-opt-beat").checked,
+        };
 
-    try {
-      const res = await api(`/api/upload?${params}`, {
-        method: "POST",
-        body: form,
-      });
+        const res = await api("/api/tasks/from-suno", {
+          method: "POST",
+          json: payload,
+        });
 
-      if (res.ok) {
-        const data = await res.json();
-        showStatus(`✅ 任务已创建: ${data.task_id.slice(0, 8)}…`);
-        $("#upload-form").reset();
-        loadTasks();
-        // 连接 WebSocket 监听进度
-        connectProgressWS(data.task_id);
-      } else {
-        const err = await res.json();
-        showStatus(`❌ ${err.detail || "上传失败"}`, true);
+        if (res.ok) {
+          const data = await res.json();
+          showStatus(data.message || `✅ 任务已创建: ${data.task_id.slice(0, 8)}…`);
+          sunoForm.reset();
+          loadTasks();
+          connectProgressWS(data.task_id);
+        } else {
+          const err = await res.json();
+          showStatus(`❌ ${err.detail || "创建任务失败"}`, true);
+        }
+      } catch (err) {
+        showStatus(`❌ ${err.message || "网络错误"}`, true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "✨ 解析 Suno 并生成 MV";
       }
-    } catch (e) {
-      showStatus("❌ 网络错误", true);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "🚀 上传并生成";
-    }
-  });
+    });
+  }
+
+  // 2. 本地文件上传
+  if (uploadForm) {
+    uploadForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const mp3File = $("#file-mp3").files[0];
+      const lyricsFile = $("#file-lyrics").files[0];
+      if (!mp3File || !lyricsFile) return;
+
+      const btn = $("#btn-upload");
+      btn.disabled = true;
+      btn.textContent = "⏳ 上传中…";
+
+      const form = new FormData();
+      form.append("mp3", mp3File);
+      form.append("lyrics", lyricsFile);
+
+      // Query params
+      const params = new URLSearchParams();
+      params.set("language", $("#opt-lang").value);
+      if ($("#opt-skip-sep").checked) params.set("skip_separation", "true");
+      if ($("#opt-ass-only").checked) params.set("ass_only", "true");
+      if ($("#opt-beat").checked) params.set("beat_effects", "true");
+
+      const localSongTitle = $("#local-song-title")?.value.trim();
+      const localSunoUrl = $("#local-suno-url")?.value.trim();
+      if (localSongTitle) params.set("song_title", localSongTitle);
+      if (localSunoUrl) params.set("suno_url", localSunoUrl);
+
+      try {
+        const res = await api(`/api/upload?${params}`, {
+          method: "POST",
+          body: form,
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          showStatus(`✅ 任务已创建: ${data.task_id.slice(0, 8)}…`);
+          uploadForm.reset();
+          loadTasks();
+          // 连接 WebSocket 监听进度
+          connectProgressWS(data.task_id);
+        } else {
+          const err = await res.json();
+          showStatus(`❌ ${err.detail || "上传失败"}`, true);
+        }
+      } catch (e) {
+        showStatus("❌ 网络错误", true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "🚀 上传并生成";
+      }
+    });
+  }
 }
 
 
@@ -353,12 +427,18 @@ function renderTask(task) {
   }
   actions += `<button class="btn btn-sm btn-danger" data-action="delete" data-task="${task.id}">🗑️</button>`;
 
+  const displayTitle = task.song_title || task.title || "未命名";
+  const sunoLink = task.suno_url
+    ? `<div class="task-suno-link"><a href="${escapeHtml(task.suno_url)}" target="_blank" rel="noopener noreferrer">🔗 原曲 Suno 页面</a></div>`
+    : "";
+
   return `
     <div class="task-card" id="task-${task.id}" data-status="${task.status}">
       <div class="task-header">
-        <strong class="task-title">🎵 ${escapeHtml(task.title || "未命名")}</strong>
+        <strong class="task-title">🎵 ${escapeHtml(displayTitle)}</strong>
         <span class="task-status">${statusText}</span>
       </div>
+      ${sunoLink}
       ${progressBar}
       <div class="task-meta">
         <span>创建: ${date}</span>

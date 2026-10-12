@@ -114,6 +114,12 @@ class Task(Base):
     title: Mapped[str] = mapped_column(
         String(255), nullable=False, default=""
     )
+    song_title: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, index=True
+    )
+    suno_url: Mapped[str | None] = mapped_column(
+        String(1024), nullable=True, index=True
+    )
 
     # 状态
     status: Mapped[TaskStatus] = mapped_column(
