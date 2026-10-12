@@ -95,3 +95,48 @@ def test_database_url_normalization_with_special_characters():
     assert u.username == "user.123"
     assert u.password == "my@pwd/123"
 
+
+def test_worker_taskstep_enum_safety_for_analyzing_and_arbitrary_steps(tmp_path, monkeypatch):
+    """Ensure intermediate pipeline steps like 'analyzing' are mapped to valid TaskStep enums."""
+    import asyncio
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from sqlalchemy.pool import NullPool
+    from sqlalchemy import select
+    from src.database import Base
+    from src.models import Task, TaskStep
+    from src import worker
+
+    url = f"sqlite+aiosqlite:///{tmp_path}/test_step.db"
+    monkeypatch.setattr(worker.settings, "DATABASE_URL", url)
+
+    engine = create_async_engine(url, poolclass=NullPool)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def init():
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        async with sessions() as db:
+            db.add(Task(id="task-enum-test", user_id="alice", input_mp3_key="a.mp3", input_lyrics_key="b.txt"))
+            await db.commit()
+
+    asyncio.run(init())
+
+    # 1. 直接更新 'analyzing' 步骤
+    worker._update_task_status("task-enum-test", current_step="analyzing", progress=61)
+
+    # 验证存入数据库的是合法的 TaskStep
+    async def verify_step(expected):
+        async with sessions() as db:
+            t = (await db.execute(select(Task).where(Task.id == "task-enum-test"))).scalar_one()
+            assert t.current_step == expected
+            assert t.progress == 61
+
+    asyncio.run(verify_step(TaskStep.ALIGNING))
+
+    # 2. 传入未知非法步骤也必须被安全降级为合法枚举，严禁抛出异常
+    worker._update_task_status("task-enum-test", current_step="completely_unknown_step", progress=61)
+    asyncio.run(verify_step(TaskStep.ALIGNING))
+
+    asyncio.run(engine.dispose())
+
+

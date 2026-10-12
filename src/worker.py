@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import shutil
 import tempfile
 from datetime import datetime, timezone
@@ -23,6 +24,7 @@ from pathlib import Path
 
 from src.settings import get_settings
 
+log = logging.getLogger("m2v.worker")
 settings = get_settings()
 
 try:
@@ -98,14 +100,18 @@ def _update_task_status(
     from sqlalchemy import update
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from sqlalchemy.pool import NullPool
-    from src.models import Task
+    from src.models import Task, TaskStep
 
     async def _inner():
         values = {}
         if status is not None:
             values["status"] = status
         if current_step is not None:
-            values["current_step"] = current_step
+            valid_steps = {s.value for s in TaskStep}
+            val = current_step.value if isinstance(current_step, TaskStep) else str(current_step)
+            if val not in valid_steps:
+                val = TaskStep.ALIGNING.value
+            values["current_step"] = val
         if progress is not None:
             values["progress"] = progress
         if error_message is not None:
@@ -196,22 +202,32 @@ def process_song_task(
                 config.subtitle.enable_beat_effects = bool(config_dict["beat_effects"])
 
         # ── 进度回调 ─────────────────────────────────
+        from src.models import TaskStep
         step_map = {
-            "preprocessing": ("preprocessing", 10),
-            "separating": ("separating", 30),
-            "aligning": ("aligning", 60),
-            "subtitle": ("subtitle", 80),
-            "compositing": ("compositing", 90),
+            "queued": TaskStep.QUEUED.value,
+            "preprocessing": TaskStep.PREPROCESSING.value,
+            "separating": TaskStep.SEPARATING.value,
+            "aligning": TaskStep.ALIGNING.value,
+            "analyzing": TaskStep.ALIGNING.value,
+            "subtitle": TaskStep.SUBTITLE.value,
+            "compositing": TaskStep.COMPOSITING.value,
+            "done": TaskStep.DONE.value,
+            "error": TaskStep.ERROR.value,
         }
 
         def on_progress(step: str, progress: int, message: str = ""):
-            mapped = step_map.get(step, (step, progress))
-            _update_task_status(
-                task_id,
-                current_step=mapped[0],
-                progress=mapped[1],
-            )
-            _publish_progress(task_id, mapped[0], mapped[1], message)
+            mapped_step = step_map.get(step, TaskStep.ALIGNING.value)
+            actual_progress = int(progress) if progress is not None else 0
+            try:
+                _update_task_status(
+                    task_id,
+                    current_step=mapped_step,
+                    progress=actual_progress,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("任务 %s 状态写入数据库失败 (不中断计算流程): %s", task_id, exc)
+
+            _publish_progress(task_id, mapped_step, actual_progress, message)
 
         # ── 执行 pipeline ────────────────────────────
         output_dir = temp_dir / "output"
