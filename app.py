@@ -67,11 +67,15 @@ def mount_fastapi_routes(demo_instance):
         if demo_instance.server_app not in targets:
             targets.append(demo_instance.server_app)
 
+    from src.api_server import api_router
+
     for target in targets:
-        existing_paths = {getattr(r, "path", "") for r in getattr(target, "routes", [])}
-        if "/api/files" in existing_paths:
-            continue
-        target.include_router(fastapi_app.router)
+        existing_paths = {getattr(r, "path", "") for r in getattr(target, "routes", []) if hasattr(r, "path")}
+        if "/api/files" not in existing_paths:
+            target.include_router(fastapi_app.router)
+        if "/api/auth/me" not in existing_paths:
+            target.include_router(api_router)
+
 
 if __name__ == "__main__":
     from src.hf_motion_runtime import prepare_motion_runtime

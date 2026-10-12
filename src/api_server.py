@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import (
+    APIRouter,
     Depends,
     FastAPI,
     File,
@@ -105,12 +106,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+api_router = APIRouter()
+
 
 # ======================================================================
 # Auth 路由
 # ======================================================================
 
-@app.post("/api/auth/register", response_model=TokenResponse, tags=["Auth"])
+@api_router.post("/api/auth/register", response_model=TokenResponse, tags=["Auth"])
 async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
     """用户注册"""
     # 检查重复
@@ -138,7 +141,7 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
     )
 
 
-@app.post("/api/auth/login", response_model=TokenResponse, tags=["Auth"])
+@api_router.post("/api/auth/login", response_model=TokenResponse, tags=["Auth"])
 async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     """用户登录"""
     result = await db.execute(select(User).where(User.email == req.email))
@@ -158,7 +161,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     )
 
 
-@app.post("/api/auth/refresh", response_model=TokenResponse, tags=["Auth"])
+@api_router.post("/api/auth/refresh", response_model=TokenResponse, tags=["Auth"])
 async def refresh_token(req: RefreshRequest, db: AsyncSession = Depends(get_db)):
     """刷新访问令牌"""
     payload = decode_token(req.refresh_token)
@@ -177,7 +180,7 @@ async def refresh_token(req: RefreshRequest, db: AsyncSession = Depends(get_db))
     )
 
 
-@app.get("/api/auth/me", response_model=UserResponse, tags=["Auth"])
+@api_router.get("/api/auth/me", response_model=UserResponse, tags=["Auth"])
 async def get_me(user: User = Depends(get_current_user)):
     """获取当前用户信息"""
     return UserResponse(
@@ -196,9 +199,10 @@ async def get_me(user: User = Depends(get_current_user)):
 # 文件上传 + 创建任务
 # ======================================================================
 
-@app.post("/api/upload", response_model=UploadResponse, tags=["Tasks"])
+@api_router.post("/api/upload", response_model=UploadResponse, tags=["Tasks"])
 async def upload_and_create_task(
     mp3: UploadFile = File(..., description="MP3 音频文件"),
+
     lyrics: UploadFile = File(..., description="歌词文件 (.txt / .lrc)"),
     song_title: str | None = Query(None, description="歌曲名称"),
     suno_url: str | None = Query(None, description="Suno 歌曲链接"),
@@ -305,7 +309,7 @@ async def upload_and_create_task(
     )
 
 
-@app.post("/api/tasks/from-suno", response_model=UploadResponse, tags=["Tasks"])
+@api_router.post("/api/tasks/from-suno", response_model=UploadResponse, tags=["Tasks"])
 async def create_task_from_suno(
     req: SunoTaskRequest,
     user: User = Depends(get_current_user),
@@ -412,7 +416,7 @@ async def create_task_from_suno(
 # 任务管理
 # ======================================================================
 
-@app.get("/api/tasks", response_model=TaskListResponse, tags=["Tasks"])
+@api_router.get("/api/tasks", response_model=TaskListResponse, tags=["Tasks"])
 async def list_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -441,7 +445,7 @@ async def list_tasks(
     )
 
 
-@app.get("/api/tasks/{task_id}", response_model=TaskResponse, tags=["Tasks"])
+@api_router.get("/api/tasks/{task_id}", response_model=TaskResponse, tags=["Tasks"])
 async def get_task(
     task_id: str,
     user: User = Depends(get_current_user),
@@ -452,7 +456,7 @@ async def get_task(
     return _task_to_response(task)
 
 
-@app.delete("/api/tasks/{task_id}", response_model=MessageResponse, tags=["Tasks"])
+@api_router.delete("/api/tasks/{task_id}", response_model=MessageResponse, tags=["Tasks"])
 async def delete_task(
     task_id: str,
     user: User = Depends(get_current_user),
@@ -484,7 +488,7 @@ async def delete_task(
 # 文件下载
 # ======================================================================
 
-@app.get("/api/tasks/{task_id}/download/{file_type}", tags=["Files"])
+@api_router.get("/api/tasks/{task_id}/download/{file_type}", tags=["Files"])
 async def download_file(
     task_id: str,
     file_type: str,
@@ -533,8 +537,9 @@ async def download_file(
 # WebSocket 实时进度
 # ======================================================================
 
-@app.websocket("/ws/tasks/{task_id}/progress")
+@api_router.websocket("/ws/tasks/{task_id}/progress")
 async def task_progress_ws(websocket: WebSocket, task_id: str):
+
     """
     WebSocket 端点: 实时推送任务进度
 
@@ -589,6 +594,7 @@ async def task_progress_ws(websocket: WebSocket, task_id: str):
 # 集成时间轴编辑器 (通过 Router 挂载)
 # ======================================================================
 
+app.include_router(api_router)
 app.include_router(editor_router)
 
 

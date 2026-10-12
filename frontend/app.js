@@ -221,8 +221,32 @@ function handleKey(e) {
 // ---------------------------------------------------------------------------
 // API helpers
 // ---------------------------------------------------------------------------
+const DEFAULT_CLOUD_API = "https://lucazhou-suno2mv-api.hf.space";
+const DEFAULT_LOCAL_API = "http://localhost:8000";
+
+function getDefaultApi() {
+  const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  return isLocal ? DEFAULT_LOCAL_API : DEFAULT_CLOUD_API;
+}
+
+function resolveApiBase() {
+  const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  const saved = localStorage.getItem("m2v_api_base");
+
+  if (!isLocal && saved && (saved.includes("localhost") || saved.includes("127.0.0.1"))) {
+    localStorage.removeItem("m2v_api_base");
+    return (window.M2V_API_BASE || DEFAULT_CLOUD_API).replace(/\/+$/, "");
+  }
+
+  if (saved) return saved.replace(/\/+$/, "");
+  if (window.M2V_API_BASE) return window.M2V_API_BASE.replace(/\/+$/, "");
+  return getDefaultApi();
+}
+
 async function api(url, options = {}) {
   try {
+    const apiBase = resolveApiBase();
+    const targetUrl = url.startsWith("/") ? `${apiBase}${url}` : url;
     // 自动注入 JWT Token
     const token = localStorage.getItem("m2v_token");
     if (token) {
@@ -231,7 +255,7 @@ async function api(url, options = {}) {
         options.headers["Authorization"] = `Bearer ${token}`;
       }
     }
-    const resp = await fetch(url, options);
+    const resp = await fetch(targetUrl, options);
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({ detail: resp.statusText }));
       // detail 可能是字符串、{errors: [...]}、或 [{msg:...}, ...]

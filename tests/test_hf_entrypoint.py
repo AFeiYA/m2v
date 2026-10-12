@@ -70,6 +70,8 @@ def test_hf_app_entrypoint_routes():
         ("POST", "/api/regen"),
         ("GET", "/api/comfyui/status"),
         ("GET", "/api/gpu/status"),
+        ("GET", "/api/tasks"),
+        ("GET", "/api/auth/me"),
     ]
 
     for method, path in endpoints:

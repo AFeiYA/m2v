@@ -2,7 +2,30 @@
    M2V Dashboard — 前端逻辑
    ========================================================== */
 
-let API = window.M2V_API_BASE || localStorage.getItem("m2v_api_base") || "";
+const DEFAULT_CLOUD_API = "https://lucazhou-suno2mv-api.hf.space";
+const DEFAULT_LOCAL_API = "http://localhost:8000";
+
+function getDefaultApi() {
+  const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  return isLocal ? DEFAULT_LOCAL_API : DEFAULT_CLOUD_API;
+}
+
+function resolveApiBase() {
+  const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  const saved = localStorage.getItem("m2v_api_base");
+
+  // 若在云端生产环境（如 mv.fovea.si / pages.dev），自动清理之前残留的本地开发地址
+  if (!isLocal && saved && (saved.includes("localhost") || saved.includes("127.0.0.1"))) {
+    localStorage.removeItem("m2v_api_base");
+    return (window.M2V_API_BASE || DEFAULT_CLOUD_API).replace(/\/+$/, "");
+  }
+
+  if (saved) return saved.replace(/\/+$/, "");
+  if (window.M2V_API_BASE) return window.M2V_API_BASE.replace(/\/+$/, "");
+  return getDefaultApi();
+}
+
+let API = resolveApiBase();
 
 // ── State ────────────────────────────────────────────────
 let token = localStorage.getItem("m2v_token") || null;
@@ -469,8 +492,21 @@ async function handleTaskAction(e) {
 // ======================================================================
 
 function connectProgressWS(taskId) {
-  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const ws = new WebSocket(`${protocol}//${location.host}/ws/tasks/${taskId}/progress`);
+  let wsUrl = "";
+  if (API) {
+    try {
+      const u = new URL(API, location.href);
+      const wsProto = u.protocol === "https:" ? "wss:" : "ws:";
+      wsUrl = `${wsProto}//${u.host}/ws/tasks/${taskId}/progress`;
+    } catch (e) {
+      const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+      wsUrl = `${protocol}//${location.host}/ws/tasks/${taskId}/progress`;
+    }
+  } else {
+    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    wsUrl = `${protocol}//${location.host}/ws/tasks/${taskId}/progress`;
+  }
+  const ws = new WebSocket(wsUrl);
 
   ws.onmessage = (event) => {
     try {
@@ -548,26 +584,27 @@ function escapeHtml(str) {
 
 function initApiConfig() {
   const updateLabel = () => {
-    const cur = localStorage.getItem("m2v_api_base");
+    const cur = API;
     const el = $("#btn-config-api");
-    if (el) {
-      if (cur) {
-        try {
-          const u = new URL(cur);
-          el.textContent = `已连接: ${u.host}`;
-        } catch (e) {
-          el.textContent = cur;
-        }
-      } else {
-        el.textContent = (location.hostname.includes("localhost") || location.hostname.includes("127.0.0.1")) ? "同源 (默认)" : "未配置 (点击设置)";
-      }
+    const elApp = $("#btn-config-api-app");
+    let label = "";
+    try {
+      const u = new URL(cur);
+      label = `服务: ${u.host}`;
+    } catch (e) {
+      label = cur ? `服务: ${cur}` : "未配置 (点击设置)";
     }
+    if (el) el.textContent = label;
+    if (elApp) elApp.title = `后端 API: ${cur}`;
   };
 
   const configure = (e) => {
     e?.preventDefault();
-    const current = localStorage.getItem("m2v_api_base") || (location.hostname.includes("pages.dev") ? "http://127.0.0.1:8000" : "");
-    const input = prompt("请输入 Python 后端 API 服务地址：\n(本地开发填 http://localhost:8000；云端部署填你的后端服务公网域名)", current);
+    const current = localStorage.getItem("m2v_api_base") || API;
+    const input = prompt(
+      "请输入 Python 后端 API 服务地址：\n(留空恢复默认: " + getDefaultApi() + ")",
+      current
+    );
     if (input !== null) {
       const trimmed = input.trim().replace(/\/+$/, "");
       if (trimmed) {
