@@ -67,6 +67,8 @@ class SunoTaskRequest(BaseModel):
     skip_separation: bool = False
     ass_only: bool = False
     beat_effects: bool = False
+    lyrics_text: str | None = None
+    force_realign: bool = False
 
 
 class TaskResponse(BaseModel):

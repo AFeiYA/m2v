@@ -22,6 +22,7 @@ import json
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 
 from fastapi import (
@@ -42,6 +43,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 
 from src.auth import (
     create_access_token,
@@ -373,33 +375,9 @@ async def create_task_from_suno(
     db: AsyncSession = Depends(get_db),
 ):
     """从 Suno 链接自动拉取歌名、歌词、音频并创建生成任务"""
-    if user.credits <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="配额不足，请升级套餐",
-        )
-
     clean_url = req.suno_url.strip()
     if not clean_url:
         raise HTTPException(400, "请提供有效的 Suno 链接")
-
-    # 幂等性防护：若同一用户存在该链接进行中任务，直接复用返回，避免重复扣额
-    existing_q = await db.execute(
-        select(Task).where(
-            Task.user_id == user.id,
-            Task.suno_url == clean_url,
-            Task.status.in_([TaskStatus.PENDING, TaskStatus.PROCESSING]),
-        )
-    )
-    existing_task = existing_q.scalars().first()
-    if existing_task:
-        log.info("Suno 任务幂等命中: 复用任务 %s，不扣减额度", existing_task.id)
-        return UploadResponse(
-            mp3_key=existing_task.input_mp3_key,
-            lyrics_key=existing_task.input_lyrics_key,
-            task_id=existing_task.id,
-            message=f"该歌曲任务已在处理中 ({existing_task.id[:8]}…)",
-        )
 
     from src.suno_fetch import fetch_song, download_song
     try:
@@ -408,9 +386,41 @@ async def create_task_from_suno(
         raise HTTPException(400, f"提取 Suno 歌曲失败: {e}")
 
     final_title = (req.song_title or song.title or "Suno_Track").strip()
-    lyrics_text = (song.lyrics or song.raw_prompt or "").strip()
+    lyrics_text = (req.lyrics_text if req.lyrics_text is not None else (song.lyrics or song.raw_prompt or "")).strip()
     if not lyrics_text:
         raise HTTPException(400, "未能从 Suno 页面提取到有效歌词，请检查该歌曲")
+
+    from src.suno_import_identity import lyrics_signature, reusable_import
+    storage = get_storage()
+    options = {
+        "language": req.language,
+        "skip_separation": req.skip_separation,
+        "ass_only": req.ass_only,
+        "beat_effects": req.beat_effects,
+    }
+    signature = lyrics_signature(lyrics_text)
+    if not req.force_realign:
+        existing = await reusable_import(db, user.id, song, clean_url, signature, options, storage)
+        if existing:
+            return UploadResponse(
+                mp3_key=existing.input_mp3_key, lyrics_key=existing.input_lyrics_key,
+                task_id=existing.id, message="歌曲、歌词和设置未变化，复用已有任务，不扣减额度",
+            )
+    if user.credits <= 0:
+        raise HTTPException(403, "配额不足，请升级套餐")
+    claim = sha256(json.dumps([user.id, song.id, signature, options], sort_keys=True).encode()).hexdigest()
+    if req.force_realign:
+        claim = sha256(uuid.uuid4().bytes).hexdigest()
+    old_claim = (await db.execute(select(Task).where(Task.idempotency_key == claim))).scalar_one_or_none()
+    if old_claim and (old_claim.status in (TaskStatus.PENDING, TaskStatus.PROCESSING) or
+                      (old_claim.status == TaskStatus.COMPLETED and old_claim.alignment_json_key and
+                       await storage.exists(old_claim.alignment_json_key))):
+        return UploadResponse(mp3_key=old_claim.input_mp3_key, lyrics_key=old_claim.input_lyrics_key,
+                              task_id=old_claim.id, message="复用已有歌曲任务，不重复扣减额度")
+    if old_claim:
+        # A failed or missing-result task is retryable; preserve its history.
+        old_claim.idempotency_key = None
+        await db.flush()
 
     audio_url = song.audio_url or song.video_url
     if not audio_url:
@@ -418,7 +428,6 @@ async def create_task_from_suno(
 
     import tempfile
 
-    storage = get_storage()
     task_id = str(uuid.uuid4())
 
     # Reuse the validated downloader, including public-video audio extraction.
@@ -435,6 +444,7 @@ async def create_task_from_suno(
             raise HTTPException(400, "Suno 音频及公开视频音轨均无法读取，请上传有权使用的音频文件")
         mp3_key = f"uploads/{user.id}/{task_id}/source{mp3_tmp.suffix}"
         lyrics_key = f"uploads/{user.id}/{task_id}/source.txt"
+        lyrics_tmp.write_text(lyrics_text, encoding="utf-8")
         await storage.save(mp3_key, mp3_tmp)
         await storage.save(lyrics_key, lyrics_tmp)
 
@@ -446,15 +456,26 @@ async def create_task_from_suno(
         suno_url=clean_url,
         input_mp3_key=mp3_key,
         input_lyrics_key=lyrics_key,
-        config_snapshot={
-            "language": req.language,
-            "skip_separation": req.skip_separation,
-            "ass_only": req.ass_only,
-            "beat_effects": req.beat_effects,
-        },
+        idempotency_key=claim,
+        config_snapshot={**options, "suno_song_id": song.id, "import_lyrics_signature": signature},
     )
+    owner_id = user.id
     db.add(task)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        existing = (await db.execute(select(Task).where(
+            Task.user_id == owner_id, Task.idempotency_key == claim,
+        ))).scalar_one_or_none()
+        await storage.delete(mp3_key)
+        await storage.delete(lyrics_key)
+        if existing is None:
+            raise
+        return UploadResponse(
+            mp3_key=existing.input_mp3_key, lyrics_key=existing.input_lyrics_key,
+            task_id=existing.id, message="复用同时提交的歌曲任务，不重复扣减额度",
+        )
 
     await _commit_and_dispatch(db, task)
 

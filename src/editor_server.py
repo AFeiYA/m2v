@@ -16,6 +16,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -152,18 +153,33 @@ async def save_alignment(
 # ======================================================================
 
 async def _stream_storage_file(storage, key: str):
+    suffix = Path(key).suffix.lower()
+    media_type = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".flac": "audio/flac",
+                  ".m4a": "audio/mp4", ".mp4": "video/mp4"}.get(suffix, "application/octet-stream")
     if isinstance(storage, LocalStorage):
         local_path = storage.get_local_path(key)
         if not local_path.exists():
             raise HTTPException(404, "音频文件不存在")
-        suffix = local_path.suffix.lower()
-        media_type = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".flac": "audio/flac",
-                      ".m4a": "audio/mp4", ".mp4": "video/mp4"}.get(suffix, "application/octet-stream")
         return FileResponse(local_path, media_type=media_type)
 
-    url = await storage.get_url(key)
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url)
+    # The owner has already been checked by the calling route. Serve private
+    # objects through this origin: browser fetch must not follow an R2 redirect
+    # that depends on bucket CORS or an obsolete public-domain configuration.
+    with tempfile.NamedTemporaryFile(prefix="m2v-editor-media-", suffix=suffix, delete=False) as f:
+        local_path = Path(f.name)
+    try:
+        await storage.load(key, local_path)
+    except Exception as exc:
+        local_path.unlink(missing_ok=True)
+        code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+        if isinstance(exc, FileNotFoundError) or code in ("NoSuchKey", "NotFound", "404"):
+            raise HTTPException(404, "音轨或视频文件不存在") from exc
+        log.warning("编辑器媒体读取失败: key=%s error_type=%s code=%s", key, type(exc).__name__, code)
+        raise HTTPException(502, "文件存储读取失败，请检查存储配置与权限") from exc
+    return FileResponse(
+        local_path, media_type=media_type, headers={"Cache-Control": "private, no-store"},
+        background=BackgroundTask(local_path.unlink, missing_ok=True),
+    )
 
 
 async def _find_track_key(storage, task, kind):

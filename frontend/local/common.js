@@ -710,7 +710,7 @@ async function handleSunoImport() {
       }
 
       const taskId = initData.task_id;
-      status(`⏳ 任务已创建 (${taskId.slice(0, 8)}…)，正在云端分离与对齐…`);
+      status(initData.message || `⏳ 正在读取任务 (${taskId.slice(0, 8)}…)`);
 
       // 轮询任务完成
       let pollTask = null;

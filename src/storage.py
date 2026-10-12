@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -130,7 +131,7 @@ class S3Storage(StorageBackend):
 
     async def load(self, key: str, local_path: Path) -> Path:
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        self.client.download_file(self.bucket, key, str(local_path))
+        await asyncio.to_thread(self.client.download_file, self.bucket, key, str(local_path))
         return local_path
 
     async def delete(self, key: str) -> None:

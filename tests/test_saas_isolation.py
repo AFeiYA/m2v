@@ -169,7 +169,7 @@ def submit(sandbox, monkeypatch, source):
         })
     from src import suno_fetch
     monkeypatch.setattr(suno_fetch, "fetch_song", lambda url: types.SimpleNamespace(
-        title="test", lyrics="lyrics", raw_prompt="", audio_url="https://example.invalid/audio", video_url=""))
+        id="test-song-id", title="test", lyrics="lyrics", raw_prompt="", audio_url="https://example.invalid/audio", video_url=""))
     def download(song, output_dir, **kwargs):
         assert kwargs["allow_local_fallback"] is False
         audio = output_dir / "source.mp3"
@@ -392,3 +392,168 @@ def test_editor_analysis_keeps_edits_saved_during_inference(sandbox, monkeypatch
     assert payload["lines"][0]["text"] == "edited during analysis"
     assert payload["analysis"]["bpm"] == 120
     assert sandbox.client.post("/api/editor/tasks/editor/analyze", json={}, headers=headers("bob")).status_code == 404
+
+
+def test_suno_aliases_reuse_completed_import_and_preserve_edits(sandbox, monkeypatch):
+    observed = install_pipeline(sandbox, monkeypatch, False)
+    first = submit(sandbox, monkeypatch, "suno").json()
+    key = first["task_id"]
+    async def edit():
+        async with sandbox.sessions() as db:
+            task = await db.get(Task, key)
+            path = sandbox.output / "edited.json"
+            path.write_text('{"manual_edit": true}')
+            await sandbox.storage.save(task.alignment_json_key, path)
+            user = await db.get(User, "alice")
+            user.credits = 0
+            await db.commit()
+    asyncio.run(edit())
+    second = sandbox.client.post("/api/tasks/from-suno", headers=headers(), json={
+        "suno_url": "https://suno.com/song/test-song-id?sh=other"})
+    assert second.status_code == 200
+    assert second.json()["task_id"] == key
+    assert len(observed) == 1
+
+
+def test_suno_changed_lyrics_force_and_user_isolation(sandbox, monkeypatch):
+    observed = install_pipeline(sandbox, monkeypatch, False)
+    first = submit(sandbox, monkeypatch, "suno").json()
+    payload = {"suno_url": "https://suno.com/s/another", "lyrics_text": "updated lyrics"}
+    changed = sandbox.client.post("/api/tasks/from-suno", headers=headers(), json=payload)
+    assert changed.status_code == 200
+    assert changed.json()["task_id"] != first["task_id"]
+    repeated = sandbox.client.post("/api/tasks/from-suno", headers=headers(), json=payload)
+    assert repeated.json()["task_id"] == changed.json()["task_id"]
+    forced = sandbox.client.post("/api/tasks/from-suno", headers=headers(), json={**payload, "force_realign": True})
+    assert forced.status_code == 200
+    assert forced.json()["task_id"] != changed.json()["task_id"]
+    other = sandbox.client.post("/api/tasks/from-suno", headers=headers("bob"), json=payload)
+    assert other.status_code == 200
+    assert other.json()["task_id"] != changed.json()["task_id"]
+    assert len(observed) == 4
+    async def verify():
+        async with sandbox.sessions() as db:
+            task = await db.get(Task, changed.json()["task_id"])
+            path = sandbox.output / "snapshot.txt"
+            await sandbox.storage.load(task.input_lyrics_key, path)
+            assert path.read_text() == "updated lyrics"
+            assert await db.get(Task, first["task_id"]) is not None
+    asyncio.run(verify())
+
+
+def test_suno_failed_task_can_retry(sandbox, monkeypatch):
+    install_pipeline(sandbox, monkeypatch, True)
+    first = submit(sandbox, monkeypatch, "suno").json()
+    observed = install_pipeline(sandbox, monkeypatch, False)
+    second = sandbox.client.post("/api/tasks/from-suno", headers=headers(), json={"suno_url": "https://suno.com/s/test"})
+    assert second.status_code == 200
+    assert second.json()["task_id"] != first["task_id"]
+    assert len(observed) == 1
+
+
+def test_suno_remote_lyrics_change_and_options_create_versions(sandbox, monkeypatch):
+    from src import suno_fetch
+    observed = install_pipeline(sandbox, monkeypatch, False)
+    first = submit(sandbox, monkeypatch, "suno").json()
+    monkeypatch.setattr(suno_fetch, "fetch_song", lambda url: types.SimpleNamespace(
+        id="test-song-id", title="test", lyrics="new remote lyrics", raw_prompt="",
+        audio_url="https://example.invalid/audio", video_url=""))
+    payload = {"suno_url": "https://suno.com/song/test-song-id"}
+    changed = sandbox.client.post("/api/tasks/from-suno", headers=headers(), json=payload)
+    assert changed.status_code == 200
+    assert changed.json()["task_id"] != first["task_id"]
+    different_options = sandbox.client.post("/api/tasks/from-suno", headers=headers(), json={**payload, "language": "en"})
+    assert different_options.status_code == 200
+    assert different_options.json()["task_id"] != changed.json()["task_id"]
+    assert len(observed) == 3
+
+
+def test_suno_legacy_short_link_is_identified_without_title_guess(sandbox, monkeypatch):
+    install_pipeline(sandbox, monkeypatch, False)
+    first = submit(sandbox, monkeypatch, "suno").json()
+    async def legacy():
+        async with sandbox.sessions() as db:
+            task = await db.get(Task, first["task_id"])
+            task.config_snapshot = {"language": "auto", "skip_separation": False, "ass_only": False, "beat_effects": False}
+            task.idempotency_key = None
+            task.title = task.song_title = "user changed title"
+            await db.commit()
+    asyncio.run(legacy())
+    second = sandbox.client.post("/api/tasks/from-suno", headers=headers(), json={"suno_url": "https://suno.com/song/test-song-id"})
+    assert second.status_code == 200
+    assert second.json()["task_id"] == first["task_id"]
+
+
+def test_suno_concurrent_alias_imports_only_charge_once(sandbox, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from src import suno_fetch
+    # Establish mocks without executing a worker.
+    monkeypatch.setattr(api_server, "_dispatch_task", lambda *args: None)
+    first = submit(sandbox, monkeypatch, "suno").json()
+    pending = sandbox.client.post("/api/tasks/from-suno", headers=headers(), json={"suno_url": "https://suno.com/song/test-song-id"})
+    assert pending.json()["task_id"] == first["task_id"]
+    original_download = suno_fetch.download_song
+    barrier = Barrier(2)
+    def simultaneous_download(*args, **kwargs):
+        barrier.wait(timeout=10)
+        return original_download(*args, **kwargs)
+    monkeypatch.setattr(suno_fetch, "download_song", simultaneous_download)
+    def request(url):
+        return sandbox.client.post("/api/tasks/from-suno", headers=headers(), json={
+            "suno_url": url, "lyrics_text": "concurrent new lyrics"})
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        a = pool.submit(request, "https://suno.com/s/test")
+        b = pool.submit(request, "https://suno.com/song/test-song-id")
+        responses = [a.result(timeout=20), b.result(timeout=20)]
+    assert all(r.status_code == 200 for r in responses)
+    assert responses[0].json()["task_id"] == responses[1].json()["task_id"]
+    assert sandbox.client.get("/api/auth/me", headers=headers()).json()["credits"] == 3
+
+
+def test_private_remote_audio_is_served_without_redirect_and_temp_files_removed(sandbox, monkeypatch):
+    seed_editor_song(sandbox)
+    for filename, data in (("source_vocals.mp3", b"vocals"), ("source_instrumental.mp3", b"instrumental")):
+        path = sandbox.storage.get_local_path(f"results/editor/{filename}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    downloaded = []
+    class RemoteStorage:
+        async def exists(self, key):
+            return await sandbox.storage.exists(key)
+        async def load(self, key, path):
+            downloaded.append(path)
+            return await sandbox.storage.load(key, path)
+        async def get_url(self, key):
+            raise AssertionError("Private editor media must not use public URLs or redirects")
+    monkeypatch.setattr(storage, "_storage_instance", RemoteStorage())
+    for kind, expected, mime in (("audio", b"original", "audio/wav"),
+                                 ("vocals", b"vocals", "audio/mpeg"),
+                                 ("inst", b"instrumental", "audio/mpeg")):
+        endpoint = f"/api/editor/tasks/editor/{kind}"
+        assert sandbox.client.get(endpoint, headers=headers("bob")).status_code == 404
+        response = sandbox.client.get(endpoint, headers=headers(), follow_redirects=False)
+        assert response.status_code == 200
+        assert response.content == expected
+        assert response.headers["content-type"] == mime
+        assert response.headers["cache-control"] == "private, no-store"
+        assert "location" not in response.headers
+    assert len(downloaded) == 3
+    assert all(not path.exists() for path in downloaded)
+
+
+@pytest.mark.parametrize("missing", [True, False])
+def test_remote_media_errors_are_reported_and_temp_files_removed(sandbox, monkeypatch, missing):
+    seed_editor_song(sandbox)
+    downloaded = []
+    class RemoteStorage:
+        async def load(self, key, path):
+            downloaded.append(path)
+            path.write_bytes(b"partial")
+            if missing:
+                raise FileNotFoundError(key)
+            raise RuntimeError("storage unavailable")
+    monkeypatch.setattr(storage, "_storage_instance", RemoteStorage())
+    response = sandbox.client.get("/api/editor/tasks/editor/audio", headers=headers())
+    assert response.status_code == (404 if missing else 502)
+    assert all(not path.exists() for path in downloaded)
