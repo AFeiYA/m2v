@@ -1,3 +1,8 @@
-/editor/*  /editor.html  200
-/*         /index.html   200
-
+/static/*       /local/:splat       200
+/editor         /local/index.html   200
+/editor/*       /local/index.html   200
+/editor.html    /local/index.html   200
+/storyboard     /local/storyboard.html 200
+/motion_studio  /local/motion_studio_director.html 200
+/gallery        /local/gallery.html 200
+/*              /index.html         200

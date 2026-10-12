@@ -2,6 +2,37 @@
 // M2V Local Editor — Common Module (Player, Song Selector, Status, Utilities)
 // ===========================================================================
 
+function getApiUrl(path) {
+  if (!path) return "";
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  const base = (window.M2V_API_BASE || "").replace(/\/+$/, "");
+  return path.startsWith("/api") && base ? `${base}${path}` : path;
+}
+
+function apiFetch(url, options = {}) {
+  const fullUrl = getApiUrl(url);
+  const token = localStorage.getItem("m2v_token");
+  const opts = { ...options };
+  const headers = new Headers(opts.headers || {});
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  opts.headers = headers;
+  return fetch(fullUrl, opts);
+}
+window.apiFetch = apiFetch;
+window.getApiUrl = getApiUrl;
+
+function formatAudioEndpoint(relPath) {
+  if (!relPath) return null;
+  const token = localStorage.getItem("m2v_token");
+  let url = "/api/audio?path=" + encodeURIComponent(relPath);
+  if (token) url += "&token=" + encodeURIComponent(token);
+  return getApiUrl(url);
+}
+window.formatAudioEndpoint = formatAudioEndpoint;
+
+
 const state = {
   allFiles: [],
   currentFile: null,   // { name, json_path, audio_path, audio_tracks }
@@ -198,7 +229,7 @@ function playSelectedLine() {
 // ---------------------------------------------------------------------------
 async function loadFileList(preferredTitle) {
   try {
-    const r = await fetch("/api/files");
+    const r = await apiFetch("/api/files");
     state.allFiles = await r.json();
     if (dom.songSelect) {
       dom.songSelect.innerHTML = state.allFiles.length === 0
@@ -241,7 +272,7 @@ async function loadSong(idx) {
   status(`加载 ${file.name}…`);
 
   try {
-    const r = await fetch("/api/alignment?path=" + encodeURIComponent(file.json_path));
+    const r = await apiFetch("/api/alignment?path=" + encodeURIComponent(file.json_path));
     if (!r.ok) throw new Error(await r.text());
     state.alignment = await r.json();
     updateAudioAnalysisSummary();
@@ -257,9 +288,9 @@ async function loadSong(idx) {
 
   // 2. 并行异步下载人声与伴奏音轨 (耗时缩减 50%)
   const tracks = file.audio_tracks || {};
-  const vocalsUrl = tracks.vocals ? "/api/audio?path=" + encodeURIComponent(tracks.vocals) : null;
-  const instUrl = tracks.instrumental ? "/api/audio?path=" + encodeURIComponent(tracks.instrumental) : null;
-  const origUrl = file.audio_path ? "/api/audio?path=" + encodeURIComponent(file.audio_path) : null;
+  const vocalsUrl = formatAudioEndpoint(tracks.vocals);
+  const instUrl = formatAudioEndpoint(tracks.instrumental);
+  const origUrl = formatAudioEndpoint(file.audio_path);
 
   const primaryUrl = vocalsUrl || origUrl;
   const primaryTitle = vocalsUrl ? (window.t ? t("track_vocals") : "🎤 人声") : (window.t ? t("track_orig") : "🎵 原声");
@@ -426,7 +457,7 @@ async function handleSunoImport() {
   }, 1000);
 
   try {
-    const res = await fetch("/api/suno/import", {
+    const res = await apiFetch("/api/suno/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -460,7 +491,7 @@ async function handleSunoImport() {
         await new Promise((r) => setTimeout(r, 1200));
         let task;
         try {
-          const pollRes = await fetch(`/api/suno/task_status?task_id=${encodeURIComponent(taskId)}`);
+          const pollRes = await apiFetch(`/api/suno/task_status?task_id=${encodeURIComponent(taskId)}`);
           if (pollRes.status === 404) {
             throw Object.assign(new Error("导入任务不存在或服务已重启，请重新导入"), {terminal: true});
           }
@@ -536,7 +567,10 @@ async function downloadOriginalAudio() {
     saveSunoUrlHistory(rawUrl);
     const isNetEase = rawUrl.includes("163.com") || rawUrl.includes("163cn.tv") || rawUrl.includes("<iframe") || /^\d{5,}$/.test(rawUrl);
     status(isNetEase ? "⏳ [1/2] 正在连接网易云音乐解析歌曲音频..." : "⏳ [1/2] 正在连接 Suno 解析歌曲信息与歌词...");
-    const dlUrl = `/api/suno/download_mp3?url=${encodeURIComponent(rawUrl)}`;
+    let dlUrl = `/api/suno/download_mp3?url=${encodeURIComponent(rawUrl)}`;
+    const token = localStorage.getItem("m2v_token");
+    if (token) dlUrl += `&token=${encodeURIComponent(token)}`;
+    dlUrl = getApiUrl(dlUrl);
     const a = document.createElement("a");
     a.href = dlUrl;
     document.body.appendChild(a);
@@ -554,7 +588,10 @@ async function downloadOriginalAudio() {
     const jsonPath = state.currentFile.json_path || "";
     status(window.t ? t("msg_downloading_mp3", null, { song: songName }) : `正在下载《${songName}》原曲 MP3...`);
 
-    const url = `/api/download/original_mp3?song=${encodeURIComponent(songName)}&json_path=${encodeURIComponent(jsonPath)}`;
+    let url = `/api/download/original_mp3?song=${encodeURIComponent(songName)}&json_path=${encodeURIComponent(jsonPath)}`;
+    const token = localStorage.getItem("m2v_token");
+    if (token) url += `&token=${encodeURIComponent(token)}`;
+    url = getApiUrl(url);
     const a = document.createElement("a");
     a.href = url;
     a.download = `${songName}.mp3`;
@@ -577,7 +614,7 @@ async function saveAlignment() {
   if (!state.currentFile || !state.alignment) return;
   status(window.t ? t("msg_saving") : "保存中…");
   try {
-    const r = await fetch("/api/alignment?path=" + encodeURIComponent(state.currentFile.json_path), {
+    const r = await apiFetch("/api/alignment?path=" + encodeURIComponent(state.currentFile.json_path), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state.alignment),
@@ -623,7 +660,7 @@ async function generateOutput() {
 
   status(mode === "video" ? "生成视频中，请稍候…" : "生成 ASS 中…");
   try {
-    const r = await fetch("/api/regen", {
+    const r = await apiFetch("/api/regen", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -842,19 +879,19 @@ window.addEventListener("DOMContentLoaded", () => {
     button.disabled = true;
     try {
       status(window.t ? t("msg_analyzing_audio") : "正在分析原曲节拍、能量和频段变化…");
-      const response = await fetch("/api/audio/analyze", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({json_path: song.json_path})});
+      const response = await apiFetch("/api/audio/analyze", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({json_path: song.json_path})});
       if (!response.ok) throw new Error(await response.text());
       const task = await response.json();
       let result;
       do {
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const poll = await fetch("/api/audio/analyze/" + task.task_id);
+        const poll = await apiFetch("/api/audio/analyze/" + task.task_id);
         if (!poll.ok) throw new Error(await poll.text());
         result = await poll.json();
       } while (result.status === "running");
       if (result.status !== "done") throw new Error(result.error || "分析失败");
       if (state.currentFile === song) {
-        const updated = await fetch("/api/alignment?path=" + encodeURIComponent(song.json_path));
+        const updated = await apiFetch("/api/alignment?path=" + encodeURIComponent(song.json_path));
         if (!updated.ok) throw new Error(await updated.text());
         const project = await updated.json();
         // Retain unsaved lyric edits in the open editor.

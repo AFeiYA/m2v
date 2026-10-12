@@ -384,13 +384,14 @@ function initUpload() {
       btn.textContent = "⏳ 解析 Suno 歌曲与音频…";
 
       try {
+        const renderVideo = $("#suno-opt-render-video") ? $("#suno-opt-render-video").checked : false;
         const payload = {
           suno_url: sunoUrl,
           song_title: songTitle || undefined,
           language: $("#suno-opt-lang").value,
           skip_separation: $("#suno-opt-skip-sep").checked,
-          ass_only: $("#suno-opt-ass-only").checked,
-          beat_effects: $("#suno-opt-beat").checked,
+          ass_only: !renderVideo,
+          beat_effects: $("#suno-opt-beat") ? $("#suno-opt-beat").checked : true,
         };
 
         const res = await api("/api/tasks/from-suno", {

@@ -679,9 +679,11 @@ app.include_router(editor_router)
 
 frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 if frontend_dir.exists():
+    local_dir = frontend_dir / "local"
+    static_target = local_dir if local_dir.exists() else frontend_dir
     app.mount(
         "/static",
-        StaticFiles(directory=str(frontend_dir)),
+        StaticFiles(directory=str(static_target)),
         name="static",
     )
 
@@ -694,9 +696,30 @@ if frontend_dir.exists():
     @app.get("/editor/{task_id}", tags=["Frontend"])
     async def serve_editor(task_id: str | None = None):
         """返回时间轴编辑器 (task_id 由前端路由处理)"""
-        editor_file = frontend_dir / "editor.html"
+        editor_file = frontend_dir / "local" / "index.html"
         if editor_file.exists():
             return FileResponse(editor_file)
+        return FileResponse(frontend_dir / "index.html")
+
+    @app.get("/storyboard", tags=["Frontend"])
+    async def serve_storyboard():
+        sb_file = frontend_dir / "local" / "storyboard.html"
+        if sb_file.exists():
+            return FileResponse(sb_file)
+        return FileResponse(frontend_dir / "index.html")
+
+    @app.get("/motion_studio", tags=["Frontend"])
+    async def serve_motion_studio():
+        ms_file = frontend_dir / "local" / "motion_studio_director.html"
+        if ms_file.exists():
+            return FileResponse(ms_file)
+        return FileResponse(frontend_dir / "index.html")
+
+    @app.get("/gallery", tags=["Frontend"])
+    async def serve_gallery():
+        g_file = frontend_dir / "local" / "gallery.html"
+        if g_file.exists():
+            return FileResponse(g_file)
         return FileResponse(frontend_dir / "index.html")
 
     app.mount("/", StaticFiles(directory=str(frontend_dir)), name="frontend_root")

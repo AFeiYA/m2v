@@ -84,8 +84,8 @@
           </div>
           <div class="upload-options">
             <label><input type="checkbox" id="suno-opt-skip-sep"> 跳过人声分离</label>
-            <label><input type="checkbox" id="suno-opt-ass-only"> 只生成 ASS 字幕</label>
-            <label><input type="checkbox" id="suno-opt-beat"> 节奏动画</label>
+            <label><input type="checkbox" id="suno-opt-render-video"> 直接合成 MV 视频 (跳过歌词微调)</label>
+            <label><input type="checkbox" id="suno-opt-beat" checked> 节奏特征分析</label>
             <select id="suno-opt-lang">
               <option value="auto" selected>自动检测</option>
               <option value="zh">中文</option>
@@ -95,7 +95,7 @@
             </select>
           </div>
           <button type="submit" id="btn-suno-submit" class="btn btn-primary" style="width:100%;">
-            ✨ 解析 Suno 并生成 MV
+            ⚡ 导入并对齐歌词
           </button>
         </form>
 

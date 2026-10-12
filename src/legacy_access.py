@@ -27,6 +27,8 @@ async def require_local_api(connection: HTTPConnection) -> None:
                     auth_header = connection.headers.get("authorization", "")
                     if auth_header.startswith("Bearer "):
                         token = auth_header[7:].strip()
+                if not token and hasattr(connection, "cookies"):
+                    token = connection.cookies.get("m2v_token")
                 if not token:
                     raise HTTPException(401, "请先在 Chrome 插件中同步或配置登录凭据")
                 try:

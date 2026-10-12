@@ -93,7 +93,8 @@ function bindLyricEvents() {
       }
       status(window.t ? t("msg_generating_ass") : "正在重新生成 ASS 字幕...");
       try {
-        const res = await fetch("/api/regen", {
+        const fetchFn = window.apiFetch || fetch;
+        const res = await fetchFn("/api/regen", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -429,7 +430,8 @@ function initLyricExportModal() {
       progressPct.textContent = "5%";
 
       try {
-        const res = await fetch("/api/lyric_video/export", {
+        const fetchFn = window.apiFetch || fetch;
+        const res = await fetchFn("/api/lyric_video/export", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -452,7 +454,7 @@ function initLyricExportModal() {
         // 轮询任务进度
         const pollInterval = setInterval(async () => {
           try {
-            const sRes = await fetch(`/api/lyric_video/task_status?task_id=${taskId}`);
+            const sRes = await fetchFn(`/api/lyric_video/task_status?task_id=${taskId}`);
             if (!sRes.ok) return;
             const task = await sRes.json();
 
