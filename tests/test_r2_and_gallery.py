@@ -100,3 +100,50 @@ def test_gallery_and_r2_endpoints(tmp_path, monkeypatch):
         res_stream = client.get(f"/api/motion/render/{job_id}/stream", follow_redirects=False)
         assert res_stream.status_code == 307
         assert res_stream.headers["location"] == f"https://media.fovea.si/exports/{job_id}.mp4"
+
+
+def test_settings_r2_mapping_and_s3_storage(monkeypatch):
+    import asyncio
+    from src.settings import Settings
+    from src.storage import S3Storage
+    import src.storage as storage_mod
+
+    s = Settings(
+        R2_ACCOUNT_ID="my_acc_999",
+        R2_ACCESS_KEY_ID="my_access_key",
+        R2_SECRET_ACCESS_KEY="my_secret_key",
+        R2_BUCKET_NAME="my-r2-media",
+        R2_PUBLIC_DOMAIN="https://cdn.mysite.com",
+    )
+    assert s.STORAGE_BACKEND == "r2"
+    assert s.S3_ENDPOINT_URL == "https://my_acc_999.r2.cloudflarestorage.com"
+    assert s.S3_ACCESS_KEY == "my_access_key"
+    assert s.S3_SECRET_KEY == "my_secret_key"
+    assert s.S3_BUCKET == "my-r2-media"
+    assert s.S3_REGION == "auto"
+
+    # Test S3Storage get_url with public domain
+    monkeypatch.setattr(storage_mod, "settings", s)
+    mock_boto = MagicMock()
+    monkeypatch.setattr("boto3.client", lambda *args, **kwargs: mock_boto)
+
+    storage = S3Storage()
+    url = asyncio.run(storage.get_url("exports/output.mp4"))
+    assert url == "https://cdn.mysite.com/exports/output.mp4"
+
+    # Test S3Storage get_url fallback to presigned url without public domain
+    s_no_cdn = Settings(
+        R2_ACCOUNT_ID="my_acc_999",
+        R2_ACCESS_KEY_ID="my_access_key",
+        R2_SECRET_ACCESS_KEY="my_secret_key",
+        R2_BUCKET_NAME="my-r2-media",
+        R2_PUBLIC_DOMAIN="",
+    )
+    monkeypatch.setattr(storage_mod, "settings", s_no_cdn)
+    mock_boto.generate_presigned_url.return_value = "https://my_acc_999.r2.cloudflarestorage.com/presigned-url"
+    storage2 = S3Storage()
+    presigned = asyncio.run(storage2.get_url("exports/output.mp4"))
+    assert presigned == "https://my_acc_999.r2.cloudflarestorage.com/presigned-url"
+    mock_boto.generate_presigned_url.assert_called_once()
+
+

@@ -177,7 +177,28 @@ function showAuth() {
   if (pollTimer) clearInterval(pollTimer);
 }
 
+function checkRedirect() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const redirect = params.get("redirect");
+    if (
+      redirect &&
+      redirect.startsWith("/") &&
+      !redirect.startsWith("//") &&
+      redirect !== "/" &&
+      redirect !== "/index.html"
+    ) {
+      window.location.href = redirect;
+      return true;
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  return false;
+}
+
 function showApp() {
+  if (checkRedirect()) return;
   $("#auth-overlay").style.display = "none";
   $("#app").style.display = "";
   loadTasks();

@@ -57,3 +57,8 @@ frontend/local/remotion/
 .env
 .env.*
 !.env.example
+
+# Local tools & artifacts
+.agents/
+skills-lock.json
+*.zip

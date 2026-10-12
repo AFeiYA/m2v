@@ -7,10 +7,26 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from functools import lru_cache
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+try:
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+except ImportError:
+    from pydantic import BaseModel
+    class BaseSettings(BaseModel):  # type: ignore[no-redef]
+        def __init__(self, **values):
+            env_vals = {}
+            for field in self.__class__.model_fields:
+                val = os.getenv(field, os.getenv(field.upper()))
+                if val is not None:
+                    env_vals[field] = val
+            env_vals.update(values)
+            super().__init__(**env_vals)
+
+    def SettingsConfigDict(**kwargs):  # type: ignore[no-redef]
+        return kwargs
 
 
 class Settings(BaseSettings):
@@ -41,17 +57,40 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # ── 文件存储 ──────────────────────────────────────────
-    # "local" | "s3"
+    # "local" | "s3" | "r2"
     STORAGE_BACKEND: str = "local"
     # 本地存储根目录
     UPLOAD_DIR: str = "./uploads"
     OUTPUT_DIR: str = "./output"
-    # S3 配置 (STORAGE_BACKEND="s3" 时生效)
+    # S3 / MinIO 配置
     S3_ENDPOINT_URL: str | None = None       # MinIO: "http://localhost:9000"
     S3_ACCESS_KEY: str = ""
     S3_SECRET_KEY: str = ""
     S3_BUCKET: str = "m2v"
     S3_REGION: str = "us-east-1"
+
+    # Cloudflare R2 专用配置 (也可通过 S3_* 变量配置)
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET_NAME: str = "suno2mv-media"
+    R2_PUBLIC_DOMAIN: str = ""
+
+    def model_post_init(self, __context: object) -> None:
+        # 如果配置了 R2，自动对齐映射到 S3 兼容协议
+        if self.R2_ACCOUNT_ID:
+            if not self.S3_ENDPOINT_URL:
+                self.S3_ENDPOINT_URL = f"https://{self.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+            if not self.S3_ACCESS_KEY and self.R2_ACCESS_KEY_ID:
+                self.S3_ACCESS_KEY = self.R2_ACCESS_KEY_ID
+            if not self.S3_SECRET_KEY and self.R2_SECRET_ACCESS_KEY:
+                self.S3_SECRET_KEY = self.R2_SECRET_ACCESS_KEY
+            if self.S3_BUCKET == "m2v" and self.R2_BUCKET_NAME:
+                self.S3_BUCKET = self.R2_BUCKET_NAME
+            if self.S3_REGION == "us-east-1":
+                self.S3_REGION = "auto"
+            if self.STORAGE_BACKEND == "local":
+                self.STORAGE_BACKEND = "r2"
 
     # ── Celery ────────────────────────────────────────────
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"

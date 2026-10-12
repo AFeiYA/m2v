@@ -495,15 +495,15 @@ if frontend_dir.exists():
     @app.get("/", tags=["Frontend"])
     async def serve_dashboard():
         """返回仪表板主页"""
-        dashboard = frontend_dir / "dashboard.html"
-        if dashboard.exists():
-            return FileResponse(dashboard)
         return FileResponse(frontend_dir / "index.html")
 
     @app.get("/editor", tags=["Frontend"])
     @app.get("/editor/{task_id}", tags=["Frontend"])
     async def serve_editor(task_id: str | None = None):
         """返回时间轴编辑器 (task_id 由前端路由处理)"""
+        editor_file = frontend_dir / "editor.html"
+        if editor_file.exists():
+            return FileResponse(editor_file)
         return FileResponse(frontend_dir / "index.html")
 
     app.mount("/", StaticFiles(directory=str(frontend_dir)), name="frontend_root")

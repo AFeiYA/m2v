@@ -100,13 +100,20 @@ class S3Storage(StorageBackend):
 
     def __init__(self):
         import boto3
+        from botocore.config import Config
+
         self.bucket = settings.S3_BUCKET
+        self.public_domain = getattr(settings, "R2_PUBLIC_DOMAIN", "").strip().rstrip("/")
         self.client = boto3.client(
             "s3",
             endpoint_url=settings.S3_ENDPOINT_URL,
             aws_access_key_id=settings.S3_ACCESS_KEY,
             aws_secret_access_key=settings.S3_SECRET_KEY,
-            region_name=settings.S3_REGION,
+            region_name=settings.S3_REGION or "auto",
+            config=Config(
+                signature_version="s3v4",
+                retries={"max_attempts": 3, "mode": "standard"},
+            ),
         )
 
     async def save(self, key: str, local_path: Path) -> str:
@@ -124,6 +131,8 @@ class S3Storage(StorageBackend):
         log.debug("S3Storage: deleted s3://%s/%s", self.bucket, key)
 
     async def get_url(self, key: str, expires: int = 3600) -> str:
+        if self.public_domain:
+            return f"{self.public_domain}/{key.lstrip('/')}"
         url = self.client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self.bucket, "Key": key},
@@ -150,9 +159,10 @@ def get_storage() -> StorageBackend:
     """获取存储后端单例"""
     global _storage_instance
     if _storage_instance is None:
-        if settings.STORAGE_BACKEND == "s3":
+        backend = settings.STORAGE_BACKEND.lower()
+        if backend in ("s3", "r2"):
             _storage_instance = S3Storage()
-            log.info("存储后端: S3 (bucket=%s)", settings.S3_BUCKET)
+            log.info("存储后端: S3/R2 (bucket=%s, endpoint=%s)", settings.S3_BUCKET, settings.S3_ENDPOINT_URL)
         else:
             _storage_instance = LocalStorage()
             log.info("存储后端: 本地磁盘 (%s)", settings.UPLOAD_DIR)
