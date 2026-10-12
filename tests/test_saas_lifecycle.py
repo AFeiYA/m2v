@@ -79,3 +79,19 @@ def test_ws_progress_rejects_unauthenticated():
         with client.websocket_connect("/ws/tasks/fake-task-id/progress"):
             pass
     assert exc_info.value.code == 1008
+
+
+def test_database_url_normalization_with_special_characters():
+    from src.settings import Settings
+    from sqlalchemy.engine import make_url
+
+    # Unescaped @ in password and postgresql:// prefix
+    raw = "postgresql://user.123:my@pwd/123@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+    s = Settings(DATABASE_URL=raw)
+
+    assert s.DATABASE_URL.startswith("postgresql+asyncpg://")
+    u = make_url(s.DATABASE_URL)
+    assert u.host == "aws-0-us-east-1.pooler.supabase.com"
+    assert u.username == "user.123"
+    assert u.password == "my@pwd/123"
+

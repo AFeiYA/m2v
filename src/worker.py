@@ -47,7 +47,7 @@ try:
         task_time_limit=1800,
         task_soft_time_limit=1500,
     )
-    _task_decorator = celery_app.task(bind=True, name="m2v.process_song")
+    _task_decorator = celery_app.task(name="m2v.process_song")
 except Exception:
     celery_app = None
 
@@ -146,7 +146,6 @@ def _update_task_status(
 
 @_task_decorator
 def process_song_task(
-    self,
     task_id: str,
     mp3_key: str,
     lyrics_key: str,
@@ -165,22 +164,16 @@ def process_song_task(
     from src.storage import get_storage
     from src.config import PipelineConfig
 
-    storage = get_storage()
-
-    # 更新: 开始处理
-    _update_task_status(
-        task_id,
-        status="processing",
-        current_step="queued",
-        progress=0,
-        started_at=datetime.now(timezone.utc),
-    )
-    _publish_progress(task_id, "queued", 0, "任务开始处理…")
-
-    # 创建临时工作目录
-    temp_dir = Path(tempfile.mkdtemp(prefix=f"m2v_task_{task_id[:8]}_"))
-
+    temp_dir = None
+    loop = None
     try:
+        storage = get_storage()
+        _update_task_status(
+            task_id, status="processing", current_step="queued", progress=0,
+            started_at=datetime.now(timezone.utc),
+        )
+        _publish_progress(task_id, "queued", 0, "任务开始处理…")
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"m2v_task_{task_id[:8]}_"))
         # ── 下载输入文件 ──────────────────────────────
         mp3_local = temp_dir / Path(mp3_key).name
         lyrics_local = temp_dir / Path(lyrics_key).name
@@ -275,16 +268,14 @@ def process_song_task(
         return {"status": "completed", "task_id": task_id, **result_keys}
 
     except Exception as e:
-        _update_task_status(
-            task_id,
-            status="failed",
-            current_step="error",
-            error_message=str(e),
-            completed_at=datetime.now(timezone.utc),
-        )
+        from src.task_lifecycle import record_task_failure
+        record_task_failure(task_id, str(e))
         _publish_progress(task_id, "error", -1, f"❌ 处理失败: {e}")
         raise
 
     finally:
+        if loop is not None and not loop.is_closed():
+            loop.close()
         # 清理临时目录
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        if temp_dir is not None:
+            shutil.rmtree(temp_dir, ignore_errors=True)

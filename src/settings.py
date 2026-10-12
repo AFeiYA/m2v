@@ -96,6 +96,25 @@ class Settings(BaseSettings):
             if self.STORAGE_BACKEND == "local":
                 self.STORAGE_BACKEND = "r2"
 
+        # 自动纠正与归一化 DATABASE_URL (自动补充 asyncpg 驱动，并对密码中的特殊字符如 @、/ 进行 URL 编码)
+        if self.DATABASE_URL:
+            import urllib.parse
+            url = self.DATABASE_URL.strip()
+            if url.startswith("postgresql://"):
+                url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+            elif url.startswith("postgres://"):
+                url = "postgresql+asyncpg://" + url[len("postgres://"):]
+
+            if "@" in url:
+                scheme_part, sep, rest = url.partition("://")
+                if sep and "@" in rest:
+                    userpass_part, _, host_db_part = rest.rpartition("@")
+                    if ":" in userpass_part:
+                        user, _, raw_pwd = userpass_part.partition(":")
+                        safe_pwd = urllib.parse.quote(urllib.parse.unquote(raw_pwd), safe="")
+                        url = f"{scheme_part}://{user}:{safe_pwd}@{host_db_part}"
+            self.DATABASE_URL = url
+
     # ── Celery ────────────────────────────────────────────
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"

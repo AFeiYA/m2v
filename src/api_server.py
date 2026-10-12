@@ -29,7 +29,6 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
-    Header,
     HTTPException,
     Query,
     Request,
@@ -41,7 +40,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth import (
@@ -199,32 +198,6 @@ async def get_me(user: User = Depends(get_current_user)):
     )
 
 
-async def get_current_user_flexible(
-    token_query: str | None = Query(None, alias="token"),
-    auth_header: str | None = Header(None, alias="Authorization"),
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    raw_token = None
-    if auth_header and auth_header.startswith("Bearer "):
-        raw_token = auth_header[7:].strip()
-    elif token_query:
-        raw_token = token_query.strip()
-
-    if not raw_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="缺少认证令牌")
-
-    payload = decode_token(raw_token)
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌缺少用户标识")
-
-    res = await db.execute(select(User).where(User.id == user_id))
-    user = res.scalar_one_or_none()
-    if not user or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在或已禁用")
-    return user
-
-
 def _dispatch_task(task_id: str, mp3_key: str, lyrics_key: str, config_snapshot: dict) -> str | None:
     """提交任务到后台执行：优先尝试 Celery，无 Celery 时启动守护工作线程执行"""
     try:
@@ -251,26 +224,38 @@ def _dispatch_task(task_id: str, mp3_key: str, lyrics_key: str, config_snapshot:
             )
         except Exception as ex:
             log.error("在机工作线程执行失败: %s", ex)
+            from src.task_lifecycle import record_task_failure
             try:
-                import asyncio
-                async def _refund():
-                    async with async_session() as s:
-                        t_res = await s.execute(select(Task).where(Task.id == task_id))
-                        t = t_res.scalar_one_or_none()
-                        if t:
-                            u_res = await s.execute(select(User).where(User.id == t.user_id))
-                            u = u_res.scalar_one_or_none()
-                            if u:
-                                u.credits += 1
-                                await s.commit()
-                                log.info("任务失败，已自动退还配额给用户 %s (剩余: %d)", u.id, u.credits)
-                asyncio.run(_refund())
-            except Exception as rex:
-                log.warning("退还配额异常: %s", rex)
+                record_task_failure(task_id, str(ex))
+            except Exception:
+                log.exception("记录任务失败与退款异常: task=%s", task_id)
 
     t = threading.Thread(target=_run, daemon=True, name=f"WorkerThread-{task_id[:8]}")
     t.start()
     return f"thread-{t.name}"
+
+
+async def _commit_and_dispatch(db: AsyncSession, task: Task) -> None:
+    """Reserve credits atomically and commit before any worker can see the task."""
+    reserved = await db.execute(
+        update(User).where(User.id == task.user_id, User.credits >= task.cost_credits)
+        .values(credits=User.credits - task.cost_credits)
+    )
+    if reserved.rowcount != 1:
+        raise HTTPException(403, "配额不足，请升级套餐")
+    await db.commit()
+    task_id = task.id
+    try:
+        task.celery_task_id = _dispatch_task(
+            task.id, task.input_mp3_key, task.input_lyrics_key, task.config_snapshot or {},
+        )
+        await db.flush()
+    except Exception as exc:
+        from src.task_lifecycle import fail_task_and_refund
+        await db.rollback()
+        await fail_task_and_refund(db, task_id, str(exc))
+        await db.commit()
+        raise HTTPException(503, "任务无法启动，已退还额度，请稍后重试") from exc
 
 
 # ======================================================================
@@ -372,15 +357,7 @@ async def upload_and_create_task(
     db.add(task)
     await db.flush()
 
-    # 扣减配额并调度任务
-    user.credits -= 1
-    task.celery_task_id = _dispatch_task(
-        task.id,
-        mp3_key,
-        lyrics_key,
-        task.config_snapshot,
-    )
-    await db.flush()
+    await _commit_and_dispatch(db, task)
 
     return UploadResponse(
         mp3_key=mp3_key,
@@ -485,15 +462,7 @@ async def create_task_from_suno(
     db.add(task)
     await db.flush()
 
-    # 扣减配额并调度任务 (优先 Celery，降级为后台线程并支持失败自动退还)
-    user.credits -= 1
-    task.celery_task_id = _dispatch_task(
-        task.id,
-        mp3_key,
-        lyrics_key,
-        task.config_snapshot,
-    )
-    await db.flush()
+    await _commit_and_dispatch(db, task)
 
     return UploadResponse(
         mp3_key=mp3_key,

@@ -87,12 +87,10 @@ def test_hf_app_entrypoint_routes():
 
     # 3. 业务功能端到端响应校验
     res_files = requests.get(f"{base_url}/api/files")
-    assert res_files.status_code == 200
-    assert isinstance(res_files.json(), list)
+    assert res_files.status_code == 403
 
     res_suno = requests.post(f"{base_url}/api/suno/import", json={"url": ""})
-    assert res_suno.status_code == 400
-    assert "Suno URL" in res_suno.json().get("detail", "")
+    assert res_suno.status_code == 403
 
     # 已构建资源也必须通过 Gradio 的运行期路由提供。
     from pathlib import Path

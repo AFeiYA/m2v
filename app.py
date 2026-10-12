@@ -43,7 +43,7 @@ with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
         "### 🟢 服务运行正常 (Online)\n\n"
         "本 Space 正在为 **Suno2MV** 提供云端免费 AI 算力（音频流解密、Demucs 人声分离、卡拉OK词级时间轴对齐）。\n\n"
         "- **前端 Web 访问地址**: [https://mv.fovea.si](https://mv.fovea.si)\n"
-        "- **API 接口服务**: `/api/suno/import` 等接口已全天候就绪\n"
+        "- **API 接口服务**: 登录后使用 `/api/tasks/from-suno` 与 `/api/editor`；本地目录接口不对云端开放\n"
         "- **硬件配置**: Hugging Face 免费算力 (2 vCPU · 16GB RAM · 50GB Disk)\n"
     )
     with gr.Accordion("API 健康状态探活", open=False):
@@ -84,11 +84,14 @@ def mount_fastapi_routes(demo_instance):
 
     from src.api_server import api_router
     from src.editor_server import router as editor_router
+    from fastapi import Depends
+    from src.legacy_access import require_local_api
 
     for target in targets:
+        target.state.saas_mode = True
         existing_paths = {getattr(r, "path", "") for r in getattr(target, "routes", []) if hasattr(r, "path")}
         if "/api/files" not in existing_paths:
-            target.include_router(fastapi_app.router)
+            target.include_router(fastapi_app.router, dependencies=[Depends(require_local_api)])
         if "/api/auth/me" not in existing_paths:
             target.include_router(api_router)
         if "/api/editor/songs" not in existing_paths:
@@ -111,6 +114,4 @@ if __name__ == "__main__":
     mount_fastapi_routes(demo)
     # 阻塞主线程以保持服务常驻
     demo.block_thread()
-
-
 

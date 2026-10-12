@@ -40,8 +40,8 @@ jobs:
           npm run build
           node node_modules/playwright-core/cli.js install --with-deps chromium
 
-      - name: Test Chrome extension
-        run: node --test chrome_extension/tests/*.test.cjs
+      - name: Test Chrome extension and dashboard authentication
+        run: node --test chrome_extension/tests/*.test.cjs frontend/tests/*.test.cjs
 
       - name: Install system dependencies (ffmpeg)
         run: |
@@ -119,5 +119,4 @@ jobs:
           echo "🚀 正在向 Hugging Face Spaces 镜像同步最新代码..."
           git push --force "https://LucaZhou:$HF_TOKEN@huggingface.co/spaces/LucaZhou/suno2mv-api" HEAD:refs/heads/main
           echo "✅ 代码与动效资源已同步；请检查 HF 构建与运行日志。"
-
 

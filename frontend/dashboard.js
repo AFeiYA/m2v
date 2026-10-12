@@ -51,6 +51,7 @@ console.log("[M2V] 当前有效 API 服务地址:", API);
 // ── State ────────────────────────────────────────────────
 let token = localStorage.getItem("m2v_token") || null;
 let refreshToken = localStorage.getItem("m2v_refresh") || null;
+let authProvider = localStorage.getItem("m2v_auth_provider") || null;
 let currentUser = null;
 let pollTimer = null;
 
@@ -101,11 +102,11 @@ async function api(path, options = {}) {
 
 async function tryRefresh() {
   // 1. 若当前存在 Firebase 用户，使用 Firebase Web SDK 强制获取最新 ID Token
-  if (typeof firebase !== "undefined" && firebase.auth && firebase.auth().currentUser) {
+  const fbUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
+  if (authProvider === "firebase" || fbUser) {
     try {
-      const fbUser = firebase.auth().currentUser;
-      const newToken = await fbUser.getIdToken(true);
-      if (newToken) {
+      const newToken = fbUser ? await fbUser.getIdToken(true) : await window.m2vAuth?.getIdToken();
+      if (newToken && (fbUser || newToken !== token)) {
         token = newToken;
         localStorage.setItem("m2v_token", token);
         return true;
@@ -113,6 +114,8 @@ async function tryRefresh() {
     } catch (fbErr) {
       console.warn("[M2V] Firebase 令牌刷新失败:", fbErr);
     }
+    // A Firebase session must never fall back to another account's local token.
+    return false;
   }
 
   // 2. 本地开发账号使用 refresh_token 刷新
@@ -157,6 +160,10 @@ function initAuth() {
         }
         const { user, idToken } = await window.m2vAuth.loginWithGoogle();
         token = idToken;
+        authProvider = "firebase";
+        refreshToken = null;
+        localStorage.removeItem("m2v_refresh");
+        localStorage.setItem("m2v_auth_provider", authProvider);
         localStorage.setItem("m2v_token", token);
         const ok = await loadUser();
         if (ok) {
@@ -208,6 +215,10 @@ function initAuth() {
 
       if (res.ok) {
         const data = await res.json();
+        // Clear any persisted Google session before switching to a local account.
+        if (window.m2vAuth) await window.m2vAuth.logout();
+        authProvider = "local";
+        localStorage.setItem("m2v_auth_provider", authProvider);
         token = data.access_token;
         refreshToken = data.refresh_token;
         localStorage.setItem("m2v_token", token);
@@ -246,8 +257,10 @@ async function logout() {
   token = null;
   refreshToken = null;
   currentUser = null;
+  authProvider = null;
   localStorage.removeItem("m2v_token");
   localStorage.removeItem("m2v_refresh");
+  localStorage.removeItem("m2v_auth_provider");
   if (window.m2vAuth && typeof window.m2vAuth.logout === "function") {
     try {
       await window.m2vAuth.logout();
@@ -547,11 +560,7 @@ async function handleTaskAction(e) {
     btn.textContent = "下载中...";
     btn.disabled = true;
     try {
-      const downloadToken = token || localStorage.getItem("m2v_token") || "";
-      const dlUrl = `${API}/api/tasks/${taskId}/download/${type}${downloadToken ? `?token=${encodeURIComponent(downloadToken)}` : ""}`;
-      const res = await fetch(dlUrl, {
-        headers: downloadToken ? { Authorization: `Bearer ${downloadToken}` } : {},
-      });
+      const res = await api(`/api/tasks/${taskId}/download/${type}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
         throw new Error(err.detail || `HTTP ${res.status}`);
