@@ -268,6 +268,17 @@ def process_song_task(
             loop.run_until_complete(storage.save(key, mp4_file))
             result_keys["output_mp4_key"] = key
 
+        # 人声与伴奏音轨 (供双轨时间轴编辑器试听与微调)
+        for vf in list(output_dir.glob(f"{stem}_vocals.*")) + list(output_dir.glob("source_vocals.*")):
+            v_key = f"results/{task_id}/{vf.name}"
+            loop.run_until_complete(storage.save(v_key, vf))
+            break
+
+        for inf in list(output_dir.glob(f"{stem}_instrumental.*")) + list(output_dir.glob("source_instrumental.*")):
+            i_key = f"results/{task_id}/{inf.name}"
+            loop.run_until_complete(storage.save(i_key, inf))
+            break
+
         loop.close()
 
         # ── 更新完成状态 ─────────────────────────────

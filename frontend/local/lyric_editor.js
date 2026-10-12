@@ -94,21 +94,34 @@ function bindLyricEvents() {
       status(window.t ? t("msg_generating_ass") : "正在重新生成 ASS 字幕...");
       try {
         const fetchFn = window.apiFetch || fetch;
-        const res = await fetchFn("/api/regen", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            json_path: state.currentFile.json_path,
-            mode: "ass",
-            render_mode: "apple",
-            tag_type: "kf",
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "生成失败");
-        status(window.t ? t("msg_ass_generated", null, { path: data.ass_path }) : `🎉 ASS 字幕已生成: ${data.ass_path}`);
-        const pathLabel = window.currentLocale === "en" ? "ASS subtitles generated successfully!\nPath: " : "ASS 字幕生成成功！\n保存路径: ";
-        alert(pathLabel + data.ass_path);
+        let res;
+        if (state.currentFile?.is_saas || state.currentFile?.task_id) {
+          res = await fetchFn(`/api/editor/tasks/${state.currentFile.task_id}/regen`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "ass" }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "生成失败");
+          status(`🎉 ASS 字幕已成功同步生成`);
+          alert(window.currentLocale === "en" ? "ASS subtitles generated and saved to cloud task!" : "ASS 字幕已成功生成并保存至云端！");
+        } else {
+          res = await fetchFn("/api/regen", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              json_path: state.currentFile.json_path,
+              mode: "ass",
+              render_mode: "apple",
+              tag_type: "kf",
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || "生成失败");
+          status(window.t ? t("msg_ass_generated", null, { path: data.ass_path }) : `🎉 ASS 字幕已生成: ${data.ass_path}`);
+          const pathLabel = window.currentLocale === "en" ? "ASS subtitles generated successfully!\nPath: " : "ASS 字幕生成成功！\n保存路径: ";
+          alert(pathLabel + data.ass_path);
+        }
       } catch (err) {
         status((window.t ? t("msg_ass_failed") : "生成 ASS 失败: ") + err.message, true);
         alert((window.t ? t("msg_ass_failed") : "生成 ASS 失败: ") + err.message);

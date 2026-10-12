@@ -228,3 +228,72 @@ def test_failure_claim_refunds_actual_cost_only_once(sandbox, initial_status):
     asyncio.run(exercise())
     expected = 2 if initial_status == TaskStatus.COMPLETED else 5
     assert sandbox.client.get("/api/auth/me", headers=headers()).json()["credits"] == expected
+
+
+def test_editor_saas_routes_multi_track_and_isolation(sandbox):
+    align_key = "results/alice_task/alice_task_alignment.json"
+    vocals_key = "results/alice_task/alice_task_vocals.mp3"
+    inst_key = "results/alice_task/alice_task_instrumental.mp3"
+    audio_key = "uploads/alice/alice_task/source.mp3"
+
+    p_align = sandbox.storage.get_local_path(align_key)
+    p_align.parent.mkdir(parents=True, exist_ok=True)
+    p_align.write_text('{"lines": [{"text": "hello", "start": 0.5, "end": 1.2, "words": [{"text": "hello", "start": 0.5, "end": 1.2}]}]}')
+
+    p_vocals = sandbox.storage.get_local_path(vocals_key)
+    p_vocals.write_bytes(b"vocals")
+
+    p_inst = sandbox.storage.get_local_path(inst_key)
+    p_inst.write_bytes(b"inst")
+
+    p_audio = sandbox.storage.get_local_path(audio_key)
+    p_audio.parent.mkdir(parents=True, exist_ok=True)
+    p_audio.write_bytes(b"audio")
+
+    async def seed():
+        async with sandbox.sessions() as db:
+            db.add(Task(
+                id="alice_task",
+                user_id="alice",
+                title="My Cloud Song",
+                song_title="My Cloud Song",
+                status=TaskStatus.COMPLETED,
+                alignment_json_key=align_key,
+                input_mp3_key=audio_key,
+                input_lyrics_key="uploads/alice/alice_task/source.txt",
+            ))
+            await db.commit()
+    asyncio.run(seed())
+
+    # 1. GET /api/editor/songs (列出歌曲工程)
+    r = sandbox.client.get("/api/editor/songs", headers=headers("alice"))
+    assert r.status_code == 200
+    songs = r.json()
+    assert len(songs) == 1
+    assert songs[0]["name"] == "My Cloud Song"
+    assert songs[0]["task_id"] == "alice_task"
+
+    # 2. GET /api/editor/tasks/{task_id}/align
+    r = sandbox.client.get("/api/editor/tasks/alice_task/align", headers=headers("alice"))
+    assert r.status_code == 200
+    assert len(r.json()["lines"]) == 1
+
+    # 3. PUT /api/editor/tasks/{task_id}/align
+    new_data = {"lines": [{"text": "updated", "start": 0.6, "end": 1.5, "words": [{"text": "updated", "start": 0.6, "end": 1.5}]}]}
+    r = sandbox.client.put("/api/editor/tasks/alice_task/align", json=new_data, headers=headers("alice"))
+    assert r.status_code == 200
+
+    # 4. 音轨流获取 (支持 Bearer header 与 ?token=xxx)
+    alice_token = auth.create_access_token("alice")
+    r_voc = sandbox.client.get("/api/editor/tasks/alice_task/vocals", params={"token": alice_token})
+    assert r_voc.status_code == 200
+    assert r_voc.content == b"vocals"
+
+    r_inst = sandbox.client.get("/api/editor/tasks/alice_task/inst", headers=headers("alice"))
+    assert r_inst.status_code == 200
+    assert r_inst.content == b"inst"
+
+    # 5. 租户隔离: Bob 无法访问 Alice 的工程
+    assert sandbox.client.get("/api/editor/tasks/alice_task/align", headers=headers("bob")).status_code == 404
+    assert sandbox.client.get("/api/editor/tasks/alice_task/vocals", headers=headers("bob")).status_code == 404
+

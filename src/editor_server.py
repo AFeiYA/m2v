@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth import get_current_user
+from src.auth import get_current_user, get_current_user_flexible
 from src.database import get_db
 from src.models import Task, TaskStatus, User
 from src.storage import LocalStorage, get_storage
@@ -34,7 +34,7 @@ router = APIRouter(prefix="/api/editor", tags=["Editor"])
 
 @router.get("/songs")
 async def list_songs(
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_flexible),
     db: AsyncSession = Depends(get_db),
 ):
     """列出当前用户所有可编辑的歌曲（有 alignment 的任务）"""
@@ -62,9 +62,11 @@ async def list_songs(
         except Exception:
             pass
 
+        title = task.song_title or task.title or "Untitled"
         songs.append({
             "task_id": task.id,
-            "stem": task.title,
+            "name": title,
+            "stem": title,
             "has_alignment": True,
             "has_audio": task.input_mp3_key is not None,
             "lines_count": lines_count,
@@ -82,7 +84,7 @@ async def list_songs(
 @router.get("/tasks/{task_id}/align")
 async def get_alignment(
     task_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_flexible),
     db: AsyncSession = Depends(get_db),
 ):
     """获取任务的对齐 JSON"""
@@ -98,7 +100,7 @@ async def get_alignment(
 async def save_alignment(
     task_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_flexible),
     db: AsyncSession = Depends(get_db),
 ):
     """保存编辑后的对齐 JSON（带校验 + 备份）"""
@@ -146,10 +148,24 @@ async def save_alignment(
 # 音频流
 # ======================================================================
 
+async def _stream_storage_file(storage, key: str):
+    if isinstance(storage, LocalStorage):
+        local_path = storage.get_local_path(key)
+        if not local_path.exists():
+            raise HTTPException(404, "音频文件不存在")
+        suffix = local_path.suffix.lower()
+        media_type = "audio/mpeg" if suffix == ".mp3" else "audio/wav"
+        return FileResponse(local_path, media_type=media_type)
+
+    url = await storage.get_url(key)
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url)
+
+
 @router.get("/tasks/{task_id}/audio")
 async def get_audio(
     task_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_flexible),
     db: AsyncSession = Depends(get_db),
 ):
     """返回任务的音频文件"""
@@ -158,18 +174,43 @@ async def get_audio(
         raise HTTPException(404, "该任务没有音频文件")
 
     storage = get_storage()
+    return await _stream_storage_file(storage, task.input_mp3_key)
 
-    if isinstance(storage, LocalStorage):
-        local_path = storage.get_local_path(task.input_mp3_key)
-        if not local_path.exists():
-            raise HTTPException(404, "音频文件不存在")
-        suffix = local_path.suffix.lower()
-        media_type = "audio/mpeg" if suffix == ".mp3" else "audio/wav"
-        return FileResponse(local_path, media_type=media_type)
 
-    url = await storage.get_url(task.input_mp3_key)
-    from fastapi.responses import RedirectResponse
-    return RedirectResponse(url)
+@router.get("/tasks/{task_id}/vocals")
+async def get_vocals(
+    task_id: str,
+    user: User = Depends(get_current_user_flexible),
+    db: AsyncSession = Depends(get_db),
+):
+    """返回任务的人声音轨文件"""
+    task = await _get_user_task(db, user.id, task_id)
+    storage = get_storage()
+    stem = Path(task.input_mp3_key).stem if task.input_mp3_key else task.title
+    for ext in (".mp3", ".wav", ".flac"):
+        for name in (f"{stem}_vocals{ext}", f"{task.title}_vocals{ext}", f"{task_id}_vocals{ext}", f"source_vocals{ext}"):
+            v_key = f"results/{task_id}/{name}"
+            if await storage.exists(v_key):
+                return await _stream_storage_file(storage, v_key)
+    return await get_audio(task_id, user, db)
+
+
+@router.get("/tasks/{task_id}/inst")
+async def get_inst(
+    task_id: str,
+    user: User = Depends(get_current_user_flexible),
+    db: AsyncSession = Depends(get_db),
+):
+    """返回任务的伴奏音轨文件"""
+    task = await _get_user_task(db, user.id, task_id)
+    storage = get_storage()
+    stem = Path(task.input_mp3_key).stem if task.input_mp3_key else task.title
+    for ext in (".mp3", ".wav", ".flac"):
+        for name in (f"{stem}_instrumental{ext}", f"{task.title}_instrumental{ext}", f"{task_id}_instrumental{ext}", f"source_instrumental{ext}"):
+            i_key = f"results/{task_id}/{name}"
+            if await storage.exists(i_key):
+                return await _stream_storage_file(storage, i_key)
+    return await get_audio(task_id, user, db)
 
 
 # ======================================================================
@@ -180,7 +221,7 @@ async def get_audio(
 async def regenerate(
     task_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_flexible),
     db: AsyncSession = Depends(get_db),
 ):
     """从编辑后的 alignment JSON 重新生成 ASS / MP4"""

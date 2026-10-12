@@ -9,6 +9,67 @@ function getApiUrl(path) {
   return path.startsWith("/api") && base ? `${base}${path}` : path;
 }
 
+function isCloudMode() {
+  if (window.M2V_FORCE_CLOUD !== undefined) return Boolean(window.M2V_FORCE_CLOUD);
+  if (window.M2V_FORCE_LOCAL !== undefined) return !window.M2V_FORCE_LOCAL;
+  if (window.M2V_DETECTED_CLOUD) return true;
+  if (window.M2V_API_BASE && window.M2V_API_BASE.trim().length > 0) return true;
+  const h = (window.location && window.location.hostname) || "";
+  if (h && (h.includes("fovea.si") || h.includes("pages.dev") || h.includes("hf.space") || h.includes("huggingface.co"))) {
+    return true;
+  }
+  return false;
+}
+window.isCloudMode = isCloudMode;
+
+function updateAuthUi() {
+  const pill = document.getElementById("auth-pill");
+  const info = document.getElementById("auth-user-info");
+  const btn = document.getElementById("btn-auth-action");
+  if (!pill || !btn) return;
+
+  if (!isCloudMode()) {
+    pill.style.display = "none";
+    return;
+  }
+
+  pill.style.display = "inline-flex";
+  const token = localStorage.getItem("m2v_token");
+  let user = null;
+  try {
+    user = JSON.parse(localStorage.getItem("m2v_user") || "null");
+  } catch (_) {}
+
+  if (token) {
+    if (info) info.textContent = user?.displayName || user?.email || "👤 已登录";
+    btn.textContent = window.currentLocale === "en" ? "Sign Out" : "登出";
+    btn.onclick = async () => {
+      if (window.m2vAuth?.logout) await window.m2vAuth.logout();
+      localStorage.removeItem("m2v_token");
+      localStorage.removeItem("m2v_user");
+      updateAuthUi();
+      await loadFileList();
+    };
+  } else {
+    if (info) info.textContent = "";
+    btn.textContent = window.currentLocale === "en" ? "Sign In" : "🔑 登录";
+    btn.onclick = async () => {
+      if (window.m2vAuth?.loginWithGoogle) {
+        try {
+          await window.m2vAuth.loginWithGoogle();
+          updateAuthUi();
+          await loadFileList();
+        } catch (e) {
+          alert("登录失败: " + e.message);
+        }
+      } else {
+        window.location.href = "/";
+      }
+    };
+  }
+}
+window.updateAuthUi = updateAuthUi;
+
 function apiFetch(url, options = {}) {
   const fullUrl = getApiUrl(url);
   const token = localStorage.getItem("m2v_token");
@@ -26,8 +87,13 @@ window.getApiUrl = getApiUrl;
 function formatAudioEndpoint(relPath) {
   if (!relPath) return null;
   const token = localStorage.getItem("m2v_token");
-  let url = "/api/audio?path=" + encodeURIComponent(relPath);
-  if (token) url += "&token=" + encodeURIComponent(token);
+  let url = relPath;
+  if (!relPath.startsWith("/api/")) {
+    url = "/api/audio?path=" + encodeURIComponent(relPath);
+  }
+  if (token && !url.includes("token=")) {
+    url += (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);
+  }
   return getApiUrl(url);
 }
 window.formatAudioEndpoint = formatAudioEndpoint;
@@ -228,19 +294,66 @@ function playSelectedLine() {
 // File Loading & Song Switching
 // ---------------------------------------------------------------------------
 async function loadFileList(preferredTitle) {
+  updateAuthUi();
   try {
-    const r = await apiFetch("/api/files");
-    state.allFiles = await r.json();
+    let files = [];
+    if (isCloudMode()) {
+      const r = await apiFetch("/api/editor/songs");
+      if (r.status === 401) {
+        if (dom.songSelect) {
+          dom.songSelect.innerHTML = `<option value="">未登录，请先登录云端</option>`;
+        }
+        status(window.t ? t("msg_login_required") : "云端模式需要登录，请点击右上角登录", true);
+        return;
+      }
+      if (!r.ok) throw new Error(await r.text());
+      const songs = await r.json();
+      files = songs.map((s) => ({
+        name: s.name || s.stem || s.task_id,
+        task_id: s.task_id,
+        is_saas: true,
+        json_path: s.task_id,
+        audio_path: `/api/editor/tasks/${s.task_id}/audio`,
+        audio_tracks: {
+          vocals: `/api/editor/tasks/${s.task_id}/vocals`,
+          instrumental: `/api/editor/tasks/${s.task_id}/inst`,
+        },
+        lines_count: s.lines_count,
+        duration: s.duration,
+        status: s.status,
+      }));
+    } else {
+      const r = await apiFetch("/api/files");
+      if (r.status === 403) {
+        // 本地单机目录在云端被拦截，自愈切换为云端模式
+        window.M2V_DETECTED_CLOUD = true;
+        return loadFileList(preferredTitle);
+      }
+      if (!r.ok) throw new Error(await r.text());
+      files = await r.json();
+    }
+
+    state.allFiles = files;
     if (dom.songSelect) {
       dom.songSelect.innerHTML = state.allFiles.length === 0
-        ? `<option value="">未找到 alignment.json</option>`
+        ? `<option value="">未找到歌曲工程</option>`
         : `<option value="">— 请选择 —</option>` +
           state.allFiles.map((f, i) =>
             `<option value="${i}">${f.name}${f.audio_path ? " 🎵" : ""}</option>`
           ).join("");
     }
 
-    const targetSong = preferredTitle || new URLSearchParams(window.location.search).get("song");
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetTaskId = urlParams.get("task_id") || (window.location.pathname.match(/\/editor\/([0-9a-fA-F-]+)/) || [])[1];
+    const targetSong = preferredTitle || urlParams.get("song");
+
+    if (targetTaskId) {
+      const idx = state.allFiles.findIndex(f => f.task_id === targetTaskId);
+      if (idx >= 0) {
+        loadSong(idx);
+        return;
+      }
+    }
     if (targetSong) {
       const idx = state.allFiles.findIndex(f => f.name === targetSong || f.name.includes(targetSong));
       if (idx >= 0) {
@@ -272,7 +385,12 @@ async function loadSong(idx) {
   status(`加载 ${file.name}…`);
 
   try {
-    const r = await apiFetch("/api/alignment?path=" + encodeURIComponent(file.json_path));
+    let r;
+    if (file.is_saas || file.task_id) {
+      r = await apiFetch(`/api/editor/tasks/${file.task_id}/align`);
+    } else {
+      r = await apiFetch("/api/alignment?path=" + encodeURIComponent(file.json_path));
+    }
     if (!r.ok) throw new Error(await r.text());
     state.alignment = await r.json();
     updateAudioAnalysisSummary();
@@ -427,6 +545,31 @@ async function handleSunoImport() {
     return;
   }
   saveSunoUrlHistory(url);
+
+  // 云端模式下的登录凭据前置检查
+  if (isCloudMode()) {
+    const token = localStorage.getItem("m2v_token");
+    if (!token) {
+      if (window.m2vAuth?.loginWithGoogle) {
+        const proceed = confirm("云端对齐需要登录以隔离您的工程任务，是否立即使用 Google 账号登录？");
+        if (proceed) {
+          try {
+            await window.m2vAuth.loginWithGoogle();
+            updateAuthUi();
+          } catch (authErr) {
+            alert("登录已取消或失败: " + authErr.message);
+            return;
+          }
+        } else {
+          return;
+        }
+      } else {
+        alert("云端模式需要先登录账号，请返回首页登录后再进行导入");
+        return;
+      }
+    }
+  }
+
   if (btn) btn.disabled = true;
   if (prog) prog.style.display = "block";
 
@@ -436,11 +579,11 @@ async function handleSunoImport() {
 
   const isNetEase = url.includes("163.com") || url.includes("163cn.tv") || url.includes("<iframe") || /^\d{5,}$/.test(url);
   let importSec = 0;
-  const updateProgressMessage = () => {
-    let stage = isNetEase
+  const updateProgressMessage = (customMsg) => {
+    let stage = customMsg || (isNetEase
       ? (window.t ? t("msg_netease_extracting") : "正在从网易云音乐提取歌曲、LRC 歌词与音频...")
-      : (window.t ? t("msg_suno_extracting") : "正在从 Suno 提取歌曲信息与歌词...");
-    if (importSec > 5) {
+      : (window.t ? t("msg_suno_extracting") : "正在从 Suno 提取歌曲信息与歌词..."));
+    if (!customMsg && importSec > 5) {
       stage = separateVocals
         ? (window.t ? t("msg_aligning_vocals") : "正在进行人声与伴奏分离及时间轴对齐...")
         : (window.t ? t("msg_aligning_direct") : "正在进行原曲词级时间轴对齐 (WhisperX)...");
@@ -457,6 +600,86 @@ async function handleSunoImport() {
   }, 1000);
 
   try {
+    if (isCloudMode()) {
+      // ─────────────────────────────────────────────
+      // 云端 SaaS 模式：调用 /api/tasks/from-suno
+      // 默认 ass_only: true (首步只导入对齐，不生成视频)
+      // ─────────────────────────────────────────────
+      const res = await apiFetch("/api/tasks/from-suno", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          suno_url: url,
+          ass_only: true,
+          skip_separation: !separateVocals,
+          language: importLang,
+        }),
+      });
+
+      const resText = await res.text();
+      let initData;
+      try {
+        initData = JSON.parse(resText);
+      } catch (_) {
+        throw new Error("云端网关响应异常: " + resText.slice(0, 100));
+      }
+      if (!res.ok) {
+        throw new Error(initData.detail || "创建任务失败");
+      }
+
+      const taskId = initData.task_id;
+      status(`⏳ 任务已创建 (${taskId.slice(0, 8)}…)，正在云端分离与对齐…`);
+
+      // 轮询任务完成
+      let pollTask = null;
+      while (true) {
+        await new Promise((r) => setTimeout(r, 1500));
+        let pollRes;
+        try {
+          pollRes = await apiFetch(`/api/tasks/${taskId}`);
+        } catch (e) {
+          continue;
+        }
+        if (!pollRes.ok) {
+          if (pollRes.status === 401) throw new Error("登录会话已过期，请重新登录");
+          continue;
+        }
+        pollTask = await pollRes.json();
+        const step = pollTask.current_step || "processing";
+        const progress = pollTask.progress || 0;
+        let stepText = "正在处理";
+        if (step === "separating") stepText = "正在进行人声与伴奏高保真分离 (ZeroGPU)";
+        else if (step === "aligning") stepText = "正在进行词级时间轴对齐 (WhisperX)";
+        else if (step === "subtitle") stepText = "正在生成 ASS 动效字幕";
+        else if (step === "analyzing") stepText = "正在分析原曲节拍与音频特征";
+
+        updateProgressMessage(`${stepText} [${progress}%]`);
+
+        if (pollTask.status === "completed" || pollTask.alignment_json_key) {
+          break;
+        }
+        if (pollTask.status === "failed") {
+          throw new Error(pollTask.error_message || "云端任务执行失败");
+        }
+      }
+
+      if (dom.sunoModal) dom.sunoModal.style.display = "none";
+      if (input) input.value = "";
+      const songTitle = pollTask.song_title || pollTask.title || "歌曲";
+      status(window.t ? t("msg_import_success", null, { title: songTitle }) : `🎉 导入成功: ${songTitle}`);
+
+      // 刷新列表并自动定位加载该歌曲
+      await loadFileList(songTitle);
+      const songIdx = state.allFiles.findIndex((f) => f.task_id === taskId);
+      if (songIdx >= 0) {
+        await loadSong(songIdx);
+      }
+      return;
+    }
+
+    // ─────────────────────────────────────────────
+    // 单机本地模式：调用 /api/suno/import
+    // ─────────────────────────────────────────────
     const res = await apiFetch("/api/suno/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -588,9 +811,14 @@ async function downloadOriginalAudio() {
     const jsonPath = state.currentFile.json_path || "";
     status(window.t ? t("msg_downloading_mp3", null, { song: songName }) : `正在下载《${songName}》原曲 MP3...`);
 
-    let url = `/api/download/original_mp3?song=${encodeURIComponent(songName)}&json_path=${encodeURIComponent(jsonPath)}`;
+    let url;
+    if (state.currentFile.is_saas || state.currentFile.task_id) {
+      url = `/api/tasks/${state.currentFile.task_id}/download/mp3`;
+    } else {
+      url = `/api/download/original_mp3?song=${encodeURIComponent(songName)}&json_path=${encodeURIComponent(jsonPath)}`;
+    }
     const token = localStorage.getItem("m2v_token");
-    if (token) url += `&token=${encodeURIComponent(token)}`;
+    if (token) url += (url.includes("?") ? "&" : "?") + `token=${encodeURIComponent(token)}`;
     url = getApiUrl(url);
     const a = document.createElement("a");
     a.href = url;
@@ -614,11 +842,20 @@ async function saveAlignment() {
   if (!state.currentFile || !state.alignment) return;
   status(window.t ? t("msg_saving") : "保存中…");
   try {
-    const r = await apiFetch("/api/alignment?path=" + encodeURIComponent(state.currentFile.json_path), {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state.alignment),
-    });
+    let r;
+    if (state.currentFile.is_saas || state.currentFile.task_id) {
+      r = await apiFetch(`/api/editor/tasks/${state.currentFile.task_id}/align`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(state.alignment),
+      });
+    } else {
+      r = await apiFetch("/api/alignment?path=" + encodeURIComponent(state.currentFile.json_path), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(state.alignment),
+      });
+    }
     const j = await r.json();
     if (!r.ok) {
       let msg = "校验错误: ";
@@ -660,22 +897,31 @@ async function generateOutput() {
 
   status(mode === "video" ? "生成视频中，请稍候…" : "生成 ASS 中…");
   try {
-    const r = await apiFetch("/api/regen", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        json_path: state.currentFile.json_path,
-        audio_path: state.currentFile.audio_path || "",
-        mode: mode,
-        tag_type: tagType,
-        render_mode: renderMode,
-      }),
-    });
+    let r;
+    if (state.currentFile.is_saas || state.currentFile.task_id) {
+      r = await apiFetch(`/api/editor/tasks/${state.currentFile.task_id}/regen`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: mode }),
+      });
+    } else {
+      r = await apiFetch("/api/regen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          json_path: state.currentFile.json_path,
+          audio_path: state.currentFile.audio_path || "",
+          mode: mode,
+          tag_type: tagType,
+          render_mode: renderMode,
+        }),
+      });
+    }
     const j = await r.json();
     if (!r.ok) {
       status("生成失败: " + (j.detail || JSON.stringify(j)), true);
     } else {
-      status(mode === "video" ? "✅ 视频已生成: " + j.video_path : "✅ ASS 已生成: " + j.ass_path);
+      status(mode === "video" ? "✅ 视频已生成: " + (j.video_path || "已保存至任务") : "✅ ASS 已生成: " + (j.ass_path || "已保存至任务"));
     }
   } catch (e) {
     status("生成失败: " + e, true);
@@ -842,6 +1088,12 @@ window.renderLineCharSpans = renderLineCharSpans;
 
 window.addEventListener("DOMContentLoaded", () => {
   renderSunoUrlHistory();
+  updateAuthUi();
+  if (window.m2vAuth?.onAuthStateChanged) {
+    window.m2vAuth.onAuthStateChanged(() => {
+      updateAuthUi();
+    });
+  }
 
   // 开发者调试模式初始化
   checkAndApplyDevMode();
