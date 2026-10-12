@@ -12,20 +12,37 @@ function getDefaultApi() {
 
 function resolveApiBase() {
   const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-  const saved = localStorage.getItem("m2v_api_base");
+  let saved = (localStorage.getItem("m2v_api_base") || "").trim();
 
-  // 若在云端生产环境（如 mv.fovea.si / pages.dev），自动清理之前残留的本地开发地址
-  if (!isLocal && saved && (saved.includes("localhost") || saved.includes("127.0.0.1"))) {
+  // 若在非本地环境（线上生产），但 saved 包含 localhost/127.0.0.1，必须清除
+  if (!isLocal && (saved.includes("localhost") || saved.includes("127.0.0.1"))) {
+    console.warn("[M2V] 清除残留的本地 API 地址:", saved);
     localStorage.removeItem("m2v_api_base");
-    return (window.M2V_API_BASE || DEFAULT_CLOUD_API).replace(/\/+$/, "");
+    saved = "";
+  }
+
+  // 若 saved 错误指向了静态站域名 (mv.fovea.si / pages.dev / 相对根路径)，静态站无法提供 API，必须清除
+  if (
+    saved &&
+    (saved === location.origin ||
+      saved === "/" ||
+      saved === "" ||
+      saved.includes(location.host) ||
+      saved.includes("fovea.si") ||
+      saved.includes("pages.dev"))
+  ) {
+    console.warn("[M2V] 清除错误的静态站 API 地址:", saved);
+    localStorage.removeItem("m2v_api_base");
+    saved = "";
   }
 
   if (saved) return saved.replace(/\/+$/, "");
-  if (window.M2V_API_BASE) return window.M2V_API_BASE.replace(/\/+$/, "");
-  return getDefaultApi();
+  if (window.M2V_API_BASE && !isLocal) return window.M2V_API_BASE.replace(/\/+$/, "");
+  return getDefaultApi().replace(/\/+$/, "");
 }
 
 let API = resolveApiBase();
+console.log("[M2V] 当前有效 API 服务地址:", API);
 
 // ── State ────────────────────────────────────────────────
 let token = localStorage.getItem("m2v_token") || null;
@@ -40,6 +57,11 @@ const $$ = (sel) => document.querySelectorAll(sel);
 // ── API 请求封装 ─────────────────────────────────────────
 
 async function api(path, options = {}) {
+  // 确保 API 始终有效且不指向静态站
+  if (!API || API === location.origin || API.includes("fovea.si") || API.includes("pages.dev")) {
+    API = resolveApiBase();
+  }
+
   const headers = options.headers || {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (options.json) {
@@ -49,12 +71,14 @@ async function api(path, options = {}) {
   }
   options.headers = headers;
 
-  const res = await fetch(`${API}${path}`, options);
+  const url = `${API}${path}`;
+  const res = await fetch(url, options);
 
   // 防护：如果返回的是 HTML 页面（例如纯静态前端未配置后端反向代理），避免 JSON 解析崩溃
   const contentType = res.headers.get("content-type") || "";
   if (contentType.includes("text/html")) {
-    throw new Error("后端 API 尚未连通：当前域名仅为纯前端静态页面，未检测到运行中的 Python 后端服务。");
+    console.error("[M2V] API 返回了 HTML 静态页面而非 JSON:", url, res.status);
+    throw new Error(`后端 API 尚未连通：请求目标 [${url}] 返回了静态页面，请确认后端服务运行状态。`);
   }
 
   if (res.status === 401 && refreshToken) {

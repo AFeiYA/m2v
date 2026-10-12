@@ -231,16 +231,31 @@ function getDefaultApi() {
 
 function resolveApiBase() {
   const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-  const saved = localStorage.getItem("m2v_api_base");
+  let saved = (localStorage.getItem("m2v_api_base") || "").trim();
 
-  if (!isLocal && saved && (saved.includes("localhost") || saved.includes("127.0.0.1"))) {
+  // 若在非本地环境（线上生产），但 saved 包含 localhost/127.0.0.1，必须清除
+  if (!isLocal && (saved.includes("localhost") || saved.includes("127.0.0.1"))) {
     localStorage.removeItem("m2v_api_base");
-    return (window.M2V_API_BASE || DEFAULT_CLOUD_API).replace(/\/+$/, "");
+    saved = "";
+  }
+
+  // 若 saved 错误指向了静态站域名 (mv.fovea.si / pages.dev / 相对根路径)，静态站无法提供 API，必须清除
+  if (
+    saved &&
+    (saved === location.origin ||
+      saved === "/" ||
+      saved === "" ||
+      saved.includes(location.host) ||
+      saved.includes("fovea.si") ||
+      saved.includes("pages.dev"))
+  ) {
+    localStorage.removeItem("m2v_api_base");
+    saved = "";
   }
 
   if (saved) return saved.replace(/\/+$/, "");
-  if (window.M2V_API_BASE) return window.M2V_API_BASE.replace(/\/+$/, "");
-  return getDefaultApi();
+  if (window.M2V_API_BASE && !isLocal) return window.M2V_API_BASE.replace(/\/+$/, "");
+  return getDefaultApi().replace(/\/+$/, "");
 }
 
 async function api(url, options = {}) {
