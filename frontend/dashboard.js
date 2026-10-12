@@ -56,6 +56,19 @@ let currentUser = null;
 let userLoadError = "";
 let pollTimer = null;
 
+function syncAuthCookie(activeToken) {
+  if (activeToken) {
+    const secureFlag = location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `m2v_token=${encodeURIComponent(activeToken)}; path=/; max-age=2592000; SameSite=Lax${secureFlag}`;
+  } else {
+    document.cookie = "m2v_token=; path=/; max-age=0; SameSite=Lax";
+  }
+}
+
+if (token) {
+  syncAuthCookie(token);
+}
+
 // ── DOM Helpers ──────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -110,6 +123,7 @@ async function tryRefresh() {
       if (newToken && (fbUser || newToken !== token)) {
         token = newToken;
         localStorage.setItem("m2v_token", token);
+        syncAuthCookie(token);
         return true;
       }
     } catch (fbErr) {
@@ -133,6 +147,7 @@ async function tryRefresh() {
         refreshToken = data.refresh_token;
         localStorage.setItem("m2v_token", token);
         localStorage.setItem("m2v_refresh", refreshToken);
+        syncAuthCookie(token);
         return true;
       }
     } catch (e) { /* ignore */ }
@@ -166,6 +181,7 @@ function initAuth() {
         localStorage.removeItem("m2v_refresh");
         localStorage.setItem("m2v_auth_provider", authProvider);
         localStorage.setItem("m2v_token", token);
+        syncAuthCookie(token);
         const ok = await loadUser();
         if (ok) {
           showApp();
@@ -224,6 +240,7 @@ function initAuth() {
         refreshToken = data.refresh_token;
         localStorage.setItem("m2v_token", token);
         localStorage.setItem("m2v_refresh", refreshToken);
+        syncAuthCookie(token);
         await loadUser();
         showApp();
       } else {
@@ -262,6 +279,7 @@ async function logout() {
   localStorage.removeItem("m2v_token");
   localStorage.removeItem("m2v_refresh");
   localStorage.removeItem("m2v_auth_provider");
+  syncAuthCookie(null);
   if (window.m2vAuth && typeof window.m2vAuth.logout === "function") {
     try {
       await window.m2vAuth.logout();
@@ -749,9 +767,31 @@ document.addEventListener("DOMContentLoaded", async () => {
   initAuth();
   initUpload();
 
-  // 退出按钮
+  // 退出与刷新按钮
   $("#btn-logout").addEventListener("click", logout);
   $("#btn-refresh").addEventListener("click", loadTasks);
+
+  // 复制插件登录凭据 Token
+  const btnCopyToken = $("#btn-copy-plugin-token");
+  if (btnCopyToken) {
+    btnCopyToken.addEventListener("click", async () => {
+      const activeToken = token || localStorage.getItem("m2v_token");
+      if (!activeToken) {
+        alert("请先登录后再复制插件 Token");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(activeToken);
+        const originalText = btnCopyToken.textContent;
+        btnCopyToken.textContent = "✅ 已复制 Token";
+        setTimeout(() => {
+          btnCopyToken.textContent = originalText;
+        }, 2000);
+      } catch (err) {
+        prompt("请手动复制您的 Token：", activeToken);
+      }
+    });
+  }
 
   // 已登录？
   if (token) {

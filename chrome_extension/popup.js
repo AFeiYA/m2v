@@ -117,6 +117,101 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
+  // ── Cloud Auth 状态管理 ──
+  const authBadge = document.getElementById("authBadge");
+  const authStatus = document.getElementById("authStatus");
+  const btnSyncAuth = document.getElementById("btnSyncAuth");
+  const btnToggleManualToken = document.getElementById("btnToggleManualToken");
+  const manualTokenBox = document.getElementById("manualTokenBox");
+  const tokenInput = document.getElementById("tokenInput");
+  const btnSaveToken = document.getElementById("btnSaveToken");
+  const btnClearToken = document.getElementById("btnClearToken");
+
+  function renderAuthUI(tokenVal) {
+    if (tokenVal) {
+      if (authBadge) {
+        authBadge.textContent = "已登录";
+        authBadge.style.color = "#4ade80";
+        authBadge.style.backgroundColor = "rgba(74, 222, 128, 0.2)";
+        authBadge.style.borderColor = "rgba(74, 222, 128, 0.3)";
+      }
+      if (authStatus) authStatus.textContent = "已同步云端账号，支持全功能下载与渲染。";
+      if (tokenInput) tokenInput.value = tokenVal;
+    } else {
+      if (authBadge) {
+        authBadge.textContent = "未同步";
+        authBadge.style.color = "#94a3b8";
+        authBadge.style.backgroundColor = "rgba(148, 163, 184, 0.2)";
+        authBadge.style.borderColor = "rgba(148, 163, 184, 0.3)";
+      }
+      if (authStatus) authStatus.textContent = "未连接云端账号（仅支持公开歌曲直链）。";
+      if (tokenInput) tokenInput.value = "";
+    }
+  }
+
+  chrome.storage.local.get(["authToken"], (res) => {
+    renderAuthUI(res?.authToken || "");
+  });
+
+  if (btnToggleManualToken) {
+    btnToggleManualToken.addEventListener("click", () => {
+      if (manualTokenBox) manualTokenBox.hidden = !manualTokenBox.hidden;
+    });
+  }
+
+  if (btnSyncAuth) {
+    btnSyncAuth.addEventListener("click", async () => {
+      btnSyncAuth.disabled = true;
+      if (authStatus) authStatus.textContent = "正在读取网页端登录状态...";
+      try {
+        if (!chrome.cookies) {
+          throw new Error("Cookies API 不可用，请尝试手动输入 Token");
+        }
+        const targetOrigin = configuredServer || "https://mv.fovea.si";
+        chrome.cookies.get({ url: targetOrigin, name: "m2v_token" }, async (cookie) => {
+          btnSyncAuth.disabled = false;
+          if (chrome.runtime.lastError) {
+            showError(authStatus, chrome.runtime.lastError.message);
+            return;
+          }
+          if (cookie && cookie.value) {
+            const val = decodeURIComponent(cookie.value);
+            await chrome.storage.local.set({ authToken: val });
+            renderAuthUI(val);
+            if (authStatus) authStatus.textContent = "✅ 已成功从网页端同步登录状态！";
+          } else {
+            if (authStatus) authStatus.textContent = "未检测到网页登录状态。请先在 mv.fovea.si 网页登录后重试，或使用【手动输入】。";
+          }
+        });
+      } catch (err) {
+        btnSyncAuth.disabled = false;
+        showError(authStatus, err);
+      }
+    });
+  }
+
+  if (btnSaveToken) {
+    btnSaveToken.addEventListener("click", async () => {
+      const val = tokenInput ? tokenInput.value.trim() : "";
+      if (!val) {
+        if (authStatus) authStatus.textContent = "请输入有效的 Token";
+        return;
+      }
+      await chrome.storage.local.set({ authToken: val });
+      renderAuthUI(val);
+      if (authStatus) authStatus.textContent = "✅ 已保存 Token";
+      if (manualTokenBox) manualTokenBox.hidden = true;
+    });
+  }
+
+  if (btnClearToken) {
+    btnClearToken.addEventListener("click", async () => {
+      await chrome.storage.local.remove("authToken");
+      renderAuthUI("");
+      if (authStatus) authStatus.textContent = "已清除登录凭据";
+    });
+  }
+
   // 获取当前活跃标签页
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 

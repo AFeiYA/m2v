@@ -1,7 +1,6 @@
 """Account isolation and real worker lifecycle regression tests (no private media)."""
 import ast
 import asyncio
-import json
 import sys
 import threading
 import types
@@ -10,7 +9,6 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -110,6 +108,26 @@ def test_download_requires_access_token_and_task_ownership(sandbox):
     assert sandbox.client.get(endpoint, headers=headers(refresh=True)).status_code == 401
     assert sandbox.client.get(endpoint, params={"token": auth.create_refresh_token("alice")}).status_code == 401
     assert sandbox.client.get(endpoint, headers=headers("bob")).status_code == 404
+
+
+def test_cloud_plugin_routes_authentication(sandbox, monkeypatch):
+    # 1. 元数据探测接口在云端公开可用
+    assert sandbox.client.get("/api/suno/publish_status", params={"url": "invalid"}).status_code in (400, 422)
+
+    # 2. 插件下载接口未携带或携带无效 Token 返回 401
+    assert sandbox.client.get("/api/suno/download_mp3", params={"url": "https://suno.com/song/test"}).status_code == 401
+    assert sandbox.client.get("/api/suno/download_mp3", params={"url": "https://suno.com/song/test", "token": "invalid"}).status_code == 401
+    assert sandbox.client.get("/api/suno/download_mp3", params={"url": "https://suno.com/song/test"}, headers=headers(refresh=True)).status_code == 401
+
+    # 3. 携带合法 access_token 可通过认证层
+    res_bearer = sandbox.client.get("/api/suno/download_mp3", params={"url": ""}, headers=headers("alice"))
+    # 空 url 会通过认证后进入业务逻辑抛 400
+    assert res_bearer.status_code == 400
+    assert "请输入 Suno 歌曲链接" in res_bearer.json().get("detail", "")
+
+    res_param = sandbox.client.get("/api/suno/download_mp3", params={"url": "", "token": auth.create_access_token("alice")})
+    assert res_param.status_code == 400
+    assert "请输入 Suno 歌曲链接" in res_param.json().get("detail", "")
 
 
 def install_pipeline(sandbox, monkeypatch, fail):

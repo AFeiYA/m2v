@@ -26,11 +26,15 @@ async function readServerResponse(response) {
 async function pollLyricVideoTask(targetServer, taskId, onProgress = () => {}, options = {}) {
   const deadline = Date.now() + (options.timeoutMs ?? 20 * 60 * 1000);
   const sleep = options.sleep || ((ms) => new Promise(resolve => setTimeout(resolve, ms)));
+  const { authToken } = chrome.storage?.local ? await chrome.storage.local.get("authToken") : {};
   while (Date.now() < deadline) {
     let task;
     try {
-      const resp = await fetch(`${targetServer}/api/lyric_video/task_status?task_id=${encodeURIComponent(taskId)}`,
-        { signal: AbortSignal.timeout(15000) });
+      const authQuery = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
+      const fetchOpts = { signal: AbortSignal.timeout(15000) };
+      if (authToken) fetchOpts.headers = { Authorization: `Bearer ${authToken}` };
+      const resp = await fetch(`${targetServer}/api/lyric_video/task_status?task_id=${encodeURIComponent(taskId)}${authQuery}`,
+        fetchOpts);
       if ([429, 502, 503, 504].includes(resp.status)) {
         onProgress({ message: "Connection interrupted. Reconnecting; the job continues on the server.", task_id: taskId });
         await sleep(3000);
@@ -132,11 +136,15 @@ function finishVideoJob(job, onProgress = () => {}) {
     });
     const rawVideoUrl = result.download_url || result.video_url;
     if (!rawVideoUrl) throw new Error("Server did not return a video download URL");
-    const downloadUrl = new URL(rawVideoUrl, job.targetServer).href;
+    const downloadUrl = new URL(rawVideoUrl, job.targetServer);
+    const { authToken } = chrome.storage?.local ? await chrome.storage.local.get("authToken") : {};
+    if (authToken && !downloadUrl.searchParams.has("token")) {
+      downloadUrl.searchParams.set("token", authToken);
+    }
     const suffix = { chorus: "_Chorus", verse1: "_Verse1", intro: "_Intro" }[job.section] || "";
     const filename = `${(job.title || "suno_mv").replace(/[\\/:*?"<>|]/g, "_")}${suffix}_9x16.mp4`;
     const downloadId = await new Promise((resolve, reject) => {
-      chrome.downloads.download({ url: downloadUrl, filename, saveAs: false, conflictAction: "uniquify" }, (id) => {
+      chrome.downloads.download({ url: downloadUrl.href, filename, saveAs: false, conflictAction: "uniquify" }, (id) => {
         if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
         else if (id === undefined) reject(new Error("Chrome could not start the video download"));
         else resolve(id);
@@ -210,12 +218,23 @@ async function submitVideo(blob, track, serverUrl, section, duration, onProgress
     formData.append("duration_limit", String(duration));
   }
 
+  const { authToken } = chrome.storage?.local ? await chrome.storage.local.get("authToken") : {};
+  if (authToken) {
+    formData.append("token", authToken);
+  }
+
+  const fetchOpts = {
+    method: "POST",
+    body: formData,
+    signal: AbortSignal.timeout(25000),
+  };
+  if (authToken) {
+    fetchOpts.headers = { Authorization: `Bearer ${authToken}` };
+  }
+
   let resp;
   try {
-    resp = await fetch(endpoint, {
-      method: "POST",
-      body: formData, signal: AbortSignal.timeout(25000),
-    });
+    resp = await fetch(endpoint, fetchOpts);
   } catch (netErr) {
     throw new Error(
       "The server is temporarily unavailable. Resume the saved job to retry safely."
@@ -317,8 +336,14 @@ async function downloadTrackMp3(track, serverUrl, onProgress = () => {}) {
     onProgress({ message: "Checking whether the song is published…" });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 35000);
+    const { authToken } = chrome.storage?.local ? await chrome.storage.local.get("authToken") : {};
+    const fetchOpts = { signal: controller.signal };
+    if (authToken) {
+      url.searchParams.set("token", authToken);
+      fetchOpts.headers = { Authorization: `Bearer ${authToken}` };
+    }
     try {
-      const result = await readServerResponse(await fetch(url.href, { signal: controller.signal }));
+      const result = await readServerResponse(await fetch(url.href, fetchOpts));
       if (result.is_public !== true) throw new Error("Song is not published. Use Publish in Suno first.");
       verified = true;
     } finally { clearTimeout(timer); }
@@ -339,6 +364,10 @@ async function downloadTrackMp3(track, serverUrl, onProgress = () => {}) {
   const songUrl = `https://suno.com/${uuid ? "song" : "s"}/${track.songId}`;
   const downloadUrl = new URL(`${targetServer}/api/suno/download_mp3`);
   downloadUrl.searchParams.set("url", songUrl);
+  const { authToken } = chrome.storage?.local ? await chrome.storage.local.get("authToken") : {};
+  if (authToken) {
+    downloadUrl.searchParams.set("token", authToken);
+  }
   const title = String(track.title || "Suno_Track")
     .replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").replace(/^\.+|[. ]+$/g, "").slice(0, 120) || "Suno_Track";
   const filename = `${title}.mp3`;
@@ -446,8 +475,12 @@ async function reconcileJobs() {
   for (const job of stored.videoJobs || []) {
     if (!job.taskId || !["pending", "running", "completed"].includes(job.status)) continue;
     try {
-      const response = await fetch(`${job.targetServer}/api/lyric_video/task_status?task_id=${encodeURIComponent(job.taskId)}`,
-        { signal: AbortSignal.timeout(15000) });
+      const { authToken } = chrome.storage?.local ? await chrome.storage.local.get("authToken") : {};
+      const authQuery = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
+      const fetchOpts = { signal: AbortSignal.timeout(15000) };
+      if (authToken) fetchOpts.headers = { Authorization: `Bearer ${authToken}` };
+      const response = await fetch(`${job.targetServer}/api/lyric_video/task_status?task_id=${encodeURIComponent(job.taskId)}${authQuery}`,
+        fetchOpts);
       if (response.status === 404) { await saveJob({ ...job, status: "expired" }); continue; }
       if (!response.ok) continue;
       const task = await readServerResponse(response);

@@ -162,3 +162,37 @@ test('unknown publication is verified and private song never starts a download',
   assert.match(calls[0], /publish_status/);
   assert.equal(downloads.length, 0);
 });
+
+test('downloadTrackMp3 attaches authToken from chrome.storage to fallback download URL', async () => {
+  const downloads = [];
+  const calls = [];
+  const context = vm.createContext({
+    URL, AbortController, setTimeout, clearTimeout, console,
+    chrome: {
+      runtime: { onMessage: { addListener() {} } },
+      storage: {
+        local: {
+          get: async (key) => key === 'authToken' ? { authToken: 'test-user-jwt-token' } : {},
+        },
+      },
+      downloads: { download(options, cb) { downloads.push(options); cb(101); } },
+    },
+    fetch: async (url, options = {}) => {
+      calls.push({ url, options });
+      if (url.includes('/publish_status')) return new Response(JSON.stringify({ is_public: true }));
+      throw new Error('fetch unexpected');
+    },
+  });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../background.js'), 'utf8'), context);
+  const result = await context.downloadTrackMp3(
+    { title: 'Auth Song', songId: 'auth-song-id', is_public: true, audioUrl: '' },
+    'https://mv.fovea.si'
+  );
+  assert.equal(result.filename, 'Auth Song.mp3');
+  assert.equal(downloads.length, 1);
+  const downloadUrl = new URL(downloads[0].url);
+  assert.equal(downloadUrl.origin, 'https://mv.fovea.si');
+  assert.equal(downloadUrl.pathname, '/api/suno/download_mp3');
+  assert.equal(downloadUrl.searchParams.get('token'), 'test-user-jwt-token');
+});
+

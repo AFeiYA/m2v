@@ -198,6 +198,29 @@
     <div class="status-row" id="serverStatus" role="status"></div>
   </div>
 
+  <div class="settings-row" id="authSection" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+    <div class="node-header">
+      <label>Cloud Account:</label>
+      <span id="authBadge" class="badge" style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; border-color: rgba(148, 163, 184, 0.3);">未同步</span>
+    </div>
+    <div style="display: flex; gap: 6px; margin-top: 6px;">
+      <button type="button" class="btn-primary" id="btnSyncAuth" style="flex: 1; padding: 6px 10px; font-size: 11px; margin: 0; box-shadow: none;">
+        🔄 同步网页登录状态
+      </button>
+      <button type="button" class="node-btn" id="btnToggleManualToken" title="手动输入 Token">
+        ✏️ 手动输入
+      </button>
+    </div>
+    <div id="manualTokenBox" hidden style="margin-top: 6px;">
+      <input type="password" class="input-server" id="tokenInput" placeholder="在此粘贴网页复制的 Token" />
+      <div style="display: flex; gap: 6px; margin-top: 4px;">
+        <button type="button" class="node-btn" id="btnSaveToken" style="flex: 1;">保存 Token</button>
+        <button type="button" class="node-btn" id="btnClearToken">清除</button>
+      </div>
+    </div>
+    <div class="status-row" id="authStatus" role="status"></div>
+  </div>
+
   <div class="footer-tip" id="footerTip">
     MP3 / MP4 require a published song and your ownership or permission. Publish does not grant download or commercial rights. Follow Suno’s terms and download limits. Files are saved to Chrome’s download folder.
   </div>
