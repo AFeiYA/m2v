@@ -14,14 +14,12 @@ dependencies = [
     "librosa>=0.11.0",
     "moviepy>=2.0.0",
     "pillow>=10.0.0",
-
     # ── 文本与字幕处理 ──
     "pyyaml>=6.0",
     "cn2an>=0.5.22",
     "opencc-python-reimplemented>=0.1.7",
     "chardet>=5.0.0",
     "pypinyin>=0.50.0",
-
     # ── Web API 与服务 ──
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
@@ -31,20 +29,19 @@ dependencies = [
     "httpx>=0.27.0",
     "requests>=2.31.0",
     "python-dotenv>=1.0.0",
-
     # ── 数据库与商业授权 ──
     "sqlalchemy[asyncio]>=2.0.0",
     "aiosqlite>=0.20.0",
     "firebase-admin>=6.5.0",
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
-
     # ── 对象存储 (R2 / S3) ──
     "boto3>=1.35.0",
-
     # ── 动效渲染 (Playwright) 与 Gradio ──
     "playwright>=1.40.0",
     "gradio>=4.0.0",
+    "asyncpg>=0.31.0",
+    "email-validator>=2.3.0",
 ]
 
 [project.optional-dependencies]
