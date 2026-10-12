@@ -21,33 +21,42 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from celery import Celery
-
 from src.settings import get_settings
 
 settings = get_settings()
 
-# ── Celery 实例 ──────────────────────────────────────────
+try:
+    from celery import Celery
 
-celery_app = Celery(
-    "m2v",
-    broker=settings.CELERY_BROKER_URL,
-    backend=settings.CELERY_RESULT_BACKEND,
-)
+    celery_app = Celery(
+        "m2v",
+        broker=settings.CELERY_BROKER_URL,
+        backend=settings.CELERY_RESULT_BACKEND,
+    )
 
-celery_app.conf.update(
-    task_serializer="json",
-    result_serializer="json",
-    accept_content=["json"],
-    timezone="UTC",
-    task_track_started=True,
-    task_default_queue="m2v",
-    # GPU 任务防止 prefetch 抢占
-    worker_prefetch_multiplier=1,
-    # 单个任务最长 30 分钟
-    task_time_limit=1800,
-    task_soft_time_limit=1500,
-)
+    celery_app.conf.update(
+        task_serializer="json",
+        result_serializer="json",
+        accept_content=["json"],
+        timezone="UTC",
+        task_track_started=True,
+        task_default_queue="m2v",
+        # GPU 任务防止 prefetch 抢占
+        worker_prefetch_multiplier=1,
+        # 单个任务最长 30 分钟
+        task_time_limit=1800,
+        task_soft_time_limit=1500,
+    )
+    _task_decorator = celery_app.task(bind=True, name="m2v.process_song")
+except Exception:
+    celery_app = None
+
+    def _task_decorator(func):
+        def _dummy_delay(*args, **kwargs):
+            raise RuntimeError("Celery 未安装或不可用")
+
+        func.delay = _dummy_delay
+        return func
 
 
 # ── 进度推送 ─────────────────────────────────────────────
@@ -135,7 +144,7 @@ def _update_task_status(
 
 # ── Pipeline 任务 ────────────────────────────────────────
 
-@celery_app.task(bind=True, name="m2v.process_song")
+@_task_decorator
 def process_song_task(
     self,
     task_id: str,
@@ -185,13 +194,13 @@ def process_song_task(
         config = PipelineConfig()
         if config_dict:
             if config_dict.get("language"):
-                config.aligner.language = config_dict["language"]
-            if config_dict.get("skip_separation"):
-                config.skip_separation = True
-            if config_dict.get("ass_only"):
-                config.ass_only = True
-            if config_dict.get("beat_effects"):
-                config.subtitle.enable_beat_effects = True
+                config.aligner.language = str(config_dict["language"])
+            if "skip_separation" in config_dict:
+                config.skip_separation = bool(config_dict["skip_separation"])
+            if "ass_only" in config_dict:
+                config.ass_only = bool(config_dict["ass_only"])
+            if "beat_effects" in config_dict:
+                config.subtitle.enable_beat_effects = bool(config_dict["beat_effects"])
 
         # ── 进度回调 ─────────────────────────────────
         step_map = {

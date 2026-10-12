@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt as _bcrypt
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy import select
@@ -49,12 +49,80 @@ def create_refresh_token(user_id: str) -> str:
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
+import os
+import jwt as pyjwt
+from jwt import PyJWKClient
+
 from src.utils import log
 from src.models import User, UserPlan
 
+_jwks_client: PyJWKClient | None = None
+
+
+def _get_jwks_client() -> PyJWKClient:
+    global _jwks_client
+    if _jwks_client is None:
+        _jwks_client = PyJWKClient(
+            "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com",
+            cache_keys=True,
+            max_cached_keys=16,
+        )
+    return _jwks_client
+
 
 def verify_firebase_id_token(token: str) -> dict | None:
-    """尝试通过 firebase-admin 校验 Firebase ID Token"""
+    """验证 Firebase ID Token（优先使用 Google 官方 JWKS 公钥验签，兼容 firebase-admin）"""
+    # 方式 1: 使用 Google 官方 JWKS 公钥直接验签（云端容器/第三方托管首选，免 GCP 服务账号密钥）
+    try:
+        unverified_header = pyjwt.get_unverified_header(token)
+        if unverified_header.get("alg") == "RS256":
+            client = _get_jwks_client()
+            signing_key = client.get_signing_key_from_jwt(token)
+            decoded = pyjwt.decode(
+                token,
+                signing_key.key,
+                algorithms=["RS256"],
+                options={"verify_aud": False},
+            )
+
+            aud = decoded.get("aud")
+            iss = decoded.get("iss")
+            if iss != f"https://securetoken.google.com/{aud}":
+                log.warning("Firebase ID Token 签发者不匹配: iss=%s, aud=%s", iss, aud)
+                return None
+
+            allowed_projects = {"dc-test-731fa"}
+            for proj in [
+                getattr(settings, "FIREBASE_PROJECT_ID", ""),
+                os.getenv("FIREBASE_PROJECT_ID", ""),
+                os.getenv("GOOGLE_CLOUD_PROJECT", ""),
+            ]:
+                if proj:
+                    for p in proj.split(","):
+                        p_clean = p.strip()
+                        if p_clean:
+                            allowed_projects.add(p_clean)
+
+            if allowed_projects and aud not in allowed_projects:
+                log.warning(
+                    "Firebase ID Token 项目 ID 不在白名单中: aud=%s, allowed=%s",
+                    aud,
+                    allowed_projects,
+                )
+                return None
+
+            return {
+                "sub": decoded.get("user_id") or decoded.get("sub"),
+                "email": decoded.get("email"),
+                "name": decoded.get("name"),
+                "picture": decoded.get("picture"),
+                "type": "access",
+                "provider": "firebase",
+            }
+    except Exception as e:
+        log.debug("Google JWKS 公钥验签未通过: %s", e)
+
+    # 方式 2: 尝试 firebase-admin (若部署在 GCP 或配置了 service account)
     try:
         import firebase_admin
         from firebase_admin import auth as fb_auth
@@ -74,7 +142,7 @@ def verify_firebase_id_token(token: str) -> dict | None:
             "provider": "firebase",
         }
     except Exception as e:
-        log.debug("Firebase ID Token 校验未通过或为本地令牌: %s", e)
+        log.debug("firebase_admin 校验未通过或为本地令牌: %s", e)
         return None
 
 
@@ -102,13 +170,11 @@ def decode_token(token: str) -> dict:
 # ── FastAPI 依赖 ─────────────────────────────────────────
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
-async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    """从 Bearer token 解析当前用户，注入到路由；支持新 Firebase 用户自愈开户"""
+async def get_user_from_token(token: str, db: AsyncSession) -> User:
+    """从 token 解析当前用户并校验有效性；支持新 Firebase 用户自愈开户"""
     payload = decode_token(token)
 
     if payload.get("type") != "access":
@@ -160,3 +226,27 @@ async def get_current_user(
         )
 
     return user
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """从 Bearer token 解析当前用户，注入到路由"""
+    return await get_user_from_token(token, db)
+
+
+async def get_current_user_flexible(
+    token_header: str | None = Depends(oauth2_scheme_optional),
+    token_query: str | None = Query(None, alias="token"),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """从 Bearer header 或 URL query ?token=xxx 解析当前用户，用于文件下载与特殊请求"""
+    token = token_header or token_query
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="缺少访问令牌",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await get_user_from_token(token, db)

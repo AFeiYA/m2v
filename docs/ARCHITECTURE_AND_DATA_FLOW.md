@@ -239,9 +239,11 @@ sequenceDiagram
 ```bash
 # 1. 检查 Supabase 数据库连通性与用户表状态
 .venv/bin/python -c "
-import asyncio, asyncpg
+import asyncio, asyncpg, os
+from src.settings import get_settings
 async def check():
-    conn = await asyncpg.connect('postgresql://postgres.ixbtwrntrskxeeoymcqy:suno2mv.123@aws-0-us-east-1.pooler.supabase.com:5432/postgres')
+    db_url = get_settings().DATABASE_URL.replace('postgresql+asyncpg://', 'postgresql://')
+    conn = await asyncpg.connect(db_url)
     users = await conn.fetchval('SELECT count(*) FROM users;')
     tasks = await conn.fetchval('SELECT count(*) FROM tasks;')
     print(f'✅ Supabase 正常: 用户数={users}, 任务数={tasks}')

@@ -109,12 +109,15 @@ def extension_privacy():
 
 def _validate_path(p: Path, must_exist: bool = True) -> Path:
     """校验路径在扫描目录内，防止任意文件读取"""
-    scan_dir = _get_scan_dir()
+    scan_dir = _get_scan_dir().resolve()
     resolved = p.resolve()
-    # 允许扫描目录本身及其父目录下的 input/ 目录
-    allowed_roots = [scan_dir.resolve(), (scan_dir.parent / "input").resolve(), scan_dir.parent.resolve()]
-    if not any(resolved.is_relative_to(root) for root in allowed_roots):
-        raise HTTPException(403, f"路径越界: 仅允许访问项目目录内的文件")
+    # 严格仅允许扫描目录本身及其相邻的 input/ 目录，禁止访问父目录或根目录
+    allowed_roots = [scan_dir]
+    input_dir = (scan_dir.parent / "input").resolve()
+    if input_dir.exists():
+        allowed_roots.append(input_dir)
+    if not any(resolved == root or resolved.is_relative_to(root) for root in allowed_roots):
+        raise HTTPException(403, "路径越界: 仅允许访问指定的工程数据目录内的文件")
     if must_exist and not resolved.exists():
         raise HTTPException(404, f"文件不存在: {resolved.name}")
     return resolved

@@ -58,15 +58,21 @@ class LocalStorage(StorageBackend):
         self.base_dir = Path(base_dir or settings.UPLOAD_DIR).resolve()
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
+    def _resolve_key(self, key: str) -> Path:
+        resolved = (self.base_dir / key).resolve()
+        if not (resolved == self.base_dir or resolved.is_relative_to(self.base_dir)):
+            raise ValueError(f"存储路径越界: key={key}")
+        return resolved
+
     async def save(self, key: str, local_path: Path) -> str:
-        dst = self.base_dir / key
+        dst = self._resolve_key(key)
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(local_path), str(dst))
         log.debug("LocalStorage: saved %s → %s", local_path.name, key)
         return key
 
     async def load(self, key: str, local_path: Path) -> Path:
-        src = self.base_dir / key
+        src = self._resolve_key(key)
         if not src.exists():
             raise FileNotFoundError(f"存储文件不存在: {key}")
         local_path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,21 +80,22 @@ class LocalStorage(StorageBackend):
         return local_path
 
     async def delete(self, key: str) -> None:
-        path = self.base_dir / key
+        path = self._resolve_key(key)
         if path.exists():
             path.unlink()
             log.debug("LocalStorage: deleted %s", key)
 
     async def get_url(self, key: str, expires: int = 3600) -> str:
         # 本地模式返回 API 路由路径
+        self._resolve_key(key)
         return f"/api/files/{key}"
 
     async def exists(self, key: str) -> bool:
-        return (self.base_dir / key).exists()
+        return self._resolve_key(key).exists()
 
     def get_local_path(self, key: str) -> Path:
         """本地模式特有：直接返回磁盘路径（避免复制）"""
-        return self.base_dir / key
+        return self._resolve_key(key)
 
 
 # ======================================================================

@@ -55,7 +55,30 @@ async def get_db() -> AsyncSession:  # type: ignore[misc]
             raise
 
 
-# ── 表创建（开发用，生产应使用 Alembic 迁移）────────────
+# ── 表创建与自愈迁移 ────────────────────────────────────
 async def create_tables() -> None:
+    await init_db()
+
+
+async def init_db() -> None:
+    """初始化数据库：确保模型注册，创建表，并平滑增加缺失字段"""
+    import src.models  # noqa: F401
+    from sqlalchemy import inspect, text
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        def _migrate_columns(sync_conn):
+            inspector = inspect(sync_conn)
+            tables = inspector.get_table_names()
+            if "tasks" in tables:
+                cols = {c["name"] for c in inspector.get_columns("tasks")}
+                is_pg = sync_conn.dialect.name == "postgresql"
+                if "song_title" not in cols:
+                    sql = "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS song_title VARCHAR(255);" if is_pg else "ALTER TABLE tasks ADD COLUMN song_title VARCHAR(255);"
+                    sync_conn.execute(text(sql))
+                if "suno_url" not in cols:
+                    sql = "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS suno_url VARCHAR(1024);" if is_pg else "ALTER TABLE tasks ADD COLUMN suno_url VARCHAR(1024);"
+                    sync_conn.execute(text(sql))
+
+        await conn.run_sync(_migrate_columns)

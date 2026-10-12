@@ -29,8 +29,10 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
+    Header,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
@@ -47,6 +49,8 @@ from src.auth import (
     create_refresh_token,
     decode_token,
     get_current_user,
+    get_current_user_flexible,
+    get_user_from_token,
     hash_password,
     verify_password,
 )
@@ -195,6 +199,80 @@ async def get_me(user: User = Depends(get_current_user)):
     )
 
 
+async def get_current_user_flexible(
+    token_query: str | None = Query(None, alias="token"),
+    auth_header: str | None = Header(None, alias="Authorization"),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    raw_token = None
+    if auth_header and auth_header.startswith("Bearer "):
+        raw_token = auth_header[7:].strip()
+    elif token_query:
+        raw_token = token_query.strip()
+
+    if not raw_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="缺少认证令牌")
+
+    payload = decode_token(raw_token)
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="令牌缺少用户标识")
+
+    res = await db.execute(select(User).where(User.id == user_id))
+    user = res.scalar_one_or_none()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在或已禁用")
+    return user
+
+
+def _dispatch_task(task_id: str, mp3_key: str, lyrics_key: str, config_snapshot: dict) -> str | None:
+    """提交任务到后台执行：优先尝试 Celery，无 Celery 时启动守护工作线程执行"""
+    try:
+        from src.worker import process_song_task
+        res = process_song_task.delay(
+            task_id=task_id,
+            mp3_key=mp3_key,
+            lyrics_key=lyrics_key,
+            config_dict=config_snapshot,
+        )
+        return str(res.id)
+    except Exception as e:
+        log.warning("Celery 调度不可用 (%s)，启用在机工作线程兜底执行", e)
+
+    import threading
+    def _run():
+        try:
+            from src.worker import process_song_task
+            process_song_task(
+                task_id=task_id,
+                mp3_key=mp3_key,
+                lyrics_key=lyrics_key,
+                config_dict=config_snapshot,
+            )
+        except Exception as ex:
+            log.error("在机工作线程执行失败: %s", ex)
+            try:
+                import asyncio
+                async def _refund():
+                    async with async_session() as s:
+                        t_res = await s.execute(select(Task).where(Task.id == task_id))
+                        t = t_res.scalar_one_or_none()
+                        if t:
+                            u_res = await s.execute(select(User).where(User.id == t.user_id))
+                            u = u_res.scalar_one_or_none()
+                            if u:
+                                u.credits += 1
+                                await s.commit()
+                                log.info("任务失败，已自动退还配额给用户 %s (剩余: %d)", u.id, u.credits)
+                asyncio.run(_refund())
+            except Exception as rex:
+                log.warning("退还配额异常: %s", rex)
+
+    t = threading.Thread(target=_run, daemon=True, name=f"WorkerThread-{task_id[:8]}")
+    t.start()
+    return f"thread-{t.name}"
+
+
 # ======================================================================
 # 文件上传 + 创建任务
 # ======================================================================
@@ -251,9 +329,19 @@ async def upload_and_create_task(
         f.write(lyrics_content)
         lyrics_tmp = Path(f.name)
 
+    import re
+
+    def _clean_fname(raw_name: str | None, fallback: str) -> str:
+        base = Path(raw_name or fallback).name
+        cleaned = re.sub(r'[^\w\.\-\u4e00-\u9fa5]', '_', base).strip(".")
+        return cleaned or fallback
+
+    safe_mp3_name = _clean_fname(mp3.filename, "audio.mp3")
+    safe_lyrics_name = _clean_fname(lyrics.filename, "lyrics.txt")
+
     try:
-        mp3_key = f"uploads/{user.id}/{task_id}/{mp3.filename}"
-        lyrics_key = f"uploads/{user.id}/{task_id}/{lyrics.filename}"
+        mp3_key = f"uploads/{user.id}/{task_id}/{safe_mp3_name}"
+        lyrics_key = f"uploads/{user.id}/{task_id}/{safe_lyrics_name}"
 
         await storage.save(mp3_key, mp3_tmp)
         await storage.save(lyrics_key, lyrics_tmp)
@@ -284,22 +372,14 @@ async def upload_and_create_task(
     db.add(task)
     await db.flush()
 
-    # 扣减配额
+    # 扣减配额并调度任务
     user.credits -= 1
-
-    # 提交到 Celery 队列
-    try:
-        from src.worker import process_song_task
-        celery_result = process_song_task.delay(
-            task_id=task.id,
-            mp3_key=mp3_key,
-            lyrics_key=lyrics_key,
-            config_dict=task.config_snapshot,
-        )
-        task.celery_task_id = celery_result.id
-    except Exception as e:
-        log.warning("Celery 不可用，任务将保持 pending 状态: %s", e)
-
+    task.celery_task_id = _dispatch_task(
+        task.id,
+        mp3_key,
+        lyrics_key,
+        task.config_snapshot,
+    )
     await db.flush()
 
     return UploadResponse(
@@ -325,6 +405,24 @@ async def create_task_from_suno(
     clean_url = req.suno_url.strip()
     if not clean_url:
         raise HTTPException(400, "请提供有效的 Suno 链接")
+
+    # 幂等性防护：若同一用户存在该链接进行中任务，直接复用返回，避免重复扣额
+    existing_q = await db.execute(
+        select(Task).where(
+            Task.user_id == user.id,
+            Task.suno_url == clean_url,
+            Task.status.in_([TaskStatus.PENDING, TaskStatus.PROCESSING]),
+        )
+    )
+    existing_task = existing_q.scalars().first()
+    if existing_task:
+        log.info("Suno 任务幂等命中: 复用任务 %s，不扣减额度", existing_task.id)
+        return UploadResponse(
+            mp3_key=existing_task.input_mp3_key,
+            lyrics_key=existing_task.input_lyrics_key,
+            task_id=existing_task.id,
+            message=f"该歌曲任务已在处理中 ({existing_task.id[:8]}…)",
+        )
 
     from src.suno_fetch import fetch_song
     try:
@@ -387,20 +485,14 @@ async def create_task_from_suno(
     db.add(task)
     await db.flush()
 
+    # 扣减配额并调度任务 (优先 Celery，降级为后台线程并支持失败自动退还)
     user.credits -= 1
-
-    try:
-        from src.worker import process_song_task
-        celery_result = process_song_task.delay(
-            task_id=task.id,
-            mp3_key=mp3_key,
-            lyrics_key=lyrics_key,
-            config_dict=task.config_snapshot,
-        )
-        task.celery_task_id = celery_result.id
-    except Exception as e:
-        log.warning("Celery 不可用，任务将保持 pending 状态: %s", e)
-
+    task.celery_task_id = _dispatch_task(
+        task.id,
+        mp3_key,
+        lyrics_key,
+        task.config_snapshot,
+    )
     await db.flush()
 
     return UploadResponse(
@@ -492,7 +584,7 @@ async def delete_task(
 async def download_file(
     task_id: str,
     file_type: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_flexible),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -539,13 +631,33 @@ async def download_file(
 
 @api_router.websocket("/ws/tasks/{task_id}/progress")
 async def task_progress_ws(websocket: WebSocket, task_id: str):
-
     """
-    WebSocket 端点: 实时推送任务进度
+    WebSocket 端点: 实时推送任务进度 (需鉴权与任务所有权核验)
 
-    客户端连接后，服务端监听 Redis pub/sub 频道
-    并将进度事件转发到 WebSocket。
+    客户端连接后，服务端核查令牌与任务归属，若合法则监听 Redis pub/sub 频道并将进度事件转发。
     """
+    token = websocket.query_params.get("token")
+    if not token:
+        auth_header = websocket.headers.get("authorization") or ""
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+
+    if not token:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    async with async_session() as db:
+        try:
+            user = await get_user_from_token(token, db)
+        except Exception:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
+        task = await db.get(Task, task_id)
+        if not task or task.user_id != user.id:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
     await websocket.accept()
 
     try:
@@ -575,14 +687,14 @@ async def task_progress_ws(websocket: WebSocket, task_id: str):
 
     except WebSocketDisconnect:
         log.debug("WebSocket 断开: task=%s", task_id)
-    except ImportError:
-        # Redis 不可用时，降级为轮询模式
-        await websocket.send_text(json.dumps({
-            "task_id": task_id,
-            "message": "实时进度不可用 (Redis 未连接)，请使用轮询 API",
-        }))
-    except Exception as e:
-        log.error("WebSocket 错误: %s", e)
+    except (ImportError, Exception) as e:
+        try:
+            await websocket.send_text(json.dumps({
+                "task_id": task_id,
+                "message": f"实时进度不可用 ({e})，请使用轮询 API",
+            }))
+        except Exception:
+            pass
     finally:
         try:
             await websocket.close()

@@ -67,7 +67,23 @@ def mount_fastapi_routes(demo_instance):
         if demo_instance.server_app not in targets:
             targets.append(demo_instance.server_app)
 
+    import asyncio
+    from src.database import init_db
+    try:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            asyncio.create_task(init_db())
+        else:
+            asyncio.run(init_db())
+    except Exception as e:
+        import logging
+        logging.getLogger("uvicorn").warning("初始化 SaaS 数据库异常: %s", e)
+
     from src.api_server import api_router
+    from src.editor_server import router as editor_router
 
     for target in targets:
         existing_paths = {getattr(r, "path", "") for r in getattr(target, "routes", []) if hasattr(r, "path")}
@@ -75,6 +91,8 @@ def mount_fastapi_routes(demo_instance):
             target.include_router(fastapi_app.router)
         if "/api/auth/me" not in existing_paths:
             target.include_router(api_router)
+        if "/api/editor/songs" not in existing_paths:
+            target.include_router(editor_router)
 
 
 if __name__ == "__main__":

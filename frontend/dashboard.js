@@ -14,6 +14,11 @@ function resolveApiBase() {
   const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
   let saved = (localStorage.getItem("m2v_api_base") || "").trim();
 
+  const isStaticCloud =
+    location.hostname === "mv.fovea.si" ||
+    location.hostname.endsWith(".pages.dev") ||
+    location.hostname.includes("fovea.si");
+
   // 若在非本地环境（线上生产），但 saved 包含 localhost/127.0.0.1，必须清除
   if (!isLocal && (saved.includes("localhost") || saved.includes("127.0.0.1"))) {
     console.warn("[M2V] 清除残留的本地 API 地址:", saved);
@@ -24,10 +29,9 @@ function resolveApiBase() {
   // 若 saved 错误指向了静态站域名 (mv.fovea.si / pages.dev / 相对根路径)，静态站无法提供 API，必须清除
   if (
     saved &&
-    (saved === location.origin ||
+    ((isStaticCloud && (saved === location.origin || saved.includes(location.host))) ||
       saved === "/" ||
       saved === "" ||
-      saved.includes(location.host) ||
       saved.includes("fovea.si") ||
       saved.includes("pages.dev"))
   ) {
@@ -81,8 +85,8 @@ async function api(path, options = {}) {
     throw new Error(`后端 API 尚未连通：请求目标 [${url}] 返回了静态页面，请确认后端服务运行状态。`);
   }
 
-  if (res.status === 401 && refreshToken) {
-    // 尝试刷新 token
+  if (res.status === 401) {
+    // 尝试刷新 token (Firebase ID Token 优先，随后本地 refresh_token)
     const refreshed = await tryRefresh();
     if (refreshed) {
       headers["Authorization"] = `Bearer ${token}`;
@@ -96,21 +100,39 @@ async function api(path, options = {}) {
 }
 
 async function tryRefresh() {
-  try {
-    const res = await fetch(`${API}/api/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      token = data.access_token;
-      refreshToken = data.refresh_token;
-      localStorage.setItem("m2v_token", token);
-      localStorage.setItem("m2v_refresh", refreshToken);
-      return true;
+  // 1. 若当前存在 Firebase 用户，使用 Firebase Web SDK 强制获取最新 ID Token
+  if (typeof firebase !== "undefined" && firebase.auth && firebase.auth().currentUser) {
+    try {
+      const fbUser = firebase.auth().currentUser;
+      const newToken = await fbUser.getIdToken(true);
+      if (newToken) {
+        token = newToken;
+        localStorage.setItem("m2v_token", token);
+        return true;
+      }
+    } catch (fbErr) {
+      console.warn("[M2V] Firebase 令牌刷新失败:", fbErr);
     }
-  } catch (e) { /* ignore */ }
+  }
+
+  // 2. 本地开发账号使用 refresh_token 刷新
+  if (refreshToken) {
+    try {
+      const res = await fetch(`${API}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        token = data.access_token;
+        refreshToken = data.refresh_token;
+        localStorage.setItem("m2v_token", token);
+        localStorage.setItem("m2v_refresh", refreshToken);
+        return true;
+      }
+    } catch (e) { /* ignore */ }
+  }
   return false;
 }
 
@@ -136,8 +158,13 @@ function initAuth() {
         const { user, idToken } = await window.m2vAuth.loginWithGoogle();
         token = idToken;
         localStorage.setItem("m2v_token", token);
-        await loadUser();
-        showApp();
+        const ok = await loadUser();
+        if (ok) {
+          showApp();
+        } else {
+          logout();
+          throw new Error("云端用户身份校验未通过，请重试");
+        }
       } catch (err) {
         console.error("Google 登录异常:", err);
         $("#auth-error").textContent = err.message || "Google 登录失败，请重试";
@@ -215,12 +242,19 @@ function updateAuthUI() {
   }
 }
 
-function logout() {
+async function logout() {
   token = null;
   refreshToken = null;
   currentUser = null;
   localStorage.removeItem("m2v_token");
   localStorage.removeItem("m2v_refresh");
+  if (window.m2vAuth && typeof window.m2vAuth.logout === "function") {
+    try {
+      await window.m2vAuth.logout();
+    } catch (e) {
+      console.warn("Firebase logout error:", e);
+    }
+  }
   showAuth();
 }
 
@@ -259,12 +293,19 @@ function showApp() {
 }
 
 async function loadUser() {
-  const res = await api("/api/auth/me");
-  if (res.ok) {
-    currentUser = await res.json();
-    $("#user-info").textContent = `👤 ${currentUser.username}`;
-    $("#user-credits").textContent = `剩余 ${currentUser.credits} 次`;
+  try {
+    const res = await api("/api/auth/me");
+    if (res.ok) {
+      currentUser = await res.json();
+      $("#user-info").textContent = `👤 ${currentUser.username}`;
+      $("#user-credits").textContent = `剩余 ${currentUser.credits} 次`;
+      return true;
+    }
+  } catch (e) {
+    console.error("[M2V] 加载用户信息失败:", e);
   }
+  currentUser = null;
+  return false;
 }
 
 
@@ -502,7 +543,42 @@ async function handleTaskAction(e) {
 
   if (action === "download") {
     const type = btn.dataset.type;
-    window.open(`${API}/api/tasks/${taskId}/download/${type}`, "_blank");
+    const originalText = btn.textContent;
+    btn.textContent = "下载中...";
+    btn.disabled = true;
+    try {
+      const downloadToken = token || localStorage.getItem("m2v_token") || "";
+      const dlUrl = `${API}/api/tasks/${taskId}/download/${type}${downloadToken ? `?token=${encodeURIComponent(downloadToken)}` : ""}`;
+      const res = await fetch(dlUrl, {
+        headers: downloadToken ? { Authorization: `Bearer ${downloadToken}` } : {},
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+        throw new Error(err.detail || `HTTP ${res.status}`);
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      const disposition = res.headers.get("content-disposition");
+      let filename = `task_${taskId.slice(0, 8)}.${type === "alignment" ? "json" : type}`;
+      if (disposition && disposition.includes("filename=")) {
+        const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (match && match[1]) {
+          filename = match[1].replace(/['"]/g, "");
+        }
+      }
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+    } catch (err) {
+      alert(`下载失败: ${err.message}`);
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
   } else if (action === "delete") {
     if (!confirm("确定删除此任务？")) return;
     const res = await api(`/api/tasks/${taskId}`, { method: "DELETE" });
@@ -516,6 +592,7 @@ async function handleTaskAction(e) {
 // ======================================================================
 
 function connectProgressWS(taskId) {
+  const currentToken = token || localStorage.getItem("m2v_token") || "";
   let wsUrl = "";
   if (API) {
     try {
@@ -529,6 +606,9 @@ function connectProgressWS(taskId) {
   } else {
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     wsUrl = `${protocol}//${location.host}/ws/tasks/${taskId}/progress`;
+  }
+  if (currentToken) {
+    wsUrl += `?token=${encodeURIComponent(currentToken)}`;
   }
   const ws = new WebSocket(wsUrl);
 

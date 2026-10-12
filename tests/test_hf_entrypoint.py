@@ -72,6 +72,7 @@ def test_hf_app_entrypoint_routes():
         ("GET", "/api/gpu/status"),
         ("GET", "/api/tasks"),
         ("GET", "/api/auth/me"),
+        ("GET", "/api/editor/songs"),
     ]
 
     for method, path in endpoints:

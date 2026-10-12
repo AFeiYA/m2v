@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
+    # ── Firebase ──────────────────────────────────────────
+    FIREBASE_PROJECT_ID: str = "dc-test-731fa"
+
     # ── 文件存储 ──────────────────────────────────────────
     # "local" | "s3" | "r2"
     STORAGE_BACKEND: str = "local"

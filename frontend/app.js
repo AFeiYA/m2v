@@ -233,6 +233,11 @@ function resolveApiBase() {
   const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
   let saved = (localStorage.getItem("m2v_api_base") || "").trim();
 
+  const isStaticCloud =
+    location.hostname === "mv.fovea.si" ||
+    location.hostname.endsWith(".pages.dev") ||
+    location.hostname.includes("fovea.si");
+
   // 若在非本地环境（线上生产），但 saved 包含 localhost/127.0.0.1，必须清除
   if (!isLocal && (saved.includes("localhost") || saved.includes("127.0.0.1"))) {
     localStorage.removeItem("m2v_api_base");
@@ -242,10 +247,9 @@ function resolveApiBase() {
   // 若 saved 错误指向了静态站域名 (mv.fovea.si / pages.dev / 相对根路径)，静态站无法提供 API，必须清除
   if (
     saved &&
-    (saved === location.origin ||
+    ((isStaticCloud && (saved === location.origin || saved.includes(location.host))) ||
       saved === "/" ||
       saved === "" ||
-      saved.includes(location.host) ||
       saved.includes("fovea.si") ||
       saved.includes("pages.dev"))
   ) {
