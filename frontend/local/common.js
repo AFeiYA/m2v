@@ -47,6 +47,8 @@ function updateAuthUi() {
       if (window.m2vAuth?.logout) await window.m2vAuth.logout();
       localStorage.removeItem("m2v_token");
       localStorage.removeItem("m2v_user");
+      localStorage.removeItem("m2v_refresh");
+      localStorage.removeItem("m2v_auth_provider");
       updateAuthUi();
       await loadFileList();
     };
@@ -56,7 +58,7 @@ function updateAuthUi() {
     btn.onclick = async () => {
       if (window.m2vAuth?.loginWithGoogle) {
         try {
-          await window.m2vAuth.loginWithGoogle();
+          await editorLogin();
           updateAuthUi();
           await loadFileList();
         } catch (e) {
@@ -70,7 +72,35 @@ function updateAuthUi() {
 }
 window.updateAuthUi = updateAuthUi;
 
-function apiFetch(url, options = {}) {
+let editorRefreshPromise = null;
+async function refreshEditorToken() {
+  if (editorRefreshPromise) return editorRefreshPromise;
+  editorRefreshPromise = (async () => {
+    const provider = localStorage.getItem("m2v_auth_provider");
+    const fbUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
+    if (provider === "firebase" || fbUser) {
+      // Never switch a Google session to a retained local-account refresh token.
+      if (!fbUser) return null;
+      const token = await fbUser.getIdToken(true);
+      localStorage.setItem("m2v_token", token);
+      return token;
+    }
+    const refresh = localStorage.getItem("m2v_refresh");
+    if (!refresh) return null;
+    const response = await fetch(getApiUrl("/api/auth/refresh"), {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({refresh_token: refresh}),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    localStorage.setItem("m2v_token", data.access_token);
+    localStorage.setItem("m2v_refresh", data.refresh_token);
+    return data.access_token;
+  })().catch(() => null).finally(() => { editorRefreshPromise = null; });
+  return editorRefreshPromise;
+}
+
+async function apiFetch(url, options = {}) {
   const fullUrl = getApiUrl(url);
   const token = localStorage.getItem("m2v_token");
   const opts = { ...options };
@@ -79,10 +109,52 @@ function apiFetch(url, options = {}) {
     headers.set("Authorization", `Bearer ${token}`);
   }
   opts.headers = headers;
+  const response = await fetch(fullUrl, opts);
+  if (response.status !== 401 || !isCloudMode()) return response;
+  const refreshed = await refreshEditorToken();
+  if (!refreshed) return response;
+  headers.set("Authorization", `Bearer ${refreshed}`);
   return fetch(fullUrl, opts);
 }
 window.apiFetch = apiFetch;
 window.getApiUrl = getApiUrl;
+
+async function editorLogin() {
+  const result = await window.m2vAuth.loginWithGoogle();
+  localStorage.setItem("m2v_auth_provider", "firebase");
+  localStorage.removeItem("m2v_refresh");
+  return result;
+}
+
+function setupEditorAuth() {
+  if (typeof firebase === "undefined" || !firebase.auth || window.editorAuthBound) return;
+  window.editorAuthBound = true;
+  firebase.auth().onAuthStateChanged(async user => {
+    if (localStorage.getItem("m2v_auth_provider") === "local") return;
+    if (user) {
+      localStorage.setItem("m2v_auth_provider", "firebase");
+      localStorage.removeItem("m2v_refresh");
+      localStorage.setItem("m2v_token", await user.getIdToken());
+      updateAuthUi();
+      // Auth restoration may arrive after the initial anonymous list request.
+      if (!state.currentFile) await loadFileList();
+    } else if (localStorage.getItem("m2v_auth_provider") === "firebase") {
+      localStorage.removeItem("m2v_token");
+      updateAuthUi();
+    }
+  });
+}
+window.setupEditorAuth = setupEditorAuth;
+
+let trackBlobUrls = [];
+async function loadEditorAudio(player, path) {
+  if (!isCloudMode()) return player.load(formatAudioEndpoint(path));
+  const response = await apiFetch(path);
+  if (!response.ok) throw new Error(`音轨读取失败 (HTTP ${response.status})`);
+  const url = URL.createObjectURL(await response.blob());
+  trackBlobUrls.push(url);
+  return player.load(url);
+}
 
 function formatAudioEndpoint(relPath) {
   if (!relPath) return null;
@@ -315,8 +387,8 @@ async function loadFileList(preferredTitle) {
         json_path: s.task_id,
         audio_path: `/api/editor/tasks/${s.task_id}/audio`,
         audio_tracks: {
-          vocals: `/api/editor/tasks/${s.task_id}/vocals`,
-          instrumental: `/api/editor/tasks/${s.task_id}/inst`,
+          vocals: s.has_vocals ? `/api/editor/tasks/${s.task_id}/vocals` : null,
+          instrumental: s.has_instrumental ? `/api/editor/tasks/${s.task_id}/inst` : null,
         },
         lines_count: s.lines_count,
         duration: s.duration,
@@ -372,6 +444,11 @@ async function loadSong(idx) {
   const file = state.allFiles[idx];
   if (!file) return;
 
+  if (ws) { ws.pause(); ws.empty(); }
+  if (wsInst) { wsInst.pause(); wsInst.empty(); }
+  trackBlobUrls.forEach(url => URL.revokeObjectURL(url));
+  trackBlobUrls = [];
+
   state.currentFile = file;
   state.selectedLine = -1;
   state.selectedWord = -1;
@@ -421,7 +498,7 @@ async function loadSong(idx) {
   if (primaryUrl && ws) {
     setTrackLoadingState("vocals", true, primaryTitle);
     loadTasks.push(
-      ws.load(primaryUrl)
+      loadEditorAudio(ws, tracks.vocals || file.audio_path)
         .then(() => {
           vocalsReady = true;
           setTrackLoadingState("vocals", false, primaryTitle);
@@ -436,7 +513,7 @@ async function loadSong(idx) {
     if (dom.trackInst) dom.trackInst.classList.remove("hidden");
     setTrackLoadingState("instrumental", true, instTitle);
     loadTasks.push(
-      wsInst.load(instUrl)
+      loadEditorAudio(wsInst, tracks.instrumental)
         .then(() => {
           instReady = true;
           setTrackLoadingState("instrumental", false, instTitle);
@@ -452,6 +529,11 @@ async function loadSong(idx) {
   }
 
   Promise.allSettled(loadTasks).then(() => {
+    if (state.currentFile !== file) return;
+    if ((primaryUrl && !vocalsReady) || (instUrl && !instReady)) {
+      status("歌词已加载，但部分音轨加载失败，请重试", true);
+      return;
+    }
     const trackInfo = [
       vocalsUrl ? (window.t ? t("msg_track_vocals") : "人声") : null,
       instUrl ? (window.t ? t("msg_track_inst") : "伴奏") : null,
@@ -554,7 +636,7 @@ async function handleSunoImport() {
         const proceed = confirm("云端对齐需要登录以隔离您的工程任务，是否立即使用 Google 账号登录？");
         if (proceed) {
           try {
-            await window.m2vAuth.loginWithGoogle();
+            await editorLogin();
             updateAuthUi();
           } catch (authErr) {
             alert("登录已取消或失败: " + authErr.message);
@@ -839,7 +921,7 @@ window.downloadOriginalAudio = downloadOriginalAudio;
 // Save Alignment (Pydantic v2 Backend)
 // ---------------------------------------------------------------------------
 async function saveAlignment() {
-  if (!state.currentFile || !state.alignment) return;
+  if (!state.currentFile || !state.alignment) return false;
   status(window.t ? t("msg_saving") : "保存中…");
   try {
     let r;
@@ -871,13 +953,16 @@ async function saveAlignment() {
         msg += JSON.stringify(j);
       }
       status(msg, true);
+      return false;
     } else {
       state.dirty = false;
       document.title = (state.currentFile?.name || "M2V") + " — " + (window.t ? t("app_title") : "编辑器");
       status(window.t ? t("msg_saved") : "✅ 已保存");
+      return true;
     }
   } catch (e) {
     status((window.t ? t("msg_save_failed") : "保存失败: ") + e, true);
+    return false;
   }
 }
 
@@ -1089,11 +1174,7 @@ window.renderLineCharSpans = renderLineCharSpans;
 window.addEventListener("DOMContentLoaded", () => {
   renderSunoUrlHistory();
   updateAuthUi();
-  if (window.m2vAuth?.onAuthStateChanged) {
-    window.m2vAuth.onAuthStateChanged(() => {
-      updateAuthUi();
-    });
-  }
+  setupEditorAuth();
 
   // 开发者调试模式初始化
   checkAndApplyDevMode();
@@ -1131,19 +1212,21 @@ window.addEventListener("DOMContentLoaded", () => {
     button.disabled = true;
     try {
       status(window.t ? t("msg_analyzing_audio") : "正在分析原曲节拍、能量和频段变化…");
-      const response = await apiFetch("/api/audio/analyze", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({json_path: song.json_path})});
+      const cloud = Boolean(song.is_saas || song.task_id);
+      const response = await apiFetch(cloud ? `/api/editor/tasks/${song.task_id}/analyze` : "/api/audio/analyze", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(cloud ? {} : {json_path: song.json_path})});
       if (!response.ok) throw new Error(await response.text());
       const task = await response.json();
       let result;
       do {
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const poll = await apiFetch("/api/audio/analyze/" + task.task_id);
+        const poll = await apiFetch(cloud ? `/api/editor/jobs/${task.task_id}` : "/api/audio/analyze/" + task.task_id);
         if (!poll.ok) throw new Error(await poll.text());
         result = await poll.json();
-      } while (result.status === "running");
-      if (result.status !== "done") throw new Error(result.error || "分析失败");
+      } while (["running", "pending"].includes(result.status));
+      if (!["done", "completed"].includes(result.status)) throw new Error(result.error || "分析失败");
+      if (cloud) result = result.result;
       if (state.currentFile === song) {
-        const updated = await apiFetch("/api/alignment?path=" + encodeURIComponent(song.json_path));
+        const updated = await apiFetch(cloud ? `/api/editor/tasks/${song.task_id}/align` : "/api/alignment?path=" + encodeURIComponent(song.json_path));
         if (!updated.ok) throw new Error(await updated.text());
         const project = await updated.json();
         // Retain unsaved lyric edits in the open editor.

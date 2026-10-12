@@ -19,8 +19,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth import get_current_user, get_current_user_flexible
+from src.auth import get_current_user_flexible
 from src.database import get_db
+from src.editor_operations import router as operations_router
 from src.models import Task, TaskStatus, User
 from src.storage import LocalStorage, get_storage
 from src.utils import log
@@ -69,6 +70,8 @@ async def list_songs(
             "stem": title,
             "has_alignment": True,
             "has_audio": task.input_mp3_key is not None,
+            "has_vocals": await _find_track_key(storage, task, "vocals") is not None,
+            "has_instrumental": await _find_track_key(storage, task, "instrumental") is not None,
             "lines_count": lines_count,
             "duration": round(duration, 1),
             "status": task.status.value if isinstance(task.status, TaskStatus) else task.status,
@@ -154,12 +157,23 @@ async def _stream_storage_file(storage, key: str):
         if not local_path.exists():
             raise HTTPException(404, "音频文件不存在")
         suffix = local_path.suffix.lower()
-        media_type = "audio/mpeg" if suffix == ".mp3" else "audio/wav"
+        media_type = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".flac": "audio/flac",
+                      ".m4a": "audio/mp4", ".mp4": "video/mp4"}.get(suffix, "application/octet-stream")
         return FileResponse(local_path, media_type=media_type)
 
     url = await storage.get_url(key)
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url)
+
+
+async def _find_track_key(storage, task, kind):
+    stem = Path(task.input_mp3_key).stem if task.input_mp3_key else task.title
+    for ext in (".mp3", ".wav", ".flac"):
+        for name in (f"{stem}_{kind}{ext}", f"{task.title}_{kind}{ext}", f"{task.id}_{kind}{ext}", f"source_{kind}{ext}"):
+            key = f"results/{task.id}/{name}"
+            if await storage.exists(key):
+                return key
+    return None
 
 
 @router.get("/tasks/{task_id}/audio")
@@ -186,13 +200,10 @@ async def get_vocals(
     """返回任务的人声音轨文件"""
     task = await _get_user_task(db, user.id, task_id)
     storage = get_storage()
-    stem = Path(task.input_mp3_key).stem if task.input_mp3_key else task.title
-    for ext in (".mp3", ".wav", ".flac"):
-        for name in (f"{stem}_vocals{ext}", f"{task.title}_vocals{ext}", f"{task_id}_vocals{ext}", f"source_vocals{ext}"):
-            v_key = f"results/{task_id}/{name}"
-            if await storage.exists(v_key):
-                return await _stream_storage_file(storage, v_key)
-    return await get_audio(task_id, user, db)
+    key = await _find_track_key(storage, task, "vocals")
+    if key is None:
+        raise HTTPException(404, "该任务没有分离人声，请试听原曲")
+    return await _stream_storage_file(storage, key)
 
 
 @router.get("/tasks/{task_id}/inst")
@@ -204,13 +215,10 @@ async def get_inst(
     """返回任务的伴奏音轨文件"""
     task = await _get_user_task(db, user.id, task_id)
     storage = get_storage()
-    stem = Path(task.input_mp3_key).stem if task.input_mp3_key else task.title
-    for ext in (".mp3", ".wav", ".flac"):
-        for name in (f"{stem}_instrumental{ext}", f"{task.title}_instrumental{ext}", f"{task_id}_instrumental{ext}", f"source_instrumental{ext}"):
-            i_key = f"results/{task_id}/{name}"
-            if await storage.exists(i_key):
-                return await _stream_storage_file(storage, i_key)
-    return await get_audio(task_id, user, db)
+    key = await _find_track_key(storage, task, "instrumental")
+    if key is None:
+        raise HTTPException(404, "该任务没有分离伴奏")
+    return await _stream_storage_file(storage, key)
 
 
 # ======================================================================
@@ -354,3 +362,6 @@ async def _load_alignment(storage, key: str) -> dict:
         return json.loads(tmp.read_text(encoding="utf-8"))
     finally:
         tmp.unlink(missing_ok=True)
+
+
+router.include_router(operations_router)

@@ -24,6 +24,7 @@
           s3.src = "/firebase-config.js";
           s3.onload = () => {
             if (window.updateAuthUi) window.updateAuthUi();
+            if (window.setupEditorAuth) window.setupEditorAuth();
           };
           document.head.appendChild(s3);
         };
@@ -370,8 +371,8 @@
     </div>
   </div>
 
-  <script src="/static/common.js?v=20261011_v3"></script>
-  <script src="/static/lyric_editor.js?v=20261011_v3"></script>
+  <script src="/static/common.js?v=20261012_cloud_ops"></script>
+  <script src="/static/lyric_editor.js?v=20261012_cloud_ops"></script>
 </body>
 
 </html>

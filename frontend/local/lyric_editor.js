@@ -444,11 +444,15 @@ function initLyricExportModal() {
 
       try {
         const fetchFn = window.apiFetch || fetch;
-        const res = await fetchFn("/api/lyric_video/export", {
+        const cloud = Boolean(state.currentFile.is_saas || state.currentFile.task_id);
+        if (cloud && state.dirty && !(await saveAlignment())) {
+          throw new Error("歌词修改保存失败，未提交导出任务");
+        }
+        const res = await fetchFn(cloud ? `/api/editor/tasks/${state.currentFile.task_id}/lyric-video` : "/api/lyric_video/export", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            json_path: state.currentFile.json_path,
+            ...(cloud ? {} : {json_path: state.currentFile.json_path}),
             aspect_ratio: ratio,
             template: template,
             theme: theme,
@@ -465,11 +469,16 @@ function initLyricExportModal() {
         const taskId = data.task_id;
 
         // 轮询任务进度
+        let polling = false;
+        let pollErrors = 0;
         const pollInterval = setInterval(async () => {
+          if (polling) return;
+          polling = true;
           try {
-            const sRes = await fetchFn(`/api/lyric_video/task_status?task_id=${taskId}`);
-            if (!sRes.ok) return;
+            const sRes = await fetchFn(cloud ? `/api/editor/jobs/${taskId}` : `/api/lyric_video/task_status?task_id=${taskId}`);
+            if (!sRes.ok) throw new Error(`任务状态读取失败 (HTTP ${sRes.status})`);
             const task = await sRes.json();
+            pollErrors = 0;
 
             const prog = Math.round(task.progress || 0);
             progressBar.style.width = `${prog}%`;
@@ -485,6 +494,15 @@ function initLyricExportModal() {
 
               // 展示结果
               const result = task.result || {};
+              // Polling has stopped; a download error must surface immediately.
+              pollErrors = 3;
+              if (cloud && result.video_url) {
+                const video = await fetchFn(result.video_url);
+                if (!video.ok) throw new Error(`视频读取失败 (HTTP ${video.status})`);
+                if (resultVideo?.dataset.blobUrl) URL.revokeObjectURL(resultVideo.dataset.blobUrl);
+                result.video_url = URL.createObjectURL(await video.blob());
+                if (resultVideo) resultVideo.dataset.blobUrl = result.video_url;
+              }
               resultBox.style.display = "flex";
               const elapsedLabel = window.currentLocale === "en" ? "Elapsed" : "耗时";
               resultMeta.textContent = `${result.resolution ? result.resolution.join('x') : ''} · ${result.size_mb || 0}MB · ${elapsedLabel} ${result.elapsed_seconds || 0}s`;
@@ -496,10 +514,10 @@ function initLyricExportModal() {
               }
               if (btnDownload && result.video_url) {
                 btnDownload.href = result.video_url;
-                btnDownload.download = result.video_url.split("/").pop() || "lyric_video.mp4";
+                btnDownload.download = cloud ? "lyric_video.mp4" : result.video_url.split("/").pop() || "lyric_video.mp4";
               }
               status(window.t ? t("msg_video_success") : "🎉 动效短视频已生成完成！");
-            } else if (task.status === "failed") {
+            } else if (["failed", "interrupted"].includes(task.status)) {
               clearInterval(pollInterval);
               btnStart.disabled = false;
               btnStart.textContent = window.t ? t("btn_modal_start") : "🚀 立即开始合成短视频";
@@ -509,8 +527,16 @@ function initLyricExportModal() {
               status(window.t ? t("msg_video_failed") : "短视频合成失败", true);
             }
           } catch (e) {
-            console.error("轮询异常:", e);
-          }
+            pollErrors++;
+            if (pollErrors >= 3 || /HTTP (401|403|404)/.test(e.message)) {
+              clearInterval(pollInterval);
+              btnStart.disabled = false;
+              btnStart.textContent = window.t ? t("btn_modal_start") : "🚀 立即开始合成短视频";
+              btnStart.style.opacity = "1";
+              progressBox.style.display = "none";
+              status(e.message, true);
+            }
+          } finally { polling = false; }
         }, 800);
 
       } catch (err) {

@@ -297,3 +297,98 @@ def test_editor_saas_routes_multi_track_and_isolation(sandbox):
     assert sandbox.client.get("/api/editor/tasks/alice_task/align", headers=headers("bob")).status_code == 404
     assert sandbox.client.get("/api/editor/tasks/alice_task/vocals", headers=headers("bob")).status_code == 404
 
+
+def seed_editor_song(sandbox):
+    key = "results/editor/alignment.json"
+    path = sandbox.storage.get_local_path(key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"duration": 2, "lines": [{"text": "hello", "start": 0, "end": 1, "words": [{"word": "hello", "start": 0, "end": 1}]}]}')
+    audio = sandbox.storage.get_local_path("uploads/alice/editor/source.wav")
+    audio.parent.mkdir(parents=True, exist_ok=True)
+    audio.write_bytes(b"original")
+    async def seed():
+        async with sandbox.sessions() as db:
+            db.add(Task(id="editor", user_id="alice", title="Song", status=TaskStatus.COMPLETED,
+                        alignment_json_key=key, input_mp3_key="uploads/alice/editor/source.wav",
+                        input_lyrics_key="lyrics.txt"))
+            await db.commit()
+    asyncio.run(seed())
+    return path
+
+
+def test_missing_tracks_are_not_original_audio(sandbox):
+    seed_editor_song(sandbox)
+    songs = sandbox.client.get("/api/editor/songs", headers=headers()).json()
+    assert songs[0]["has_vocals"] is False
+    assert songs[0]["has_instrumental"] is False
+    for kind in ("vocals", "inst"):
+        assert sandbox.client.get(f"/api/editor/tasks/editor/{kind}", headers=headers()).status_code == 404
+    assert sandbox.client.get("/api/editor/tasks/editor/audio", headers=headers()).content == b"original"
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_editor_export_options_download_and_isolation(sandbox, monkeypatch, tmp_path, fail):
+    from src import editor_operations as ops
+    from src.task_store import TaskStore
+    monkeypatch.setattr(ops, "jobs", TaskStore(tmp_path / "jobs"))
+    seed_editor_song(sandbox)
+    seen = []
+    def render(alignment, audio, output, options, progress):
+        seen.append(options)
+        assert audio.read_bytes() == b"original"
+        assert alignment.exists()
+        if fail:
+            raise RuntimeError("render failed")
+        output.write_bytes(b"video")
+        return {"resolution": [1080, 1920], "size_mb": 1, "video_path": str(output)}
+    monkeypatch.setattr(ops, "render_video", render)
+    endpoint = "/api/editor/tasks/editor/lyric-video"
+    body = {"aspect_ratio": "9:16", "start_time": 0.5, "end_time": 1.5, "background_mode": "solid_black"}
+    assert sandbox.client.post(endpoint, json=body, headers=headers("bob")).status_code == 404
+    assert sandbox.client.post(endpoint, json={"start_time": 2, "end_time": 1}, headers=headers()).status_code == 422
+    res = sandbox.client.post(endpoint, json=body, headers=headers())
+    assert res.status_code == 200
+    job_id = res.json()["task_id"]
+    state_url = f"/api/editor/jobs/{job_id}"
+    assert sandbox.client.get(state_url, headers=headers("bob")).status_code == 404
+    state = sandbox.client.get(state_url, headers=headers()).json()
+    assert state["status"] == ("failed" if fail else "completed")
+    assert "user_id" not in state
+    assert seen[0]["start_time"] == 0.5
+    assert seen[0]["aspect_ratio"] == "9:16"
+    if not fail:
+        assert "video_path" not in state["result"]
+        url = state["result"]["video_url"]
+        assert sandbox.client.get(url, headers=headers("bob")).status_code == 404
+        assert sandbox.client.get(url, headers=headers()).headers["content-type"] == "video/mp4"
+        assert sandbox.client.get(url, headers=headers()).content == b"video"
+
+
+def test_editor_analysis_keeps_edits_saved_during_inference(sandbox, monkeypatch, tmp_path):
+    from src import editor_operations as ops
+    from src.task_store import TaskStore
+    monkeypatch.setattr(ops, "jobs", TaskStore(tmp_path / "jobs"))
+    path = seed_editor_song(sandbox)
+    import json
+    analysis = types.SimpleNamespace(duration=2, beats=[1], downbeats=[], drum_hits=[], energy_curve=[],
+        envelopes=[], bpm=120, metadata={"cache_hit": False}, model_dump=lambda: {"bpm": 120})
+    def analyze(audio, cache, force):
+        assert audio.read_bytes() == b"original"
+        # Simulate a user saving lyrics while the expensive analysis is running.
+        payload = json.loads(path.read_text())
+        payload["lines"][0]["text"] = "edited during analysis"
+        path.write_text(json.dumps(payload))
+        return analysis
+    monkeypatch.setattr(ops, "analyze_audio", analyze)
+    fake = types.ModuleType("src.audio_analyzer")
+    fake.detect_cut_candidates = lambda *a: []
+    monkeypatch.setitem(sys.modules, "src.audio_analyzer", fake)
+    res = sandbox.client.post("/api/editor/tasks/editor/analyze", json={}, headers=headers())
+    job_id = res.json()["task_id"]
+    status = sandbox.client.get(f"/api/editor/jobs/{job_id}", headers=headers()).json()
+    assert status["status"] == "completed"
+    assert status["result"]["bpm"] == 120
+    payload = sandbox.client.get("/api/editor/tasks/editor/align", headers=headers()).json()
+    assert payload["lines"][0]["text"] == "edited during analysis"
+    assert payload["analysis"]["bpm"] == 120
+    assert sandbox.client.post("/api/editor/tasks/editor/analyze", json={}, headers=headers("bob")).status_code == 404
