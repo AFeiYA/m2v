@@ -8,7 +8,7 @@ const I18N = {
     // App & Header
     app_title: "M2V 歌词与字幕对齐编辑器",
     header_title: "🎤 M2V 歌词",
-    header_title_title: "三击标题可显示/隐藏开发者调试选项（含URL测试历史）",
+    header_title_title: "三击标题可显示/隐藏开发者调试选项（含音频分析、分镜制作与URL测试历史）",
     url_placeholder: "粘贴 Suno / 网易云歌曲链接或 iframe...",
     url_history_title: "最近 10 条测试 URL 历史记录",
     url_history_default: "🕒 最近历史",
@@ -401,7 +401,7 @@ const I18N = {
     // App & Header
     app_title: "M2V Lyrics & Subtitle Alignment Editor",
     header_title: "🎤 M2V Lyrics",
-    header_title_title: "Triple-click title to toggle developer options (including URL history)",
+    header_title_title: "Triple-click title to toggle developer options (audio analysis, storyboard & URL history)",
     url_placeholder: "Paste Suno / NetEase song link or iframe...",
     url_history_title: "Recent 10 test URL history items",
     url_history_default: "🕒 Recent History",

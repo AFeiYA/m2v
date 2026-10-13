@@ -1299,7 +1299,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const titleEl = document.querySelector("header h1");
   if (titleEl) {
     titleEl.style.cursor = "pointer";
-    titleEl.title = window.t ? t("header_title_title") : "三击标题可显示/隐藏开发者调试选项（含URL测试历史与仅下MP3）";
+    titleEl.title = window.t ? t("header_title_title") : "三击标题可显示/隐藏开发者调试选项（含音频分析、分镜制作与URL测试历史）";
     titleEl.addEventListener("click", () => {
       clickCount++;
       clearTimeout(clickTimer);
@@ -1397,6 +1397,21 @@ function checkAndApplyDevMode() {
   if (devOpt) {
     devOpt.style.display = isDev ? "inline-flex" : "none";
   }
+
+  // 分析音频与分镜制作（Debug 模式，默认隐藏，三击标题显示）
+  const analyzeBtn = document.getElementById("btn-analyze-audio");
+  if (analyzeBtn) {
+    analyzeBtn.style.display = isDev ? "inline-block" : "none";
+  }
+  const storyboardNav = document.getElementById("nav-storyboard");
+  if (storyboardNav) {
+    storyboardNav.style.display = isDev ? "inline-flex" : "none";
+  }
+  const audioSummary = document.getElementById("audio-analysis-summary");
+  if (audioSummary) {
+    audioSummary.style.display = isDev ? "block" : "none";
+  }
+
   // 导入对齐与仅下 MP3 均为默认常驻可见操作按钮
   const quickMp3Btn = document.getElementById("btn-quick-download-mp3");
   if (quickMp3Btn) {
@@ -1417,8 +1432,8 @@ window.toggleDevMode = function(forceState) {
   console.log(`[Suno2MV] 开发者调试模式已${next ? "开启" : "关闭"}`);
   if (typeof status === "function") {
     status(next
-      ? (window.t ? t("msg_dev_enabled") : "🛠 已开启开发者模式（已显示最近 URL 历史）")
-      : (window.t ? t("msg_dev_disabled") : "🛠 已隐藏开发者选项"));
+      ? (window.t ? t("msg_dev_enabled") : "🛠 已开启开发者调试模式（已显示 分析音频、分镜制作及测试历史）")
+      : (window.t ? t("msg_dev_disabled") : "🛠 已隐藏开发者调试选项"));
   }
   return next;
 };
