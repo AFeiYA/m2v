@@ -47,6 +47,10 @@ class StorageBackend(ABC):
         """检查文件是否存在"""
         ...
 
+    async def list_keys(self, prefix: str) -> list[str]:
+        """Enumerate an application's private namespace."""
+        raise NotImplementedError("存储后端不支持列举资源")
+
 
 # ======================================================================
 # 本地文件存储
@@ -93,6 +97,12 @@ class LocalStorage(StorageBackend):
 
     async def exists(self, key: str) -> bool:
         return self._resolve_key(key).exists()
+
+    async def list_keys(self, prefix: str) -> list[str]:
+        folder = self._resolve_key(prefix)
+        if not folder.is_dir():
+            return []
+        return [p.relative_to(self.base_dir).as_posix() for p in folder.rglob("*") if p.is_file()]
 
     def get_local_path(self, key: str) -> Path:
         """本地模式特有：直接返回磁盘路径（避免复制）"""
@@ -154,6 +164,12 @@ class S3Storage(StorageBackend):
             return True
         except Exception:
             return False
+
+    async def list_keys(self, prefix: str) -> list[str]:
+        def collect():
+            pages = self.client.get_paginator("list_objects_v2").paginate(Bucket=self.bucket, Prefix=prefix)
+            return [item["Key"] for page in pages for item in page.get("Contents", [])]
+        return await asyncio.to_thread(collect)
 
 
 # ======================================================================

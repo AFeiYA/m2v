@@ -13,6 +13,7 @@ import uuid
 from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from src.session_manager import resolve_session_id
 from src.motion_director import validate_plan, rule_plan, llm_prompt, director_input, line_prompt_bundle, line_response, cue_signature, source_signature
@@ -59,14 +60,19 @@ class RenderRequest(ProjectRequest):
     post: bool = True
 
 
-def create_motion_router(get_scan_dir, validate_path, find_audio):
-    router = APIRouter(prefix='/api/motion')
+def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/api/motion',
+                         resolve_project=None, list_projects=None, audio_url=None,
+                         on_write=None, on_delete=None, input_root=None, public_exports=True):
+    router = APIRouter(prefix=prefix)
+    inputs = input_root if input_root is not None else ROOT / 'input'
     jobs, processes = {}, {}
     lock = threading.Lock()
     plan_lock = threading.Lock()
     director_jobs = {}
 
     def project_path(project_id):
+        if resolve_project is not None:
+            return validate_path(resolve_project(project_id))
         scan = get_scan_dir().resolve()
         path = (scan / project_id).resolve()
         if not path.is_relative_to(scan) or not path.name.endswith(('_alignment.json', '_project.json')):
@@ -78,9 +84,9 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         payload = json.loads(path.read_text(encoding='utf-8'))
         payload['title'] = payload.get('title') or path.parent.name
         audio = find_audio(path.stem.removesuffix('_alignment').removesuffix('_project'), song_output_dir=path.parent)
-        identity = resolve_identity(path, payload, ROOT / 'input', Path(audio) if audio else None)
+        identity = resolve_identity(path, payload, inputs, Path(audio) if audio else None)
         payload.update(title=identity['title'], artist=identity['artist'], song_identity=identity,
-                       song_cover=resolve_cover(path, payload, ROOT / 'input', Path(audio) if audio else None))
+                       song_cover=resolve_cover(path, payload, inputs, Path(audio) if audio else None))
         return path, payload
 
     def plan_path(path):
@@ -100,11 +106,15 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as stream:
             temp = Path(stream.name)
             json.dump(data, stream, ensure_ascii=False, indent=2)
-        try: temp.replace(path)
+        try:
+            temp.replace(path)
+            if on_write is not None: on_write(path)
         finally: temp.unlink(missing_ok=True)
 
     @router.get('/projects')
     def projects():
+        if list_projects is not None:
+            return list_projects()
         scan = get_scan_dir()
         return [{'id': str(p.relative_to(scan)), 'name': p.parent.name} for p in sorted(scan.rglob('*_alignment.json'))]
 
@@ -118,7 +128,8 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
             try: validate_plan(payload, saved)
             except ValueError as exc: saved, error = None, str(exc)
         return {'project': payload, 'plan': saved, 'plan_error': error,
-                'audio_url': '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(audio)) if audio else None}
+                'audio_url': (audio_url(project_id) if audio_url is not None else
+                              '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(audio))) if audio else None}
 
     @router.put('/identity')
     def save_identity(req: IdentityRequest):
@@ -138,6 +149,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
         try:
             temporary.write_bytes(image)
             os.replace(temporary, dest)
+            if on_write is not None: on_write(dest)
         finally:
             temporary.unlink(missing_ok=True)
 
@@ -145,10 +157,12 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
     async def upload_cover(project_id: str = Form(...), file: UploadFile = File(...)):
         path = project_path(project_id)
         content = await file.read(MAX_BYTES + 1)
-        with plan_lock:
-            store_cover(path, content)
-            _, payload = read(project_id)
-        return {'cover': payload['song_cover']}
+        def save():
+            with plan_lock:
+                store_cover(path, content)
+                _, payload = read(project_id)
+            return {'cover': payload['song_cover']}
+        return await run_in_threadpool(save)
 
     @router.post('/cover/suno')
     def import_suno_cover(req: CoverRequest):
@@ -159,6 +173,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
             with plan_lock:
                 if req.restore:
                     cover_path(path).unlink(missing_ok=True)
+                    if on_delete is not None: on_delete(cover_path(path))
                 _, payload = read(req.project_id)
             return {'cover': payload['song_cover']}
         url = payload['song_cover']['source_url']
@@ -177,6 +192,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
                 store_cover(path, bytes(content), custom=False)
                 if req.restore:
                     cover_path(path).unlink(missing_ok=True)
+                    if on_delete is not None: on_delete(cover_path(path))
                 _, payload = read(req.project_id)
         except requests.RequestException as exc:
             raise HTTPException(502, 'Suno 封面下载失败，可重试或上传图片') from exc
@@ -432,8 +448,10 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
                 with lock:
                     if jobs[job_id]['status'] != 'cancelled':
                         is_done = code == 0 and out.exists()
+                        if is_done and on_write is not None:
+                            on_write(out)
                         jobs[job_id].update(status='done' if is_done else 'failed', error='' if code == 0 else diagnostics)
-                        if is_done and r2_storage.is_configured():
+                        if is_done and public_exports and r2_storage.is_configured():
                             try:
                                 r2_res = r2_storage.upload_video(out, f"exports/{job_id}.mp4")
                                 if r2_res:
@@ -504,8 +522,8 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
                         'total': total_frames,
                         'duration': round(total_frames / 30, 2) if total_frames else 0,
                         'cdn_url': data.get('cdn_url', ''),
-                        'local_url': f'/api/motion/render/{job_id}/download',
-                        'stream_url': f'/api/motion/render/{job_id}/stream',
+                        'local_url': f'{prefix}/render/{job_id}/download',
+                        'stream_url': f'{prefix}/render/{job_id}/stream',
                         'file_size': size,
                         'exists_locally': mp4_file.exists(),
                     })
@@ -516,6 +534,8 @@ def create_motion_router(get_scan_dir, validate_path, find_audio):
     @router.post('/render/{job_id}/sync_r2')
     def sync_r2(job_id: str, sid: str = Depends(resolve_session_id)):
         """将已存在的本地视频同步上传至 Cloudflare R2"""
+        if not public_exports:
+            raise HTTPException(403, '云端作品默认私有，请使用登录后的下载入口')
         if not r2_storage.is_configured():
             raise HTTPException(400, 'Cloudflare R2 尚未配置')
         candidates = list(get_scan_dir().glob(f'*/motion_exports/{job_id}_status.json'))

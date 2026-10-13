@@ -633,3 +633,141 @@ def test_frontend_canonical_routes_and_retired_pages(sandbox):
                  "/local/storyboard.html", "/local/gallery.html", "/editor",
                  "/lyric_editor", "/motion_studio"]:
         assert sandbox.client.get(path, follow_redirects=False).status_code == 404, path
+
+
+def seed_cloud_motion(sandbox):
+    import json
+    import numpy as np
+    import soundfile as sf
+    for uid in ("alice", "bob"):
+        task_id = uid + "_motion"
+        alignment = {"title": "source", "duration": 2, "lines": [
+            {"text": uid, "start": .2, "end": 1.8,
+             "words": [{"word": uid, "start": .2, "end": 1.8}]}]}
+        key = f"results/{task_id}/source_alignment.json"
+        path = sandbox.storage.get_local_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(alignment))
+        audio_key = f"uploads/{uid}/{task_id}/source.wav"
+        audio = sandbox.storage.get_local_path(audio_key)
+        audio.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(audio, np.zeros(22050 * 2), 22050)
+        async def create():
+            async with sandbox.sessions() as db:
+                db.add(Task(id=task_id, user_id=uid, title="Same song title", status=TaskStatus.COMPLETED,
+                            input_mp3_key=audio_key, input_lyrics_key="lyrics",
+                            alignment_json_key=key))
+                await db.commit()
+        asyncio.run(create())
+
+
+def test_cloud_motion_lists_owned_tasks_and_loads_audio(sandbox):
+    seed_cloud_motion(sandbox)
+    base = "/api/cloud-motion"
+    assert sandbox.client.get(base + "/projects").status_code == 401
+    assert sandbox.client.get("/api/motion/projects", headers=headers()).status_code == 403
+    assert sandbox.client.get(base + "/projects", headers=headers()).json() == [
+        {"id": "alice_motion", "name": "Same song title"}]
+    response = sandbox.client.get(base + "/project", params={"project_id": "alice_motion"}, headers=headers())
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["project"]["lines"][0]["text"] == "alice"
+    assert data["audio_url"] == "/api/editor/tasks/alice_motion/audio"
+    assert sandbox.client.get(data["audio_url"], headers=headers()).status_code == 200
+    for project_id in ("bob_motion", "../bob_motion", "/tmp/source_alignment.json"):
+        assert sandbox.client.get(base + "/project", params={"project_id": project_id}, headers=headers()).status_code == 404
+
+
+def test_cloud_motion_plan_persists_and_survives_workspace_restart(sandbox):
+    import json
+    from src import motion_cloud
+    seed_cloud_motion(sandbox)
+    base = "/api/cloud-motion"
+    response = sandbox.client.post(base + "/director/rules", json={"project_id": "alice_motion"}, headers=headers())
+    assert response.status_code == 200, response.text
+    plan = response.json()
+    plan["cues"][0]["locked"] = True
+    saved = sandbox.client.put(base + "/plan", json={"project_id": "alice_motion", "plan": plan, "from_llm": False}, headers=headers())
+    assert saved.status_code == 200, saved.text
+    key = motion_cloud.task_prefix("alice", "alice_motion") + "source_motion_plan.json"
+    assert json.loads(sandbox.storage.get_local_path(key).read_text())["cues"][0]["locked"]
+    assert "motion_plan" not in json.loads(sandbox.storage.get_local_path("results/alice_motion/source_alignment.json").read_text())
+    motion_cloud._workspaces.pop((id(sandbox.storage), "alice"))
+    loaded = sandbox.client.get(base + "/project", params={"project_id": "alice_motion"}, headers=headers())
+    assert loaded.status_code == 200, loaded.text
+    assert loaded.json()["plan"]["cues"][0]["locked"]
+    forbidden = sandbox.client.put(base + "/plan", json={"project_id": "alice_motion", "plan": plan}, headers=headers("bob"))
+    assert forbidden.status_code == 404
+    assert sandbox.client.post(base + "/render/not-my-job/sync_r2", headers=headers()).status_code == 403
+
+
+def test_cloud_motion_cover_and_task_deletion_are_private(sandbox):
+    import io
+    from PIL import Image
+    from src.motion_cloud import task_prefix
+    seed_cloud_motion(sandbox)
+    content = io.BytesIO()
+    Image.new("RGB", (4, 4), "red").save(content, format="PNG")
+    response = sandbox.client.post("/api/cloud-motion/cover", data={"project_id": "alice_motion"},
+        files={"file": ("cover.png", content.getvalue(), "image/png")}, headers=headers())
+    assert response.status_code == 200, response.text
+    assert response.json()["cover"]["data_url"].startswith("data:image/jpeg;")
+    key = task_prefix("alice", "alice_motion") + "source_motion_cover.jpg"
+    assert sandbox.storage.get_local_path(key).exists()
+    other = sandbox.storage.get_local_path(task_prefix("bob", "bob_motion") + "source_motion_cover.jpg")
+    other.parent.mkdir(parents=True, exist_ok=True)
+    other.write_bytes(b"bob's private cover")
+    deleted = sandbox.client.delete("/api/tasks/alice_motion", headers=headers())
+    assert deleted.status_code == 200, deleted.text
+    assert not sandbox.storage.get_local_path(key).exists()
+    assert other.read_bytes() == b"bob's private cover"
+
+
+def test_cloud_motion_download_restores_private_export_without_opening_song(sandbox):
+    import json
+    import shutil
+    from src import motion_cloud
+    seed_cloud_motion(sandbox)
+    job_id = 'a' * 32
+    prefix = motion_cloud.task_prefix('alice', 'alice_motion') + 'motion_exports/'
+    status = sandbox.storage.get_local_path(prefix + job_id + '_status.json')
+    status.parent.mkdir(parents=True, exist_ok=True)
+    status.write_text(json.dumps({'id': job_id, 'status': 'done', 'session_id': motion_cloud.user_namespace('alice')}))
+    sandbox.storage.get_local_path(prefix + job_id + '.mp4').write_bytes(b'private-video')
+    # Remove the disposable cache as on a real container rebuild.
+    workspace = motion_cloud._workspaces.pop((id(sandbox.storage), 'alice'), None)
+    if workspace:
+        shutil.rmtree(workspace.root, ignore_errors=True)
+    url = '/api/cloud-motion/render/' + job_id + '/download'
+    response = sandbox.client.get(url, headers=headers())
+    assert response.status_code == 200, response.text
+    assert response.content == b'private-video'
+    assert sandbox.client.get(url, headers=headers('bob')).status_code == 404
+    assert sandbox.client.get('/api/cloud-motion/render/' + job_id, headers=headers('bob')).status_code == 404
+    assert sandbox.client.get(url).status_code == 401
+
+
+@pytest.mark.skipif(__import__('os').getenv('RUN_MOTION_RENDER') != '1', reason='需显式启用 Chrome/FFmpeg 成片测试')
+def test_cloud_motion_renders_and_persists_private_video(sandbox):
+    import time
+    from src.motion_cloud import task_prefix
+    seed_cloud_motion(sandbox)
+    base = '/api/cloud-motion'
+    assert sandbox.client.post(base + '/director/rules', json={'project_id': 'alice_motion'}, headers=headers()).status_code == 200
+    started = sandbox.client.post(base + '/render', json={'project_id': 'alice_motion', 'height': 360,
+        'length': .5, 'post': False}, headers=headers())
+    assert started.status_code == 202, started.text
+    job_id = started.json()['id']
+    assert sandbox.client.get(base + '/render/' + job_id, headers=headers('bob')).status_code == 404
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        status = sandbox.client.get(base + '/render/' + job_id, headers=headers()).json()
+        if status['status'] in ('done', 'failed', 'cancelled'):
+            break
+        time.sleep(.1)
+    assert status['status'] == 'done', status
+    stored = sandbox.storage.get_local_path(task_prefix('alice', 'alice_motion') + f'motion_exports/{job_id}.mp4')
+    assert stored.stat().st_size > 1000
+    downloaded = sandbox.client.get(base + '/render/' + job_id + '/download', headers=headers())
+    assert downloaded.status_code == 200
+    assert downloaded.content == stored.read_bytes()

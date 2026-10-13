@@ -573,6 +573,8 @@ async def delete_task(
     storage = get_storage()
 
     # 删除存储文件
+    from src.motion_cloud import delete_artifacts
+    await delete_artifacts(user.id, task.id, storage)
     for key in [
         task.input_mp3_key,
         task.input_lyrics_key,
@@ -722,6 +724,8 @@ async def task_progress_ws(websocket: WebSocket, task_id: str):
 
 app.include_router(api_router)
 app.include_router(editor_router)
+from src.motion_cloud import router as cloud_motion_router
+app.include_router(cloud_motion_router)
 
 
 # ======================================================================

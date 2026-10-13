@@ -4,8 +4,10 @@ import {checkImportScope} from './import-scope';
 import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,resolvePaletteColors,pickRandomStackLayout,type CompiledPoster,type DefaultLayoutPreset,type StackLayout} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
 import { defaults, normalizeProject, renderSize, type Project, type Options, type MotionPlan } from './model';
+import {motionJson as api,motionUrl,serviceJson,serviceFetch,cloudService,downloadService} from './service-api';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const audio=new Audio();
+let audioObjectUrl='';
 let project:Project|null=null,plan:MotionPlan|null=null,engine:RemotionPreview|null=null,selected='',currentCue='',dirty=false,jobId='',playing=false;
 let identityDirty=false;
 let coverPending:Promise<void>|null=null;
@@ -13,10 +15,6 @@ let scrubbing=false,resumeAfterScrub=false;
 let posterPreview:CompiledPoster|null=null,clipEnd:number|null=null,clipReviewTime=0,reviewHandover=false;
 const options:Options={...defaults,height:720};
 const status=(text:string)=>{$('status').textContent=text;};
-async function api(path:string,method='GET',body?:unknown){
- const response=await fetch('/api/motion/'+path,{method,headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined});
- const result=await response.json();if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:JSON.stringify(result.detail||result));return result;
-}
 function download(name:string,data:string,type='application/json'){const url=URL.createObjectURL(new Blob([data],{type})),link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function refresh(){if(!project)return;project.motion_plan=plan||undefined;const {width,height}=renderSize(options),canvas=$<HTMLCanvasElement>('stage');engine?.dispose();canvas.width=width;canvas.height=height;canvas.style.aspectRatio=`${width}/${height}`;$('stage-box').style.aspectRatio=`${width}/${height}`;engine=new RemotionPreview(canvas,project,options,width,height);engine.renderAt(audio.currentTime||0);$('stage-meta').textContent=`Remotion · ${options.aspect} · ${width}×${height}`;}
 function listCues(){const select=$<HTMLSelectElement>('cue-select');select.replaceChildren();for(const cue of plan?.cues||[]){const line=project?.lines.find(l=>l.id===cue.line_id),item=document.createElement('option');item.value=cue.line_id;item.textContent=(cue.locked?'🔒 ':'')+(line?.text||cue.line_id);select.append(item);}if(plan?.cues.some(c=>c.line_id===currentCue))select.value=currentCue;else currentCue=plan?.cues[0]?.line_id||'';showCue(false);}
@@ -48,7 +46,7 @@ function showCue(seek=true){const cue=plan?.cues.find(c=>c.line_id===currentCue)
  $<HTMLSelectElement>('cue-template').value=cue.template;$<HTMLSelectElement>('cue-layout').value=cue.layout;$<HTMLSelectElement>('cue-palette').value=cue.palette;$<HTMLInputElement>('cue-intensity').value=String(cue.intensity);$<HTMLInputElement>('cue-emphasis').value=cue.emphasis;$<HTMLInputElement>('cue-locked').checked=cue.locked;
  if(seek){clipEnd=null;audio.pause();playing=false;$('play').textContent='▶';const line=project?.lines.find(l=>l.id===currentCue);audio.currentTime=line?Math.min(line.end-.001,line.start+.15):0;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';}}
 async function savePlan(){if(!plan||!selected)return;plan=await api('plan','PUT',{project_id:selected,plan,from_llm:false});dirty=false;status('导演方案已保存');}
-async function load(id:string){if(!id)return;if(dirty)await savePlan();if(identityDirty)await saveIdentity();audio.pause();playing=false;$('play').textContent='▶';const result=await api('project?project_id='+encodeURIComponent(id));project=normalizeProject(result.project);plan=result.plan;selected=id;dirty=false;identityDirty=false;showIdentity();showCover();coverPending=cacheSunoCover(id);audio.src=result.audio_url||'';audio.currentTime=0;audio.load();$('track-name').textContent=project.title||$<HTMLSelectElement>('project-select').selectedOptions[0].text;$<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';$('analysis-status').textContent=project.analysis.energy_curve.length?`音乐数据已就绪 · ${project.analysis.beats.length} 拍点 · 估算 ${project.analysis.bpm} BPM`:'尚无音频分析，可先到歌词编辑器补做';refresh();listCues();await loadExports();status(result.plan_error||(plan?'已加载保存的导演方案':'请选择风格并生成导演方案'));}
+async function load(id:string){if(!id)return;if(dirty)await savePlan();if(identityDirty)await saveIdentity();audio.pause();playing=false;$('play').textContent='▶';const result=await api('project?project_id='+encodeURIComponent(id));project=normalizeProject(result.project);plan=result.plan;selected=id;dirty=false;identityDirty=false;showIdentity();showCover();coverPending=cacheSunoCover(id);if(audioObjectUrl)URL.revokeObjectURL(audioObjectUrl);audioObjectUrl='';if(result.audio_url&&cloudService()){const response=await serviceFetch(result.audio_url);if(!response.ok)throw new Error('原曲音频读取失败');audioObjectUrl=URL.createObjectURL(await response.blob());}audio.src=audioObjectUrl||result.audio_url||'';audio.currentTime=0;audio.load();$('track-name').textContent=project.title||$<HTMLSelectElement>('project-select').selectedOptions[0].text;$<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';$('analysis-status').textContent=project.analysis.energy_curve.length?`音乐数据已就绪 · ${project.analysis.beats.length} 拍点 · 估算 ${project.analysis.bpm} BPM`:'尚无音频分析，可先到歌词编辑器补做';refresh();listCues();await loadExports();status(result.plan_error||(plan?'已加载保存的导演方案':'请选择风格并生成导演方案'));}
 async function rules(onlyCurrent=false){
  if(!selected)throw new Error('请先选择歌曲');if(dirty)await savePlan();
  const preset=($<HTMLSelectElement>('default-layout-preset')?.value as DefaultLayoutPreset)||'smart';
@@ -79,7 +77,7 @@ async function rules(onlyCurrent=false){
 }
 async function exportVideo(){if(!selected||!plan)throw new Error('请先生成导演方案');if(dirty)await savePlan();if(identityDirty)await saveIdentity();if(coverPending)await coverPending;const full=$<HTMLSelectElement>('export-range').value==='full';const result=await api('render','POST',{project_id:selected,aspect:options.aspect,height:options.height,bloom:options.bloom,shake:options.shake,post:options.post,start:full?0:Number($<HTMLInputElement>('clip-start').value),length:full?null:Number($<HTMLInputElement>('clip-length').value)});jobId=result.id;$<HTMLButtonElement>('export').disabled=true;$('download').hidden=true;$('cancel').hidden=false;
  try{for(;;){const job=await api('render/'+jobId);$('export-status').textContent=job.status==='running'?`渲染 ${job.frames}/${job.total} 帧 (${Math.round(job.frames/job.total*100)}%)`:job.status==='queued'?'等待渲染…':job.status==='done'?'成片已完成':job.status==='cancelled'?'导出已取消':'导出失败：'+job.error;
- if(['done','failed','cancelled'].includes(job.status)){if(job.status==='done'){const link=$<HTMLAnchorElement>('download');link.href='/api/motion/render/'+jobId+'/download';link.hidden=false;}break;}await new Promise(resolve=>setTimeout(resolve,1000));}}
+ if(['done','failed','cancelled'].includes(job.status)){if(job.status==='done'){const link=$<HTMLAnchorElement>('download');link.href=motionUrl('render/'+jobId+'/download');link.onclick=event=>{event.preventDefault();void action(()=>downloadService(motionUrl('render/'+jobId+'/download')))();};link.hidden=false;}break;}await new Promise(resolve=>setTimeout(resolve,1000));}}
  finally{$<HTMLButtonElement>('export').disabled=false;$('cancel').hidden=true;}}
 function action(fn:()=>unknown){return async()=>{try{await fn();}catch(error){status(error instanceof Error?error.message:String(error));console.error(error);}};}
 $('generate').onclick=action(()=>rules());$('regenerate-cue').onclick=action(()=>rules(true));$('save-plan').onclick=action(savePlan);
@@ -146,7 +144,7 @@ async function loadExports(){
   const list=$('export-history');list.replaceChildren();
   for(const job of await api('exports?project_id='+encodeURIComponent(selected))){
     if(job.status!=='done')continue;
-    const link=document.createElement('a');link.href='/api/motion/render/'+job.id+'/download';link.textContent=`${job.width?job.width+"×"+job.height+" · ":""}${(job.total/30).toFixed(1)} 秒 · ${new Date(job.created_at*1000).toLocaleString()}`;link.download='motion-studio.mp4';link.style.display='block';list.append(link);
+    const link=document.createElement('a');link.href=motionUrl('render/'+job.id+'/download');link.onclick=event=>{event.preventDefault();void action(()=>downloadService(motionUrl('render/'+job.id+'/download')))();};link.textContent=`${job.width?job.width+"×"+job.height+" · ":""}${(job.total/30).toFixed(1)} 秒 · ${new Date(job.created_at*1000).toLocaleString()}`;link.download='motion-studio.mp4';link.style.display='block';list.append(link);
   }
 }
 
@@ -295,8 +293,7 @@ $('restore-cover').onclick=action(()=>cacheSunoCover(selected,true));
 $<HTMLInputElement>('cover-file').onchange=action(async()=>{
  const file=$<HTMLInputElement>('cover-file').files?.[0];if(!file)return;if(!selected)throw new Error('请先选择歌曲');
  const id=selected,body=new FormData();body.append('project_id',id);body.append('file',file);
- const response=await fetch('/api/motion/cover',{method:'POST',body}),result=await response.json();
- if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:'封面上传失败');
+ const result=await serviceJson(motionUrl('cover'),{method:'POST',body});
  if(selected===id&&project){project.song_cover=result.cover;showCover();refresh();status('新封面已保存，预览和导出同步更新');}
  $<HTMLInputElement>('cover-file').value='';
 });

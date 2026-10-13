@@ -104,10 +104,10 @@ window.m2vAuth = {
   /**
    * 获取当前有效 ID Token (必要时自动刷新)
    */
-  async getIdToken() {
+  async getIdToken(forceRefresh = true) {
     await firebaseAuthReady;
     if (typeof firebase !== "undefined" && firebase.auth().currentUser) {
-      const token = await firebase.auth().currentUser.getIdToken(true);
+      const token = await firebase.auth().currentUser.getIdToken(forceRefresh);
       localStorage.setItem("m2v_token", token);
       return token;
     }

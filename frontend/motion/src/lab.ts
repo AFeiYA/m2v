@@ -1,3 +1,4 @@
+import {motionJson,serviceFetch} from './service-api';
 import { MotionEngine } from './engine';
 import { demo, demoAudio, defaults, normalizeProject, type Project, type Options } from './model';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -34,15 +35,13 @@ function tick(now:number){
   requestAnimationFrame(tick);
 }
 async function loadSavedProjects(){
-  try{const r=await fetch('/api/motion/projects');if(!r.ok)throw new Error('无法读取工程列表');
-    const projects: {id:string;name:string}[]=await r.json();const select=$<HTMLSelectElement>('project-select');
+  try{const projects: {id:string;name:string}[]=await motionJson('projects');const select=$<HTMLSelectElement>('project-select');
     for(const p of projects){const o=document.createElement('option');o.value=p.id;o.textContent=p.name;select.appendChild(o);}
   }catch(e){setStatus('工程列表不可用，可手动选择文件');}
 }
 async function loadSaved(id:string){
-  if(!id)return;try{setStatus('正在载入工程…');const r=await fetch(`/api/motion/project?project_id=${encodeURIComponent(id)}`);if(!r.ok)throw new Error(await r.text());
-    const result=await r.json();const p=normalizeProject(result.project);demoMode=false;selectedProject=id;
-    if(result.audio_url){const a=await fetch(result.audio_url);if(!a.ok)throw new Error('音频读取失败');setProject(p,await a.blob());}
+  if(!id)return;try{setStatus('正在载入工程…');const result=await motionJson('project?project_id='+encodeURIComponent(id));const p=normalizeProject(result.project);demoMode=false;selectedProject=id;
+    if(result.audio_url){const a=await serviceFetch(result.audio_url);if(!a.ok)throw new Error('音频读取失败');setProject(p,await a.blob());}
     else {setProject(p);setStatus('已载入工程。未发现原曲音频，请手动选择音频文件。');}
   }catch(e){fail(e);}
 }

@@ -84,6 +84,7 @@ def mount_fastapi_routes(demo_instance):
 
     from src.api_server import api_router
     from src.editor_server import router as editor_router
+    from src.motion_cloud import router as cloud_motion_router
     from fastapi import Depends
     from src.legacy_access import require_local_api
 
@@ -96,6 +97,8 @@ def mount_fastapi_routes(demo_instance):
             target.include_router(api_router)
         if "/api/editor/songs" not in existing_paths:
             target.include_router(editor_router)
+        if "/api/cloud-motion/{route:path}" not in existing_paths:
+            target.include_router(cloud_motion_router)
 
 
 if __name__ == "__main__":
@@ -114,4 +117,3 @@ if __name__ == "__main__":
     mount_fastapi_routes(demo)
     # 阻塞主线程以保持服务常驻
     demo.block_thread()
-
