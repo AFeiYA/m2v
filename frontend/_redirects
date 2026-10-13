@@ -14,19 +14,19 @@
 /static/*              /local/:splat 200
 
 # Clean Semantic App Routes
-/editor                /local/index.html 200
-/editor/*              /local/index.html 200
-/editor.html           /local/index.html 200
-/lyric_editor          /local/index.html 200
-/lyric_editor/*        /local/index.html 200
-/storyboard            /local/storyboard.html 200
-/storyboard.html       /local/storyboard.html 200
-/motion_studio         /local/motion_studio_director.html 200
-/motion_studio_director /local/motion_studio_director.html 200
-/motion                /local/motion_studio_director.html 200
+/editor                /editor.html 200
+/editor/*              /editor.html 200
+/editor.html           /editor.html 200
+/lyric_editor          /lyric_editor.html 200
+/lyric_editor/*        /lyric_editor.html 200
+/storyboard            /storyboard.html 200
+/storyboard.html       /storyboard.html 200
+/motion_studio         /motion_studio.html 200
+/motion_studio_director /motion_studio_director.html 200
+/motion                /motion_studio.html 200
 /motion_lab            /local/motion_lab.html 200
-/gallery               /local/gallery.html 200
-/gallery.html          /local/gallery.html 200
+/gallery               /gallery.html 200
+/gallery.html          /gallery.html 200
 
 # Fallback SPA Dashboard
 /*                     /index.html 200

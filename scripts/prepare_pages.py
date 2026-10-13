@@ -20,6 +20,10 @@ def prepare(destination: Path) -> None:
         return set(names) & exclusions
 
     shutil.copytree(source, destination, ignore=ignore)
+    for page in ("editor.html", "lyric_editor.html", "gallery.html", "storyboard.html", "motion_studio.html"):
+        p = destination / page
+        if not p.is_file() or p.stat().st_size == 0:
+            raise RuntimeError(f"Missing staged page: {page}")
     print("Verified frontend staged for Cloudflare Pages")
 
 
