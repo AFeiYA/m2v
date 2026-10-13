@@ -75,14 +75,22 @@ async def init_db() -> None:
         def _migrate_columns(sync_conn):
             inspector = inspect(sync_conn)
             tables = inspector.get_table_names()
+            is_pg = sync_conn.dialect.name == "postgresql"
             if "tasks" in tables:
                 cols = {c["name"] for c in inspector.get_columns("tasks")}
-                is_pg = sync_conn.dialect.name == "postgresql"
                 if "song_title" not in cols:
                     sql = "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS song_title VARCHAR(255);" if is_pg else "ALTER TABLE tasks ADD COLUMN song_title VARCHAR(255);"
                     sync_conn.execute(text(sql))
                 if "suno_url" not in cols:
                     sql = "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS suno_url VARCHAR(1024);" if is_pg else "ALTER TABLE tasks ADD COLUMN suno_url VARCHAR(1024);"
+                    sync_conn.execute(text(sql))
+                if "updated_at" not in cols:
+                    sql = "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE;" if is_pg else "ALTER TABLE tasks ADD COLUMN updated_at DATETIME;"
+                    sync_conn.execute(text(sql))
+            if "users" in tables:
+                user_cols = {c["name"] for c in inspector.get_columns("users")}
+                if "display_name" not in user_cols:
+                    sql = "ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(128);" if is_pg else "ALTER TABLE users ADD COLUMN display_name VARCHAR(128);"
                     sync_conn.execute(text(sql))
 
         await conn.run_sync(_migrate_columns)

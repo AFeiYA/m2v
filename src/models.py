@@ -78,6 +78,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(
         String(128), unique=True, index=True, nullable=False
     )
+    display_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False, default="FIREBASE_AUTH")
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     plan: Mapped[UserPlan] = mapped_column(
@@ -155,6 +156,9 @@ class Task(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
     )
 
     # 关联

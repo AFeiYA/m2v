@@ -38,11 +38,16 @@ class UserResponse(BaseModel):
     id: str
     email: str
     username: str
+    display_name: str | None = None
     avatar_url: str | None = None
     plan: str
     credits: int
     is_verified: bool
     created_at: datetime
+
+
+class UserUpdateRequest(BaseModel):
+    display_name: str | None = None
 
 
 # ======================================================================

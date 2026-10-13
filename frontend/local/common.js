@@ -42,8 +42,30 @@ function updateAuthUi() {
 
   if (token) {
     if (info) info.textContent = user?.displayName || user?.email || "👤 已登录";
+    if (!user || !user.displayName) {
+      apiFetch("/api/auth/me")
+        .then(r => r.ok ? r.json() : null)
+        .then(u => {
+          if (u) {
+            const userData = {
+              id: u.id,
+              displayName: u.display_name || u.username,
+              email: u.email,
+            };
+            localStorage.setItem("m2v_user", JSON.stringify(userData));
+            if (info) info.textContent = userData.displayName || "👤 已登录";
+          }
+        })
+        .catch(() => {});
+    }
     btn.textContent = window.currentLocale === "en" ? "Sign Out" : "登出";
     btn.onclick = async () => {
+      if (window.m2vCache) {
+        try {
+          const uid = window.m2vCache.getCurrentUid();
+          await window.m2vCache.clearUserCache(uid);
+        } catch (_) {}
+      }
       if (window.m2vAuth?.logout) await window.m2vAuth.logout();
       localStorage.removeItem("m2v_token");
       localStorage.removeItem("m2v_user");
@@ -147,11 +169,39 @@ function setupEditorAuth() {
 window.setupEditorAuth = setupEditorAuth;
 
 let trackBlobUrls = [];
-async function loadEditorAudio(player, path) {
-  if (!isCloudMode()) return player.load(formatAudioEndpoint(path));
+async function loadEditorAudio(player, path, taskId, trackType, version) {
+  if (!isCloudMode() && !taskId) return player.load(formatAudioEndpoint(path));
+
+  const uid = window.m2vCache ? window.m2vCache.getCurrentUid() : null;
+
+  // 1. 优先尝试从本地 IndexedDB 缓存加载 (秒开，0 流量)
+  if (window.m2vCache && taskId && trackType) {
+    try {
+      const cachedBlob = await window.m2vCache.getMedia(uid, taskId, trackType, version);
+      if (cachedBlob) {
+        console.log(`[m2vCache] 本地缓存命中音轨: ${trackType} (task=${taskId})`);
+        const url = URL.createObjectURL(cachedBlob);
+        trackBlobUrls.push(url);
+        return player.load(url);
+      }
+    } catch (e) {
+      console.warn("[m2vCache] 读取媒体失败:", e);
+    }
+  }
+
+  // 2. 缓存未命中或版本变更，从服务器下载 (走 Authorization Bearer 请求头，不将 token 暴露在 URL 中)
   const response = await apiFetch(path);
   if (!response.ok) throw new Error(`音轨读取失败 (HTTP ${response.status})`);
-  const url = URL.createObjectURL(await response.blob());
+  const blob = await response.blob();
+
+  // 3. 异步写入本地持久化缓存
+  if (window.m2vCache && taskId && trackType) {
+    window.m2vCache.saveMedia(uid, taskId, trackType, blob, version).catch(e => {
+      console.warn("[m2vCache] 写入媒体缓存失败:", e);
+    });
+  }
+
+  const url = URL.createObjectURL(blob);
   trackBlobUrls.push(url);
   return player.load(url);
 }
@@ -383,6 +433,7 @@ async function loadFileList(preferredTitle) {
       files = songs.map((s) => ({
         name: s.name || s.stem || s.task_id,
         task_id: s.task_id,
+        version: s.version || null,
         is_saas: true,
         json_path: s.task_id,
         audio_path: `/api/editor/tasks/${s.task_id}/audio`,
@@ -461,15 +512,52 @@ async function loadSong(idx) {
   if (dom.songSelect) dom.songSelect.value = idx;
   status(`加载 ${file.name}…`);
 
+  const taskId = file.task_id || file.id;
+  const version = file.version || null;
+  const uid = window.m2vCache ? window.m2vCache.getCurrentUid() : null;
+
   try {
-    let r;
-    if (file.is_saas || file.task_id) {
-      r = await apiFetch(`/api/editor/tasks/${file.task_id}/align`);
-    } else {
-      r = await apiFetch("/api/alignment?path=" + encodeURIComponent(file.json_path));
+    let loadedFromCache = false;
+    if (window.m2vCache && taskId && version) {
+      const cachedAlign = await window.m2vCache.getProject(uid, taskId, "alignment", version);
+      if (cachedAlign) {
+        state.alignment = cachedAlign;
+        loadedFromCache = true;
+        console.log(`[m2vCache] 本地缓存命中工程: task=${taskId}, version=${version}`);
+      }
     }
-    if (!r.ok) throw new Error(await r.text());
-    state.alignment = await r.json();
+
+    if (!loadedFromCache) {
+      let r;
+      if (file.is_saas || file.task_id) {
+        r = await apiFetch(`/api/editor/tasks/${file.task_id}/align`);
+      } else {
+        r = await apiFetch("/api/alignment?path=" + encodeURIComponent(file.json_path));
+      }
+      if (!r.ok) throw new Error(await r.text());
+      const serverVersion = r.headers.get("X-Resource-Version") || version;
+      state.alignment = await r.json();
+      if (window.m2vCache && taskId) {
+        window.m2vCache.saveProject(uid, taskId, "alignment", state.alignment, serverVersion);
+      }
+    }
+
+    // 检查是否有未保存的本地草稿
+    if (window.m2vCache && taskId) {
+      const draft = await window.m2vCache.getDraft(uid, taskId, "alignment");
+      if (draft && draft.data) {
+        const draftTime = new Date(draft.savedAt).toLocaleTimeString();
+        const restore = confirm(`检测到您在此设备上有未保存的本地草稿 (保存于 ${draftTime})。\n是否恢复该草稿？`);
+        if (restore) {
+          state.alignment = draft.data;
+          markDirty();
+          status(`已恢复本地草稿 (${draftTime})`);
+        } else {
+          await window.m2vCache.clearDraft(uid, taskId, "alignment");
+        }
+      }
+    }
+
     updateAudioAnalysisSummary();
   } catch (e) {
     status("对齐数据加载失败: " + e, true);
@@ -488,6 +576,8 @@ async function loadSong(idx) {
   const origUrl = formatAudioEndpoint(file.audio_path);
 
   const primaryUrl = vocalsUrl || origUrl;
+  const primaryTrackKey = tracks.vocals || file.audio_path;
+  const primaryTrackType = tracks.vocals ? "vocals" : "original";
   const primaryTitle = vocalsUrl ? (window.t ? t("track_vocals") : "🎤 人声") : (window.t ? t("track_orig") : "🎵 原声");
   const instTitle = window.t ? t("track_inst") : "🎸 伴奏";
 
@@ -498,7 +588,7 @@ async function loadSong(idx) {
   if (primaryUrl && ws) {
     setTrackLoadingState("vocals", true, primaryTitle);
     loadTasks.push(
-      loadEditorAudio(ws, tracks.vocals || file.audio_path)
+      loadEditorAudio(ws, primaryTrackKey, taskId, primaryTrackType, version)
         .then(() => {
           vocalsReady = true;
           setTrackLoadingState("vocals", false, primaryTitle);
@@ -513,7 +603,7 @@ async function loadSong(idx) {
     if (dom.trackInst) dom.trackInst.classList.remove("hidden");
     setTrackLoadingState("instrumental", true, instTitle);
     loadTasks.push(
-      loadEditorAudio(wsInst, tracks.instrumental)
+      loadEditorAudio(wsInst, tracks.instrumental, taskId, "instrumental", version)
         .then(() => {
           instReady = true;
           setTrackLoadingState("instrumental", false, instTitle);
@@ -956,6 +1046,16 @@ async function saveAlignment() {
       return false;
     } else {
       state.dirty = false;
+      const newVersion = j.version || String(Date.now());
+      if (state.currentFile) {
+        state.currentFile.version = newVersion;
+      }
+      const uid = window.m2vCache ? window.m2vCache.getCurrentUid() : null;
+      const taskId = state.currentFile?.task_id || state.currentFile?.id;
+      if (window.m2vCache && taskId) {
+        window.m2vCache.saveProject(uid, taskId, "alignment", state.alignment, newVersion);
+        window.m2vCache.clearDraft(uid, taskId, "alignment");
+      }
       document.title = (state.currentFile?.name || "M2V") + " — " + (window.t ? t("app_title") : "编辑器");
       status(window.t ? t("msg_saved") : "✅ 已保存");
       return true;
@@ -1040,9 +1140,23 @@ function redo() {
   status(window.t ? t("msg_redone") : "已重做");
 }
 
+let draftDebounceTimer = null;
+function scheduleDraftSave() {
+  if (!window.m2vCache || !state.currentFile || !state.alignment) return;
+  const taskId = state.currentFile.task_id || state.currentFile.id;
+  if (!taskId) return;
+  if (draftDebounceTimer) clearTimeout(draftDebounceTimer);
+  draftDebounceTimer = setTimeout(() => {
+    const uid = window.m2vCache.getCurrentUid();
+    window.m2vCache.saveDraft(uid, taskId, "alignment", state.alignment);
+    console.log(`[m2vCache] 草稿自动保存已同步 (task=${taskId})`);
+  }, 1200);
+}
+
 function markDirty() {
   state.dirty = true;
   document.title = "● " + (state.currentFile?.name || "M2V") + " — 编辑器";
+  scheduleDraftSave();
 }
 
 // ---------------------------------------------------------------------------
@@ -1323,3 +1437,13 @@ if (document.readyState === "loading") {
 } else {
   checkAndApplyDevMode();
 }
+
+// 离开页面前确保脏数据已同步到本地草稿
+window.addEventListener("beforeunload", () => {
+  if (state.dirty && window.m2vCache && state.currentFile && state.alignment) {
+    const taskId = state.currentFile.task_id || state.currentFile.id;
+    const uid = window.m2vCache.getCurrentUid();
+    window.m2vCache.saveDraft(uid, taskId, "alignment", state.alignment);
+  }
+});
+

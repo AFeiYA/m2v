@@ -8,7 +8,7 @@ const firebaseConfig = {
   databaseURL: "https://dc-test-731fa.firebaseio.com",
   storageBucket: "dc-test-731fa.firebasestorage.app",
   apiKey: "AIzaSyCtyu4zxTfgpCnxmqv2u5APw61XlNW1AmI",
-  authDomain: "dc-test-731fa.firebaseapp.com",
+  authDomain: "auth.fovea.si",
   messagingSenderId: "961193736563",
   measurementId: "G-TSXRFYJQ6L"
 };

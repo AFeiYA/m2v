@@ -55,6 +55,7 @@
       </div>
       <div class="header-right">
         <span id="user-info"></span>
+        <button id="btn-edit-nickname" class="btn btn-sm btn-outline" title="修改显示昵称" style="padding: 2px 7px; font-size: 11px;">✏️ 昵称</button>
         <span id="user-credits" class="badge"></span>
         <a href="/editor" target="_blank" class="btn btn-sm">📝 时间轴编辑器</a>
         <button id="btn-copy-plugin-token" class="btn btn-sm btn-outline" title="复制插件登录 Token">📋 插件 Token</button>
@@ -154,9 +155,10 @@
     </section>
   </div>
 
-  <!-- Firebase SDK -->
+  <!-- Firebase SDK & Cache -->
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="/static/cache.js?v=20261013_cache"></script>
   <script src="/firebase-config.js?v=20261013_email"></script>
   <script src="/dashboard.js?v=20261013_email"></script>
 </body>

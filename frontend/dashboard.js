@@ -262,11 +262,17 @@ function updateAuthUI() {
 }
 
 async function logout() {
+  if (window.m2vCache && currentUser?.id) {
+    try {
+      await window.m2vCache.clearUserCache(currentUser.id);
+    } catch (_) {}
+  }
   token = null;
   refreshToken = null;
   currentUser = null;
   authProvider = null;
   localStorage.removeItem("m2v_token");
+  localStorage.removeItem("m2v_user");
   localStorage.removeItem("m2v_refresh");
   localStorage.removeItem("m2v_auth_provider");
   syncAuthCookie(null);
@@ -320,8 +326,14 @@ async function loadUser() {
     const res = await api("/api/auth/me");
     if (res.ok) {
       currentUser = await res.json();
-      $("#user-info").textContent = `👤 ${currentUser.username}`;
+      const displayName = currentUser.display_name || currentUser.username;
+      $("#user-info").textContent = `👤 ${displayName}`;
       $("#user-credits").textContent = `剩余 ${currentUser.credits} 次`;
+      localStorage.setItem("m2v_user", JSON.stringify({
+        id: currentUser.id,
+        displayName: displayName,
+        email: currentUser.email,
+      }));
       return true;
     }
     userLoadError = res.status >= 500
@@ -761,6 +773,41 @@ document.addEventListener("DOMContentLoaded", async () => {
   // 退出与刷新按钮
   $("#btn-logout").addEventListener("click", logout);
   $("#btn-refresh").addEventListener("click", loadTasks);
+
+  // 修改显示昵称
+  const btnEditNickname = $("#btn-edit-nickname");
+  if (btnEditNickname) {
+    btnEditNickname.addEventListener("click", async () => {
+      if (!currentUser) return;
+      const currentName = currentUser.display_name || currentUser.username || "";
+      const newName = prompt("请输入新的显示昵称（不超过64个字符）：", currentName);
+      if (newName === null) return;
+      const trimmed = newName.trim();
+      try {
+        const res = await api("/api/auth/me", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ display_name: trimmed }),
+        });
+        if (res.ok) {
+          currentUser = await res.json();
+          const displayName = currentUser.display_name || currentUser.username;
+          $("#user-info").textContent = `👤 ${displayName}`;
+          localStorage.setItem("m2v_user", JSON.stringify({
+            id: currentUser.id,
+            displayName: displayName,
+            email: currentUser.email,
+          }));
+          alert("昵称修改成功！");
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert("修改昵称失败: " + (err.detail || "请求异常"));
+        }
+      } catch (err) {
+        alert("修改昵称失败: " + err.message);
+      }
+    });
+  }
 
   // 复制插件登录凭据 Token
   const btnCopyToken = $("#btn-copy-plugin-token");

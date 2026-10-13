@@ -71,6 +71,7 @@ from src.schemas import (
     TokenResponse,
     UploadResponse,
     UserResponse,
+    UserUpdateRequest,
 )
 from src.settings import get_settings
 from src.storage import LocalStorage, get_storage
@@ -192,6 +193,35 @@ async def get_me(user: User = Depends(get_current_user)):
         id=user.id,
         email=user.email,
         username=user.username,
+        display_name=getattr(user, "display_name", None) or user.username,
+        avatar_url=user.avatar_url,
+        plan=user.plan.value,
+        credits=user.credits,
+        is_verified=user.is_verified,
+        created_at=user.created_at,
+    )
+
+
+@api_router.patch("/api/auth/me", response_model=UserResponse, tags=["Auth"])
+async def update_me(
+    req: UserUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """更新当前用户信息（支持修改显示昵称）"""
+    if req.display_name is not None:
+        cleaned = req.display_name.strip()
+        if len(cleaned) > 64:
+            raise HTTPException(400, "昵称不能超过 64 个字符")
+        user.display_name = cleaned or None
+        await db.commit()
+        await db.refresh(user)
+
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        username=user.username,
+        display_name=getattr(user, "display_name", None) or user.username,
         avatar_url=user.avatar_url,
         plan=user.plan.value,
         credits=user.credits,

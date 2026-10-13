@@ -573,3 +573,52 @@ def test_firebase_email_verification_is_not_assumed(sandbox, monkeypatch):
     assert second.json()["is_verified"] is True
     assert second.json()["id"] == first.json()["id"]
     assert second.json()["credits"] == first.json()["credits"]
+
+
+def test_display_name_customization(sandbox):
+    resp = sandbox.client.get("/api/auth/me", headers=headers("alice"))
+    assert resp.status_code == 200
+    assert resp.json()["username"] == "alice"
+    assert resp.json()["display_name"] == "alice"
+
+    update_resp = sandbox.client.patch(
+        "/api/auth/me",
+        headers=headers("alice"),
+        json={"display_name": "Alice In Wonderland"}
+    )
+    assert update_resp.status_code == 200
+    assert update_resp.json()["display_name"] == "Alice In Wonderland"
+    assert update_resp.json()["username"] == "alice"
+
+    resp2 = sandbox.client.get("/api/auth/me", headers=headers("alice"))
+    assert resp2.json()["display_name"] == "Alice In Wonderland"
+
+    bad_resp = sandbox.client.patch(
+        "/api/auth/me",
+        headers=headers("alice"),
+        json={"display_name": "A" * 65}
+    )
+    assert bad_resp.status_code == 400
+
+
+def test_editor_song_versioning_and_alignment_save(sandbox):
+    seed_editor_song(sandbox)
+    songs_resp = sandbox.client.get("/api/editor/songs", headers=headers())
+    assert songs_resp.status_code == 200
+    songs = songs_resp.json()
+    assert len(songs) == 1
+    assert "version" in songs[0]
+
+    align_resp = sandbox.client.get("/api/editor/tasks/editor/align", headers=headers())
+    assert align_resp.status_code == 200
+    assert "x-resource-version" in align_resp.headers
+
+    put_resp = sandbox.client.put(
+        "/api/editor/tasks/editor/align",
+        headers=headers(),
+        json={"lines": [{"start": 0.0, "end": 2.0, "text": "New line", "words": [{"word": "New", "start": 0.0, "end": 1.0}, {"word": "line", "start": 1.0, "end": 2.0}]}]}
+    )
+    assert put_resp.status_code == 200
+    assert put_resp.json()["status"] == "ok"
+    assert "version" in put_resp.json()
+

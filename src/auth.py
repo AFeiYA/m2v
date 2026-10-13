@@ -205,6 +205,7 @@ async def get_user_from_token(token: str, db: AsyncSession) -> User:
                 id=user_id,
                 email=email,
                 username=username,
+                display_name=payload.get("name") or raw_name,
                 password_hash="FIREBASE_AUTH",
                 avatar_url=payload.get("picture"),
                 plan=UserPlan.FREE,
@@ -230,6 +231,8 @@ async def get_user_from_token(token: str, db: AsyncSession) -> User:
     if payload.get("provider") == "firebase":
         # Email/password users are not verified until Firebase confirms the email.
         user.is_verified = bool(payload.get("email_verified", False))
+        if not user.display_name and payload.get("name"):
+            user.display_name = payload.get("name")
     return user
 
 

@@ -12,9 +12,10 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from sqlalchemy import select
@@ -65,10 +66,13 @@ async def list_songs(
             pass
 
         title = task.song_title or task.title or "Untitled"
+        updated_dt = getattr(task, "updated_at", None) or task.completed_at or task.created_at
+        version = str(int(updated_dt.timestamp())) if updated_dt else "1"
         songs.append({
             "task_id": task.id,
             "name": title,
             "stem": title,
+            "version": version,
             "has_alignment": True,
             "has_audio": task.input_mp3_key is not None,
             "has_vocals": await _find_track_key(storage, task, "vocals") is not None,
@@ -88,6 +92,7 @@ async def list_songs(
 @router.get("/tasks/{task_id}/align")
 async def get_alignment(
     task_id: str,
+    response: Response,
     user: User = Depends(get_current_user_flexible),
     db: AsyncSession = Depends(get_db),
 ):
@@ -95,6 +100,10 @@ async def get_alignment(
     task = await _get_user_task(db, user.id, task_id)
     if not task.alignment_json_key:
         raise HTTPException(404, "该任务没有对齐数据")
+
+    updated_dt = getattr(task, "updated_at", None) or task.completed_at or task.created_at
+    if updated_dt:
+        response.headers["X-Resource-Version"] = str(int(updated_dt.timestamp()))
 
     storage = get_storage()
     return await _load_alignment(storage, task.alignment_json_key)
@@ -144,8 +153,12 @@ async def save_alignment(
     finally:
         tmp_path.unlink(missing_ok=True)
 
-    log.info("对齐 JSON 已保存: task=%s", task_id)
-    return {"status": "ok", "task_id": task_id}
+    task.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    version = str(int(task.updated_at.timestamp()))
+
+    log.info("对齐 JSON 已保存: task=%s, version=%s", task_id, version)
+    return {"status": "ok", "task_id": task_id, "version": version}
 
 
 # ======================================================================
