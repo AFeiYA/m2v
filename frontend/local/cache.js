@@ -68,6 +68,20 @@
       }
     } catch (_) {}
 
+    // 同步从本地 Token (JWT) 中提取 sub / user_id，杜绝新标签打开时异步 Firebase 尚未初始化的时序漏洞
+    try {
+      const token = localStorage.getItem("m2v_token");
+      if (token && typeof token === "string" && token.includes(".")) {
+        const parts = token.split(".");
+        if (parts.length >= 2) {
+          const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+          const payload = JSON.parse(decodeURIComponent(escape(atob(base64))));
+          const uid = payload.sub || payload.user_id || payload.uid;
+          if (uid) return String(uid);
+        }
+      }
+    } catch (_) {}
+
     if (typeof firebase !== "undefined" && firebase.auth && firebase.auth().currentUser) {
       return firebase.auth().currentUser.uid;
     }
