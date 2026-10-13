@@ -39,7 +39,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -745,12 +745,26 @@ if frontend_dir.exists():
 
     @app.get("/editor", tags=["Frontend"])
     @app.get("/editor/{task_id}", tags=["Frontend"])
+    @app.get("/lyric_editor", tags=["Frontend"])
+    @app.get("/lyric_editor/{task_id}", tags=["Frontend"])
     async def serve_editor(task_id: str | None = None):
-        """返回时间轴编辑器 (task_id 由前端路由处理)"""
+        """返回时间轴歌词编辑器 (task_id 由前端路由处理)"""
         editor_file = frontend_dir / "local" / "index.html"
         if editor_file.exists():
             return FileResponse(editor_file)
         return FileResponse(frontend_dir / "index.html")
+
+    @app.get("/local", tags=["Frontend"])
+    @app.get("/local/{rest:path}", tags=["Frontend"])
+    async def redirect_legacy_local(rest: str = ""):
+        """重定向旧版 /local 路径至规范语义化路由"""
+        if rest.startswith("motion_studio"):
+            return RedirectResponse(url="/motion_studio", status_code=301)
+        if rest.startswith("storyboard"):
+            return RedirectResponse(url="/storyboard", status_code=301)
+        if rest.startswith("gallery"):
+            return RedirectResponse(url="/gallery", status_code=301)
+        return RedirectResponse(url="/editor", status_code=301)
 
     @app.get("/storyboard", tags=["Frontend"])
     async def serve_storyboard():

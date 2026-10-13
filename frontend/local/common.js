@@ -467,7 +467,7 @@ async function loadFileList(preferredTitle) {
     }
 
     const urlParams = new URLSearchParams(window.location.search);
-    const targetTaskId = urlParams.get("task_id") || (window.location.pathname.match(/\/editor\/([0-9a-fA-F-]+)/) || [])[1];
+    const targetTaskId = urlParams.get("task_id") || (window.location.pathname.match(/\/(?:editor|lyric_editor)\/([0-9a-fA-F-]+)/) || [])[1];
     const targetSong = preferredTitle || urlParams.get("song");
 
     if (targetTaskId) {

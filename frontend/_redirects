@@ -1,14 +1,33 @@
-/motion-lab.css /local/motion-lab.css 200
-/motion/*      /local/motion/:splat 200
-/remotion/*    /local/remotion/:splat 200
+# Legacy /local 301 redirects to clean routes
+/local/motion_studio*  /motion_studio 301
+/local/storyboard*     /storyboard 301
+/local/gallery*        /gallery 301
+/local/index.html      /editor 301
+/local/                /editor 301
+/local                 /editor 301
+/local/*               /editor 301
+
+# Static Assets
+/motion-lab.css        /local/motion-lab.css 200
+/motion/*              /local/motion/:splat 200
+/remotion/*            /local/remotion/:splat 200
+/static/*              /local/:splat 200
+
+# Clean Semantic App Routes
+/editor                /local/index.html 200
+/editor/*              /local/index.html 200
+/editor.html           /local/index.html 200
+/lyric_editor          /local/index.html 200
+/lyric_editor/*        /local/index.html 200
+/storyboard            /local/storyboard.html 200
+/storyboard.html       /local/storyboard.html 200
+/motion_studio         /local/motion_studio_director.html 200
 /motion_studio_director /local/motion_studio_director.html 200
-/motion        /local/motion_studio_director.html 200
-/motion_lab    /local/motion_lab.html 200
-/static/*       /local/:splat       200
-/editor         /local/index.html   200
-/editor/*       /local/index.html   200
-/editor.html    /local/index.html   200
-/storyboard     /local/storyboard.html 200
-/motion_studio  /local/motion_studio_director.html 200
-/gallery        /local/gallery.html 200
-/*              /index.html         200
+/motion                /local/motion_studio_director.html 200
+/motion_lab            /local/motion_lab.html 200
+/gallery               /local/gallery.html 200
+/gallery.html          /local/gallery.html 200
+
+# Fallback SPA Dashboard
+/*                     /index.html 200
+

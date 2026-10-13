@@ -236,6 +236,7 @@ const I18N = {
     ms_btn_focus_exit: "显示设置",
     ms_nav_gallery: "作品展厅 ↗",
     ms_nav_editor: "歌词编辑器 ↗",
+    ms_nav_dashboard: "控制台 ↗",
     ms_nav_lab: "实验室 ↗",
     ms_tag_director: "动效导演",
     ms_status_ready: "准备就绪",
@@ -394,6 +395,7 @@ const I18N = {
     gal_brand: "作品展厅",
     gal_brand_sub: "导出的动效 MV 视频库",
     gal_nav_editor: "🎤 歌词编辑器 ↗",
+    gal_nav_dashboard: "🏠 控制台 ↗",
     gal_nav_motion: "⚡ 动效工作室 ↗",
   },
 
@@ -629,6 +631,7 @@ const I18N = {
     ms_btn_focus_exit: "Show Controls",
     ms_nav_gallery: "Gallery ↗",
     ms_nav_editor: "Lyric Editor ↗",
+    ms_nav_dashboard: "Dashboard ↗",
     ms_nav_lab: "Lab ↗",
     ms_tag_director: "Motion Director",
     ms_status_ready: "Ready",
@@ -787,6 +790,7 @@ const I18N = {
     gal_brand: "MV Gallery",
     gal_brand_sub: "Exported Kinetic MV Library",
     gal_nav_editor: "🎤 Lyric Editor ↗",
+    gal_nav_dashboard: "🏠 Dashboard ↗",
     gal_nav_motion: "⚡ Motion Studio ↗",
   }
 };
