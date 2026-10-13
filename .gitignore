@@ -49,6 +49,8 @@ frontend/player/songs/
 work/
 frontend/motion/node_modules
 .firebase/
+firebase-debug.log
+firebase-debug.*.log
 frontend/local/motion/
 
 frontend/local/remotion/

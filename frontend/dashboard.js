@@ -196,6 +196,17 @@ function initAuth() {
     });
   }
 
+  $("#auth-reset-password")?.addEventListener("click", async () => {
+    const email = $("#auth-email").value.trim();
+    if (!email) { $("#auth-error").textContent = "请先填写邮箱"; return; }
+    try {
+      await window.m2vAuth.resetPassword(email);
+      $("#auth-error").textContent = "若该邮箱已注册，你将收到密码重置邮件。";
+    } catch (error) {
+      $("#auth-error").textContent = window.m2vAuth?.errorMessage(error) || error.message;
+    }
+  });
+
   toggle.addEventListener("click", (e) => {
     e.preventDefault();
     isLoginMode = !isLoginMode;
@@ -211,44 +222,21 @@ function initAuth() {
     const username = $("#auth-username").value.trim();
 
     try {
-      let res;
-      if (isLoginMode) {
-        res = await fetch(`${API}/api/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password }),
-        });
-      } else {
-        if (!username) {
-          $("#auth-error").textContent = "请输入用户名";
-          return;
-        }
-        res = await fetch(`${API}/api/auth/register`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, username, password }),
-        });
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        // Clear any persisted Google session before switching to a local account.
-        if (window.m2vAuth) await window.m2vAuth.logout();
-        authProvider = "local";
-        localStorage.setItem("m2v_auth_provider", authProvider);
-        token = data.access_token;
-        refreshToken = data.refresh_token;
-        localStorage.setItem("m2v_token", token);
-        localStorage.setItem("m2v_refresh", refreshToken);
-        syncAuthCookie(token);
-        await loadUser();
-        showApp();
-      } else {
-        const err = await res.json();
-        $("#auth-error").textContent = err.detail || "操作失败";
-      }
-    } catch (e) {
-      $("#auth-error").textContent = "网络错误，请检查服务是否运行";
+      if (!window.m2vAuth) throw new Error("登录服务尚未加载，请刷新页面后重试");
+      const result = isLoginMode
+        ? await window.m2vAuth.loginWithEmail(email, password)
+        : await window.m2vAuth.registerWithEmail(email, password, username);
+      token = result.idToken;
+      authProvider = "firebase";
+      refreshToken = null;
+      localStorage.removeItem("m2v_refresh");
+      localStorage.setItem("m2v_auth_provider", authProvider);
+      localStorage.setItem("m2v_token", token);
+      syncAuthCookie(token);
+      if (await loadUser()) showApp();
+      else throw new Error(userLoadError || "无法读取账户信息，请重试");
+    } catch (error) {
+      $("#auth-error").textContent = window.m2vAuth?.errorMessage(error) || error.message;
     }
   });
 }
@@ -261,6 +249,7 @@ function updateAuthUI() {
     $("#auth-toggle").textContent = "去注册";
     $("#auth-username").style.display = "none";
     $("#auth-username").required = false;
+    $("#auth-password").autocomplete = "current-password";
   } else {
     $("#auth-title").textContent = "🎤 M2V 注册";
     $("#auth-submit").textContent = "注册";
@@ -268,6 +257,7 @@ function updateAuthUI() {
     $("#auth-toggle").textContent = "去登录";
     $("#auth-username").style.display = "";
     $("#auth-username").required = true;
+    $("#auth-password").autocomplete = "new-password";
   }
 }
 
@@ -792,6 +782,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         prompt("请手动复制您的 Token：", activeToken);
       }
     });
+  }
+
+  // Firebase restores its session asynchronously; never trust an old cached ID token.
+  if (window.m2vAuth?.ready) {
+    await window.m2vAuth.ready;
+    if (authProvider === "firebase") {
+      token = await window.m2vAuth.getIdToken();
+      if (token) localStorage.setItem("m2v_token", token);
+      else localStorage.removeItem("m2v_token");
+      syncAuthCookie(token);
+    }
   }
 
   // 已登录？

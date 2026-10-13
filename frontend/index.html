@@ -22,16 +22,17 @@
         </button>
         <div style="display: flex; align-items: center; margin: 14px 0 8px 0; color: #888;">
           <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.15);"></div>
-          <span style="padding: 0 10px; font-size: 12px; color: #aaa;">或使用账号密码</span>
+          <span style="padding: 0 10px; font-size: 12px; color: #aaa;">或使用邮箱密码</span>
           <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.15);"></div>
         </div>
       </div>
       <form id="auth-form">
-        <input id="auth-username" type="text" placeholder="用户名" autocomplete="username" style="display:none">
+        <input id="auth-username" type="text" placeholder="显示名称" maxlength="128" autocomplete="username" style="display:none">
         <input id="auth-email" type="email" placeholder="邮箱" required autocomplete="email">
-        <input id="auth-password" type="password" placeholder="密码 (至少6位)" required autocomplete="current-password">
+        <input id="auth-password" type="password" placeholder="密码 (至少6位)" minlength="6" required autocomplete="current-password">
         <button type="submit" id="auth-submit">登录</button>
       </form>
+      <button type="button" id="auth-reset-password" class="btn btn-sm btn-outline">忘记密码</button>
       <p class="auth-switch">
         <span id="auth-toggle-text">没有账号？</span>
         <a href="#" id="auth-toggle">去注册</a>
@@ -156,7 +157,7 @@
   <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
-  <script src="/firebase-config.js"></script>
-  <script src="/dashboard.js?v=20261012_v3"></script>
+  <script src="/firebase-config.js?v=20261013_email"></script>
+  <script src="/dashboard.js?v=20261013_email"></script>
 </body>
 </html>

@@ -23,7 +23,7 @@ M2V 采用 **前后端彻底解耦、动静分离、算存分离、高可用多�
 - **重计算与 AI 算力引擎**: 部署于 **Hugging Face Spaces**（16GB RAM + ZeroGPU，支持 CPU/GPU 弹性切分）。
 - **持久化用户与任务状态**: 托管于 **Supabase PostgreSQL**（PostgreSQL 17，Session 连接池，跨容器重启数据永续）。
 - **海量多媒体与产物资产**: 托管于 **Cloudflare R2**（S3 兼容对象存储，**0 出网带宽费 (Zero Egress)**）。
-- **用户身份与鉴权**: 基于 **Firebase Authentication**（Google OAuth 2.0 联邦登录）。
+- **用户身份与鉴权**: 基于 **Firebase Authentication**（Google 登录与邮箱／密码登录）。
 
 ```mermaid
 flowchart TD
@@ -38,7 +38,7 @@ flowchart TD
     end
 
     subgraph Auth ["身份网关 (Google Firebase)"]
-        FB_Auth["Firebase Auth (Google OAuth 2.0)"]
+        FB_Auth["Firebase Auth (Google / Email)"]
     end
 
     subgraph Backend ["计算引擎层 (Hugging Face / 本地 API)"]
@@ -58,7 +58,7 @@ flowchart TD
     Browser -->|"1. 访问页面"| CF_Pages
     CF_Pages --> UI_Dash
     CF_Pages --> UI_Editor
-    Browser -->|"2. Google 登录"| FB_Auth
+    Browser -->|"2. Google / 邮箱登录"| FB_Auth
     Browser -->|"3. 携带 ID Token 请求 API"| API_GW
     API_GW -->|"4. 验证 Token / 读写账户与任务"| Supa_PG
     API_GW -->|"5. 嗅探提取"| Suno_Engine
@@ -172,9 +172,11 @@ suno2mv-media/ (Bucket)
 ---
 
 ### 3. 身份与凭证数据（Firebase Auth）
-- 用户密码不经过也不存储在 M2V 数据库中。
-- 前端只保存短期 Google OAuth 颁发的 `idToken`。
-- 后端通过 Firebase 公钥验签，验签成功后提取 `uid` 映射至本地 `users` 表。
+- 新的邮箱注册、邮箱登录、Google 登录和密码重置由 Firebase Authentication 处理，密码不会发送到 M2V API。旧的本地账号接口仍保留兼容，原有本地账号及密码不会自动迁入 Firebase。
+- Firebase SDK 恢复浏览器会话并获取短期 ID Token；页面先等待会话恢复，再请求后端，避免使用过期缓存。
+- 后端通过 Firebase 公钥验签，提取 `uid` 映射至 SQL `users` 表。邮箱是否已验证以 Firebase 的 `email_verified` 为准。
+- Firebase 仅负责身份，业务用户记录、额度和任务继续使用现有 SQL 数据库；媒体继续使用 R2，不接入 Firestore。
+- 自定义登录授权域名的配置与启用顺序见 [FIREBASE_AUTH.md](FIREBASE_AUTH.md)。
 
 ---
 

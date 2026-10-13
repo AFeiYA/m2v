@@ -103,3 +103,20 @@ test('backend failure is reported as a server error instead of invalid identity'
   assert.match(s.element('#auth-error').textContent, /HTTP 500/);
   assert.match(s.element('#auth-error').textContent, /后端读取账户信息失败/);
 });
+
+test('email form signs in through Firebase without sending passwords to Python', async () => {
+  const s = setup();
+  let submitted;
+  s.context.window.m2vAuth.loginWithEmail = async (email, password) => {
+    submitted = {email, password}; return {idToken: 'email-B'};
+  };
+  s.run('loadUser = async () => true; showApp = () => {}; initAuth()');
+  s.element('#auth-email').value = 'artist@example.com';
+  s.element('#auth-password').value = 'long-password';
+  s.element('#auth-username').value = '';
+  await s.element('#auth-form').handlers.submit({preventDefault() {}});
+  assert.deepEqual(submitted, {email: 'artist@example.com', password: 'long-password'});
+  assert.equal(s.requests.length, 0);
+  assert.equal(s.values.get('m2v_token'), 'email-B');
+  assert.equal(s.values.has('m2v_refresh'), false);
+});

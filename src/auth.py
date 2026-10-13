@@ -116,6 +116,7 @@ def verify_firebase_id_token(token: str) -> dict | None:
                 "email": decoded.get("email"),
                 "name": decoded.get("name"),
                 "picture": decoded.get("picture"),
+                "email_verified": decoded.get("email_verified", False),
                 "type": "access",
                 "provider": "firebase",
             }
@@ -138,6 +139,7 @@ def verify_firebase_id_token(token: str) -> dict | None:
             "email": decoded.get("email"),
             "name": decoded.get("name"),
             "picture": decoded.get("picture"),
+            "email_verified": decoded.get("email_verified", False),
             "type": "access",
             "provider": "firebase",
         }
@@ -208,7 +210,7 @@ async def get_user_from_token(token: str, db: AsyncSession) -> User:
                 plan=UserPlan.FREE,
                 credits=settings.FREE_MONTHLY_QUOTA,
                 is_active=True,
-                is_verified=True,
+                is_verified=bool(payload.get("email_verified", False)),
             )
             db.add(user)
             await db.commit()
@@ -225,6 +227,9 @@ async def get_user_from_token(token: str, db: AsyncSession) -> User:
             detail="用户已禁用",
         )
 
+    if payload.get("provider") == "firebase":
+        # Email/password users are not verified until Firebase confirms the email.
+        user.is_verified = bool(payload.get("email_verified", False))
     return user
 
 

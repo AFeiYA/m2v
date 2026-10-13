@@ -557,3 +557,19 @@ def test_remote_media_errors_are_reported_and_temp_files_removed(sandbox, monkey
     response = sandbox.client.get("/api/editor/tasks/editor/audio", headers=headers())
     assert response.status_code == (404 if missing else 502)
     assert all(not path.exists() for path in downloaded)
+
+
+def test_firebase_email_verification_is_not_assumed(sandbox, monkeypatch):
+    payload = {"sub": "firebase-email-user", "email": "new@example.com", "name": "New Artist",
+               "type": "access", "provider": "firebase", "email_verified": False}
+    monkeypatch.setattr(auth, "decode_token", lambda token: payload)
+    credentials = {"Authorization": "Bearer test-firebase-token"}
+    first = sandbox.client.get("/api/auth/me", headers=credentials)
+    assert first.status_code == 200
+    assert first.json()["is_verified"] is False
+    assert first.json()["credits"] == auth.settings.FREE_MONTHLY_QUOTA
+    payload["email_verified"] = True
+    second = sandbox.client.get("/api/auth/me", headers=credentials)
+    assert second.json()["is_verified"] is True
+    assert second.json()["id"] == first.json()["id"]
+    assert second.json()["credits"] == first.json()["credits"]

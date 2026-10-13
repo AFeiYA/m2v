@@ -21,7 +21,7 @@
         s2.src = "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js";
         s2.onload = () => {
           const s3 = document.createElement("script");
-          s3.src = "/firebase-config.js";
+          s3.src = "/firebase-config.js?v=20261013_email";
           s3.onload = () => {
             if (window.updateAuthUi) window.updateAuthUi();
             if (window.setupEditorAuth) window.setupEditorAuth();
