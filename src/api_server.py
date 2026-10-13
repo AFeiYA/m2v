@@ -743,13 +743,11 @@ if frontend_dir.exists():
         """返回仪表板主页"""
         return FileResponse(frontend_dir / "index.html")
 
-    @app.get("/editor", tags=["Frontend"])
-    @app.get("/editor/{task_id}", tags=["Frontend"])
-    @app.get("/lyric_editor", tags=["Frontend"])
-    @app.get("/lyric_editor/{task_id}", tags=["Frontend"])
+    @app.get("/lyric-editor", tags=["Frontend"])
+    @app.get("/lyric-editor/{task_id}", tags=["Frontend"])
     async def serve_editor(task_id: str | None = None):
         """返回时间轴歌词编辑器 (task_id 由前端路由处理)"""
-        editor_file = frontend_dir / "editor.html"
+        editor_file = frontend_dir / "lyric-editor.html"
         if not editor_file.exists():
             editor_file = frontend_dir / "local" / "index.html"
         if editor_file.exists():
@@ -758,15 +756,9 @@ if frontend_dir.exists():
 
     @app.get("/local", tags=["Frontend"])
     @app.get("/local/{rest:path}", tags=["Frontend"])
-    async def redirect_legacy_local(rest: str = ""):
-        """重定向旧版 /local 路径至规范语义化路由"""
-        if rest.startswith("motion_studio"):
-            return RedirectResponse(url="/motion_studio", status_code=301)
-        if rest.startswith("storyboard"):
-            return RedirectResponse(url="/storyboard", status_code=301)
-        if rest.startswith("gallery"):
-            return RedirectResponse(url="/gallery", status_code=301)
-        return RedirectResponse(url="/editor", status_code=301)
+    async def retired_local_pages(rest: str = ""):
+        """Retired public pages must not expose internal HTML source files."""
+        raise HTTPException(404, "页面地址已更新，请从首页进入")
 
     @app.get("/storyboard", tags=["Frontend"])
     async def serve_storyboard():
@@ -777,14 +769,18 @@ if frontend_dir.exists():
             return FileResponse(sb_file)
         return FileResponse(frontend_dir / "index.html")
 
-    @app.get("/motion_studio", tags=["Frontend"])
+    @app.get("/motion-studio", tags=["Frontend"])
     async def serve_motion_studio():
-        ms_file = frontend_dir / "motion_studio.html"
+        ms_file = frontend_dir / "motion-studio.html"
         if not ms_file.exists():
             ms_file = frontend_dir / "local" / "motion_studio_director.html"
         if ms_file.exists():
             return FileResponse(ms_file)
         return FileResponse(frontend_dir / "index.html")
+
+    @app.get("/motion-lab", tags=["Frontend"])
+    async def serve_motion_lab():
+        return FileResponse(frontend_dir / "motion-lab.html")
 
     @app.get("/gallery", tags=["Frontend"])
     async def serve_gallery():

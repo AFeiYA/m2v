@@ -547,7 +547,7 @@ function renderTask(task) {
     }
     if (task.alignment_json_key) {
       actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="alignment">📊 下载 JSON</button>`;
-      actions += `<a class="btn btn-sm" href="/editor/${task.id}" target="_blank">✏️ 编辑时间轴</a>`;
+      actions += `<a class="btn btn-sm" href="/lyric-editor/${task.id}" target="_blank">✏️ 编辑时间轴</a>`;
     }
   }
   if (task.status === "failed" && task.error_message) {

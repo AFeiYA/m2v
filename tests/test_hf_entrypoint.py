@@ -55,8 +55,8 @@ def test_hf_app_entrypoint_routes():
     # 2. 网络真实链路探活：关键业务接口绝对不能返回 404 Not Found
     endpoints = [
         ("GET", "/api/files"),
-        ("GET", "/motion_studio"),
-        ("GET", "/motion_lab"),
+        ("GET", "/motion-studio"),
+        ("GET", "/motion-lab"),
         ("GET", "/api/motion/projects"),
         ("GET", "/api/motion/director/config"),
         ("POST", "/api/suno/import"),

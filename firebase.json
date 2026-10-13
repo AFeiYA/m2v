@@ -16,20 +16,13 @@
       "motion/node_modules/**",
       "motion/**/node_modules/**",
       "motion/src/**",
-      "motion/scripts/**"
+      "motion/scripts/**",
+      "local/*.html"
     ],
     "rewrites": [
       {
-        "source": "/editor/**",
-        "destination": "/local/index.html"
-      },
-      {
-        "source": "/editor",
-        "destination": "/local/index.html"
-      },
-      {
-        "source": "**",
-        "destination": "/index.html"
+        "source": "/lyric-editor/**",
+        "destination": "/lyric-editor.html"
       }
     ]
   }

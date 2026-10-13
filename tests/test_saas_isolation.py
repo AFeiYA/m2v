@@ -623,35 +623,13 @@ def test_editor_song_versioning_and_alignment_save(sandbox):
     assert "version" in put_resp.json()
 
 
-def test_frontend_routes_and_legacy_local_redirects():
-    """验证 /lyric_editor 路由可用，且旧版 /local/* 路径统一 301 重定向至规范语义路由"""
-    with TestClient(api_server.app) as client:
-        # 1. 验证 /lyric_editor 正常响应
-        res = client.get("/lyric_editor", follow_redirects=False)
-        assert res.status_code == 200
-
-        res_task = client.get("/lyric_editor/test-task-123", follow_redirects=False)
-        assert res_task.status_code == 200
-
-        # 2. 验证 /local 统一 301 重定向
-        res_local = client.get("/local", follow_redirects=False)
-        assert res_local.status_code == 301
-        assert res_local.headers["location"] == "/editor"
-
-        res_local_sub = client.get("/local/index.html", follow_redirects=False)
-        assert res_local_sub.status_code == 301
-        assert res_local_sub.headers["location"] == "/editor"
-
-        res_local_ms = client.get("/local/motion_studio_director", follow_redirects=False)
-        assert res_local_ms.status_code == 301
-        assert res_local_ms.headers["location"] == "/motion_studio"
-
-        res_local_sb = client.get("/local/storyboard.html", follow_redirects=False)
-        assert res_local_sb.status_code == 301
-        assert res_local_sb.headers["location"] == "/storyboard"
-
-        res_local_gal = client.get("/local/gallery.html", follow_redirects=False)
-        assert res_local_gal.status_code == 301
-        assert res_local_gal.headers["location"] == "/gallery"
-
-
+def test_frontend_canonical_routes_and_retired_pages(sandbox):
+    for path in ["/lyric-editor", "/lyric-editor/test-task-123", "/motion-studio",
+                 "/motion-lab", "/gallery", "/storyboard"]:
+        response = sandbox.client.get(path, follow_redirects=False)
+        assert response.status_code == 200, path
+        assert "text/html" in response.headers["content-type"]
+    for path in ["/local", "/local/index.html", "/local/motion_studio_director",
+                 "/local/storyboard.html", "/local/gallery.html", "/editor",
+                 "/lyric_editor", "/motion_studio"]:
+        assert sandbox.client.get(path, follow_redirects=False).status_code == 404, path

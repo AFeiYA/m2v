@@ -2308,7 +2308,9 @@ if _FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIR)), name="local-static")
 
 @app.get("/", response_class=HTMLResponse)
-def index():
+@app.get("/lyric-editor", response_class=HTMLResponse)
+@app.get("/lyric-editor/{task_id}", response_class=HTMLResponse)
+def index(task_id: str | None = None):
     index_file = _FRONTEND_DIR / "index.html"
     if index_file.exists():
         return HTMLResponse(index_file.read_text(encoding="utf-8"))
@@ -2316,7 +2318,6 @@ def index():
 
 
 @app.get("/storyboard", response_class=HTMLResponse)
-@app.get("/storyboard.html", response_class=HTMLResponse)
 def storyboard():
     sb_file = _FRONTEND_DIR / "storyboard.html"
     if sb_file.exists():
@@ -2324,10 +2325,7 @@ def storyboard():
     return HTMLResponse("<h1>frontend/local/storyboard.html 不存在</h1>", status_code=500)
 
 
-@app.get("/motion", response_class=HTMLResponse)
-@app.get("/motion_studio", response_class=HTMLResponse)
-@app.get("/motion_studio.html", response_class=HTMLResponse)
-@app.get("/motion_studio_director.html", response_class=HTMLResponse)
+@app.get("/motion-studio", response_class=HTMLResponse)
 def motion_studio():
     ms_file = _FRONTEND_DIR / "motion_studio_director.html"
     if not ms_file.exists():
@@ -2344,9 +2342,6 @@ def motion_studio():
 
 
 @app.get("/gallery", response_class=HTMLResponse)
-@app.get("/gallery.html", response_class=HTMLResponse)
-@app.get("/videos", response_class=HTMLResponse)
-@app.get("/videos.html", response_class=HTMLResponse)
 def gallery_view():
     g_file = _FRONTEND_DIR / "gallery.html"
     if g_file.exists():
@@ -2496,7 +2491,7 @@ def init_session_endpoint():
     token = issue_session_token()
     return {"session_token": token, "session_id": token, "created_at": time.time()}
 
-@app.get("/motion_lab", response_class=HTMLResponse)
+@app.get("/motion-lab", response_class=HTMLResponse)
 def motion_lab():
     return HTMLResponse((_FRONTEND_DIR / "motion_lab.html").read_text(encoding="utf-8"))
 

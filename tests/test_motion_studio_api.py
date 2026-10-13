@@ -22,7 +22,7 @@ def song(tmp_path,monkeypatch):
 def test_plan_save_locks_and_route_shared_song_store(song):
     path,id=song
     with TestClient(app) as client:
-        assert client.get('/motion_studio').status_code==200
+        assert client.get('/motion-studio').status_code==200
         rows=client.get('/api/motion/projects').json();assert rows[0]['id']==id
         plan=client.post('/api/motion/director/rules',json={'project_id':id}).json()
         original=path.read_text()
@@ -174,16 +174,16 @@ def test_studio_script_url_changes_with_build_content(tmp_path,monkeypatch):
     style=front/'motion-lab.css';style.write_text('first style')
     monkeypatch.setattr(editor,'_FRONTEND_DIR',front)
     with TestClient(app) as client:
-        first=client.get('/motion_studio')
+        first=client.get('/motion-studio')
         assert first.headers['cache-control']=='no-cache'
         assert '/motion/studio.js?v=' in first.text
         assert '/motion-lab.css?v=' in first.text
-        assert client.get('/motion_studio').text==first.text
+        assert client.get('/motion-studio').text==first.text
         script.write_text('new build')
-        second=client.get('/motion_studio').text
+        second=client.get('/motion-studio').text
         assert second!=first.text
         style.write_text('new style')
-        assert client.get('/motion_studio').text!=second
+        assert client.get('/motion-studio').text!=second
 
 
 def wait_director(client,job_id):

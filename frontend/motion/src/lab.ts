@@ -64,7 +64,7 @@ function bind(){
   $<HTMLInputElement>('seek').oninput=e=>{const t=Number((e.target as HTMLInputElement).value);if(audio.src)audio.currentTime=t;else previewTime=t;
     engine?.renderAt(t);$('time').textContent=fmt(t);$('line-status').textContent=project.lines.find(l=>t>=l.start&&t<l.end)?.text||'';};
   for(const id of ['aspect','preset','mode','post','punch','bloom','shake'])$(id).addEventListener('input',updateOptions);
-  $('export').onclick=()=>{location.href='/motion_studio';};
+  $('export').onclick=()=>{location.href='/motion-studio';};
 }
 async function exportClip(){
   const start=Number($<HTMLInputElement>('clip-start').value),length=Number($<HTMLInputElement>('clip-length').value);

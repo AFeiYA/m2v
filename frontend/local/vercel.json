@@ -7,37 +7,21 @@
       "destination": "https://lucazhou-suno2mv-api.hf.space/api/:match*"
     },
     {
-      "source": "/motion_studio",
-      "destination": "/motion_studio.html"
+      "source": "/lyric-editor/:match*",
+      "destination": "/lyric-editor.html"
     },
     {
-      "source": "/motion_studio_director",
-      "destination": "/motion_studio.html"
+      "source": "/motion-lab.css",
+      "destination": "/local/motion-lab.css"
     },
     {
-      "source": "/motion",
-      "destination": "/motion_studio.html"
-    },
-    {
-      "source": "/motion_lab",
-      "destination": "/motion_lab.html"
-    },
-    {
-      "source": "/gallery",
-      "destination": "/gallery.html"
-    },
-    {
-      "source": "/videos",
-      "destination": "/gallery.html"
-    },
-    {
-      "source": "/storyboard",
-      "destination": "/storyboard.html"
+      "source": "/motion/:match*",
+      "destination": "/local/motion/:match*"
     },
     {
       "source": "/static/:match*",
-      "destination": "/:match*"
+      "destination": "/local/:match*"
     }
   ],
-  "outputDirectory": "."
+  "outputDirectory": "frontend"
 }

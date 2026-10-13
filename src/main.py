@@ -38,7 +38,7 @@ def _run_edit_subcommand() -> None:
 
     import threading
     import webbrowser
-    url = f"http://{args.host}:{args.port}/editor"
+    url = f"http://{args.host}:{args.port}/lyric-editor"
     threading.Timer(1.5, lambda: webbrowser.open(url)).start()
 
     from src.api_server import run_server
