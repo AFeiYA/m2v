@@ -23,7 +23,7 @@ from src.settings import get_settings
 from src.storage import LocalStorage, get_storage
 from src.song_assets import source_keys, save_source
 from src.song_identity import resolve_identity
-from src.song_cover import resolve_cover
+from src.song_cover import resolve_cover, cover_path
 
 PREFIX = "/api/cloud-motion"
 router = APIRouter(prefix=PREFIX, tags=["Cloud Motion Studio"])
@@ -214,6 +214,11 @@ async def refresh_source(request: Request, user: User = Depends(get_current_user
         result = await save_source(storage, task.input_mp3_key, song)
         await workspace.hydrate(task.id)
         path = workspace.project_path(task.id)
+        if not result['warning'] and result['metadata']['image_url']:
+            # A previous "Restore Suno cover" cache must not mask refreshed art.
+            cached = cover_path(path, False)
+            cached.unlink(missing_ok=True)
+            await storage.delete(workspace.object_key(cached))
         payload = json.loads(path.read_text())
         return {'identity': resolve_identity(path, payload, workspace.root),
                 'cover': resolve_cover(path, payload, workspace.root), 'warning': result['warning']}

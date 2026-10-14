@@ -804,6 +804,12 @@ def test_source_refresh_restores_artwork_preserves_overrides_and_never_realigns(
     metadata, cover = source_keys('uploads/alice/alice_motion/source.wav')
     assert 'private_unused_field' not in json.loads(sandbox.storage.get_local_path(metadata).read_text())
     assert sandbox.storage.get_local_path(cover).exists()
+    assert sandbox.client.post(base + '/cover/suno', json={'project_id':'alice_motion','restore':True}, headers=headers()).status_code == 200
+    changed_art = io.BytesIO()
+    Image.new('RGB', (8, 8), 'red').save(changed_art, format='JPEG')
+    monkeypatch.setattr(song_assets, 'download_artwork', lambda url: changed_art.getvalue())
+    changed_source = sandbox.client.post(base + '/source/refresh', json={'project_id':'alice_motion'}, headers=headers())
+    assert changed_source.json()['cover']['data_url'] != response.json()['cover']['data_url']
     identity = {key:value for key,value in response.json()['identity'].items() if key not in ('source','source_title','source_artist')}
     identity.update(title='My title', artist='My artist')
     assert sandbox.client.put(base + '/identity', json={'project_id':'alice_motion','identity':identity}, headers=headers()).status_code == 200
