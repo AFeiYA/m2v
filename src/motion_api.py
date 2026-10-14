@@ -39,6 +39,20 @@ class IdentityRequest(BaseModel):
     project_id: str
     identity: SongIdentity
 
+class StudioSettings(BaseModel):
+    aspect: Literal['16:9', '9:16'] = '16:9'
+    height: Literal[360, 720] = 720
+    post: bool = True
+    bloom: float = Field(default=.7, ge=0, le=1.4, allow_inf_nan=False)
+    shake: float = Field(default=.65, ge=0, le=1.5, allow_inf_nan=False)
+    palette: str = Field(default='impact', max_length=64)
+    background: Literal['auto', 'dark', 'light'] = 'auto'
+    layout: Literal['smart', 'random', 'single', 'two-stack', 'three-stack', 'word-by-word'] = 'smart'
+
+class SettingsRequest(BaseModel):
+    project_id: str
+    settings: StudioSettings
+
 class LineInputRequest(ProjectRequest):
     line_id: str
     instruction: str = Field(default='', max_length=2000)
@@ -127,9 +141,22 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
         if saved:
             try: validate_plan(payload, saved)
             except ValueError as exc: saved, error = None, str(exc)
-        return {'project': payload, 'plan': saved, 'plan_error': error,
+        settings_file = path.with_name(path.stem.removesuffix('_alignment').removesuffix('_project') + '_motion_settings.json')
+        settings = None
+        if settings_file.exists():
+            try: settings = StudioSettings.model_validate_json(settings_file.read_text()).model_dump()
+            except (ValueError, OSError): error = error or '显示设置无法读取，已使用默认值；导演方案未改变'
+        return {'project': payload, 'plan': saved, 'plan_error': error, 'settings': settings,
+                'rule_seed': rule_plan(payload, saved).model_dump(),
                 'audio_url': (audio_url(project_id) if audio_url is not None else
                               '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(audio))) if audio_url is not None or audio else None}
+
+    @router.put('/settings')
+    def save_settings(req: SettingsRequest):
+        path = project_path(req.project_id)
+        destination = path.with_name(path.stem.removesuffix('_alignment').removesuffix('_project') + '_motion_settings.json')
+        atomic_write(destination, req.settings.model_dump())
+        return {'settings': req.settings.model_dump()}
 
     @router.put('/identity')
     def save_identity(req: IdentityRequest):
@@ -329,7 +356,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
             return {k: v for k, v in director_jobs[job_id].items() if k != 'baseline'}
 
     @router.post('/director/jobs/{job_id}/apply')
-    def apply_director_job(job_id: str):
+    def apply_director_job(job_id: str, preview: bool = False):
         with plan_lock:
             with lock:
                 job = dict(director_jobs.get(job_id, {}))
@@ -341,8 +368,9 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                 raise HTTPException(409, '生成期间歌词或导演方案已修改，请重新生成，当前方案未被覆盖')
             try: result = checked_plan(payload, job['result'], old, True)
             except ValueError as exc: raise HTTPException(422, str(exc))
-            atomic_write(plan_path(path), result)
-            with lock: director_jobs[job_id]['status'] = 'applied'
+            if not preview:
+                atomic_write(plan_path(path), result)
+                with lock: director_jobs[job_id]['status'] = 'applied'
         return {'plan': result}
 
     @router.post('/director/validate')

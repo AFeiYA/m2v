@@ -407,3 +407,40 @@ def test_cover_rejects_external_suno_source(song):
     path.with_name('test_suno.json').write_text(json.dumps({'title': 'Song', 'image_url': 'http://127.0.0.1/private'}))
     with TestClient(app) as client:
         assert client.post('/api/motion/cover/suno', json={'project_id': project_id}).status_code == 422
+
+
+def test_local_preview_seed_does_not_write_and_settings_restore(song):
+    path, id = song
+    with TestClient(app) as client:
+        payload = client.get('/api/motion/project', params={'project_id':id}).json()
+        assert payload['plan'] is None and payload['rule_seed']['source_signature']
+        assert not path.with_name('test_motion_plan.json').exists()
+        settings = {'aspect':'9:16', 'height':360, 'palette':'neon', 'layout':'three-stack', 'background':'dark'}
+        saved = client.put('/api/motion/settings', json={'project_id':id, 'settings':settings})
+        assert saved.status_code == 200, saved.text
+        restored = client.get('/api/motion/project', params={'project_id':id}).json()
+        assert restored['settings'] == saved.json()['settings']
+        assert restored['settings']['aspect'] == '9:16'
+        assert restored['plan'] is None
+        assert client.put('/api/motion/settings', json={'project_id':'../other', 'settings':settings}).status_code == 400
+        assert client.put('/api/motion/settings', json={'project_id':id, 'settings':{**settings, 'height':999}}).status_code == 422
+
+
+def test_gemini_preview_requires_explicit_plan_save(song, monkeypatch):
+    from src.motion_director import line_prompt_bundle
+    path, id = song
+    mock_director_config(monkeypatch)
+    with TestClient(app) as client:
+        old = client.post('/api/motion/director/rules', json={'project_id':id}).json()
+        response = line_prompt_bundle(json.loads(path.read_text()), 'line_0001', old)['response_example']
+        response['cue']['poster']['visual_intensity'] = 'restrained'
+        monkeypatch.setattr('src.motion_api.generate_json', lambda *args:response)
+        submitted = client.post('/api/motion/director/generate', json={'project_id':id, 'line_id':'line_0001'})
+        job = wait_director(client, submitted.json()['id'])
+        preview = client.post('/api/motion/director/jobs/'+job['id']+'/apply?preview=true')
+        assert preview.status_code == 200, preview.text
+        assert client.get('/api/motion/project', params={'project_id':id}).json()['plan'] == old
+        assert client.get('/api/motion/director/jobs/'+job['id']).json()['status'] == 'ready'
+        result = client.put('/api/motion/plan', json={'project_id':id, 'plan':preview.json()['plan'], 'from_llm':False})
+        assert result.status_code == 200, result.text
+        assert client.get('/api/motion/project', params={'project_id':id}).json()['plan'] == result.json()

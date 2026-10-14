@@ -17,6 +17,7 @@
       </div>
     </div>
     <div class="header-right">
+      <div class="design-save"><span id="save-state" role="status" aria-live="polite">已保存</span><button id="save-design" class="primary" disabled>保存</button></div>
       <button id="poster-sample" data-i18n="ms_btn_poster" data-i18n-title="ms_btn_poster_title">当前句海报</button>
       <button id="focus-preview" data-i18n="ms_btn_focus">放大预览</button>
       <a href="/gallery" data-i18n="ms_nav_gallery" style="color:#c8ff00;font-weight:600">作品展厅 ↗</a>
@@ -63,6 +64,7 @@
           <select id="project-select">
             <option value="" data-i18n="ms_opt_select_song">选择歌曲…</option>
           </select>
+          <p class="help" data-i18n="ms_help_local_preview">主题、排版与画幅即时预览，点击顶部“保存”后才同步。</p>
           <p id="analysis-status" class="help" data-i18n="ms_help_select_project">请选择已有对齐工程</p>
           <label for="aspect" data-i18n="ms_lbl_aspect">画幅</label>
           <select id="aspect">
@@ -126,7 +128,7 @@
           <label class="check"><input type="checkbox" id="song-section" checked> <span data-i18n="ms_chk_section">显示已有段落名称</span></label>
           <label class="check"><input type="checkbox" id="song-outro" checked> <span data-i18n="ms_chk_outro">尾奏收束页</span></label>
           <p class="help" data-i18n="ms_help_intro_outro">开场与尾页只使用现有前奏、尾奏，不改变歌曲时长。横竖屏自动适配。</p>
-          <button id="save-identity" class="primary" data-i18n="ms_btn_save_identity">保存歌曲版式</button>
+          <button id="save-identity" class="primary" data-i18n="ms_btn_save_identity">保存所有修改</button>
           <button id="reset-identity" class="secondary" data-i18n="ms_btn_reset_identity">恢复导入时的歌名与作者</button>
         </section>
 
@@ -166,7 +168,7 @@
           <button id="ai-line" data-i18n="ms_btn_ai_line">Gemini 导演当前句</button>
           <button id="ai-song" data-i18n="ms_btn_ai_song">Gemini 导演整曲</button>
           <p id="ai-job-status" class="help"></p>
-          <button id="ai-apply" class="primary" data-i18n="ms_btn_ai_apply" hidden>应用 Gemini 方案并保存</button>
+          <button id="ai-apply" class="primary" data-i18n="ms_btn_ai_apply" hidden>应用 Gemini 方案到预览</button>
           <button id="director-input" class="secondary" data-i18n="ms_btn_dl_song_prompt">下载整曲 LLM 提示词</button>
           <details>
             <summary data-i18n="ms_summary_view_prompt">查看生成的提示词</summary>
@@ -181,7 +183,7 @@
             </select>
             <textarea id="llm-return" placeholder="粘贴 LLM 返回的导演 JSON" data-i18n-placeholder="ms_ph_llm_return" style="width:100%;height:130px"></textarea>
             <button id="validate-plan" data-i18n="ms_btn_validate_plan">仅校验方案</button>
-            <button id="import-plan" data-i18n="ms_btn_import_plan">应用并保存方案</button>
+            <button id="import-plan" data-i18n="ms_btn_import_plan">应用到预览</button>
             <p id="director-validation" class="help"></p>
           </details>
           <button id="download-plan" class="secondary" data-i18n="ms_btn_dl_plan">下载当前方案 JSON</button>
@@ -270,7 +272,7 @@
           </details>
           <label class="check"><input id="cue-locked" type="checkbox"> <span data-i18n="ms_chk_cue_locked">锁定此句，重新导演时保留</span></label>
           <button id="regenerate-cue" class="secondary" data-i18n="ms_btn_regen_cue">规则重新生成此句</button>
-          <button id="save-plan" class="primary" data-i18n="ms_btn_save_plan">保存方案</button>
+          <button id="save-plan" class="primary" data-i18n="ms_btn_save_plan">保存所有修改</button>
         </section>
 
         <section class="panel" hidden>

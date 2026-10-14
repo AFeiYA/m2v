@@ -987,3 +987,17 @@ def test_cloud_plugin_cannot_reopen_shared_local_video_routes(sandbox):
         response = sandbox.client.post(endpoint, headers=headers())
         assert response.status_code == 403
     assert sandbox.client.get('/api/lyric_video/task_status', params={'task_id':'some-local-job'}, headers=headers()).status_code == 403
+
+
+def test_cloud_motion_settings_are_owned_and_survive_restart(sandbox):
+    from src import motion_cloud
+    seed_cloud_motion(sandbox)
+    settings = {'aspect':'9:16', 'height':360, 'palette':'neon', 'layout':'three-stack'}
+    denied = sandbox.client.put('/api/cloud-motion/settings', json={'project_id':'bob_motion', 'settings':settings}, headers=headers())
+    assert denied.status_code == 404
+    saved = sandbox.client.put('/api/cloud-motion/settings', json={'project_id':'alice_motion', 'settings':settings}, headers=headers())
+    assert saved.status_code == 200, saved.text
+    motion_cloud._workspaces.clear()
+    restored = sandbox.client.get('/api/cloud-motion/project', params={'project_id':'alice_motion'}, headers=headers())
+    assert restored.status_code == 200, restored.text
+    assert restored.json()['settings'] == saved.json()['settings']
