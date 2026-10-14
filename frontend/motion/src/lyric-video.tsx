@@ -49,7 +49,7 @@ export const LyricVideo:React.FC<VideoProps>=({project,timeOffset=0})=>{
    <g opacity={songFrame.alpha}>
     {songFrame.rule&&<line x1={width*.07} x2={width*.93} y1={height*(songFrame.cover?(songLayout?.artwork?.82:.3):.125)} y2={height*(songFrame.cover?(songLayout?.artwork?.82:.3):.125)} stroke={stage.accent} strokeWidth={Math.max(1,Math.min(width,height)*.0015)} opacity={.5}/>}
     {songFrame.texts.map((item,i)=><text key={i} x={item.x} y={item.y} fill={songTextColor(stage.background)} fontSize={item.fontSize} fontWeight={item.weight} textAnchor={item.anchor} fontFamily={POSTER_FONT}>{item.text}</text>)}
-    {songFrame.section&&<text x={width*.07} y={height*.94} fill={stage.accent} fontSize={Math.min(width,height)*.022} fontFamily={POSTER_FONT}>{songFrame.section}</text>}
+    {songFrame.section&&<text x={width*.07} y={height*(height>width?.84:.94)} fill={stage.accent} fontSize={Math.min(width,height)*.022} fontFamily={POSTER_FONT}>{songFrame.section}</text>}
    </g></g>
  </svg></AbsoluteFill>;
 };

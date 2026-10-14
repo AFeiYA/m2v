@@ -169,6 +169,10 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
         import requests
         from urllib.parse import urlparse
         path, payload = read(req.project_id)
+        source_cover = path.with_name(path.stem.removesuffix('_alignment').removesuffix('_project') + '_cover.jpg')
+        if not cover_path(path, False).is_file() and source_cover.is_file():
+            with plan_lock:
+                store_cover(path, source_cover.read_bytes(), custom=False)
         if cover_path(path, False).is_file():
             with plan_lock:
                 if req.restore:

@@ -477,6 +477,8 @@ async def create_task_from_suno(
         lyrics_tmp.write_text(lyrics_text, encoding="utf-8")
         await storage.save(mp3_key, mp3_tmp)
         await storage.save(lyrics_key, lyrics_tmp)
+        from src.song_assets import save_source
+        await save_source(storage, mp3_key, song)
 
     task = Task(
         id=task_id,
@@ -500,6 +502,9 @@ async def create_task_from_suno(
         ))).scalar_one_or_none()
         await storage.delete(mp3_key)
         await storage.delete(lyrics_key)
+        from src.song_assets import source_keys
+        for key in source_keys(mp3_key):
+            await storage.delete(key)
         if existing is None:
             raise
         return UploadResponse(
@@ -575,7 +580,9 @@ async def delete_task(
     # 删除存储文件
     from src.motion_cloud import delete_artifacts
     await delete_artifacts(user.id, task.id, storage)
+    from src.song_assets import source_keys
     for key in [
+        *source_keys(task.input_mp3_key),
         task.input_mp3_key,
         task.input_lyrics_key,
         task.output_mp4_key,

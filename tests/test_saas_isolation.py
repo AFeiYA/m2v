@@ -771,3 +771,70 @@ def test_cloud_motion_renders_and_persists_private_video(sandbox):
     downloaded = sandbox.client.get(base + '/render/' + job_id + '/download', headers=headers())
     assert downloaded.status_code == 200
     assert downloaded.content == stored.read_bytes()
+
+
+def test_source_refresh_restores_artwork_preserves_overrides_and_never_realigns(sandbox, monkeypatch):
+    import io
+    import json
+    from PIL import Image
+    from src import suno_fetch, song_assets
+    from src.song_assets import source_keys
+    seed_cloud_motion(sandbox)
+    async def set_url():
+        async with sandbox.sessions() as db:
+            task = await db.get(Task, 'alice_motion')
+            task.suno_url = 'https://suno.com/song/original-song'
+            await db.commit()
+    asyncio.run(set_url())
+    def forbidden_dispatch(*args):
+        raise AssertionError('metadata refresh must not realign or dispatch a paid task')
+    monkeypatch.setattr(api_server, '_dispatch_task', forbidden_dispatch)
+    monkeypatch.setattr(suno_fetch, 'fetch_song', lambda url: types.SimpleNamespace(
+        id='original-song', title='Original title', artist='Original artist',
+        raw_clip={'image_url': 'https://cdn2.suno.ai/artwork.jpeg', 'private_unused_field': 'do-not-store'}))
+    content = io.BytesIO()
+    Image.new('RGB', (8, 8), 'blue').save(content, format='JPEG')
+    monkeypatch.setattr(song_assets, 'download_artwork', lambda url: content.getvalue())
+    base = '/api/cloud-motion'
+    response = sandbox.client.post(base + '/source/refresh', json={'project_id':'alice_motion'}, headers=headers())
+    assert response.status_code == 200, response.text
+    assert response.json()['identity']['artist'] == 'Original artist'
+    assert response.json()['identity']['title'] == 'Same song title'
+    assert response.json()['cover']['data_url'].startswith('data:image/jpeg;base64,')
+    metadata, cover = source_keys('uploads/alice/alice_motion/source.wav')
+    assert 'private_unused_field' not in json.loads(sandbox.storage.get_local_path(metadata).read_text())
+    assert sandbox.storage.get_local_path(cover).exists()
+    identity = {key:value for key,value in response.json()['identity'].items() if key not in ('source','source_title','source_artist')}
+    identity.update(title='My title', artist='My artist')
+    assert sandbox.client.put(base + '/identity', json={'project_id':'alice_motion','identity':identity}, headers=headers()).status_code == 200
+    cover_response = sandbox.client.post(base + '/cover', data={'project_id':'alice_motion'}, files={'file':('custom.jpg', content.getvalue(),'image/jpeg')}, headers=headers())
+    assert cover_response.status_code == 200
+    refreshed = sandbox.client.post(base + '/source/refresh', json={'project_id':'alice_motion'}, headers=headers()).json()
+    assert refreshed['identity']['title'] == 'My title'
+    assert refreshed['identity']['artist'] == 'My artist'
+    assert refreshed['identity']['source_artist'] == 'Original artist'
+    assert refreshed['cover']['source'] == 'custom'
+    assert sandbox.client.post(base + '/source/refresh', json={'project_id':'alice_motion'}, headers=headers('bob')).status_code == 404
+    async def unchanged():
+        async with sandbox.sessions() as db:
+            user = await db.get(User, 'alice')
+            task = await db.get(Task, 'alice_motion')
+            assert user.credits == 5
+            assert task.alignment_json_key == 'results/alice_motion/source_alignment.json'
+    asyncio.run(unchanged())
+    assert sandbox.client.delete('/api/tasks/alice_motion', headers=headers()).status_code == 200
+    assert not sandbox.storage.get_local_path(metadata).exists()
+    assert not sandbox.storage.get_local_path(cover).exists()
+
+
+def test_suno_import_persists_source_metadata_alongside_audio(sandbox, monkeypatch):
+    import json
+    from src.song_assets import source_keys
+    install_pipeline(sandbox, monkeypatch, False)
+    response = submit(sandbox, monkeypatch, 'suno')
+    assert response.status_code == 200, response.text
+    key, _ = source_keys(response.json()['mp3_key'])
+    metadata = json.loads(sandbox.storage.get_local_path(key).read_text())
+    assert metadata['id'] == 'test-song-id'
+    assert metadata['title'] == 'test'
+    assert metadata['artist'] == ''

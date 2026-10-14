@@ -14,7 +14,7 @@ class SongIdentity(BaseModel):
     style: Literal['editorial', 'minimal', 'none'] = 'editorial'
     show_intro: bool = True
     show_signature: bool = True
-    show_section: bool = True
+    show_section: bool = False
     show_outro: bool = True
     visual_theme: Literal["director", "editorial", "neon", "paper"] = "director"
     cover_mode: Literal["background", "none"] = "background"
@@ -67,7 +67,7 @@ def resolve_identity(project_path: Path, payload: dict, input_root: Path, audio_
     source = source_identity(project_path, payload, input_root, audio_path)
     saved = read_json(identity_path(project_path))
     try:
-        identity = SongIdentity.model_validate(saved) if saved else SongIdentity(title=source['title'], artist=source['artist'])
+        identity = SongIdentity.model_validate(saved) if saved else SongIdentity(title=payload.get('presentation_title') or source['title'], artist=source['artist'])
     except ValueError:
-        identity = SongIdentity(title=source['title'], artist=source['artist'])
+        identity = SongIdentity(title=payload.get('presentation_title') or source['title'], artist=source['artist'])
     return {**identity.model_dump(), 'source_title': source['title'], 'source_artist': source['artist'], 'source': source['source']}

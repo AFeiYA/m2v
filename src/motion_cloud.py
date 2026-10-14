@@ -21,6 +21,9 @@ from src.motion_api import create_motion_router
 from src.session_manager import resolve_session_id
 from src.settings import get_settings
 from src.storage import LocalStorage, get_storage
+from src.song_assets import source_keys, save_source
+from src.song_identity import resolve_identity
+from src.song_cover import resolve_cover
 
 PREFIX = "/api/cloud-motion"
 router = APIRouter(prefix=PREFIX, tags=["Cloud Motion Studio"])
@@ -103,7 +106,12 @@ class Workspace:
             raise HTTPException(404, "对齐数据尚未就绪") from exc
         payload = json.loads(path.read_text())
         payload["title"] = task.song_title or task.title or payload.get("title") or "Untitled"
+        payload['presentation_title'] = payload['title']
         path.write_text(json.dumps(payload, ensure_ascii=False))
+        metadata_key, cover_key = source_keys(task.input_mp3_key)
+        for key, filename in ((metadata_key, 'source_suno.json'), (cover_key, 'source_cover.jpg')):
+            if await self.storage.exists(key):
+                await self.storage.load(key, path.parent / filename)
         prefix = task_prefix(self.uid, task_id)
         if task_id not in self.loaded:
             # Restore small design/status files after a container restart.
@@ -160,15 +168,64 @@ class EngineResponse(Response):
             self.workspace.gate.release()
 
 
+def workspace_for(uid, storage):
+    key = (id(storage), uid)
+    with _registry_lock:
+        workspace = _workspaces.get(key)
+        if workspace is None:
+            workspace = _workspaces[key] = Workspace(uid, storage)
+    return workspace
+
+
+@router.post('/source/refresh')
+async def refresh_source(request: Request, user: User = Depends(get_current_user_flexible),
+                         db: AsyncSession = Depends(get_db)):
+    from urllib.parse import urlparse
+    from src.suno_fetch import fetch_song
+    from pydantic import BaseModel
+
+    class SourceRequest(BaseModel):
+        project_id: str
+
+    try:
+        data = SourceRequest.model_validate(await request.json())
+    except ValueError as exc:
+        raise HTTPException(422, '请选择有效歌曲') from exc
+    task = (await db.execute(select(Task).where(Task.id == data.project_id, Task.user_id == user.id))).scalar_one_or_none()
+    if task is None:
+        raise HTTPException(404, '歌曲不存在或无权访问')
+    if not task.alignment_json_key:
+        raise HTTPException(409, '请等待歌曲导入完成后再刷新信息')
+    if urlparse(task.suno_url or '').hostname not in ('suno.com', 'www.suno.com'):
+        raise HTTPException(422, '该歌曲没有 Suno 来源链接，请手动填写歌曲信息或上传封面')
+    try:
+        song = await asyncio.to_thread(fetch_song, task.suno_url)
+    except Exception as exc:
+        raise HTTPException(502, 'Suno 歌曲信息读取失败，请稍后重试') from exc
+    expected = (task.config_snapshot if isinstance(task.config_snapshot, dict) else {}).get('suno_song_id')
+    if expected and song.id != expected:
+        raise HTTPException(409, '来源歌曲与导入时不一致，未修改现有资料')
+    storage = get_storage()
+    workspace = workspace_for(user.id, storage)
+    while not workspace.gate.acquire(blocking=False):
+        await asyncio.sleep(.01)
+    try:
+        workspace.tasks[task.id] = task
+        result = await save_source(storage, task.input_mp3_key, song)
+        await workspace.hydrate(task.id)
+        path = workspace.project_path(task.id)
+        payload = json.loads(path.read_text())
+        return {'identity': resolve_identity(path, payload, workspace.root),
+                'cover': resolve_cover(path, payload, workspace.root), 'warning': result['warning']}
+    finally:
+        workspace.gate.release()
+
+
 @router.api_route("/{route:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def dispatch(route: str, request: Request,
                    user: User = Depends(get_current_user_flexible), db: AsyncSession = Depends(get_db)):
     storage = get_storage()
-    key = (id(storage), user.id)
-    with _registry_lock:
-        workspace = _workspaces.setdefault(key, None)
-        if workspace is None:
-            workspace = _workspaces[key] = Workspace(user.id, storage)
+    workspace = workspace_for(user.id, storage)
     while not workspace.gate.acquire(blocking=False):
         await asyncio.sleep(.01)
     try:

@@ -515,7 +515,7 @@ function fitTitle(text:string,size:number,weight:number,maxWidth:number,W:number
   // Short phrases should not acquire an orphan merely because the default size is large.
   const single=fit([text]);
   if(count<=4)return {size:single,rows:[text]};
-  if(portrait?(count<=5||count<=6&&single>=W*.135):single>=size*.72)return {size:single,rows:[text]};
+  if(portrait?(count<=5||count<=8&&single>=size*.72):single>=size*.72)return {size:single,rows:[text]};
   if(count>12||!/\p{Script=Han}/u.test(text))return null;
   const boundaries=new Set<number>();
   const segmenter=new Intl.Segmenter('zh',{granularity:'word'});
@@ -532,6 +532,28 @@ function fitTitle(text:string,size:number,weight:number,maxWidth:number,W:number
     if(!best||score<best.score)best={size:candidate,rows,score};
   }
   return best;
+}
+
+function portraitRows(text:string,size:number,weight:number,maxWidth:number,measure:Measure){
+  const rows=rowsFor(text,size,weight,maxWidth,measure);
+  if(rows.length<2||rows.length>3||text.length>200)return rows;
+  // Rebalance within a node; semantic blocks and alignment remain unchanged.
+  const segmenter=new Intl.Segmenter('zh',{granularity:'word'});
+  for(let i=0;i<rows.length-1;i++){
+    const pair=rows[i]+(/[\p{Script=Latin}\p{N}]$/u.test(rows[i])?' ':'')+rows[i+1];
+    let best=[rows[i],rows[i+1]],score=Infinity;
+    for(const part of segmenter.segment(pair)){
+      const end=part.index+part.segment.length,left=pair.slice(0,end).trim(),right=pair.slice(end).trim();
+      if(!left||!right||NO_LINE_START.test(right)||NO_LINE_END.test(left.slice(-1)))continue;
+      if(/[\p{Script=Latin}\p{N}][-’']?$/u.test(left)&&/^[-’']?[\p{Script=Latin}\p{N}]/u.test(right)&&!pair.slice(end-1,end+1).includes(' '))continue;
+      const a=measure(left,size,weight).width,b=measure(right,size,weight).width;
+      if(Math.max(a,b)>maxWidth)continue;
+      const cost=Math.abs(a-b)/maxWidth+(Array.from(right).length<2?2:0);
+      if(cost<score){score=cost;best=[left,right];}
+    }
+    [rows[i],rows[i+1]]=best;
+  }
+  return rows;
 }
 export type SemanticApplication={kind:NonNullable<PosterDirection['relations']>[number]['kind'];node_indices:number[];status:'applied'|'limited'|'disabled';effects:string[]};
 export function resolveSemanticDirection(source:PosterDirection){
@@ -582,7 +604,7 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     t.accentLight.toLowerCase() === design.accent.toLowerCase()
   );
   const foreground = themeMatch ? (dark ? themeMatch.foregroundDark : themeMatch.foregroundLight) : (dark ? '#f4f9ed' : '#182214');
-  const muted = themeMatch ? (dark ? themeMatch.mutedDark : themeMatch.mutedLight) : (dark ? '#76876e' : '#63735e');
+  const muted = themeMatch ? (dark ? themeMatch.mutedDark : themeMatch.mutedLight) : (dark ? '#969791' : '#646660');
   const dense=Array.from(line.text.replace(/\s/g,'')).length/Math.max(.001,line.end-line.start)>6;
   const nodes:CompiledNode[]=[];
   const short=Array.from(line.text.replace(/\s/g,'')).length<=6;
@@ -593,10 +615,10 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
   const visual_intensity=dense&&resolved==='peak'?'expanded':resolved;
   const strength={restrained:{size:.82,motion:.65},expanded:{size:1,motion:1},peak:{size:1.12,motion:1.12}}[visual_intensity];
   const maxHeight=H*(portrait?(dense?.40:chorus?.48:.44):(dense?.48:chorus?.66:verse?.48:.56));
-  const gap=portrait?W*.012:H*.009,padding=portrait?W*.012:H*.008,width=W*(portrait?.78:.80);
+  const gap=portrait?W*.024:H*.009,padding=portrait?W*.014:H*.008,width=W*(portrait?.76:.80);
   const fitted=design.nodes.map((n,index)=>{
     const weight=n.role==='primary'?900:n.role==='secondary'?800:600;
-    let size=portrait?W*(n.role==='primary'?(short?.30:.22):n.role==='secondary'?.075:.055):H*(n.role==='primary'?(short?.28:.18):n.role==='secondary'?.07:.045);
+    let size=portrait?W*(n.role==='primary'?(short?.18:.135):n.role==='secondary'?.085:.065):H*(n.role==='primary'?(short?.28:.18):n.role==='secondary'?.07:.045);
     size*=hints[index].scale*strength.size;
     const maxWidth=width-W*.018;
     const text=displayText(n.text),focus=displayText(n.emphasis);
@@ -604,7 +626,7 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     if(longestWord>maxWidth)size*=maxWidth/longestWord*.99;
     const title=n.role==='primary'?fitTitle(text,size,weight,maxWidth,W,measure,focus,portrait):null;
     if(title)size=title.size;
-    let rows=title?.rows||rowsFor(text,size,weight,maxWidth,measure);
+    let rows=title?.rows||(portrait?portraitRows(text,size,weight,maxWidth,measure):rowsFor(text,size,weight,maxWidth,measure));
     if(Array.from(text.replace(/\s/gu,'')).length<=4){
       rows=[text.trim()];
       const w=measure(rows[0],size,weight).width;
@@ -614,9 +636,10 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     return {n,text,weight,size,rows,maxWidth};
   });
   const primarySize=fitted.find(f=>f.n.role==='primary')!.size;
-  for(const f of fitted)if(f.n.role!=='primary'&&f.size>primarySize*.55){
-    f.size=primarySize*.55;
-    f.rows=Array.from(f.text.replace(/\s/gu,'')).length<=4?[f.text.trim()]:rowsFor(f.text,f.size,f.weight,f.maxWidth,measure);
+  const secondaryLimit=portrait?.8:.55;
+  for(const f of fitted)if(f.n.role!=='primary'&&f.size>primarySize*secondaryLimit){
+    f.size=primarySize*secondaryLimit;
+    f.rows=Array.from(f.text.replace(/\s/gu,'')).length<=4?[f.text.trim()]:(portrait?portraitRows(f.text,f.size,f.weight,f.maxWidth,measure):rowsFor(f.text,f.size,f.weight,f.maxWidth,measure));
   }
   const ink=(f:typeof fitted[number])=>measure(f.rows[0],f.size,f.weight).ascent+measure(f.rows.at(-1)!,f.size,f.weight).descent+(f.rows.length-1)*f.size*1.04;
   const content=fitted.reduce((sum,f)=>sum+ink(f),0);
@@ -628,7 +651,8 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
   const primaryIndex=fitted.findIndex(f=>f.n.role==='primary');
   const before=heights.slice(0,primaryIndex).reduce((a,b)=>a+b+gap,0);
   // Keep the primary near one central baseline while retaining safe bounds.
-  let y=Math.max(H*(portrait?.16:.12),Math.min(H*(portrait?.74:.88)-totalHeight,H*(portrait?.42:.5)-before-heights[primaryIndex]/2));
+  let y=portrait?Math.max(H*.20,Math.min(H*.78-totalHeight,H*.46-totalHeight/2)):
+    Math.max(H*.12,Math.min(H*.88-totalHeight,H*.5-before-heights[primaryIndex]/2));
   for(let i=0;i<fitted.length;i++){
     const {n,weight,size,rows}=fitted[i],height=heights[i];
     const shift=W*hints[i].offset;
@@ -823,4 +847,3 @@ export function introTitleState(intro:CompiledIntroTitle,t:number,H:number){
   }
   return {alpha:enterAlpha*exitAlpha,scale:enterScale,dy};
 }
-

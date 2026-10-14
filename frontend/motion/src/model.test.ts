@@ -97,7 +97,7 @@ test('compact stacks keep the primary anchor and enforce typographic hierarchy',
   const p=compilePoster(line,cue,W,H,measure),hero=p.nodes[primary];
   assert.ok(Math.abs(hero.y+hero.height/2-H*.5)<=H*.2);
   assert.ok(p.nodes.at(-1)!.y+p.nodes.at(-1)!.height-p.nodes[0].y<=H*(H>W?.44:.56)+1e-6);
-  for(const [i,n] of p.nodes.entries())if(i!==primary)assert.ok(n.fontSize<=hero.fontSize*.55+1e-6);
+  for(const [i,n] of p.nodes.entries())if(i!==primary)assert.ok(n.fontSize<=hero.fontSize*(H>W?.8:.55)+1e-6);
  }
 });
 
@@ -143,7 +143,8 @@ test('portrait uses readable short rows and an upper reading field with quiet ed
  const poster=automaticPoster(line);poster.nodes.forEach((n,i)=>n.role=i===2?'primary':i===0?'secondary':'support');
  const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
  const p=compilePoster(line,cue,720,1280,measure),hero=p.nodes[2];
- assert.ok(Math.abs(hero.y+hero.height/2-1280*.42)<1e-6);
+ const bottom=p.nodes.at(-1)!.y+p.nodes.at(-1)!.height;
+ assert.ok(Math.abs((p.nodes[0].y+bottom)/2-1280*.46)<1e-6);
  assert.ok(hero.rows.length===1);assert.ok(p.nodes[0].fontSize>=720*.06);
  assert.ok(p.nodes.every(n=>n.y>=1280*.16&&n.y+n.height<=1280*.74));
  assert.ok(posterRings(720,1280).every(r=>r.opacity<=.25&&r.cx>720*.9&&r.rx===r.ry));
@@ -623,4 +624,42 @@ test('portrait header places title on left and artist on right on the same line'
  assert.equal(title.y,artist.y);
  assert.equal(title.x,720*.07);
  assert.equal(artist.x,720*.93);
+});
+
+test('portrait credits stay readable and separated while full titles remain on the cover',async()=>{
+ const {compileSongLayout,songLayoutAt}=await import('./song-layout.ts');
+ const title='A very long song title that still needs a readable signature';
+ const p=normalizeProject({title,duration:90,song_identity:{title,artist:'An extraordinarily long artist name',style:'editorial',show_intro:true,show_signature:true,show_section:false,show_outro:true},lines:[{text:'hello',start:24,end:65,words:[]}]});
+ const layout=compileSongLayout(p,720,1280,measure)!;
+ const [a,b]=layout.header;
+ assert.ok(a.fontSize>=720*.03&&b.fontSize>=720*.025);
+ assert.ok(a.x+measure(a.text,a.fontSize).width<b.x-measure(b.text,b.fontSize).width);
+ assert.equal(layout.cover.slice(0,-1).map(r=>r.text).join(' '),title);
+ assert.equal(songLayoutAt(layout,18).cover,true);
+ assert.equal(songLayoutAt(layout,30).cover,false);
+ assert.equal(songLayoutAt(layout,70).cover,true);
+ assert.equal(p.lines[0].start,24);assert.equal(p.duration,90);
+});
+
+test('portrait long English nodes wrap at words with no isolated tail and retain alignment',()=>{
+ const texts=['I have left behind','the broken mirrors','on the road back home'];
+ const line={id:'english',text:texts.join(' '),start:1,end:9,words:texts.map((word,i)=>({word,start:1+i*2,end:3+i*2}))};
+ const design=automaticPoster(line);design.nodes=line.words.map((w,i)=>({text:w.word,word_indices:[i],role:i===2?'primary':i===0?'secondary':'support',color_role:i===2?'accent':'foreground',emphasis:'',entrance:'fade',settle_fraction:.2}));
+ const original=JSON.stringify(line);
+ const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster:design};
+ const p=compilePoster(line,cue,720,1280,measure);
+ for(const [i,node] of p.nodes.entries()){
+  assert.equal(node.rows.map(r=>r.text).join(' '),texts[i]);
+  assert.equal(node.start,line.words[i].start);
+  for(const row of node.rows)assert.ok(measure(row.text,node.fontSize).width<=720*.76);
+ }
+ assert.equal(JSON.stringify(line),original);
+});
+
+test('portrait accommodates a complete short payoff without stranding its ending',()=>{
+ const line={id:'payoff',text:'现在， 时间 开始往前流了。',start:1,end:9,words:['现在，','时间','开始往前流了。'].map((word,i)=>({word,start:1+i*2,end:3+i*2}))};
+ const poster=automaticPoster(line);poster.nodes=line.words.map((w,i)=>({text:w.word,word_indices:[i],role:i===2?'primary':i===0?'secondary':'support',color_role:i===2?'accent':'foreground',emphasis:'',entrance:'fade',settle_fraction:.2}));
+ const result=compilePoster(line,{line_id:line.id,template:'phrase-rise',layout:'center',palette:'impact',intensity:.5,emphasis:'',locked:false,poster},720,1280,measure);
+ assert.equal(result.nodes[2].rows.length,1);
+ assert.equal(result.nodes[2].rows[0].text,'开始往前流了。');
 });

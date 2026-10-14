@@ -12,14 +12,20 @@ export function compileSongLayout(project:Project,W:number,H:number,measure:Meas
  const header:SongText[]=[];
  if(identity.show_signature){
   const titleWidth = artist ? (portrait ? W * 0.52 : W * 0.55) : W * 0.86;
-  const artistWidth = portrait ? W * 0.35 : W * 0.27;
-  header.push({text:title,x:margin,y:H*.065,fontSize:fit(title,base*.027,titleWidth),weight:600,anchor:'start'});
-  if(artist)header.push({text:artist,x:W-margin,y:H*.065,fontSize:fit(artist,base*.022,artistWidth),weight:500,anchor:'end'});
+  const artistWidth = W * 0.27;
+  const credit=(text:string,size:number,maxWidth:number,weight:number)=>{
+   if(!portrait)return {text,fontSize:fit(text,size,maxWidth,weight)};
+   let clipped=text;
+   while(clipped&&measure(clipped+(clipped===text?'':'…'),size,weight).width>maxWidth)clipped=Array.from(clipped).slice(0,-1).join('').trimEnd();
+   return {text:clipped+(clipped===text?'':'…'),fontSize:size};
+  };
+  header.push({...credit(title,base*(portrait?.032:.027),titleWidth,600),x:margin,y:H*.065,weight:600,anchor:'start'});
+  if(artist)header.push({...credit(artist,base*(portrait?.026:.022),artistWidth,500),x:W-margin,y:H*.065,weight:500,anchor:'end'});
  }
  const hasCover=!!project.song_cover?.data_url&&identity.cover_mode!=='none';
  const artwork=hasCover?(portrait?{x:W*.18,y:H*.16,width:W*.64,height:W*.64}:{x:W*.09,y:H*.20,width:H*.60,height:H*.60}):undefined;
  const titleX=hasCover&&!portrait?W*.69:W/2,titleY=hasCover&&portrait?H*.66:H*.46;
- const maxWidth=hasCover&&!portrait?W*.43:W*.82,heroSize=portrait?W*.13:H*.15;
+ const maxWidth=hasCover&&!portrait?W*.43:W*.82,heroSize=portrait?W*.10:H*.15;
  let rows=[title];
  if(measure(title,heroSize,800).width>maxWidth){
   // Split at a word boundary for Latin text, otherwise balance CJK glyphs.
@@ -36,8 +42,8 @@ export function compileSongLayout(project:Project,W:number,H:number,measure:Meas
  const cover:SongText[]=rows.map((text,i)=>({text,x:titleX,y:titleY+(i-(rows.length-1)/2)*lineHeight,fontSize:size,weight:800,anchor:'middle'}));
  if(artist)cover.push({text:artist,x:titleX,y:titleY+(rows.length-1)/2*lineHeight+size*.85,fontSize:fit(artist,base*.037,maxWidth,500),weight:500,anchor:'middle'});
  const first=project.lines[0]?.start||0,last=Math.max(0,...project.lines.map(l=>l.end));
- const introEnd=identity.show_intro&&first>=1?Math.min(first,5):0;
- const outroStart=identity.show_outro&&project.duration-last>=1.5?Math.max(last+.3,project.duration-5):project.duration;
+ const introEnd=identity.show_intro&&first>=1?first:0;
+ const outroStart=identity.show_outro&&project.duration-last>=1.5?last+.3:project.duration;
  const sections:SongLayout['sections']=[];
  if(identity.show_section&&identity.style==='editorial')for(const line of project.lines){
   const name=(line.section||'').trim();if(name&&sections.at(-1)?.name!==name)sections.push({start:line.start,name});
@@ -63,7 +69,7 @@ export function paintSongLayout(c:CanvasRenderingContext2D,layout:SongLayout|nul
  if(state.rule){c.strokeStyle=accent;c.lineWidth=Math.max(1,Math.min(W,H)*.0015);c.globalAlpha=state.alpha*.5;c.beginPath();c.moveTo(W*.07,H*(state.cover?(layout.artwork?.82:.3):.125));c.lineTo(W*.93,H*(state.cover?(layout.artwork?.82:.3):.125));c.stroke();c.globalAlpha=state.alpha;}
  c.fillStyle=songTextColor(background);
  for(const item of state.texts){c.textAlign=item.anchor==='middle'?'center':item.anchor==='end'?'right':'left';c.font=`${item.weight} ${item.fontSize}px ${font}`;c.fillText(item.text,item.x,item.y);}
- if(state.section){c.textAlign='left';c.fillStyle=accent;c.font=`${Math.min(W,H)*.022}px ${font}`;c.fillText(state.section,W*.07,H*.94);}
+ if(state.section){c.textAlign='left';c.fillStyle=accent;c.font=`${Math.min(W,H)*.022}px ${font}`;c.fillText(state.section,W*.07,H*(H>W?.84:.94));}
  c.restore();
 }
 
