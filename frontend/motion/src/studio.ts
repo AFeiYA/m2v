@@ -8,6 +8,7 @@ import {motionJson as api,motionUrl,serviceJson,serviceFetch,cloudService,downlo
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const audio=new Audio();
 let audioObjectUrl='';
+let loadSequence=0;
 let project:Project|null=null,plan:MotionPlan|null=null,engine:RemotionPreview|null=null,selected='',currentCue='',dirty=false,jobId='',playing=false;
 let identityDirty=false;
 let coverPending:Promise<void>|null=null;
@@ -46,7 +47,35 @@ function showCue(seek=true){const cue=plan?.cues.find(c=>c.line_id===currentCue)
  $<HTMLSelectElement>('cue-template').value=cue.template;$<HTMLSelectElement>('cue-layout').value=cue.layout;$<HTMLSelectElement>('cue-palette').value=cue.palette;$<HTMLInputElement>('cue-intensity').value=String(cue.intensity);$<HTMLInputElement>('cue-emphasis').value=cue.emphasis;$<HTMLInputElement>('cue-locked').checked=cue.locked;
  if(seek){clipEnd=null;audio.pause();playing=false;$('play').textContent='▶';const line=project?.lines.find(l=>l.id===currentCue);audio.currentTime=line?Math.min(line.end-.001,line.start+.15):0;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';}}
 async function savePlan(){if(!plan||!selected)return;plan=await api('plan','PUT',{project_id:selected,plan,from_llm:false});dirty=false;status('导演方案已保存');}
-async function load(id:string){if(!id)return;if(dirty)await savePlan();if(identityDirty)await saveIdentity();audio.pause();playing=false;$('play').textContent='▶';const result=await api('project?project_id='+encodeURIComponent(id));project=normalizeProject(result.project);plan=result.plan;selected=id;dirty=false;identityDirty=false;showIdentity();showCover();coverPending=cacheSunoCover(id);if(audioObjectUrl)URL.revokeObjectURL(audioObjectUrl);audioObjectUrl='';if(result.audio_url&&cloudService()){const response=await serviceFetch(result.audio_url);if(!response.ok)throw new Error('原曲音频读取失败');audioObjectUrl=URL.createObjectURL(await response.blob());}audio.src=audioObjectUrl||result.audio_url||'';audio.currentTime=0;audio.load();$('track-name').textContent=project.title||$<HTMLSelectElement>('project-select').selectedOptions[0].text;$<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';$('analysis-status').textContent=project.analysis.energy_curve.length?`音乐数据已就绪 · ${project.analysis.beats.length} 拍点 · 估算 ${project.analysis.bpm} BPM`:'尚无音频分析，可先到歌词编辑器补做';refresh();listCues();await loadExports();status(result.plan_error||(plan?'已加载保存的导演方案':'请选择风格并生成导演方案'));}
+async function load(id:string){
+ if(!id){loadSequence++;return;}
+ const sequence=++loadSequence;
+ try{
+  if(dirty)await savePlan();if(identityDirty)await saveIdentity();
+  if(sequence!==loadSequence)return;
+  audio.pause();playing=false;$('play').textContent='▶';status('正在读取歌曲与音频…');
+  const result=await api('project?project_id='+encodeURIComponent(id));
+  if(sequence!==loadSequence)return;
+  project=normalizeProject(result.project);plan=result.plan;selected=id;dirty=false;identityDirty=false;
+  showIdentity();showCover();coverPending=cacheSunoCover(id);
+  let nextAudioUrl='';
+  if(result.audio_url&&cloudService()){
+   const response=await serviceFetch(result.audio_url);
+   if(sequence!==loadSequence)return;
+   if(!response.ok)throw new Error('原曲音频读取失败');
+   const blob=await response.blob();
+   if(sequence!==loadSequence)return;
+   nextAudioUrl=URL.createObjectURL(blob);
+  }
+  if(audioObjectUrl)URL.revokeObjectURL(audioObjectUrl);
+  audioObjectUrl=nextAudioUrl;audio.src=audioObjectUrl||result.audio_url||'';audio.currentTime=0;audio.load();
+  $('track-name').textContent=project.title||$<HTMLSelectElement>('project-select').selectedOptions[0].text;
+  $<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';
+  $('analysis-status').textContent=project.analysis.energy_curve.length?`音乐数据已就绪 · ${project.analysis.beats.length} 拍点 · 估算 ${project.analysis.bpm} BPM`:'尚无音频分析，可先到歌词编辑器补做';
+  refresh();listCues();await loadExports();
+  if(sequence===loadSequence)status(result.plan_error||(plan?'已加载保存的导演方案':'请选择风格并生成导演方案'));
+ }catch(error){if(sequence===loadSequence)throw error;}
+}
 async function rules(onlyCurrent=false){
  if(!selected)throw new Error('请先选择歌曲');if(dirty)await savePlan();
  const preset=($<HTMLSelectElement>('default-layout-preset')?.value as DefaultLayoutPreset)||'smart';
@@ -141,8 +170,11 @@ window.addEventListener('beforeunload',event=>{if(dirty||identityDirty){event.pr
 (async()=>{try{const rows=await api('projects'),select=$<HTMLSelectElement>('project-select');for(const row of rows){const item=document.createElement('option');item.value=row.id;item.textContent=row.name;select.append(item);}const wanted=new URLSearchParams(location.search).get('song');const chosen=rows.find((row:{id:string;name:string})=>row.name===wanted)||(rows.length===1?rows[0]:null);if(chosen){select.value=chosen.id;await load(chosen.id);}}catch(error){status(String(error));}})();
 
 async function loadExports(){
+  const id=selected,sequence=loadSequence;
+  const records=await api('exports?project_id='+encodeURIComponent(id));
+  if(id!==selected||sequence!==loadSequence)return;
   const list=$('export-history');list.replaceChildren();
-  for(const job of await api('exports?project_id='+encodeURIComponent(selected))){
+  for(const job of records){
     if(job.status!=='done')continue;
     const link=document.createElement('a');link.href=motionUrl('render/'+job.id+'/download');link.onclick=event=>{event.preventDefault();void action(()=>downloadService(motionUrl('render/'+job.id+'/download')))();};link.textContent=`${job.width?job.width+"×"+job.height+" · ":""}${(job.total/30).toFixed(1)} 秒 · ${new Date(job.created_at*1000).toLocaleString()}`;link.download='motion-studio.mp4';link.style.display='block';list.append(link);
   }
@@ -281,9 +313,9 @@ async function saveIdentity(){if(!project?.song_identity||!selected)return;if(!p
 $('source-refresh-panel').hidden=!cloudService();
 async function refreshSourceInfo(){
  if(!selected||!project)throw new Error('请先选择歌曲');
- const id=selected,button=$<HTMLButtonElement>('refresh-source');button.disabled=true;status('正在读取 Suno 歌曲信息…');
+ const id=selected,sequence=loadSequence,button=$<HTMLButtonElement>('refresh-source');button.disabled=true;status('正在读取 Suno 歌曲信息…');
  try{
-  const result=await api('source/refresh','POST',{project_id:id});if(selected!==id)return;
+  const result=await api('source/refresh','POST',{project_id:id});if(selected!==id||sequence!==loadSequence)return;
   project.song_identity=identityDirty&&project.song_identity?{...project.song_identity,source_title:result.identity.source_title,source_artist:result.identity.source_artist,source:result.identity.source}:result.identity;
   project.song_cover=result.cover;project.title=project.song_identity!.title;project.artist=project.song_identity!.artist;
   showIdentity();showCover();refresh();$('track-name').textContent=project.title;
@@ -298,9 +330,10 @@ $('reset-identity').onclick=()=>{const v=project?.song_identity;if(!v)return;$<H
 function showCover(){const image=$<HTMLImageElement>('song-cover-preview');image.hidden=!project?.song_cover?.data_url;image.src=project?.song_cover?.data_url||'';$('cover-status').textContent=project?.song_cover?.data_url?(project.song_cover.source==='custom'?'使用用户上传的封面':'使用已缓存的 Suno 封面'):'没有封面，可上传图片；纯文字预览仍可使用。';}
 async function cacheSunoCover(id:string,force=false){
  if(!project||(!force&&(project.song_cover?.data_url||!project.song_cover?.source_url)))return;
+ const sequence=loadSequence;
  $('cover-status').textContent='正在缓存 Suno 封面…';
- try{if(force&&cloudService()&&!project.song_cover?.source_url){await refreshSourceInfo();if(selected!==id)return;}const result=await api('cover/suno','POST',{project_id:id,restore:force});if(selected!==id)return;project.song_cover=result.cover;showCover();refresh();}
- catch(error){if(selected===id)$('cover-status').textContent=String(error)+' · 可上传图片代替';}
+ try{if(force&&cloudService()&&!project.song_cover?.source_url){await refreshSourceInfo();if(selected!==id||sequence!==loadSequence)return;}const result=await api('cover/suno','POST',{project_id:id,restore:force});if(selected!==id||sequence!==loadSequence)return;project.song_cover=result.cover;showCover();refresh();}
+ catch(error){if(selected===id&&sequence===loadSequence)$('cover-status').textContent=String(error)+' · 可上传图片代替';}
 }
 $('restore-cover').onclick=action(()=>cacheSunoCover(selected,true));
 $<HTMLInputElement>('cover-file').onchange=action(async()=>{
