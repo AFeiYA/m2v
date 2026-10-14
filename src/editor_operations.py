@@ -5,6 +5,7 @@ import asyncio
 import json
 import tempfile
 import uuid
+import hashlib
 from pathlib import Path
 from typing import Literal
 
@@ -25,6 +26,8 @@ jobs = TaskStore(lambda: Path(get_settings().UPLOAD_DIR) / "editor_jobs")
 
 
 class VideoOptions(BaseModel):
+    request_id: uuid.UUID | None = None
+    section_name: Literal['', 'chorus', 'verse1', 'intro'] = ''
     aspect_ratio: Literal["9:16", "16:9"] = "9:16"
     template: Literal["apple", "center_bounce", "tv"] = "apple"
     theme: str = "apple_white"
@@ -50,6 +53,21 @@ def render_video(alignment: Path, audio: Path, output: Path, options: dict, prog
                               output_path=output, progress_callback=progress, **options)
 
 
+def video_options(payload: dict, options: dict) -> dict:
+    result = dict(options)
+    result.pop('request_id', None)
+    section = result.pop('section_name', '')
+    if section:
+        import re
+        patterns = {'chorus': r'^(?:final\s+)?chorus(?:\s+\d+)?$|^副歌',
+                    'verse1': r'^verse(?:\s+1)?$|^主歌(?:\s*1)?$', 'intro': r'^intro$|^前奏$'}
+        match = next((s for s in payload.get('sections', []) if re.search(patterns[section], s.get('name', ''), re.I)), None)
+        if match is None:
+            raise ValueError('所选乐段不存在，请选择完整歌曲或在编辑器指定片段')
+        result['start_time'] = match['start']
+    return result
+
+
 def analyze_audio(audio: Path, cache: Path, force: bool):
     from src.audio_analyzer import cached_audio_analysis
     return cached_audio_analysis(audio, cache, force=force)
@@ -73,6 +91,20 @@ async def run_job(job_id: str, storage, alignment_key: str, audio_key: str, opti
                 await storage.load(alignment_key, alignment)
                 await storage.load(audio_key, audio)
                 if job["kind"] == "video":
+                    from src.song_assets import source_keys
+                    from src.song_sections import bind_source_sections
+                    metadata_key, cover_key = source_keys(audio_key)
+                    payload = json.loads(alignment.read_text())
+                    if await storage.exists(metadata_key):
+                        metadata = work / 'source_suno.json'
+                        await storage.load(metadata_key, metadata)
+                        bind_source_sections(payload, json.loads(metadata.read_text()).get('sections') or [])
+                        alignment.write_text(json.dumps(payload, ensure_ascii=False))
+                    options = video_options(payload, options)
+                    if await storage.exists(cover_key):
+                        cover = work / 'source_cover.jpg'
+                        await storage.load(cover_key, cover)
+                        options['cover_path'] = str(cover)
                     output = work / "lyric_video.mp4"
                     def progress(value, message):
                         job.update(progress=value, message=message)
@@ -115,11 +147,20 @@ async def start_job(task_id, kind, options, background, user, db):
     task = await _get_user_task(db, user.id, task_id)
     if not task.alignment_json_key or not task.input_mp3_key:
         raise HTTPException(404, "任务缺少对齐数据或原曲音频")
-    job_id = uuid.uuid4().hex
-    jobs[job_id] = {"user_id": user.id, "song_task_id": task_id, "kind": kind,
-                    "status": "pending", "progress": 0, "result": None}
+    values = options.model_dump(mode='json')
+    request_id = values.get('request_id')
+    job_id = hashlib.sha256(f'{user.id}:{task_id}:{kind}:{request_id}'.encode()).hexdigest() if request_id else uuid.uuid4().hex
+    fingerprint = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+    with jobs.lock:
+        existing = jobs.get(job_id)
+        if existing:
+            if existing.get('fingerprint') != fingerprint:
+                raise HTTPException(409, '同一请求编号不能用于不同导出设置')
+            return {"task_id": job_id, "status": existing['status']}
+        jobs[job_id] = {"user_id": user.id, "song_task_id": task_id, "kind": kind,
+                        "status": "pending", "progress": 0, "result": None, 'fingerprint': fingerprint}
     background.add_task(run_job, job_id, get_storage(), task.alignment_json_key,
-                        task.input_mp3_key, options.model_dump())
+                        task.input_mp3_key, values)
     return {"task_id": job_id, "status": "pending"}
 
 

@@ -107,6 +107,7 @@ class Workspace:
         payload = json.loads(path.read_text())
         payload["title"] = task.song_title or task.title or payload.get("title") or "Untitled"
         payload['presentation_title'] = payload['title']
+        payload['audio_cache'] = {'uid': self.uid, 'version': hashlib.sha256(task.input_mp3_key.encode()).hexdigest()}
         path.write_text(json.dumps(payload, ensure_ascii=False))
         metadata_key, cover_key = source_keys(task.input_mp3_key)
         metadata_path, artwork_path = path.parent / 'source_suno.json', path.parent / 'source_cover.jpg'
@@ -144,7 +145,9 @@ class Workspace:
             suffix = Path(task.input_mp3_key).suffix.lower()
             if suffix not in (".mp3", ".wav", ".m4a", ".flac", ".ogg"):
                 suffix = ".mp3"
-            await self.storage.load(task.input_mp3_key, path.parent / ("audio" + suffix))
+            destination = path.parent / ("audio" + suffix)
+            if not destination.exists():
+                await self.storage.load(task.input_mp3_key, destination)
 
     async def restore_download(self, route):
         match = re.fullmatch(r"render/([a-f0-9]{32})/(download|stream)", route)
@@ -272,7 +275,7 @@ async def dispatch(route: str, request: Request,
             project_id = form.get("project_id")
             await form.close()
         if project_id:
-            await workspace.hydrate(project_id, audio=route in ("project", "render"))
+            await workspace.hydrate(project_id, audio=route == "render")
         elif request.method != "GET":
             # Applying an asynchronous director result must see current alignment.
             for task_id in workspace.tasks:

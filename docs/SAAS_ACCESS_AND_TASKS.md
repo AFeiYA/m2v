@@ -85,3 +85,12 @@ Cloudflare Pages 发布目录是 `frontend`。Motion 页面依赖构建后的 Ja
 一次性在 GitHub Actions 配置 Secrets `CLOUDFLARE_API_TOKEN`（选定账户的 Cloudflare Pages Edit 权限）和 `CLOUDFLARE_ACCOUNT_ID`，以及 Variable `CLOUDFLARE_PAGES_PROJECT_NAME`（现有 Pages 项目的真实名称，不是域名或 R2 bucket）。未设置项目名时该部署 job 不启用。
 
 启用 CI 部署后，关闭该 Pages 项目 Git 集成的生产及预览自动部署，避免未构建的 Git 源文件覆盖 CI 上传的产物；无需修改现有域名或新建 Pages 项目。之后 push main → CI 检查与构建 → HF 和 Pages 分别自动部署。
+
+### Chrome 插件 1.6
+
+官方云端插件使用相同的账号任务与编辑器导出接口，不再放行旧的共享
+`/api/plugin/export_video`、`/api/plugin/export_audio` 或 `/api/lyric_video/task_status`。
+它们在本地服务仍可用。原曲 MP3 兜底接口继续检查有效登录与公开歌曲。
+导出支持 UUID `request_id`，按用户、原歌曲任务、操作类型确定重试标识；
+相同请求复用已有结果，不同设置重用编号返回 409。视频操作仍由现有后台
+任务执行，服务重启会明确中断未完成任务，并非可自动续算的持久队列。

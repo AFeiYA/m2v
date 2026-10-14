@@ -179,6 +179,7 @@
 
   <button class="btn-primary" id="btnResumeVideo" style="margin-top: 8px; background: #334155;" hidden>Resume last video</button>
   <select id="jobSelect" aria-label="Video jobs" hidden></select>
+  <p style="font-size:11px;margin-top:8px;"><a id="openEditor" hidden target="_blank" rel="noopener">Edit lyric timing ↗</a> &nbsp; <a id="openMotion" hidden target="_blank" rel="noopener">Motion Studio ↗</a></p>
   <div class="status-row" id="videoTaskStatus" role="status" aria-live="polite"></div>
   <div class="status-row" id="recentDownload" role="status" aria-live="polite"></div>
   <button class="node-btn" id="btnRetryDownload" hidden>Retry download</button>
@@ -201,21 +202,21 @@
   <div class="settings-row" id="authSection" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
     <div class="node-header">
       <label>Cloud Account:</label>
-      <span id="authBadge" class="badge" style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; border-color: rgba(148, 163, 184, 0.3);">未同步</span>
+      <span id="authBadge" class="badge" style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; border-color: rgba(148, 163, 184, 0.3);">Not connected</span>
     </div>
-    <div style="display: flex; gap: 6px; margin-top: 6px;">
+    <p style="font-size:11px;margin-top:6px;"><a href="https://mv.fovea.si" target="_blank" rel="noopener">Sign in at mv.fovea.si ↗</a></p><div style="display: flex; gap: 6px; margin-top: 6px;">
       <button type="button" class="btn-primary" id="btnSyncAuth" style="flex: 1; padding: 6px 10px; font-size: 11px; margin: 0; box-shadow: none;">
-        🔄 同步网页登录状态
+        🔄 Sync website account
       </button>
-      <button type="button" class="node-btn" id="btnToggleManualToken" title="手动输入 Token">
-        ✏️ 手动输入
+      <button type="button" class="node-btn" id="btnToggleManualToken" title="Manual access token">
+        ✏️ Manual token
       </button>
     </div>
     <div id="manualTokenBox" hidden style="margin-top: 6px;">
-      <input type="password" class="input-server" id="tokenInput" placeholder="在此粘贴网页复制的 Token" />
+      <input type="password" class="input-server" id="tokenInput" placeholder="Access token (advanced)" />
       <div style="display: flex; gap: 6px; margin-top: 4px;">
-        <button type="button" class="node-btn" id="btnSaveToken" style="flex: 1;">保存 Token</button>
-        <button type="button" class="node-btn" id="btnClearToken">清除</button>
+        <button type="button" class="node-btn" id="btnSaveToken" style="flex: 1;">Save token</button>
+        <button type="button" class="node-btn" id="btnClearToken">Disconnect</button>
       </div>
     </div>
     <div class="status-row" id="authStatus" role="status"></div>

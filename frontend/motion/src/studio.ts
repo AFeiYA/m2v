@@ -4,10 +4,11 @@ import {checkImportScope} from './import-scope';
 import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,resolvePaletteColors,pickRandomStackLayout,type CompiledPoster,type DefaultLayoutPreset,type StackLayout} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
 import { defaults, normalizeProject, renderSize, type Project, type Options, type MotionPlan } from './model';
-import {motionJson as api,motionUrl,serviceJson,serviceFetch,cloudService,downloadService} from './service-api';
+import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,downloadService} from './service-api';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const audio=new Audio();
 let audioObjectUrl='';
+let audioReady=false;
 let loadSequence=0;
 let project:Project|null=null,plan:MotionPlan|null=null,engine:RemotionPreview|null=null,selected='',currentCue='',dirty=false,jobId='',playing=false;
 let identityDirty=false;
@@ -57,23 +58,27 @@ async function load(id:string){
   const result=await api('project?project_id='+encodeURIComponent(id));
   if(sequence!==loadSequence)return;
   project=normalizeProject(result.project);plan=result.plan;selected=id;dirty=false;identityDirty=false;
+  audioReady=false;audio.src='';audio.currentTime=0;
   showIdentity();showCover();coverPending=cacheSunoCover(id);
+  $('track-name').textContent=project.title;
+  $<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';
+  refresh();listCues();
   let nextAudioUrl='';
+  let audioCached=false;
   if(result.audio_url&&cloudService()){
-   const response=await serviceFetch(result.audio_url);
+   const {blob,cached}=await serviceAudio(result.audio_url,id,result.project.audio_cache);
    if(sequence!==loadSequence)return;
-   if(!response.ok)throw new Error('原曲音频读取失败');
-   const blob=await response.blob();
-   if(sequence!==loadSequence)return;
+   audioCached=cached;
    nextAudioUrl=URL.createObjectURL(blob);
   }
   if(audioObjectUrl)URL.revokeObjectURL(audioObjectUrl);
   audioObjectUrl=nextAudioUrl;audio.src=audioObjectUrl||result.audio_url||'';audio.currentTime=0;audio.load();
+  audioReady=Boolean(audioObjectUrl||result.audio_url);
   $('track-name').textContent=project.title||$<HTMLSelectElement>('project-select').selectedOptions[0].text;
   $<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';
   $('analysis-status').textContent=project.analysis.energy_curve.length?`音乐数据已就绪 · ${project.analysis.beats.length} 拍点 · 估算 ${project.analysis.bpm} BPM`:'尚无音频分析，可先到歌词编辑器补做';
   refresh();listCues();await loadExports();
-  if(sequence===loadSequence)status(result.plan_error||(plan?'已加载保存的导演方案':'请选择风格并生成导演方案'));
+  if(sequence===loadSequence)status(result.plan_error||((plan?'已加载保存的导演方案':'请选择风格并生成导演方案')+(audioCached?' · 音频来自本机缓存':'')));
  }catch(error){if(sequence===loadSequence)throw error;}
 }
 async function rules(onlyCurrent=false){
@@ -155,7 +160,7 @@ $('download-plan').onclick=action(()=>{if(!plan)throw new Error('尚无方案');
 $<HTMLSelectElement>('project-select').onchange=action(()=>load($<HTMLSelectElement>('project-select').value));$<HTMLSelectElement>('cue-select').onchange=()=>{currentCue=$<HTMLSelectElement>('cue-select').value;showCue();};
 for(const id of ['cue-template','cue-layout','cue-palette','cue-intensity','cue-emphasis','cue-locked'])$(id).addEventListener('input',()=>{const cue=plan?.cues.find(c=>c.line_id===currentCue);if(!cue)return;cue.template=$<HTMLSelectElement>('cue-template').value as typeof cue.template;cue.layout=$<HTMLSelectElement>('cue-layout').value as typeof cue.layout;cue.palette=$<HTMLSelectElement>('cue-palette').value as typeof cue.palette;cue.intensity=Number($<HTMLInputElement>('cue-intensity').value);cue.emphasis=$<HTMLInputElement>('cue-emphasis').value;cue.locked=$<HTMLInputElement>('cue-locked').checked;dirty=true;refresh();if(id==='cue-locked')showCue(false);status('预览已更新 · 修改尚未保存');});
 for(const id of ['aspect','resolution','post','bloom','shake'])$(id).addEventListener('input',()=>{options.aspect=$<HTMLSelectElement>('aspect').value as Options['aspect'];options.height=Number($<HTMLSelectElement>('resolution').value) as 360|720;options.post=$<HTMLInputElement>('post').checked;options.bloom=Number($<HTMLInputElement>('bloom').value);options.shake=Number($<HTMLInputElement>('shake').value);refresh();});
-$('play').onclick=action(async()=>{if(!project)return;clipEnd=null;if(playing){audio.pause();playing=false;$('play').textContent='▶';}else{await audio.play();playing=true;$('play').textContent='Ⅱ';}});const seek=$<HTMLInputElement>('seek');
+$('play').onclick=action(async()=>{if(!project)return;if(!audioReady)throw new Error('音频仍在加载，海报已可预览，请稍后播放');clipEnd=null;if(playing){audio.pause();playing=false;$('play').textContent='▶';}else{await audio.play();playing=true;$('play').textContent='Ⅱ';}});const seek=$<HTMLInputElement>('seek');
 function beginScrub(){if(scrubbing)return;scrubbing=true;resumeAfterScrub=playing;audio.pause();playing=false;$('play').textContent='▶';clipEnd=null;}
 async function finishScrub(){if(!scrubbing)return;scrubbing=false;const resume=resumeAfterScrub;resumeAfterScrub=false;if(resume){await audio.play();playing=true;$('play').textContent='Ⅱ';}}
 seek.onpointerdown=beginScrub;
@@ -167,7 +172,7 @@ $('export').onclick=action(exportVideo);$('cancel').onclick=action(()=>api('rend
 function tick(){if(engine&&playing){if(clipEnd!==null&&audio.currentTime>=clipEnd){audio.pause();audio.currentTime=clipReviewTime;clipEnd=null;playing=false;$('play').textContent='▶';status(reviewHandover?'交接预览完成':'当前句播放完成，停留在最终海报');}engine.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';if(audio.ended){playing=false;$('play').textContent='▶';}}requestAnimationFrame(tick);}requestAnimationFrame(tick);
 audio.addEventListener('seeked',()=>{if(scrubbing)return;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';});
 window.addEventListener('beforeunload',event=>{if(dirty||identityDirty){event.preventDefault();event.returnValue='';}});
-(async()=>{try{const rows=await api('projects'),select=$<HTMLSelectElement>('project-select');for(const row of rows){const item=document.createElement('option');item.value=row.id;item.textContent=row.name;select.append(item);}const wanted=new URLSearchParams(location.search).get('song');const chosen=rows.find((row:{id:string;name:string})=>row.name===wanted)||(rows.length===1?rows[0]:null);if(chosen){select.value=chosen.id;await load(chosen.id);}}catch(error){status(String(error));}})();
+(async()=>{try{const rows=await api('projects'),select=$<HTMLSelectElement>('project-select');for(const row of rows){const item=document.createElement('option');item.value=row.id;item.textContent=row.name;select.append(item);}const params=new URLSearchParams(location.search),wanted=params.get('project')||params.get('song');const chosen=rows.find((row:{id:string;name:string})=>row.id===wanted||row.name===wanted)||(rows.length===1?rows[0]:null);if(chosen){select.value=chosen.id;await load(chosen.id);}}catch(error){status(String(error));}})();
 
 async function loadExports(){
   const id=selected,sequence=loadSequence;
@@ -254,6 +259,7 @@ if($('apply-palette')){
  });
 }
 async function playCue(handover=false){
+ if(!audioReady)throw new Error('音频仍在加载，请稍后播放');
  const line=project?.lines.find(l=>l.id===currentCue);if(!line)throw new Error('请先选择一句歌词');
  $<HTMLDialogElement>('poster-dialog').close();const size=renderSize(options),context=document.createElement('canvas').getContext('2d')!;
  const compiled=compileSongPosters(project!,size.width,size.height,canvasMeasure(context)).find(p=>p.line_id===currentCue)!;

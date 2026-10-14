@@ -22,9 +22,10 @@ globalThis.FoveaUI = {
     return origin;
   },
   async consent(server, kind) {
-    const origin = this.serverUrl(server);
+    const selected = this.serverUrl(server);
+    const origin = ['https://mv.fovea.si','https://lucazhou-suno2mv-api.hf.space'].includes(selected)?'https://lucazhou-suno2mv-api.hf.space':selected;
     const { dataConsent = [] } = await chrome.storage.local.get("dataConsent");
-    const key = `${origin}/${kind}/v1`;
+    const key = `${origin}/${kind}/v2`;
     if (dataConsent.includes(key)) return true;
     const message = kind === "video" ?
       "Create MP4 sends the selected song ID, lyrics/prompt, title, artist and cover to your selected server. The server downloads and processes the audio and stores the result. Continue?" :
@@ -48,6 +49,7 @@ globalThis.FoveaUI = {
   },
   error(detail) {
     const text = String(detail?.message || detail || "Unknown error");
+    if (/401|凭据|登录已过期/.test(text)) return 'Sign in at mv.fovea.si, keep that tab open, then click Sync website account.';
     if (/context invalidated/i.test(text)) return "The extension was updated. Refresh Suno and try again.";
     if (/interrupted|Server restarted/i.test(text)) return "The server restarted during rendering. Start a new MP4 job to retry.";
     if (/not published|尚未公开|未公开|未发布/i.test(text)) return "Publish the song in Suno’s (…) menu first, then retry MP3 or MP4.";

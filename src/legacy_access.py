@@ -15,12 +15,10 @@ async def require_local_api(connection: HTTPConnection) -> None:
             if path in ("/api/suno/publish_status", "/privacy/extension"):
                 return
 
-            # 2. 插件下载与生成接口：允许携带有效 Token 鉴权放行
+            # Stateless public-song audio retrieval only. Video work now uses
+            # owned SaaS tasks; a valid token cannot authorize global local jobs.
             if path in (
                 "/api/suno/download_mp3",
-                "/api/plugin/export_video",
-                "/api/plugin/export_audio",
-                "/api/lyric_video/task_status",
             ):
                 token = connection.query_params.get("token")
                 if not token:

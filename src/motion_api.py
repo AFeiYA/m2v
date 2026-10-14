@@ -129,7 +129,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
             except ValueError as exc: saved, error = None, str(exc)
         return {'project': payload, 'plan': saved, 'plan_error': error,
                 'audio_url': (audio_url(project_id) if audio_url is not None else
-                              '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(audio))) if audio else None}
+                              '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(audio))) if audio_url is not None or audio else None}
 
     @router.put('/identity')
     def save_identity(req: IdentityRequest):

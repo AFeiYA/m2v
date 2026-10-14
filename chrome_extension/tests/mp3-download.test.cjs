@@ -172,7 +172,7 @@ test('downloadTrackMp3 attaches authToken from chrome.storage to fallback downlo
       runtime: { onMessage: { addListener() {} } },
       storage: {
         local: {
-          get: async (key) => key === 'authToken' ? { authToken: 'test-user-jwt-token' } : {},
+          get: async (keys) => Array.isArray(keys) ? { authToken: 'test-user-jwt-token', authServer:'https://mv.fovea.si' } : {},
         },
       },
       downloads: { download(options, cb) { downloads.push(options); cb(101); } },

@@ -2,6 +2,13 @@
  * Fovea MV - 后台服务工作线程 (Background Service Worker)
  * 拥有全局跨域权限与下载管理器权限，负责调用后端渲染并自动将 MP4 视频保存至本地。
  */
+if (typeof importScripts === 'function') importScripts('cloud.js');
+
+async function serverToken(server) {
+  if(!chrome.storage?.local)return undefined;
+  const state=await chrome.storage.local.get(['authToken','authServer']);
+  return state.authServer===safeServerUrl(server)?state.authToken:undefined;
+}
 
 // Response bodies are single-use: read text once, then parse that string.
 async function readServerResponse(response) {
@@ -26,7 +33,7 @@ async function readServerResponse(response) {
 async function pollLyricVideoTask(targetServer, taskId, onProgress = () => {}, options = {}) {
   const deadline = Date.now() + (options.timeoutMs ?? 20 * 60 * 1000);
   const sleep = options.sleep || ((ms) => new Promise(resolve => setTimeout(resolve, ms)));
-  const { authToken } = chrome.storage?.local ? await chrome.storage.local.get("authToken") : {};
+  const authToken = await serverToken(targetServer);
   while (Date.now() < deadline) {
     let task;
     try {
@@ -88,7 +95,7 @@ function safeServerUrl(value) {
 }
 async function trackDownload(id, filename, kind, tabId, taskId) {
   await changeRecords("downloads", records => [...records.filter(r => r.id !== id).slice(-49),
-    { id, filename, kind, tabId, taskId, state: "in_progress", updatedAt: Date.now() }]);
+    { ...records.find(r=>r.id===id), id, filename, kind, tabId, taskId, state: "in_progress", updatedAt: Date.now() }]);
   if (chrome.downloads.search && chrome.storage?.local) {
     const [item] = await chrome.downloads.search({ id });
     if (item && item.state !== "in_progress") await updateDownload(id, item.state, item.error);
@@ -114,6 +121,8 @@ chrome.downloads?.onChanged?.addListener(delta => {
 });
 const activeVideoJobs = new Map();
 function finishVideoJob(job, onProgress = () => {}) {
+  if (job.kind === 'cloud') return FoveaCloud.finish(job, onProgress);
+  if (typeof FoveaCloud !== 'undefined' && FoveaCloud.official(job.targetServer)) throw new Error('This video uses the old cloud service. Create a new MP4 to use your account workspace.');
   const key = `${job.targetServer}/${job.taskId}`;
   if (activeVideoJobs.has(key)) return activeVideoJobs.get(key);
   const promise = (async () => {
@@ -137,8 +146,8 @@ function finishVideoJob(job, onProgress = () => {}) {
     const rawVideoUrl = result.download_url || result.video_url;
     if (!rawVideoUrl) throw new Error("Server did not return a video download URL");
     const downloadUrl = new URL(rawVideoUrl, job.targetServer);
-    const { authToken } = chrome.storage?.local ? await chrome.storage.local.get("authToken") : {};
-    if (authToken && !downloadUrl.searchParams.has("token")) {
+    const authToken = await serverToken(job.targetServer);
+    if (authToken && downloadUrl.origin === safeServerUrl(job.targetServer) && !downloadUrl.searchParams.has("token")) {
       downloadUrl.searchParams.set("token", authToken);
     }
     const suffix = { chorus: "_Chorus", verse1: "_Verse1", intro: "_Intro" }[job.section] || "";
@@ -177,6 +186,7 @@ function exportVideoAndDownload(blob, track, serverUrl, section = "", duration =
   return promise;
 }
 async function submitVideo(blob, track, serverUrl, section, duration, onProgress, tabId) {
+  if (typeof FoveaCloud !== 'undefined' && FoveaCloud.official(serverUrl)) return FoveaCloud.start(track,section,duration,onProgress,tabId);
   const targetServer = safeServerUrl(serverUrl);
   const endpoint = `${targetServer}/api/plugin/export_video`;
 
@@ -218,7 +228,7 @@ async function submitVideo(blob, track, serverUrl, section, duration, onProgress
     formData.append("duration_limit", String(duration));
   }
 
-  const { authToken } = chrome.storage?.local ? await chrome.storage.local.get("authToken") : {};
+  const authToken = await serverToken(targetServer);
   if (authToken) {
     formData.append("token", authToken);
   }
@@ -326,6 +336,8 @@ async function downloadOriginalMp3(track) {
 // Chrome owns the download, including waiting for MP4 audio extraction, so it
 // continues even if the popup closes or the service worker goes idle.
 async function downloadTrackMp3(track, serverUrl, onProgress = () => {}) {
+  const cloud = typeof FoveaCloud !== 'undefined' && FoveaCloud.official(serverUrl);
+  if (cloud) serverUrl = FoveaCloud.api;
   if (track?.is_public === false) throw new Error("Song is not published. Publish it in Suno’s (…) menu before downloading MP3 or MP4.");
   let verified = track?.is_public === true;
   async function verifyPublished() {
@@ -336,9 +348,9 @@ async function downloadTrackMp3(track, serverUrl, onProgress = () => {}) {
     onProgress({ message: "Checking whether the song is published…" });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 35000);
-    const { authToken } = chrome.storage?.local ? await chrome.storage.local.get("authToken") : {};
+    const authToken = await serverToken(serverUrl);
     const fetchOpts = { signal: controller.signal };
-    if (authToken) {
+    if (authToken && !cloud) {
       url.searchParams.set("token", authToken);
       fetchOpts.headers = { Authorization: `Bearer ${authToken}` };
     }
@@ -364,7 +376,12 @@ async function downloadTrackMp3(track, serverUrl, onProgress = () => {}) {
   const songUrl = `https://suno.com/${uuid ? "song" : "s"}/${track.songId}`;
   const downloadUrl = new URL(`${targetServer}/api/suno/download_mp3`);
   downloadUrl.searchParams.set("url", songUrl);
-  const { authToken } = chrome.storage?.local ? await chrome.storage.local.get("authToken") : {};
+  if (cloud) {
+    const auth=await FoveaCloud.token();
+    const filename=String(track.title||'Suno_Track').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').slice(0,120)+'.mp3';
+    return FoveaCloud.download(downloadUrl.pathname+downloadUrl.search,filename,auth.uid,undefined,undefined,'MP3');
+  }
+  const authToken = await serverToken(targetServer);
   if (authToken) {
     downloadUrl.searchParams.set("token", authToken);
   }
@@ -384,6 +401,16 @@ async function downloadTrackMp3(track, serverUrl, onProgress = () => {}) {
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'SYNC_CLOUD_AUTH') {
+    if(sender.tab){sendResponse({status:'error',message:'Use the extension popup to connect your account.'});return false;}
+    FoveaCloud.sync().then(data=>sendResponse({status:'ok',data})).catch(error=>sendResponse({status:'error',message:error.message}));
+    return true;
+  }
+  if (request.action === 'SET_CLOUD_TOKEN') {
+    if(sender.tab){sendResponse({status:'error',message:'Use the extension popup to connect your account.'});return false;}
+    FoveaCloud.acceptToken(request.token).then(data=>sendResponse({status:'ok',data})).catch(error=>sendResponse({status:'error',message:error.message}));
+    return true;
+  }
   const onProgress = (task) => {
     if (sender.tab?.id !== undefined) chrome.tabs.sendMessage(sender.tab.id,
       { action: "EXPORT_PROGRESS", task }, () => { void chrome.runtime.lastError; });
@@ -448,6 +475,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const stored = await chrome.storage.local.get("downloads");
       const record = (stored.downloads || []).find(r => r.id === request.downloadId);
       if (!record) throw new Error("Download not found. Download the song again.");
+      if (typeof FoveaCloud !== 'undefined' && record.backend === FoveaCloud.api) {
+        await FoveaCloud.download(record.apiPath,record.filename,record.ownerUid,sender.tab?.id,record.taskId,record.kind);
+        return {status:'ok'};
+      }
       const [item] = await chrome.downloads.search({ id: record.id });
       if (!item) throw new Error("Download history was removed. Download the song again.");
       try {
@@ -473,9 +504,17 @@ async function reconcileJobs() {
     if (item && item.state !== "in_progress") await updateDownload(item.id, item.state, item.error);
   }
   for (const job of stored.videoJobs || []) {
+    if (job.kind==='cloud' && ['submitting','pending','running','completed'].includes(job.status)) {
+      try {await FoveaCloud.finish(job,()=>{},true);}catch(error){console.warn('Cloud job check deferred:',error.message);}
+      continue;
+    }
+    if(typeof FoveaCloud !== 'undefined' && FoveaCloud.official(job.targetServer)){
+      if(!['downloaded','expired'].includes(job.status))await saveJob({...job,status:'expired',error:'Old cloud job. Create a new MP4 with version 1.6.'});
+      continue;
+    }
     if (!job.taskId || !["pending", "running", "completed"].includes(job.status)) continue;
     try {
-      const { authToken } = chrome.storage?.local ? await chrome.storage.local.get("authToken") : {};
+      const authToken = await serverToken(job.targetServer);
       const authQuery = authToken ? `&token=${encodeURIComponent(authToken)}` : "";
       const fetchOpts = { signal: AbortSignal.timeout(15000) };
       if (authToken) fetchOpts.headers = { Authorization: `Bearer ${authToken}` };

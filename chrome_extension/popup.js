@@ -20,8 +20,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("errorText").textContent = String(detail?.message || detail || "Unknown error");
   }
   async function refreshHistory() {
-    const { videoJobs = [], pendingVideoJob, downloads = [] } = await chrome.storage.local.get(["videoJobs", "pendingVideoJob", "downloads"]);
-    const jobs = videoJobs.length ? videoJobs : pendingVideoJob ? [pendingVideoJob] : [];
+    const { videoJobs = [], pendingVideoJob, downloads = [], authUserId } = await chrome.storage.local.get(["videoJobs", "pendingVideoJob", "downloads", "authUserId"]);
+    const jobs = (videoJobs.length ? videoJobs : pendingVideoJob ? [pendingVideoJob] : []).filter(j=>j.kind!=="cloud"||j.ownerUid===authUserId);
     const selection = jobSelect.value;
     jobSelect.replaceChildren();
     jobs.slice().reverse().forEach(job => {
@@ -33,7 +33,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (jobs.some(j => (j.taskId || j.requestId) === selection)) jobSelect.value = selection;
     btnResumeVideo.hidden = jobSelect.hidden = !jobs.length;
     btnResumeVideo.textContent = "Resume selected video";
-    const last = downloads.at(-1);
+    function updateWorkspaceLinks(){
+      const job=jobs.find(j=>(j.taskId||j.requestId)===jobSelect.value);
+      for(const [id,page] of [['openEditor','lyric-editor/'],['openMotion','motion-studio?project=']]){
+        const link=document.getElementById(id);link.hidden=!(job?.kind==='cloud'&&job.exportId);
+        if(!link.hidden)link.href='https://mv.fovea.si/'+page+encodeURIComponent(job.songTaskId);
+      }
+    }
+    jobSelect.onchange=updateWorkspaceLinks;updateWorkspaceLinks();
+    const last = downloads.filter(d=>!d.ownerUid||d.ownerUid===authUserId).at(-1);
     document.getElementById("recentDownload").textContent = last ? `${last.filename} · ${last.state === "complete" ? "Downloaded" : last.state === "interrupted" ? "Download failed" : "Downloading…"}` : "";
     const retry = document.getElementById("btnRetryDownload");
     retry.hidden = last?.state !== "interrupted";
@@ -41,7 +49,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   refreshHistory();
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && (changes.videoJobs || changes.downloads)) refreshHistory();
+    if (area === "local" && (changes.videoJobs || changes.downloads || changes.authUserId)) refreshHistory();
   });
   document.getElementById("btnRetryDownload").addEventListener("click", event => {
     chrome.runtime.sendMessage({ action: "RETRY_DOWNLOAD", downloadId: Number(event.currentTarget.dataset.id) }, response => {
@@ -130,27 +138,28 @@ document.addEventListener("DOMContentLoaded", async () => {
   function renderAuthUI(tokenVal) {
     if (tokenVal) {
       if (authBadge) {
-        authBadge.textContent = "已登录";
+        authBadge.textContent = "Connected";
         authBadge.style.color = "#4ade80";
         authBadge.style.backgroundColor = "rgba(74, 222, 128, 0.2)";
         authBadge.style.borderColor = "rgba(74, 222, 128, 0.3)";
       }
-      if (authStatus) authStatus.textContent = "已同步云端账号，支持全功能下载与渲染。";
-      if (tokenInput) tokenInput.value = tokenVal;
+      if (authStatus) authStatus.textContent = "Connected to your cloud account.";
+      if (tokenInput) tokenInput.value = '';
     } else {
       if (authBadge) {
-        authBadge.textContent = "未同步";
+        authBadge.textContent = "Not connected";
         authBadge.style.color = "#94a3b8";
         authBadge.style.backgroundColor = "rgba(148, 163, 184, 0.2)";
         authBadge.style.borderColor = "rgba(148, 163, 184, 0.3)";
       }
-      if (authStatus) authStatus.textContent = "未连接云端账号（仅支持公开歌曲直链）。";
+      if (authStatus) authStatus.textContent = "Sign in at mv.fovea.si, keep that tab open, then sync here.";
       if (tokenInput) tokenInput.value = "";
     }
   }
 
-  chrome.storage.local.get(["authToken"], (res) => {
+  chrome.storage.local.get(["authToken","authUserName"], (res) => {
     renderAuthUI(res?.authToken || "");
+    if(res?.authToken&&res?.authUserName)authStatus.textContent="Connected: "+res.authUserName;
   });
 
   if (btnToggleManualToken) {
@@ -162,27 +171,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (btnSyncAuth) {
     btnSyncAuth.addEventListener("click", async () => {
       btnSyncAuth.disabled = true;
-      if (authStatus) authStatus.textContent = "正在读取网页端登录状态...";
+      if (authStatus) authStatus.textContent = "Connecting to your website account…";
       try {
-        if (!chrome.cookies) {
-          throw new Error("Cookies API 不可用，请尝试手动输入 Token");
-        }
-        const targetOrigin = configuredServer || "https://mv.fovea.si";
-        chrome.cookies.get({ url: targetOrigin, name: "m2v_token" }, async (cookie) => {
-          btnSyncAuth.disabled = false;
-          if (chrome.runtime.lastError) {
-            showError(authStatus, chrome.runtime.lastError.message);
-            return;
-          }
-          if (cookie && cookie.value) {
-            const val = decodeURIComponent(cookie.value);
-            await chrome.storage.local.set({ authToken: val });
-            renderAuthUI(val);
-            if (authStatus) authStatus.textContent = "✅ 已成功从网页端同步登录状态！";
-          } else {
-            if (authStatus) authStatus.textContent = "未检测到网页登录状态。请先在 mv.fovea.si 网页登录后重试，或使用【手动输入】。";
-          }
-        });
+        const result = await chrome.runtime.sendMessage({action:'SYNC_CLOUD_AUTH'});
+        if (result?.status !== 'ok') throw new Error(result?.message || 'Account sync failed');
+        renderAuthUI(true);
+        authStatus.textContent = 'Connected: ' + result.data.name;
+        refreshHistory();
+        btnSyncAuth.disabled = false;
       } catch (err) {
         btnSyncAuth.disabled = false;
         showError(authStatus, err);
@@ -194,21 +190,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     btnSaveToken.addEventListener("click", async () => {
       const val = tokenInput ? tokenInput.value.trim() : "";
       if (!val) {
-        if (authStatus) authStatus.textContent = "请输入有效的 Token";
+        if (authStatus) authStatus.textContent = "Enter a valid access token.";
         return;
       }
-      await chrome.storage.local.set({ authToken: val });
+      if(['https://mv.fovea.si','https://lucazhou-suno2mv-api.hf.space'].includes(configuredServer)){
+        const response=await chrome.runtime.sendMessage({action:'SET_CLOUD_TOKEN',token:val});
+        if(response?.status!=='ok'){showError(authStatus,response?.message||'Account validation failed');return;}
+      }else await chrome.storage.local.set({ authToken: val, authServer: configuredServer, authUserId: null });
       renderAuthUI(val);
-      if (authStatus) authStatus.textContent = "✅ 已保存 Token";
+      if (authStatus) authStatus.textContent = "Token saved.";
       if (manualTokenBox) manualTokenBox.hidden = true;
     });
   }
 
   if (btnClearToken) {
     btnClearToken.addEventListener("click", async () => {
-      await chrome.storage.local.remove("authToken");
+      await chrome.storage.local.remove(["authToken","authServer","authUserId","authUserName"]);
+      await chrome.storage.local.set({cloudDisconnected:true});
       renderAuthUI("");
-      if (authStatus) authStatus.textContent = "已清除登录凭据";
+      if (authStatus) authStatus.textContent = "Disconnected.";
     });
   }
 

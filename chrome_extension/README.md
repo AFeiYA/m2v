@@ -1,4 +1,4 @@
-# Fovea MV Chrome 插件（1.5.4）
+# Fovea MV Chrome 插件（1.6.0）
 
 界面使用英文。Suno 悬浮栏从左至右为歌曲名称、Download MP3、Create MP4 与视频片段选择；歌曲名称仅作展示。长歌名自动省略，悬停可查看完整名称。MP4 的片段选择不影响整曲 MP3 下载。
 
@@ -65,3 +65,15 @@ MP4 按点击时识别到的歌曲 ID 获取音频，不使用无法确认归属
 
 
 1.4.4 复用网站已有的“仅下载”接口 `/api/suno/download_mp3`，无需提交新的音频导出任务或等待插件轮询。旧版 `/api/plugin/export_audio` 接口保留，兼容已有客户端。
+
+## 1.6.0：当前云端账号与工程
+
+- Cloud 仍显示 `https://mv.fovea.si`；这是登录/编辑网站。插件将官方计算请求发送到 `https://lucazhou-suno2mv-api.hf.space`，不会向 Pages 请求旧接口。
+- 在网页登录并保留一个该网站标签页，然后在插件点 **Sync website account**。通过现有网页的 Firebase Auth 客户端获取短期 ID Token，并由后端校验身份；不读取密码、刷新令牌或其他网站 Cookie。
+- 新权限 `scripting` 用于在已获权限的官方网页调用现有登录客户端，移除原 `cookies` 权限。官方 HF API 是明确列出的主机权限，不扩大到所有网站。
+- 云端 MP4 使用账号自己的 `/api/tasks/from-suno` 工程，再调用 `/api/editor/tasks/{id}/lyric-video`。现有歌曲可复用对齐；新歌曲按网站现行规则消耗额度。导出请求有独立、按账号隔离的重试编号，网络中断后恢复不重复渲染。
+- 副歌选择不会误命中 Pre-Chorus。完成后可从插件打开该工程的歌词编辑器或 Motion Studio。
+- 官方私有 MP3/MP4 下载通过 Authorization 请求头鉴权，令牌不进入下载 URL。账号切换后不能恢复另一个账号的任务。Disconnect 会停止后台自动重新同步。
+- 本地及自定义旧服务仍使用原接口。旧版云端视频任务需重新创建；不会按本地文件路径开放云端文件访问。
+
+更新方式：在 `chrome://extensions/` 重新加载本目录，再刷新 Suno 页面。升级涉及权限变化，请检查 Chrome 的提示。

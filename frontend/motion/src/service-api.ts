@@ -4,7 +4,36 @@ declare global {
   M2V_API_BASE?: string;
   m2vAuth?: {ready?: Promise<unknown>; getIdToken(forceRefresh?: boolean): Promise<string|null>};
   m2vServiceAuthReady?: Promise<void>;
+  m2vCache?: {getMedia(uid:string,task:string,type:string,version:string):Promise<Blob|null>;saveMedia(uid:string,task:string,type:string,blob:Blob,version:string):Promise<unknown>};
+  m2vMediaCacheReady?:Promise<void>;
  }
+}
+
+export async function serviceAudio(path:string,task:string,identity?:{uid:string;version:string}):Promise<{blob:Blob;cached:boolean}>{
+ await authentication();
+ const checkAccount=async()=>{
+  const token=await window.m2vAuth?.getIdToken(false);
+  if(!token)throw new Error('请先登录后再读取音频');
+  if(identity){let uid='';try{uid=JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).sub;}catch{}
+   if(uid!==identity.uid)throw new Error('账号已切换，请重新选择歌曲');}
+ };
+ await checkAccount();
+ if(!window.m2vCache){
+  try{window.m2vMediaCacheReady ||= script('/static/cache.js');await window.m2vMediaCacheReady;}catch{/* Cache failure must not prevent playback. */}
+ }
+ const cache=window.m2vCache, key=serviceUrl('/');
+ const type='motion-original:'+key;
+ const cached=identity&&cache?await cache.getMedia(identity.uid,task,type,identity.version):null;
+ if(cached){await checkAccount();return {blob:cached,cached:true};}
+ const response=await serviceFetch(path);
+ if(!response.ok)throw new Error(`原曲音频读取失败（HTTP ${response.status}）`);
+ const contentType=response.headers.get('content-type')||'';
+ if(!/^(audio\/|application\/octet-stream)/i.test(contentType))throw new Error('原曲接口未返回音频，未写入缓存');
+ const blob=await response.blob();
+ if(!blob.size)throw new Error('原曲音频为空，未写入缓存');
+ await checkAccount();
+ if(identity&&cache)await cache.saveMedia(identity.uid,task,type,blob,identity.version);
+ return {blob,cached:false};
 }
 
 export function cloudService(): boolean {

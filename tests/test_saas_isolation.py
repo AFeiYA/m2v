@@ -930,3 +930,60 @@ def test_worker_persists_source_sections_in_alignment(sandbox, monkeypatch):
     assert saved['lines'][0]['section'] == 'Pre-Chorus'
     assert saved['sections'][0]['name'] == 'Pre-Chorus'
     assert saved['lines'][0]['start'] == .2
+
+
+def test_motion_project_does_not_download_audio_before_browser_requests_it(sandbox, monkeypatch):
+    seed_cloud_motion(sandbox)
+    calls = []
+    original = sandbox.storage.load
+    async def load(key, path):
+        calls.append(key)
+        return await original(key, path)
+    monkeypatch.setattr(sandbox.storage, 'load', load)
+    response = sandbox.client.get('/api/cloud-motion/project', params={'project_id':'alice_motion'}, headers=headers())
+    assert response.status_code == 200, response.text
+    assert not any(key.endswith('source.wav') for key in calls)
+    data = response.json()
+    assert data['audio_url'] == '/api/editor/tasks/alice_motion/audio'
+    assert data['project']['audio_cache']['uid'] == 'alice'
+    assert len(data['project']['audio_cache']['version']) == 64
+    assert sandbox.client.get(data['audio_url'], headers=headers()).status_code == 200
+
+
+def test_video_clip_selection_keeps_pre_chorus_distinct_from_chorus():
+    from src.editor_operations import video_options
+    payload = {'sections':[{'name':'Pre-Chorus','start':3}, {'name':'Chorus','start':9}]}
+    result = video_options(payload, {'section_name':'chorus', 'request_id':'id', 'duration_limit':30})
+    assert result == {'start_time':9, 'duration_limit':30}
+    with pytest.raises(ValueError):
+        video_options(payload, {'section_name':'verse1'})
+
+
+def test_cloud_export_request_id_deduplicates_render_and_rejects_changed_options(sandbox, monkeypatch, tmp_path):
+    import uuid
+    from src import editor_operations as ops
+    from src.task_store import TaskStore
+    monkeypatch.setattr(ops, 'jobs', TaskStore(tmp_path / 'jobs'))
+    seed_editor_song(sandbox)
+    seen = []
+    def render(alignment, audio, output, options, progress):
+        seen.append(options)
+        output.write_bytes(b'video')
+        return {}
+    monkeypatch.setattr(ops, 'render_video', render)
+    endpoint = '/api/editor/tasks/editor/lyric-video'
+    body = {'request_id':str(uuid.uuid4()), 'start_time':0}
+    first = sandbox.client.post(endpoint, json=body, headers=headers())
+    second = sandbox.client.post(endpoint, json=body, headers=headers())
+    assert first.status_code == second.status_code == 200
+    assert first.json()['task_id'] == second.json()['task_id']
+    assert len(seen) == 1
+    assert sandbox.client.post(endpoint, json={**body,'start_time':1}, headers=headers()).status_code == 409
+    assert sandbox.client.get('/api/editor/jobs/'+first.json()['task_id'], headers=headers('bob')).status_code == 404
+
+
+def test_cloud_plugin_cannot_reopen_shared_local_video_routes(sandbox):
+    for endpoint in ('/api/plugin/export_video','/api/plugin/export_audio'):
+        response = sandbox.client.post(endpoint, headers=headers())
+        assert response.status_code == 403
+    assert sandbox.client.get('/api/lyric_video/task_status', params={'task_id':'some-local-job'}, headers=headers()).status_code == 403
