@@ -2,7 +2,7 @@ import type {Project} from './model';
 import type {Measure} from './poster-layout';
 
 export type SongText={text:string;x:number;y:number;fontSize:number;weight:number;anchor:'start'|'middle'|'end';accent?:boolean};
-export type SongLayout={header:SongText[];cover:SongText[];introEnd:number;outroStart:number;duration:number;editorial:boolean;artwork?:{x:number;y:number;width:number;height:number};sections:{start:number;name:string}[];W:number;H:number};
+export type SongLayout={header:SongText[];cover:SongText[];introEnd:number;outroStart:number;duration:number;editorial:boolean;artwork?:{x:number;y:number;width:number;height:number};sections:{start:number;end:number;name:string}[];W:number;H:number};
 
 // All presentation geometry is measured once; playback only evaluates opacity.
 export function compileSongLayout(project:Project,W:number,H:number,measure:Measure):SongLayout|null{
@@ -45,8 +45,13 @@ export function compileSongLayout(project:Project,W:number,H:number,measure:Meas
  const introEnd=identity.show_intro&&first>=1?first:0;
  const outroStart=identity.show_outro&&project.duration-last>=1.5?last+.3:project.duration;
  const sections:SongLayout['sections']=[];
- if(identity.show_section&&identity.style==='editorial')for(const line of project.lines){
-  const name=(line.section||'').trim();if(name&&sections.at(-1)?.name!==name)sections.push({start:line.start,name});
+ if(identity.show_section&&identity.style==='editorial'){
+  if(project.sections?.length)sections.push(...project.sections);
+  else for(const line of project.lines){
+   const name=(line.section||'').trim(),previous=sections.at(-1);
+   if(name&&previous?.name===name)previous.end=line.end;
+   else if(name)sections.push({start:line.start,end:line.end,name});
+  }
  }
  return {artwork,header,cover,introEnd,outroStart,duration:project.duration,editorial:identity.style==='editorial',sections,W,H};
 }
@@ -55,7 +60,7 @@ export function songLayoutAt(layout:SongLayout|null,t:number){
  const intro=t>=0&&t<layout.introEnd,outro=t>=layout.outroStart&&t<layout.duration,cover=intro||outro;
  const start=intro?0:layout.outroStart,end=intro?layout.introEnd:layout.duration;
  const alpha=cover?Math.max(0,Math.min(1,(t-start)/.3,(end-t)/.3)):1;
- const section=layout.sections.filter(s=>s.start<=t).at(-1)?.name||'';
+ const section=layout.sections.filter(s=>s.start<=t&&t<s.end).at(-1)?.name||'';
  return {texts:cover?layout.cover:layout.header,alpha,cover,rule:layout.editorial,section:cover?'':section};
 }
 

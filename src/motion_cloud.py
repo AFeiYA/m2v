@@ -117,6 +117,9 @@ class Workspace:
         if await self.storage.exists(metadata_key):
             await self.storage.load(metadata_key, metadata_path)
             source = json.loads(metadata_path.read_text())
+            from src.song_sections import bind_source_sections
+            if bind_source_sections(payload, source.get('sections') or []):
+                path.write_text(json.dumps(payload, ensure_ascii=False))
             version = lambda data: data.get('artwork_sha256') or data.get('image_url') or ''
             if not artwork_path.exists() or version(source) != version(old_source):
                 if await self.storage.exists(cover_key):
@@ -230,7 +233,8 @@ async def refresh_source(request: Request, user: User = Depends(get_current_user
             await storage.delete(workspace.object_key(cached))
         payload = json.loads(path.read_text())
         return {'identity': resolve_identity(path, payload, workspace.root),
-                'cover': resolve_cover(path, payload, workspace.root), 'warning': result['warning']}
+                'cover': resolve_cover(path, payload, workspace.root),
+                'sections': payload.get('sections', []), 'warning': result['warning']}
     finally:
         workspace.gate.release()
 

@@ -528,6 +528,19 @@ def parse_suno_prompt_sections(prompt: str) -> list[dict]:
                 sec_name = tag_content
                 sec_style = ''
 
+            # A bracket also encloses performance directions. They annotate the
+            # current section; e.g. [Pre-Chorus]\n[Build-up, harmonica] is ONE section.
+            if not re.fullmatch(
+                r'(?:(?:final|post|pre)[ -]?)?(?:intro|verse|chorus|bridge|solo|interlude|outro|end|hook|refrain|breakdown|drop|instrumental)'
+                r'(?:\s+\d+)?|(?:前奏|主歌|预副歌|副歌|桥段|间奏|尾奏|结束)(?:\s*\d+)?',
+                sec_name, re.IGNORECASE,
+            ):
+                if current_sec is None:
+                    current_sec = {'name': 'Verse 1', 'label': '主歌 1', 'style': '', 'lyric_texts': []}
+                    sections_raw.append(current_sec)
+                current_sec['style'] = '; '.join(filter(None, (current_sec['style'], tag_content)))
+                continue
+
             base_lower = sec_name.lower()
             label = sec_name
             for k, v in label_map.items():
@@ -562,7 +575,9 @@ def parse_suno_prompt_sections(prompt: str) -> list[dict]:
             if current_sec is None:
                 current_sec = {'name': 'Verse 1', 'label': '主歌 1', 'style': '', 'lyric_texts': []}
                 sections_raw.append(current_sec)
-            current_sec['lyric_texts'].append(line)
+            cleaned = _clean_lyrics(line)
+            if cleaned:
+                current_sec['lyric_texts'].append(cleaned)
 
     return sections_raw
 
@@ -578,7 +593,7 @@ def enrich_alignment_sections(
     2. 为每行歌词标注所属 section
     3. 保留并回写 alignment.json (100% 保持 ASS 与编辑器的向后兼容)
     """
-    from src.aligner import AlignmentResult, MusicSection
+    from src.storyboard_schema import AlignmentResult, MusicSection
 
     alignment = AlignmentResult.load_json(alignment_json_path)
     if not alignment.lines or not raw_prompt:
@@ -588,57 +603,16 @@ def enrich_alignment_sections(
     if not parsed_sections:
         return alignment
 
-    line_cursor = 0
-    total_lines = len(alignment.lines)
-    music_sections: list[MusicSection] = []
-
-    for sec in parsed_sections:
-        texts = sec['lyric_texts']
-        count = len(texts)
-        sec_name = sec['name']
-        sec_label = sec['label']
-        sec_style = sec['style']
-
-        if count == 0:
-            if 'intro' in sec_name.lower():
-                sec_start = 0.0
-                sec_end = alignment.lines[0].start if total_lines > 0 else 0.0
-                music_sections.append(MusicSection(
-                    name=sec_name,
-                    label=sec_label,
-                    style=sec_style,
-                    start=round(sec_start, 3),
-                    end=round(sec_end, 3),
-                    line_indices=[]
-                ))
-            continue
-
-        if line_cursor >= total_lines:
-            break
-
-        start_idx = line_cursor
-        end_idx = min(line_cursor + count, total_lines)
-        matched_indices = list(range(start_idx, end_idx))
-
-        for idx in matched_indices:
-            alignment.lines[idx].section = sec_name
-
-        sec_start = alignment.lines[start_idx].start
-        sec_end = alignment.lines[end_idx - 1].end
-
-        if 'outro' in sec_name.lower() and total_duration and total_duration > sec_end:
-            sec_end = total_duration
-
-        music_sections.append(MusicSection(
-            name=sec_name,
-            label=sec_label,
-            style=sec_style,
-            start=round(sec_start, 3),
-            end=round(sec_end, 3),
-            line_indices=matched_indices
-        ))
-
-        line_cursor = end_idx
+    from src.song_sections import bind_source_sections
+    payload = alignment.model_dump()
+    if total_duration:
+        payload["duration"] = total_duration
+    if not bind_source_sections(payload, parsed_sections):
+        log.warning("Suno 乐段与当前歌词不匹配，未按行数猜测归属")
+        return alignment
+    music_sections = [MusicSection.model_validate(section) for section in payload['sections']]
+    for line, value in zip(alignment.lines, payload['lines']):
+        line.section = value.get('section', '')
 
     alignment.sections = music_sections
     if alignment.analysis is not None:

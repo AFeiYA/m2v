@@ -318,6 +318,10 @@ async function refreshSourceInfo(){
   const result=await api('source/refresh','POST',{project_id:id});if(selected!==id||sequence!==loadSequence)return;
   project.song_identity=identityDirty&&project.song_identity?{...project.song_identity,source_title:result.identity.source_title,source_artist:result.identity.source_artist,source:result.identity.source}:result.identity;
   project.song_cover=result.cover;project.title=project.song_identity!.title;project.artist=project.song_identity!.artist;
+  if(Array.isArray(result.sections)){
+   project.sections=result.sections;
+   for(const line of project.lines){const section=project.sections?.find(s=>s.start<=line.start&&line.start<s.end);if(section)line.section=section.name;}
+  }
   showIdentity();showCover();refresh();$('track-name').textContent=project.title;
   status(result.warning||'歌曲信息已更新；自定义内容已保留，对齐与额度不变');
  }finally{button.disabled=false;}

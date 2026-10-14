@@ -49,6 +49,10 @@ async def save_source(storage, audio_key: str, song) -> dict:
     metadata = {'version': 'song-source-v1', 'id': song.id, 'title': song.title,
                 'artist': artist, 'image_url': image,
                 'source_url': f'https://suno.com/song/{song.id}'}
+    from src.suno_fetch import parse_suno_prompt_sections
+    prompt = getattr(song, 'raw_prompt', '') or ''
+    if '[' in prompt:
+        metadata['sections'] = parse_suno_prompt_sections(prompt)
     warning = ''
     with tempfile.TemporaryDirectory(prefix='m2v-artwork-') as directory:
         root = Path(directory)

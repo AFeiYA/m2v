@@ -663,3 +663,17 @@ test('portrait accommodates a complete short payoff without stranding its ending
  assert.equal(result.nodes[2].rows.length,1);
  assert.equal(result.nodes[2].rows[0].text,'开始往前流了。');
 });
+
+test('source section intervals retain Pre-Chorus and stop at explicit ends',async()=>{
+ const {compileSongLayout,songLayoutAt}=await import('./song-layout.ts');
+ const p=normalizeProject({title:'Song',duration:20,song_identity:{style:'editorial',show_section:true,show_intro:false,show_outro:false},
+  lines:[{text:'one',start:2,end:4,words:[],section:'outdated style tag'},{text:'two',start:6,end:8,words:[],section:'outdated style tag'}],
+  sections:[{name:'Pre-Chorus',start:2,end:6},{name:'Chorus',start:6,end:9}]});
+ const measure=(text:string,size:number)=>({width:text.length*size*.5,ascent:size*.8,descent:size*.2});
+ const layout=compileSongLayout(p,720,1280,measure)!;
+ assert.equal(songLayoutAt(layout,3).section,'Pre-Chorus');
+ assert.equal(songLayoutAt(layout,5.9).section,'Pre-Chorus');
+ assert.equal(songLayoutAt(layout,6).section,'Chorus');
+ assert.equal(songLayoutAt(layout,9).section,'');
+ assert.equal(songLayoutAt(layout,1).section,'');
+});

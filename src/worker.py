@@ -250,6 +250,16 @@ def process_song_task(
         # alignment JSON
         align_json = output_dir / f"{stem}_alignment.json"
         if align_json.exists():
+            from src.song_assets import source_keys
+            from src.song_sections import bind_source_sections
+            metadata_key, _ = source_keys(mp3_key)
+            if loop.run_until_complete(storage.exists(metadata_key)):
+                metadata_path = temp_dir / 'source_suno.json'
+                loop.run_until_complete(storage.load(metadata_key, metadata_path))
+                metadata = json.loads(metadata_path.read_text())
+                payload = json.loads(align_json.read_text())
+                if bind_source_sections(payload, metadata.get('sections') or []):
+                    align_json.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
             key = f"results/{task_id}/{align_json.name}"
             loop.run_until_complete(storage.save(key, align_json))
             result_keys["alignment_json_key"] = key

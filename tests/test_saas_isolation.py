@@ -875,3 +875,58 @@ def test_cloud_source_artwork_downloads_only_when_its_version_changes(sandbox, m
     response = sandbox.client.get('/api/cloud-motion/project', params={'project_id':'alice_motion'}, headers=headers())
     assert response.status_code == 200, response.text
     assert downloads.count(cover_key) == 2
+
+
+def test_source_refresh_restores_original_section_without_changing_alignment(sandbox, monkeypatch):
+    import json
+    from src import suno_fetch, motion_cloud
+    seed_cloud_motion(sandbox)
+    async def set_url():
+        async with sandbox.sessions() as db:
+            task = await db.get(Task, 'alice_motion')
+            task.suno_url = 'https://suno.com/song/original-song'
+            await db.commit()
+    asyncio.run(set_url())
+    key = 'results/alice_motion/source_alignment.json'
+    original = sandbox.storage.get_local_path(key).read_bytes()
+    monkeypatch.setattr(suno_fetch, 'fetch_song', lambda url: types.SimpleNamespace(
+        id='original-song', title='Song', artist='Artist', raw_clip={},
+        raw_prompt='[Pre-Chorus]\n[Build-up, harmonica]\nalice'))
+    response = sandbox.client.post('/api/cloud-motion/source/refresh',
+        json={'project_id':'alice_motion'}, headers=headers())
+    assert response.status_code == 200, response.text
+    assert response.json()['sections'][0]['name'] == 'Pre-Chorus'
+    # Repair is derived metadata; the authoritative user's timing file is untouched.
+    assert sandbox.storage.get_local_path(key).read_bytes() == original
+    motion_cloud._workspaces.clear()
+    project = sandbox.client.get('/api/cloud-motion/project', params={'project_id':'alice_motion'}, headers=headers()).json()['project']
+    assert project['lines'][0]['section'] == 'Pre-Chorus'
+    assert project['lines'][0]['start'] == .2
+    assert project['lines'][0]['end'] == 1.8
+    assert project['sections'][0]['name'] == 'Pre-Chorus'
+
+
+def test_worker_persists_source_sections_in_alignment(sandbox, monkeypatch):
+    import json
+    from src.song_assets import source_keys
+    seed_cloud_motion(sandbox)
+    audio_key = 'uploads/alice/alice_motion/source.wav'
+    metadata_key, _ = source_keys(audio_key)
+    sandbox.storage.get_local_path(metadata_key).write_text(json.dumps({'sections':[
+        {'name':'Pre-Chorus','label':'预副歌','style':'Build-up','lyric_texts':['alice']}]}))
+    lyrics = sandbox.storage.get_local_path('lyrics')
+    lyrics.parent.mkdir(parents=True, exist_ok=True)
+    lyrics.write_text('alice')
+    def pipeline(**kwargs):
+        result = kwargs['output_dir'] / 'source_alignment.json'
+        result.write_bytes(sandbox.storage.get_local_path('results/alice_motion/source_alignment.json').read_bytes())
+        return result
+    module = types.ModuleType('src.main')
+    module.process_one = pipeline
+    monkeypatch.setitem(sys.modules, 'src.main', module)
+    monkeypatch.setattr(worker, '_publish_progress', lambda *args: None)
+    worker.process_song_task('alice_motion', audio_key, 'lyrics')
+    saved = json.loads(sandbox.storage.get_local_path('results/alice_motion/source_alignment.json').read_text())
+    assert saved['lines'][0]['section'] == 'Pre-Chorus'
+    assert saved['sections'][0]['name'] == 'Pre-Chorus'
+    assert saved['lines'][0]['start'] == .2
