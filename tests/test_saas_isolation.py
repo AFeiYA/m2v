@@ -844,3 +844,34 @@ def test_suno_import_persists_source_metadata_alongside_audio(sandbox, monkeypat
     assert metadata['id'] == 'test-song-id'
     assert metadata['title'] == 'test'
     assert metadata['artist'] == ''
+
+
+def test_cloud_source_artwork_downloads_only_when_its_version_changes(sandbox, monkeypatch):
+    import io
+    from PIL import Image
+    from src import song_assets
+    seed_cloud_motion(sandbox)
+    contents = io.BytesIO()
+    Image.new('RGB', (8,8), 'blue').save(contents, format='JPEG')
+    monkeypatch.setattr(song_assets, 'download_artwork', lambda url: contents.getvalue())
+    song = types.SimpleNamespace(id='song', title='source', artist='artist', raw_clip={'image_url':'https://cdn1.suno.ai/image.jpg'})
+    audio_key='uploads/alice/alice_motion/source.wav'
+    asyncio.run(song_assets.save_source(sandbox.storage, audio_key, song))
+    _, cover_key = song_assets.source_keys(audio_key)
+    downloads = []
+    original = sandbox.storage.load
+    async def tracked(key, path):
+        downloads.append(key)
+        return await original(key, path)
+    monkeypatch.setattr(sandbox.storage, 'load', tracked)
+    for _ in range(2):
+        response = sandbox.client.get('/api/cloud-motion/project', params={'project_id':'alice_motion'}, headers=headers())
+        assert response.status_code == 200, response.text
+    assert downloads.count(cover_key) == 1
+    changed = io.BytesIO()
+    Image.new('RGB', (8,8), 'red').save(changed, format='JPEG')
+    monkeypatch.setattr(song_assets, 'download_artwork', lambda url: changed.getvalue())
+    asyncio.run(song_assets.save_source(sandbox.storage, audio_key, song))
+    response = sandbox.client.get('/api/cloud-motion/project', params={'project_id':'alice_motion'}, headers=headers())
+    assert response.status_code == 200, response.text
+    assert downloads.count(cover_key) == 2

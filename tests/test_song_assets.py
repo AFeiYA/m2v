@@ -41,3 +41,21 @@ def test_artwork_url_is_rejected_before_any_network_request(url, monkeypatch):
     monkeypatch.setattr(song_assets.requests, 'get', forbidden)
     with pytest.raises(ValueError):
         song_assets.download_artwork(url)
+
+
+def test_unchanged_source_artwork_is_not_uploaded_twice(tmp_path, monkeypatch):
+    storage = LocalStorage(tmp_path)
+    calls = []
+    original = storage.save
+    async def tracked(key, path):
+        calls.append(key)
+        return await original(key, path)
+    monkeypatch.setattr(storage, 'save', tracked)
+    monkeypatch.setattr(song_assets, 'download_artwork', lambda url: b'optimized-cover')
+    song = SimpleNamespace(id='song', title='A song', artist='An artist',
+        raw_clip={'image_url':'https://cdn1.suno.ai/cover.jpeg'})
+    first = asyncio.run(song_assets.save_source(storage, 'uploads/alice/task/source.mp3', song))
+    second = asyncio.run(song_assets.save_source(storage, 'uploads/alice/task/source.mp3', song))
+    _, key = song_assets.source_keys('uploads/alice/task/source.mp3')
+    assert calls.count(key) == 1
+    assert first['metadata']['artwork_sha256'] == second['metadata']['artwork_sha256']

@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 import requests
@@ -14,7 +15,7 @@ from src.utils import log
 
 
 def source_keys(audio_key: str) -> tuple[str, str]:
-    parent = Path(audio_key).parent
+    parent = PurePosixPath(audio_key).parent
     return str(parent / 'source_suno.json'), str(parent / 'source_cover.jpg')
 
 
@@ -51,12 +52,25 @@ async def save_source(storage, audio_key: str, song) -> dict:
     warning = ''
     with tempfile.TemporaryDirectory(prefix='m2v-artwork-') as directory:
         root = Path(directory)
+        previous = {}
+        if await storage.exists(metadata_key):
+            old_path = root / 'previous.json'
+            await storage.load(metadata_key, old_path)
+            try:
+                previous = json.loads(old_path.read_text())
+            except (ValueError, OSError):
+                pass
+        if isinstance(previous, dict) and previous.get('artwork_sha256'):
+            metadata['artwork_sha256'] = previous['artwork_sha256']
         if image:
             try:
                 content = await asyncio.to_thread(download_artwork, image)
-                cover = root / 'cover.jpg'
-                cover.write_bytes(content)
-                await storage.save(cover_key, cover)
+                digest = hashlib.sha256(content).hexdigest()
+                if digest != metadata.get('artwork_sha256') or not await storage.exists(cover_key):
+                    cover = root / 'cover.jpg'
+                    cover.write_bytes(content)
+                    await storage.save(cover_key, cover)
+                metadata['artwork_sha256'] = digest
             except Exception as exc:
                 warning = '封面暂时无法读取，已保留歌曲信息，可稍后重试'
                 log.warning('Suno 封面缓存未完成: %s', type(exc).__name__)

@@ -109,9 +109,18 @@ class Workspace:
         payload['presentation_title'] = payload['title']
         path.write_text(json.dumps(payload, ensure_ascii=False))
         metadata_key, cover_key = source_keys(task.input_mp3_key)
-        for key, filename in ((metadata_key, 'source_suno.json'), (cover_key, 'source_cover.jpg')):
-            if await self.storage.exists(key):
-                await self.storage.load(key, path.parent / filename)
+        metadata_path, artwork_path = path.parent / 'source_suno.json', path.parent / 'source_cover.jpg'
+        try:
+            old_source = json.loads(metadata_path.read_text())
+        except (OSError, ValueError):
+            old_source = {}
+        if await self.storage.exists(metadata_key):
+            await self.storage.load(metadata_key, metadata_path)
+            source = json.loads(metadata_path.read_text())
+            version = lambda data: data.get('artwork_sha256') or data.get('image_url') or ''
+            if not artwork_path.exists() or version(source) != version(old_source):
+                if await self.storage.exists(cover_key):
+                    await self.storage.load(cover_key, artwork_path)
         prefix = task_prefix(self.uid, task_id)
         if task_id not in self.loaded:
             # Restore small design/status files after a container restart.
