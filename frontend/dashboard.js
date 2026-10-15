@@ -411,6 +411,7 @@ function initUpload() {
           sunoForm.reset();
           loadTasks();
           connectProgressWS(data.task_id);
+          if (data.video_job_id) trackImportedVideo(data.video_job_id);
         } else {
           const err = await res.json();
           showStatus(`❌ ${err.detail || "Unable to create project"}`, true);
@@ -874,6 +875,26 @@ document.addEventListener("DOMContentLoaded", async () => {
 // Durable video library. Request media only after a user clicks Preview/Download.
 let exportPage = 1;
 let exportSequence = 0;
+async function trackImportedVideo(jobId) {
+  const uid = currentUser?.id;
+  if (!uid) return;
+  try {
+    const response = await api(`/api/editor/jobs/${encodeURIComponent(jobId)}`);
+    if (currentUser?.id !== uid) return;
+    if (!response.ok) throw Error(`Unable to check video export (HTTP ${response.status}).`);
+    const job = await response.json();
+    if (currentUser?.id !== uid) return;
+    if (job.status === "completed") {
+      showStatus("Video ready. Download it from My Exports.");
+      await loadExports(1);
+      return;
+    }
+    if (job.status === "failed") throw Error(job.error || "Video rendering failed. Your saved alignment is unchanged.");
+    setTimeout(() => { if (currentUser?.id === uid) trackImportedVideo(jobId); }, 3000);
+  } catch (error) {
+    if (currentUser?.id === uid) showStatus(error.message, true);
+  }
+}
 function closeExportPreview() {
   const video = $("#export-preview-video");
   video?.pause?.(); video?.removeAttribute?.("src"); video?.load?.();

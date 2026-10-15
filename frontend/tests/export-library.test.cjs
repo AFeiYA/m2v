@@ -39,3 +39,16 @@ test('cancelled deletion does not issue any server request',async()=>{
  const s=setup();s.context.confirm=()=>false;
  await s.run('handleExportAction({dataset:{export:"a",exportAction:"delete"}})');assert.equal(s.calls.length,0);
 });
+
+test('reused import video completion refreshes My Exports without importing again',async()=>{
+ const s=setup();
+ s.context.fetch=async(url)=>{
+  s.calls.push({url});
+  return {ok:true,headers:{get:()=> 'application/json'},json:async()=>url.includes('/jobs/')?{status:'completed'}:{exports:[],total:0}};
+ };
+ await s.run('trackImportedVideo("render-job")');
+ assert.equal(s.calls.length,2);
+ assert.match(s.calls[0].url,/api\/editor\/jobs\/render-job$/);
+ assert.match(s.calls[1].url,/api\/exports\?page=1/);
+ assert.equal(s.calls.some(c=>c.url.includes('from-suno')),false);
+});

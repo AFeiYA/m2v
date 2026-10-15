@@ -70,7 +70,7 @@ class SunoTaskRequest(BaseModel):
     song_title: str | None = None
     language: str = "auto"
     skip_separation: bool = False
-    ass_only: bool = False
+    ass_only: bool = True
     beat_effects: bool = False
     lyrics_text: str | None = None
     force_realign: bool = False
@@ -117,6 +117,7 @@ class UploadResponse(BaseModel):
     mp3_key: str
     lyrics_key: str
     task_id: str
+    video_job_id: str | None = None
     message: str = "文件上传成功，任务已创建"
 
 

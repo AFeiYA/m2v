@@ -2,8 +2,8 @@
 
 - Resolve both `/s/...` and `/song/...` to the fetched song ID. New task URLs use
   `https://suno.com/song/{id}`, without tracking parameters. IDs are case-insensitive.
-- Within one account, identical lyrics and processing options reuse a valid task.
-  Different lyrics/settings and explicit realignment create separate task snapshots.
+- Within one account, identical lyrics and alignment options (`language`, `skip_separation`) reuse a valid task.
+  Different lyrics/alignment options and explicit realignment create separate task snapshots.
   Old results are preserved; failures do not overwrite them.
 - Those versions reference the same available original audio object. Only missing
   originals are downloaded again. Media is never borrowed from another account or
@@ -27,3 +27,25 @@ missing data. Logs include the task ID and object key for investigation. These
 reads do not delete or rewrite task records or fabricate replacement timestamps.
 Reimport checks the stored result exists before reusing a completed task and can
 reuse the original audio if it is still present.
+
+## Video rendering is separate from alignment
+
+`ass_only` and `beat_effects` are output choices, not alignment identity. Switching
+these choices does not create another alignment task or charge alignment credits.
+Suno imports default to alignment/subtitles only (`ass_only=true`).
+
+For an already completed import, an explicit `ass_only=false` request reuses the
+saved timeline (including manual timing edits) and original audio, and starts a
+render-only editor video job. The response retains the existing `task_id` and
+adds `video_job_id`. The dashboard tracks this job separately and refreshes My
+Exports when it completes. No separation/alignment worker is dispatched. Existing
+pending imports remain the same task; the response instructs users to export from
+Lyric Editor after alignment is ready. First imports and explicit realignments
+still require the normal audio/alignment pipeline.
+
+Render-only MP4 objects use `results/{task_id}/exports/{video_job_id}.mp4`. Their
+VideoExport records point to that exact object key. Download through
+`/api/exports/{video_job_id}/access`, not the old task's `output_mp4_key`: it returns
+a fresh private R2 signed URL (or a scoped local ticket). Render failure leaves
+the original audio and saved timeline unchanged. Render theme/effects are chosen
+in Lyric Editor; the import beat checkbox does not rewrite an existing timeline.

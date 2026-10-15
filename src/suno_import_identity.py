@@ -12,6 +12,12 @@ from sqlalchemy import func, or_, select
 from src.models import Task, TaskStatus
 
 
+def alignment_options(options):
+    """Only inference inputs belong to alignment identity; rendering is separate."""
+    return {"language": options.get("language", "auto"),
+            "skip_separation": options.get("skip_separation", False)}
+
+
 def lyrics_signature(text: str) -> str:
     # Keep case, punctuation and stanza/word boundaries; only normalize transport whitespace.
     normalized = "\n".join(line.strip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")).strip()
@@ -80,12 +86,7 @@ async def reusable_import(db, user_id, song, submitted_url, signature, options, 
                 continue
         snapshot.update(suno_song_id=song.id, import_lyrics_signature=previous)
         task.config_snapshot = snapshot
-        same_options = all(snapshot.get(k, default) == value for k, value, default in (
-            ("language", options["language"], "auto"),
-            ("skip_separation", options["skip_separation"], False),
-            ("ass_only", options["ass_only"], False),
-            ("beat_effects", options["beat_effects"], False),
-        ))
+        same_options = alignment_options(snapshot) == alignment_options(options)
         if previous != signature or not same_options:
             continue
         if task.status in (TaskStatus.PENDING, TaskStatus.PROCESSING):

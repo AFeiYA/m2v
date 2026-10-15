@@ -27,6 +27,7 @@ from pathlib import Path
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     FastAPI,
     File,
@@ -401,6 +402,7 @@ async def upload_and_create_task(
 @api_router.post("/api/tasks/from-suno", response_model=UploadResponse, tags=["Tasks"])
 async def create_task_from_suno(
     req: SunoTaskRequest,
+    background: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -422,7 +424,7 @@ async def create_task_from_suno(
     if not lyrics_text:
         raise HTTPException(400, "未能从 Suno 页面提取到有效歌词，请检查该歌曲")
 
-    from src.suno_import_identity import lyrics_signature, reusable_import, reusable_audio
+    from src.suno_import_identity import alignment_options, lyrics_signature, reusable_import, reusable_audio
     storage = get_storage()
     options = {
         "language": req.language,
@@ -431,24 +433,37 @@ async def create_task_from_suno(
         "beat_effects": req.beat_effects,
     }
     signature = lyrics_signature(lyrics_text)
+
+    async def reuse_response(existing):
+        video_job_id = None
+        message = "Song and lyrics unchanged. Reusing existing alignment without another alignment charge."
+        if not req.ass_only and existing.status == TaskStatus.COMPLETED:
+            from src.editor_operations import VideoOptions, start_job
+            # Render from the saved (possibly manually edited) timeline. Never
+            # dispatch the separation/alignment worker for an output change.
+            job = await start_job(existing.id, "video", VideoOptions(aspect_ratio="16:9"),
+                                  background, user, db)
+            video_job_id = job["task_id"]
+            message += " Video is rendering and will appear in My Exports."
+        elif not req.ass_only:
+            message += " Alignment is still processing; export video from Lyric Editor when it is ready."
+        return UploadResponse(mp3_key=existing.input_mp3_key, lyrics_key=existing.input_lyrics_key,
+                              task_id=existing.id, video_job_id=video_job_id, message=message)
+
     if not req.force_realign:
         existing = await reusable_import(db, user.id, song, clean_url, signature, options, storage)
         if existing:
-            return UploadResponse(
-                mp3_key=existing.input_mp3_key, lyrics_key=existing.input_lyrics_key,
-                task_id=existing.id, message="歌曲、歌词和设置未变化，复用已有任务，不扣减额度",
-            )
+            return await reuse_response(existing)
     if user.credits <= 0:
         raise HTTPException(403, "配额不足，请升级套餐")
-    claim = sha256(json.dumps([user.id, song.id, signature, options], sort_keys=True).encode()).hexdigest()
+    claim = sha256(json.dumps([user.id, song.id, signature, alignment_options(options)], sort_keys=True).encode()).hexdigest()
     if req.force_realign:
         claim = sha256(uuid.uuid4().bytes).hexdigest()
     old_claim = (await db.execute(select(Task).where(Task.idempotency_key == claim))).scalar_one_or_none()
     if old_claim and (old_claim.status in (TaskStatus.PENDING, TaskStatus.PROCESSING) or
                       (old_claim.status == TaskStatus.COMPLETED and old_claim.alignment_json_key and
                        await storage.exists(old_claim.alignment_json_key))):
-        return UploadResponse(mp3_key=old_claim.input_mp3_key, lyrics_key=old_claim.input_lyrics_key,
-                              task_id=old_claim.id, message="复用已有歌曲任务，不重复扣减额度")
+        return await reuse_response(old_claim)
     if old_claim:
         # A failed or missing-result task is retryable; preserve its history.
         old_claim.idempotency_key = None

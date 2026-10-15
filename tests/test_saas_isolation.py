@@ -1338,3 +1338,70 @@ def test_alignment_storage_outage_is_retryable_not_missing(sandbox, monkeypatch)
         response = sandbox.client.get(url, headers=headers())
         assert response.status_code == 503
         assert 'retry' in response.json()['detail'].lower()
+
+
+def test_suno_video_request_reuses_alignment_and_has_valid_export_download(sandbox, monkeypatch):
+    from src import editor_operations, suno_fetch
+    from src.models import VideoExport
+    from sqlalchemy import select
+    observed = install_pipeline(sandbox, monkeypatch, False)
+    first = submit(sandbox, monkeypatch, 'suno').json()
+    task_id = first['task_id']
+    saved = b'{"manual_edit": true, "lines": [], "sections": []}'
+    async def prepare():
+        async with sandbox.sessions() as db:
+            task = await db.get(Task, task_id)
+            sandbox.storage.get_local_path(task.alignment_json_key).write_bytes(saved)
+            task.output_mp4_key = None
+            (await db.get(User, 'alice')).credits = 0
+            await db.commit()
+    asyncio.run(prepare())
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Rendering must not download, separate or align the song again')
+    monkeypatch.setattr(suno_fetch, 'download_song', forbidden)
+    monkeypatch.setattr(api_server, '_dispatch_task', forbidden)
+    rendered = []
+    def render(alignment, audio, output, options, progress):
+        assert alignment.read_bytes() == saved
+        assert audio.read_bytes() == b'audio'
+        rendered.append(options)
+        output.write_bytes(b'rendered-video')
+        return {'resolution': [1920, 1080], 'duration': 2}
+    monkeypatch.setattr(editor_operations, 'render_video', render)
+    response = sandbox.client.post('/api/tasks/from-suno', headers=headers(), json={
+        'suno_url': 'https://suno.com/song/test-song-id', 'ass_only': False, 'beat_effects': True})
+    assert response.status_code == 200, response.text
+    assert response.json()['task_id'] == task_id
+    job_id = response.json()['video_job_id']
+    assert job_id
+    assert len(observed) == len(rendered) == 1
+    assert sandbox.client.get(f'/api/editor/jobs/{job_id}', headers=headers()).json()['status'] == 'completed'
+    exports = sandbox.client.get('/api/exports', headers=headers()).json()['exports']
+    assert exports[0]['id'] == job_id
+    access = sandbox.client.get(f'/api/exports/{job_id}/access', headers=headers()).json()
+    download = sandbox.client.get(access['url'])
+    assert download.status_code == 200
+    assert download.content == b'rendered-video'
+    assert 'attachment' in download.headers['content-disposition']
+    assert sandbox.client.get(f'/api/exports/{job_id}/access', headers=headers('bob')).status_code == 404
+    async def verify():
+        async with sandbox.sessions() as db:
+            assert len((await db.execute(select(Task))).scalars().all()) == 1
+            task = await db.get(Task, task_id)
+            assert sandbox.storage.get_local_path(task.alignment_json_key).read_bytes() == saved
+            record = await db.get(VideoExport, job_id)
+            assert record.storage_key == f'results/{task_id}/exports/{job_id}.mp4'
+            assert sandbox.storage.get_local_path(record.storage_key).read_bytes() == download.content
+            assert (await db.get(User, 'alice')).credits == 0
+    asyncio.run(verify())
+
+
+def test_suno_render_only_options_do_not_create_another_alignment_task(sandbox, monkeypatch):
+    observed = install_pipeline(sandbox, monkeypatch, False)
+    first = submit(sandbox, monkeypatch, 'suno').json()
+    response = sandbox.client.post('/api/tasks/from-suno', headers=headers(), json={
+        'suno_url': 'https://suno.com/song/test-song-id?sh=alias', 'ass_only': True, 'beat_effects': True})
+    assert response.status_code == 200
+    assert response.json()['task_id'] == first['task_id']
+    assert response.json()['video_job_id'] is None
+    assert len(observed) == 1
