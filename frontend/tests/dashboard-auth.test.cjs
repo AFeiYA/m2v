@@ -120,3 +120,23 @@ test('email form signs in through Firebase without sending passwords to Python',
   assert.equal(s.values.get('m2v_token'), 'email-B');
   assert.equal(s.values.has('m2v_refresh'), false);
 });
+
+
+test('API settings are hidden from ordinary users and available in explicit dev mode', () => {
+  const normal = setup();
+  normal.run('initApiConfig()');
+  assert.equal(normal.element('#api-config-login').style.display, 'none');
+  assert.equal(normal.element('#btn-config-api-app').style.display, 'none');
+  assert.equal(normal.element('#btn-config-api').handlers.click, undefined);
+  for (const query of ['?dev=1', '?debug=1', '?mode=dev']) {
+    const dev = setup();
+    dev.context.location.search = query;
+    dev.run('initApiConfig()');
+    assert.equal(dev.element('#api-config-login').style.display, '');
+    assert.equal(typeof dev.element('#btn-config-api').handlers.click, 'function');
+  }
+  const disabled = setup();
+  disabled.context.location.search = '?dev=0';
+  disabled.run('initApiConfig()');
+  assert.equal(disabled.element('#api-config-login').style.display, 'none');
+});

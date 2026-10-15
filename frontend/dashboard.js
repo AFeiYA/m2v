@@ -723,6 +723,15 @@ function escapeHtml(str) {
 
 
 function initApiConfig() {
+  const params = new URLSearchParams(location.search);
+  let enabled = params.get("dev") === "1" || params.get("debug") === "1" || params.get("mode") === "dev";
+  try { enabled ||= localStorage.getItem("suno2mv_dev_mode") === "true"; } catch (_) {}
+  for (const selector of ["#api-config-login", "#btn-config-api-app"]) {
+    const element = $(selector);
+    if (element) element.style.display = enabled ? "" : "none";
+  }
+  if (!enabled) return;
+
   const updateLabel = () => {
     const cur = API;
     const el = $("#btn-config-api");

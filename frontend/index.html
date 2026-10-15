@@ -37,7 +37,7 @@
         <span id="auth-toggle-text">New to M2V?</span>
         <a href="#" id="auth-toggle">Create an account</a>
       </p>
-      <div style="margin-top: 10px; font-size: 12px; text-align: center; color: #888;">
+      <div id="api-config-login" style="display: none; margin-top: 10px; font-size: 12px; text-align: center; color: #888;">
         <span>Backend service: </span>
         <a href="#" id="btn-config-api" style="color: #4285F4; text-decoration: underline;">Configure API address</a>
       </div>
@@ -59,7 +59,7 @@
         <span id="user-credits" class="badge"></span>
         <a href="/lyric-editor" target="_blank" class="btn btn-sm">📝 Lyric Editor</a>
         <button id="btn-copy-plugin-token" class="btn btn-sm btn-outline" title="Copy extension sign-in token">📋 Extension token</button>
-        <button id="btn-config-api-app" class="btn btn-sm btn-outline" title="Set backend API address">⚙️ API</button>
+        <button id="btn-config-api-app" style="display: none;" class="btn btn-sm btn-outline" title="Set backend API address">⚙️ API</button>
         <button id="btn-logout" class="btn btn-sm btn-outline">Sign out</button>
       </div>
     </header>
@@ -160,6 +160,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="/static/cache.js?v=20261013_cache"></script>
   <script src="/firebase-config.js?v=20261015_english"></script>
-  <script src="/dashboard.js?v=20261015_english"></script>
+  <script src="/dashboard.js?v=20261015_dev_api"></script>
 </body>
 </html>
