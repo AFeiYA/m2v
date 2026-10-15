@@ -4,10 +4,10 @@ import {AbsoluteFill,Img,useCurrentFrame,useVideoConfig,useDelayRender} from 're
 import {featuresAt,type Project,type Options} from './model';
 import {compileSongPosters,stageAt,visiblePosterAt,canvasMeasure,POSTER_FONT,posterNodeState,posterHoldState,posterExitOpacity,posterRings,compileIntroTitle,introTitleState,type CompiledPoster,type CompiledIntroTitle} from './poster-layout';
 import {compileSongLayout,songLayoutAt,songTextColor,coverPlacement,coverOpacityAt,type SongLayout} from './song-layout';
-export type VideoProps={project:Project;options:Options;timeOffset?:number;renderLength?:number};
-export const LyricVideo:React.FC<VideoProps>=({project,timeOffset=0})=>{
+export type VideoProps={project:Project;options:Options;timeOffset?:number;renderLength?:number;transparent?:boolean;surface?:{width:number;height:number}};
+export const LyricVideo:React.FC<VideoProps>=({project,timeOffset=0,transparent=false,surface})=>{
  const highlightId=useId().replace(/:/g,'');
- const frame=useCurrentFrame(),{fps,width,height}=useVideoConfig(),t=timeOffset+frame/fps;
+ const frame=useCurrentFrame(),config=useVideoConfig(),{fps}=config,{width,height}=surface||config,t=timeOffset+frame/fps;
  const {delayRender,continueRender,cancelRender}=useDelayRender();
  const [handle]=useState(()=>delayRender('等待字体与海报排版'));
  const [layouts,setLayouts]=useState<CompiledPoster[]|null>(null);
@@ -31,12 +31,12 @@ export const LyricVideo:React.FC<VideoProps>=({project,timeOffset=0})=>{
  const backgroundImage=coverPlacement(project,{x:0,y:0,width,height});
  const artworkImage=songLayout?.artwork?coverPlacement(project,songLayout.artwork):null;
  const pulse=1+(feature.kick||feature.beat*.3)*.012;
- return <AbsoluteFill style={{background:stage.background,overflow:'hidden'}}>
-  {backgroundImage&&<Img src={project.song_cover!.data_url} style={{position:'absolute',left:backgroundImage.x,top:backgroundImage.y,width:backgroundImage.width,height:backgroundImage.height,opacity:coverOpacityAt(songLayout,t)}}/>}
+ return <AbsoluteFill style={{background:transparent?'transparent':stage.background,overflow:'hidden'}}>
+  {!transparent&&backgroundImage&&<Img src={project.song_cover!.data_url} style={{position:'absolute',left:backgroundImage.x,top:backgroundImage.y,width:backgroundImage.width,height:backgroundImage.height,opacity:coverOpacityAt(songLayout,t)}}/>}
   {songFrame.cover&&songLayout?.artwork&&artworkImage&&<div style={{position:'absolute',left:songLayout.artwork.x,top:songLayout.artwork.y,width:songLayout.artwork.width,height:songLayout.artwork.height,overflow:'hidden',opacity:songFrame.alpha,border:'1px solid #ffffff25'}}><Img src={project.song_cover!.data_url} style={{position:'absolute',left:artworkImage.x-songLayout.artwork.x,top:artworkImage.y-songLayout.artwork.y,width:artworkImage.width,height:artworkImage.height}}/></div>}
   <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{overflow:'hidden',position:'absolute'}} aria-label="歌词海报动画">
   <g>
-   {(!songFrame.cover||!songLayout?.artwork)&&stage.motif==='rings'&&posterRings(width,height).map((ring,i)=><ellipse key={i} cx={ring.cx} cy={ring.cy} rx={ring.rx} ry={ring.ry} opacity={ring.opacity} stroke={stage.accent} strokeWidth={Math.min(width,height)*.003} fill="none"/>)}
+   {!transparent&&(!songFrame.cover||!songLayout?.artwork)&&stage.motif==='rings'&&posterRings(width,height).map((ring,i)=><ellipse key={i} cx={ring.cx} cy={ring.cy} rx={ring.rx} ry={ring.ry} opacity={ring.opacity} stroke={stage.accent} strokeWidth={Math.min(width,height)*.003} fill="none"/>)}
    {introState&&introState.alpha>0&&intro&&<g opacity={introState.alpha} transform={`translate(${intro.cx} ${intro.cy+introState.dy}) scale(${introState.scale*pulse}) translate(${-intro.cx} ${-intro.cy})`}>
     <text x={intro.x} y={intro.y} fill={intro.color} fontSize={intro.fontSize} fontWeight={intro.weight} fontFamily={POSTER_FONT} style={{whiteSpace:'pre'}}>{intro.text}</text>
    </g>}

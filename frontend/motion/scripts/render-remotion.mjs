@@ -11,15 +11,17 @@ if(!Number.isFinite(start)||start<0||!Number.isFinite(length)||length<=0)throw n
 const serveUrl=fileURLToPath(new URL('../../local/remotion',import.meta.url));
 if(!fs.existsSync(path.join(serveUrl,'index.html')))throw new Error('请先构建 Remotion 前端');
 const browserExecutable=process.env.CHROME_PATH||(process.platform==='darwin'?'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome':'/usr/bin/chromium');
-const inputProps={project,options,timeOffset:start,renderLength:length};
+const inputProps={project,options,rhythm:job.rhythm,timeOffset:start,renderLength:length};
+const compositionId=job.scene==='rhythm'?'RhythmStage':'LyricPoster';
+const chromiumOptions=job.scene==='rhythm'?{gl:'swangle'}:undefined;
 const tmp=fs.mkdtempSync(path.join(path.dirname(outFile),'remotion-'));
 const silent=path.join(tmp,'silent.mp4');
 const {cancel,cancelSignal}=makeCancelSignal();let mux;
 process.on('SIGTERM',()=>{cancel();mux?.kill('SIGTERM');});
 try{
- const composition=await selectComposition({serveUrl,id:'LyricPoster',inputProps,browserExecutable,logLevel:'error'});
+ const composition=await selectComposition({serveUrl,id:compositionId,inputProps,browserExecutable,chromiumOptions,logLevel:'error'});
  let previous=-1;
- await renderMedia({serveUrl,composition,inputProps,browserExecutable,outputLocation:silent,codec:'h264',pixelFormat:'yuv420p',crf:18,concurrency:2,logLevel:'error',cancelSignal,onProgress:({renderedFrames})=>{
+ await renderMedia({serveUrl,composition,inputProps,browserExecutable,chromiumOptions,outputLocation:silent,codec:'h264',pixelFormat:'yuv420p',crf:18,concurrency:2,logLevel:'error',cancelSignal,onProgress:({renderedFrames})=>{
    if(renderedFrames!==previous&&(renderedFrames%15===0||renderedFrames===composition.durationInFrames)){previous=renderedFrames;process.stdout.write(`PROGRESS ${renderedFrames}/${composition.durationInFrames}\n`);}
  }});
  await new Promise((resolve,reject)=>{

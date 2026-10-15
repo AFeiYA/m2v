@@ -5,7 +5,7 @@ import { build } from 'esbuild';
 const root = fileURLToPath(new URL('../', import.meta.url));
 await build({
   absWorkingDir: root,
-  entryPoints: ['src/lab.ts', 'src/studio.ts'],
+  entryPoints: ['src/lab.ts', 'src/studio.ts', 'src/rhythm-studio.ts'],
   outdir: '../local/motion',
   bundle: true,
   format: 'esm',

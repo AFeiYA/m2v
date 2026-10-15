@@ -494,3 +494,113 @@ def test_karaoke_video_wipe_is_visible_and_monotonic(tmp_path, worker):
     assert 0 < counts[0] < counts[1] < counts[2], counts
     # No movement/reflow: the same text silhouette is present at each timestamp.
     assert np.logical_xor(masks[0], masks[2]).sum() < masks[0].sum()*.08
+
+
+def test_rhythm_settings_are_independent_of_poster_and_render_requires_evidence(song):
+    path, id = song
+    with TestClient(app) as client:
+        assert client.get('/rhythm-studio').status_code == 200
+        initial = client.get('/api/motion/rhythm', params={'project_id':id})
+        assert initial.status_code == 200 and initial.json()['settings']['seed'] == 42
+        settings = {**initial.json()['settings'], 'seed':17, 'aspect':'9:16', 'density':'dense'}
+        assert client.put('/api/motion/rhythm', json={'project_id':id,'settings':settings}).status_code == 200
+        assert client.get('/api/motion/rhythm', params={'project_id':id}).json()['settings'] == settings
+        assert not path.with_name('test_motion_plan.json').exists()
+        invalid = client.put('/api/motion/rhythm', json={'project_id':id,'settings':{**settings,'approach':99}})
+        assert invalid.status_code == 422
+        missing = client.post('/api/motion/render', json={'project_id':id,'scene':'rhythm','length':1})
+        assert missing.status_code == 422 and '节奏数据' in missing.json()['detail']
+
+
+@pytest.mark.skipif(os.getenv('RUN_MOTION_RENDER')!='1',reason='需显式启用 Chrome/FFmpeg 3D 渲染测试')
+def test_rhythm_worker_renders_3d_audio_and_clip_offset(tmp_path):
+    from PIL import Image
+    root = Path(__file__).resolve().parents[1]
+    project = {'title':'Neon Run Test', 'duration':4, 'lines':[{'text':'Never could I forget', 'start':0,'end':4,'words':[{'word':w,'start':i,'end':i+1} for i,w in enumerate(['Never','could','I','forget'])]}], 'analysis':{'beats':[0,.5,1,1.5,2,2.5,3,3.5]}}
+    wav = tmp_path/'audio.wav'; sf.write(wav,np.zeros(22050*4),22050)
+    job = tmp_path/'rhythm.json'; out = tmp_path/'rhythm.mp4'
+    from src.motion_api import RhythmSettings
+    job.write_text(json.dumps({'project':project,'options':{'aspect':'16:9','height':360},'scene':'rhythm','rhythm':RhythmSettings().model_dump(),'start':1,'length':1.5,'audioPath':str(wav)}))
+    result = subprocess.run(['node',str(root/'frontend/motion/scripts/render-remotion.mjs'),str(job),str(out)],capture_output=True,text=True,timeout=180)
+    assert result.returncode == 0, result.stderr
+    info = json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-show_format','-of','json',str(out)]))
+    video = next(s for s in info['streams'] if s['codec_type']=='video')
+    assert int(video['nb_frames']) == 45 and video['width'] == 640
+    assert any(s['codec_type']=='audio' for s in info['streams'])
+    masks = []
+    for i,time in enumerate((.05,.35)):
+        image = tmp_path/f'rhythm{i}.png'
+        subprocess.run(['ffmpeg','-v','error','-ss',str(time),'-i',str(out),'-frames:v','1',str(image)],check=True)
+        rgb = np.asarray(Image.open(image).convert('RGB'),dtype=int)
+        # The central track contains colored geometry, not just HUD text or a blank canvas.
+        crop = rgb[110:240,120:520]
+        assert ((crop[:,:,1]>crop[:,:,0]+20)&(crop[:,:,2]>crop[:,:,0]+20)).sum() > 100
+        masks.append(crop)
+    assert np.abs(masks[0]-masks[1]).sum()>1000
+
+
+@pytest.mark.parametrize('analysis',[{'beats':None},{'beats':[99]},{'beats':[True]},{'drum_hits':[{'type':'hat','time':.5}]}])
+def test_rhythm_rejects_invalid_or_unusable_analysis(song, analysis):
+    path, id = song
+    payload = json.loads(path.read_text()); payload['analysis'] = analysis; path.write_text(json.dumps(payload))
+    with TestClient(app) as client:
+        response = client.post('/api/motion/render',json={'project_id':id,'scene':'rhythm','length':1})
+        assert response.status_code == 422, response.text
+
+
+def test_rhythm_queue_shares_one_slot_and_queued_cancellation_never_starts_worker(song, tmp_path, monkeypatch):
+    import threading
+    import time
+    from fastapi import FastAPI
+    from src import motion_api
+    path, id = song
+    payload = json.loads(path.read_text()); payload['analysis'] = {'beats':[.2,.6,1]}; path.write_text(json.dumps(payload))
+    runtime = tmp_path/'runtime'
+    (runtime/'frontend/local/remotion').mkdir(parents=True)
+    (runtime/'frontend/local/remotion/index.html').write_text('test-only bundle placeholder')
+    monkeypatch.setattr(motion_api, 'ROOT', runtime)
+    monkeypatch.setattr(motion_api, '_RHYTHM_RENDER_GATE', threading.BoundedSemaphore(1))
+    monkeypatch.setattr(motion_api.shutil, 'which', lambda name:'/test/node')
+    release = threading.Event(); started = []; started_first = threading.Event()
+
+    class Child:
+        def __init__(self, argv):
+            self.out = Path(argv[-1]); self.first = not started; started.append(self.out)
+            self.stdout = self.lines()
+            started_first.set()
+        def lines(self):
+            yield 'PROGRESS 0/30\n'
+            if self.first: assert release.wait(5)
+            yield 'PROGRESS 30/30\n'
+        def wait(self):
+            self.out.write_bytes(b'test-only rendered artifact')
+            return 0
+
+    monkeypatch.setattr(motion_api.subprocess, 'Popen', lambda argv, **kwargs:Child(argv))
+    def engine():
+        instance = FastAPI()
+        instance.include_router(motion_api.create_motion_router(lambda:path.parent.parent, lambda p:p,
+            lambda stem, song_output_dir=None:path.parent/'test.wav', public_exports=False))
+        return TestClient(instance)
+    def wait_for(predicate):
+        for _ in range(300):
+            if predicate(): return
+            time.sleep(.01)
+        pytest.fail('render queue did not settle')
+    body = {'project_id':id,'scene':'rhythm','length':1}
+    with engine() as first, engine() as second, engine() as third:
+        a = first.post('/api/motion/render',json=body).json()['id']
+        try:
+            assert started_first.wait(2)
+            b = second.post('/api/motion/render',json=body).json()['id']
+            assert second.get('/api/motion/render/'+b).json()['status'] == 'queued'
+            cancelled = second.post('/api/motion/render/'+b+'/cancel')
+            assert cancelled.status_code == 200 and cancelled.json()['status'] == 'cancelled'
+            assert len(started) == 1
+        finally:
+            release.set()
+        wait_for(lambda:first.get('/api/motion/render/'+a).json()['status']=='done')
+        c = third.post('/api/motion/render',json=body).json()['id']
+        wait_for(lambda:third.get('/api/motion/render/'+c).json()['status']=='done')
+        wait_for(lambda:all((path.parent/'motion_exports'/f'{job}_status.json').exists() for job in (a,b,c)))
+        assert len(started) == 2

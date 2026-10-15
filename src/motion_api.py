@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import hashlib
+import math
 from dataclasses import replace
 import os
 from pathlib import Path
@@ -25,6 +26,8 @@ from src.song_identity import SongIdentity, identity_path, resolve_identity
 from src.motion_llm import configuration, generate_json, DirectorAPIError, DirectorQuotaError
 
 ROOT = Path(__file__).resolve().parent.parent
+# Software WebGL is CPU/memory intensive; share one slot across user workspaces.
+_RHYTHM_RENDER_GATE = threading.BoundedSemaphore(1)
 
 class ProjectRequest(BaseModel):
     project_id: str
@@ -65,7 +68,23 @@ class PlanRequest(ProjectRequest):
     plan: dict
     from_llm: bool = True
 
+class RhythmSettings(BaseModel):
+    aspect: Literal['16:9', '9:16'] = '16:9'
+    height: Literal[360, 720] = 360
+    version: Literal['rhythm-stage-v1'] = 'rhythm-stage-v1'
+    seed: int = Field(default=42, ge=0, le=2147483647)
+    density: Literal['sparse', 'balanced', 'dense'] = 'balanced'
+    approach: float = Field(default=2.8, ge=1.2, le=4, allow_inf_nan=False)
+    offset: float = Field(default=0, ge=-.5, le=.5, allow_inf_nan=False)
+    palette: Literal['cyan', 'violet'] = 'cyan'
+    subtitles: bool = True
+
+class RhythmSettingsRequest(BaseModel):
+    project_id: str
+    settings: RhythmSettings
+
 class RenderRequest(ProjectRequest):
+    scene: Literal['poster', 'rhythm'] = 'poster'
     aspect: Literal['16:9', '9:16'] = '16:9'
     height: Literal[360, 720] = 720
     start: float = Field(default=0, ge=0, allow_inf_nan=False)
@@ -151,6 +170,23 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                 'rule_seed': rule_plan(payload, saved).model_dump(),
                 'audio_url': (audio_url(project_id) if audio_url is not None else
                               '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(audio))) if audio_url is not None or audio else None}
+
+    def rhythm_path(path):
+        return path.with_name(path.stem.removesuffix('_alignment').removesuffix('_project') + '_rhythm_settings.json')
+
+    @router.get('/rhythm')
+    def rhythm_settings(project_id: str):
+        path = rhythm_path(project_path(project_id))
+        try: value = RhythmSettings.model_validate_json(path.read_text()) if path.exists() else RhythmSettings()
+        except (ValueError, OSError) as exc: raise HTTPException(422, '节奏场景设置无法读取，请重新保存') from exc
+        return {'settings': value.model_dump()}
+
+    @router.put('/rhythm')
+    def save_rhythm_settings(req: RhythmSettingsRequest):
+        with plan_lock:
+            path = project_path(req.project_id)
+            atomic_write(rhythm_path(path), req.settings.model_dump())
+        return {'settings': req.settings.model_dump()}
 
     @router.put('/settings')
     def save_settings(req: SettingsRequest):
@@ -431,16 +467,32 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
     @router.post('/render', status_code=202)
     def render(req: RenderRequest, sid: str = Depends(resolve_session_id)):
         path, payload = read(req.project_id)
-        saved = previous(path)
-        if not saved: raise HTTPException(422, '请先生成并保存动效导演方案')
-        try: plan = validate_plan(payload, saved).model_dump()
-        except ValueError as exc: raise HTTPException(422, str(exc))
+        rhythm = None
+        if req.scene == 'rhythm':
+            rhythm = rhythm_settings(req.project_id)['settings']
+            analysis = payload.get('analysis') or payload.get('meta') or {}
+            if not isinstance(analysis, dict): analysis = {}
+            beats = analysis.get('beats') if isinstance(analysis.get('beats'), list) else []
+            drums = analysis.get('drum_hits') if isinstance(analysis.get('drum_hits'), list) else []
+            valid_time = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0
+            if not (any(valid_time(v) for v in beats) or
+                    any(isinstance(v, dict) and v.get('type') in ('kick', 'snare') and valid_time(v.get('time')) for v in drums)):
+                raise HTTPException(422, '没有可用节奏数据，请先在歌词编辑器分析音频')
+            plan = None
+        else:
+            saved = previous(path)
+            if not saved: raise HTTPException(422, '请先生成并保存动效导演方案')
+            try: plan = validate_plan(payload, saved).model_dump()
+            except ValueError as exc: raise HTTPException(422, str(exc))
         audio = find_audio(path.stem.removesuffix('_alignment').removesuffix('_project'), song_output_dir=path.parent)
         if not audio: raise HTTPException(404, '没有原曲音频，无法输出带音乐的 MP4')
         audio = validate_path(audio)
         import soundfile as sf
         # Export duration follows actual audio, never the last sung word.
         duration = sf.info(str(audio)).duration
+        if req.scene == 'rhythm' and not (any(valid_time(v) and v < duration for v in beats) or
+                                          any(isinstance(v, dict) and v.get('type') in ('kick', 'snare') and valid_time(v.get('time')) and v['time'] < duration for v in drums)):
+            raise HTTPException(422, '节奏事件都在音轨范围之外，请重新分析音频')
         length = req.length if req.length is not None else duration - req.start
         if length <= 0 or req.start + length > duration + .001:
             raise HTTPException(422, '导出范围超出原曲')
@@ -460,12 +512,18 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
             payload['motion_plan'] = plan
             options = {'aspect': req.aspect, 'height': req.height, 'mode': 'phrase', 'preset': req.style,
                        'bloom': req.bloom, 'grain': .035, 'shake': req.shake, 'punch': .7, 'post': req.post}
-            atomic_write(snapshot, {'project': payload, 'options': options, 'audioPath': str(audio), 'start': req.start, 'length': length})
-            jobs[job_id] = {'id': job_id, 'session_id': sid, 'status': 'queued', 'frames': 0, 'total': round(length*30), 'error': '', 'created_at': time.time(), 'width': round(req.height*16/9) if req.aspect == '16:9' else req.height, 'height': req.height if req.aspect == '16:9' else round(req.height*16/9), 'output': str(out)}
+            atomic_write(snapshot, {'project': payload, 'options': options, 'scene': req.scene, 'rhythm': rhythm, 'audioPath': str(audio), 'start': req.start, 'length': length})
+            jobs[job_id] = {'id': job_id, 'scene': req.scene, 'session_id': sid, 'status': 'queued', 'frames': 0, 'total': round(length*30), 'error': '', 'created_at': time.time(), 'width': round(req.height*16/9) if req.aspect == '16:9' else req.height, 'height': req.height if req.aspect == '16:9' else round(req.height*16/9), 'output': str(out)}
 
         def run():
             diagnostics = ''
+            rhythm_slot = False
             try:
+                if req.scene == 'rhythm':
+                    while not _RHYTHM_RENDER_GATE.acquire(timeout=.5):
+                        with lock:
+                            if jobs[job_id]['status'] == 'cancelled': return
+                    rhythm_slot = True
                 with lock:
                     if jobs[job_id]['status'] == 'cancelled': return
                     child = subprocess.Popen([node, str(ROOT/'frontend/motion/scripts/render-remotion.mjs'), str(snapshot), str(out)],
@@ -495,6 +553,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
             except Exception as exc:
                 jobs[job_id].update(status='failed', error=str(exc))
             finally:
+                if rhythm_slot: _RHYTHM_RENDER_GATE.release()
                 atomic_write(outdir / f'{job_id}_status.json', {key: value for key, value in jobs[job_id].items() if key != 'output'})
                 processes.pop(job_id, None)
                 if jobs[job_id]['status'] != 'done': out.unlink(missing_ok=True)

@@ -57,6 +57,7 @@ def test_hf_app_entrypoint_routes():
         ("GET", "/api/files"),
         ("GET", "/motion-studio"),
         ("GET", "/motion-lab"),
+        ("GET", "/rhythm-studio"),
         ("GET", "/api/motion/projects"),
         ("GET", "/api/motion/director/config"),
         ("POST", "/api/suno/import"),

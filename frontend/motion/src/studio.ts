@@ -100,7 +100,7 @@ async function load(id:string){
    $<HTMLSelectElement>('highlight-mode').value=v.highlight||'none';$<HTMLSelectElement>('preset').value=v.palette;$<HTMLSelectElement>('theme-bg').value=v.background;$<HTMLSelectElement>('default-layout-preset').value=v.layout;
   }
   audioReady=false;audio.src='';audio.currentTime=0;
-  showIdentity();showCover();coverPending=cacheSunoCover(id);
+  showIdentity();showCover();$<HTMLAnchorElement>('rhythm-link').href='/rhythm-studio?project='+encodeURIComponent(id);coverPending=cacheSunoCover(id);
   $('track-name').textContent=project.title;
   $<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';
   refresh();listCues();

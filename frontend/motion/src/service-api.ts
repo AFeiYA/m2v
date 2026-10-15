@@ -107,9 +107,9 @@ export function motionJson(path: string,method='GET',body?: unknown): Promise<an
   body:body?JSON.stringify(body):undefined});
 }
 
-export async function downloadService(path:string): Promise<void> {
+export async function downloadService(path:string,filename='motion-studio.mp4'): Promise<void> {
  const response=await serviceFetch(path);
  if(!response.ok)throw new Error(`视频下载失败（HTTP ${response.status}）`);
  const url=URL.createObjectURL(await response.blob()),link=document.createElement('a');
- link.href=url;link.download='motion-studio.mp4';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ link.href=url;link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }

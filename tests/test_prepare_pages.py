@@ -11,7 +11,7 @@ def frontend(tmp_path, monkeypatch):
     source = root / "frontend"
     source.mkdir(parents=True)
     monkeypatch.setattr(prepare_pages, "__file__", str(root / "scripts/prepare_pages.py"))
-    for name in ("local/motion/studio.js", "local/motion/lab.js", "local/motion-lab.css"):
+    for name in ("local/motion/studio.js", "local/motion/lab.js", "local/motion/rhythm-studio.js", "local/motion-lab.css"):
         p = source / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("asset")
@@ -20,7 +20,7 @@ def frontend(tmp_path, monkeypatch):
     )
     (source / "index.html").write_text("dashboard")
     (source / "404.html").write_text("not found")
-    for name in ("lyric-editor", "gallery", "storyboard", "motion-studio", "motion-lab"):
+    for name in ("lyric-editor", "gallery", "storyboard", "motion-studio", "motion-lab", "rhythm-studio"):
         (source / "local" / f"{name}.html").write_text(f"page:{name}")
         (source / f"{name}.html").symlink_to(f"local/{name}.html")
     return source
@@ -29,7 +29,7 @@ def frontend(tmp_path, monkeypatch):
 def test_pages_staging_materializes_canonical_pages(frontend, tmp_path):
     destination = tmp_path / "pages"
     prepare_pages.prepare(destination)
-    for name in ("lyric-editor", "gallery", "storyboard", "motion-studio", "motion-lab"):
+    for name in ("lyric-editor", "gallery", "storyboard", "motion-studio", "motion-lab", "rhythm-studio"):
         page = destination / f"{name}.html"
         assert not page.is_symlink()
         assert page.read_text() == f"page:{name}"

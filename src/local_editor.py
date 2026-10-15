@@ -2325,6 +2325,13 @@ def storyboard():
     return HTMLResponse("<h1>frontend/local/storyboard.html 不存在</h1>", status_code=500)
 
 
+@app.get("/rhythm-studio", response_class=HTMLResponse)
+def rhythm_studio():
+    path = _FRONTEND_DIR / "rhythm_studio.html"
+    if not path.exists(): raise HTTPException(404, "节奏场景页面不存在")
+    return HTMLResponse(path.read_text(encoding="utf-8"), headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/motion-studio", response_class=HTMLResponse)
 def motion_studio():
     ms_file = _FRONTEND_DIR / "motion_studio_director.html"
@@ -2501,7 +2508,7 @@ def motion_styles():
 
 @app.get("/motion/{asset}")
 def motion_asset(asset: str):
-    if asset not in ("lab.js", "studio.js", "render-entry.js", "lab.js.LEGAL.txt", "studio.js.LEGAL.txt", "render-entry.js.LEGAL.txt"):
+    if asset not in ("lab.js", "studio.js", "rhythm-studio.js", "rhythm-studio.js.LEGAL.txt", "render-entry.js", "lab.js.LEGAL.txt", "studio.js.LEGAL.txt", "render-entry.js.LEGAL.txt"):
         raise HTTPException(404, "文件不存在")
     path = _FRONTEND_DIR / "motion" / asset
     if not path.exists(): raise HTTPException(503, "动效前端尚未构建")

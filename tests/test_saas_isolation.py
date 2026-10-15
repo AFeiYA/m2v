@@ -1001,3 +1001,18 @@ def test_cloud_motion_settings_are_owned_and_survive_restart(sandbox):
     restored = sandbox.client.get('/api/cloud-motion/project', params={'project_id':'alice_motion'}, headers=headers())
     assert restored.status_code == 200, restored.text
     assert restored.json()['settings'] == saved.json()['settings']
+
+
+def test_rhythm_settings_are_private_and_persist_without_a_poster(sandbox):
+    from src import motion_cloud
+    seed_cloud_motion(sandbox)
+    data = {'seed':77,'palette':'violet','density':'sparse'}
+    denied = sandbox.client.put('/api/cloud-motion/rhythm',json={'project_id':'bob_motion','settings':data},headers=headers())
+    assert denied.status_code == 404
+    saved = sandbox.client.put('/api/cloud-motion/rhythm',json={'project_id':'alice_motion','settings':data},headers=headers())
+    assert saved.status_code == 200,saved.text
+    motion_cloud._workspaces.clear()
+    restored = sandbox.client.get('/api/cloud-motion/rhythm',params={'project_id':'alice_motion'},headers=headers())
+    assert restored.json() == saved.json()
+    project = sandbox.client.get('/api/cloud-motion/project',params={'project_id':'alice_motion'},headers=headers()).json()
+    assert project['plan'] is None
