@@ -33,3 +33,45 @@ test('explicit language preference survives, and switching still updates the pag
   assert.equal(context.document.documentElement.lang, 'zh-CN');
   assert.equal(context.localStorage.getItem('m2v_locale'), 'zh');
 });
+
+test('palette choices have English defaults and bilingual labels on both Studio pages', () => {
+  for (const page of ['motion_studio.html','motion_studio_director.html']) {
+    const html=fs.readFileSync(path.join(__dirname,'../local',page),'utf8');
+    for (const id of ['preset','cue-palette']) {
+      const select=html.match(new RegExp(`<select id="${id}"[^>]*>([\\s\\S]*?)</select>`))[1];
+      const options=[...select.matchAll(/<option value="([^"]+)" data-i18n="([^"]+)">([^<]+)<\/option>/g)];
+      assert.equal(options.length,8);
+      for (const [,value,key,label] of options) {
+        assert.ok(value);assert.equal(/[\u3400-\u9fff]/.test(label),false);
+        assert.equal(setup('en').window.t(key),label);
+        assert.match(setup('zh').window.t(key),/[\u3400-\u9fff]/);
+      }
+    }
+  }
+});
+
+test('audio buffering, original track and failure badges follow the selected locale', () => {
+  const context=setup();
+  const nodes=new Map();
+  function element(id) {
+    if(!nodes.has(id)) nodes.set(id,{innerHTML:'',textContent:'',style:{},classList:{add(){},remove(){},contains(){return false;}}});
+    return nodes.get(id);
+  }
+  context.document.getElementById=element;
+  context.dom={};context.t=context.window.t;context.setTimeout=()=>{};
+  const common=fs.readFileSync(path.join(__dirname,'../local/common.js'),'utf8');
+  const render=common.slice(common.indexOf('const trackLoadingStates'),common.indexOf('\nfunction updateTimeDisplay'));
+  vm.runInContext(render,context);
+  vm.runInContext('setTrackLoadingState("vocals",true,"Original",null,"track_orig")',context);
+  assert.match(element('btn-mute-vocals').innerHTML,/Original.*Buffering/);
+  assert.equal(element('skeleton-text-vocals').textContent,'Loading 🎵 Original…');
+  // Run the same refresh used by the languagechange listener.
+  context.window.setLocale('zh');
+  vm.runInContext('for (const [track,value] of trackLoadingStates) setTrackLoadingState(track,value.isLoading,value.trackName,value.errorMsg,value.titleKey)',context);
+  assert.match(element('btn-mute-vocals').innerHTML,/原声.*缓冲中/);
+  vm.runInContext('setTrackLoadingState("instrumental",false,"Instrumental",true)',context);
+  assert.match(element('btn-mute-instrumental').innerHTML,/加载失败/);
+  context.window.setLocale('en');
+  vm.runInContext('for (const [track,value] of trackLoadingStates) setTrackLoadingState(track,value.isLoading,value.trackName,value.errorMsg,value.titleKey)',context);
+  assert.match(element('btn-mute-instrumental').innerHTML,/Instrumental.*Load failed/);
+});

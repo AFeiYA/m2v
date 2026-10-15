@@ -334,7 +334,13 @@ function updatePlayPauseBtn(playing) {
     : (window.t ? t("btn_play", "▶ 播放") : "▶ 播放");
 }
 
-function setTrackLoadingState(trackType, isLoading, trackName, errorMsg) {
+const trackLoadingStates = new Map();
+function setTrackLoadingState(trackType, isLoading, trackName, errorMsg, titleKey) {
+  titleKey ||= trackType === "vocals" ? "track_vocals" : "track_inst";
+  trackLoadingStates.set(trackType, {isLoading, trackName, errorMsg, titleKey});
+  if (window.t) trackName = t(titleKey, trackName);
+  const buffering = window.t ? t("track_buffering") : "Buffering";
+  const failed = window.t ? t("track_load_failed") : "Load failed";
   const isVocals = trackType === "vocals";
   const btn = isVocals ? (dom.btnMuteVocals || document.getElementById("btn-mute-vocals")) : (dom.btnMuteInst || document.getElementById("btn-mute-instrumental"));
   const skeleton = document.getElementById(isVocals ? "skeleton-vocals" : "skeleton-instrumental");
@@ -345,11 +351,11 @@ function setTrackLoadingState(trackType, isLoading, trackName, errorMsg) {
       btn.classList.add("buffering");
       btn.classList.add("active");
       btn.classList.remove("muted");
-      btn.innerHTML = `<span class="track-btn-title">${trackName}</span><span class="track-btn-badge"><i class="wave-dot"></i>缓冲中</span>`;
+      btn.innerHTML = `<span class="track-btn-title">${trackName}</span><span class="track-btn-badge"><i class="wave-dot"></i>${buffering}</span>`;
     } else {
       btn.classList.remove("buffering");
       if (errorMsg) {
-        btn.innerHTML = `<span class="track-btn-title">${trackName}</span><span class="track-btn-badge error">${errorMsg}</span>`;
+        btn.innerHTML = `<span class="track-btn-title">${trackName}</span><span class="track-btn-badge error">${failed}</span>`;
       } else {
         btn.innerHTML = `<span class="track-btn-title">${trackName}</span>`;
       }
@@ -360,7 +366,7 @@ function setTrackLoadingState(trackType, isLoading, trackName, errorMsg) {
     if (isLoading) {
       skeleton.classList.remove("loaded");
       skeleton.style.display = "flex";
-      if (skeletonText) skeletonText.textContent = `${trackName}缓冲加载中...`;
+      if (skeletonText) skeletonText.textContent = window.t ? t("track_loading", null, {track: trackName}) : `Loading ${trackName}…`;
     } else {
       skeleton.classList.add("loaded");
       setTimeout(() => {
@@ -459,8 +465,8 @@ async function loadFileList(preferredTitle) {
     state.allFiles = files;
     if (dom.songSelect) {
       dom.songSelect.innerHTML = state.allFiles.length === 0
-        ? `<option value="">未找到歌曲工程</option>`
-        : `<option value="">— 请选择 —</option>` +
+        ? `<option value="">${window.t ? t("song_select_empty") : "No song projects found"}</option>`
+        : `<option value="">${window.t ? t("song_select_prompt") : "— Select a song —"}</option>` +
           state.allFiles.map((f, i) =>
             `<option value="${i}">${f.name}${f.audio_path ? " 🎵" : ""}</option>`
           ).join("");
@@ -486,8 +492,8 @@ async function loadFileList(preferredTitle) {
     }
     if (state.allFiles.length === 1) loadSong(0);
   } catch (e) {
-    if (dom.songSelect) dom.songSelect.innerHTML = `<option value="">加载失败</option>`;
-    status("文件列表加载失败: " + e, true);
+    if (dom.songSelect) dom.songSelect.innerHTML = `<option value="">${window.t ? t("song_select_failed") : "Unable to load songs"}</option>`;
+    status((window.t ? t("msg_load_file_failed") : "Failed to load song list: ") + e, true);
   }
 }
 
@@ -499,6 +505,7 @@ async function loadSong(idx) {
   if (wsInst) { wsInst.pause(); wsInst.empty(); }
   trackBlobUrls.forEach(url => URL.revokeObjectURL(url));
   trackBlobUrls = [];
+  trackLoadingStates.clear();
 
   state.currentFile = file;
   state.selectedLine = -1;
@@ -510,7 +517,7 @@ async function loadSong(idx) {
   instReady = false;
   trackMuted = { vocals: false, instrumental: false };
   if (dom.songSelect) dom.songSelect.value = idx;
-  status(`加载 ${file.name}…`);
+  status(window.t ? t("msg_loading_song", null, {name: file.name}) : `Loading ${file.name}…`);
 
   const taskId = file.task_id || file.id;
   const version = file.version || null;
@@ -560,14 +567,14 @@ async function loadSong(idx) {
 
     updateAudioAnalysisSummary();
   } catch (e) {
-    status("对齐数据加载失败: " + e, true);
+    status((window.t ? t("msg_align_load_failed") : "Failed to load alignment data: ") + e, true);
     state.alignment = null;
     return;
   }
 
   // 1. 立即优先渲染歌词与分镜面板 (零等待秒级呈现)
   if (window.onSongLoaded) window.onSongLoaded();
-  status(`📝 歌词已就绪 (${state.alignment.lines.length} 行)，正在加载音轨波形...`);
+  status(window.t ? t("msg_lyrics_ready", null, {count: state.alignment.lines.length}) : `Lyrics ready (${state.alignment.lines.length} lines), loading audio waveforms…`);
 
   // 2. 并行异步下载人声与伴奏音轨 (耗时缩减 50%)
   const tracks = file.audio_tracks || {};
@@ -578,24 +585,25 @@ async function loadSong(idx) {
   const primaryUrl = vocalsUrl || origUrl;
   const primaryTrackKey = tracks.vocals || file.audio_path;
   const primaryTrackType = tracks.vocals ? "vocals" : "original";
-  const primaryTitle = vocalsUrl ? (window.t ? t("track_vocals") : "🎤 人声") : (window.t ? t("track_orig") : "🎵 原声");
-  const instTitle = window.t ? t("track_inst") : "🎸 伴奏";
+  const primaryTitleKey = tracks.vocals ? "track_vocals" : "track_orig";
+  const primaryTitle = vocalsUrl ? (window.t ? t("track_vocals") : "🎤 Vocals") : (window.t ? t("track_orig") : "🎵 Original");
+  const instTitle = window.t ? t("track_inst") : "🎸 Instrumental";
 
   if (dom.trackVocals) dom.trackVocals.classList.remove("muted");
   if (dom.trackInst) dom.trackInst.classList.remove("muted");
 
   const loadTasks = [];
   if (primaryUrl && ws) {
-    setTrackLoadingState("vocals", true, primaryTitle);
+    setTrackLoadingState("vocals", true, primaryTitle, null, primaryTitleKey);
     loadTasks.push(
       loadEditorAudio(ws, primaryTrackKey, taskId, primaryTrackType, version)
         .then(() => {
           vocalsReady = true;
-          setTrackLoadingState("vocals", false, primaryTitle);
+          setTrackLoadingState("vocals", false, primaryTitle, null, primaryTitleKey);
         })
         .catch((e) => {
-          status((window.t ? t("msg_vocals_load_failed") : "人声轨加载失败: ") + e, true);
-          setTrackLoadingState("vocals", false, primaryTitle, "加载失败");
+          status((window.t ? t("msg_vocals_load_failed") : "Failed to load vocals track: ") + e, true);
+          setTrackLoadingState("vocals", false, primaryTitle, true, primaryTitleKey);
         })
     );
   }
@@ -609,8 +617,8 @@ async function loadSong(idx) {
           setTrackLoadingState("instrumental", false, instTitle);
         })
         .catch((e) => {
-          status((window.t ? t("msg_inst_load_failed") : "伴奏轨加载失败: ") + e, true);
-          setTrackLoadingState("instrumental", false, instTitle, "加载失败");
+          status((window.t ? t("msg_inst_load_failed") : "Failed to load instrumental track: ") + e, true);
+          setTrackLoadingState("instrumental", false, instTitle, true);
         })
     );
   } else {
@@ -621,7 +629,7 @@ async function loadSong(idx) {
   Promise.allSettled(loadTasks).then(() => {
     if (state.currentFile !== file) return;
     if ((primaryUrl && !vocalsReady) || (instUrl && !instReady)) {
-      status("歌词已加载，但部分音轨加载失败，请重试", true);
+      status(window.t ? t("msg_tracks_partial_failure") : "Lyrics loaded, but some audio tracks could not load. Please retry.", true);
       return;
     }
     const trackInfo = [
@@ -1307,6 +1315,9 @@ function updateAudioAnalysisSummary() {
 }
 
 window.addEventListener("languagechange", () => {
+  for (const [track, value] of trackLoadingStates) {
+    setTrackLoadingState(track, value.isLoading, value.trackName, value.errorMsg, value.titleKey);
+  }
   updateAudioAnalysisSummary();
   if (ws) updatePlayPauseBtn(ws.isPlaying());
   const titleEl = document.querySelector("header h1");
