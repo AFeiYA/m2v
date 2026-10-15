@@ -62,8 +62,12 @@ async def list_songs(
             lines_count = len(lines)
             if lines:
                 duration = lines[-1].get("end", 0)
-        except Exception:
-            pass
+        except FileNotFoundError:
+            log.warning("跳过缺少对齐文件的任务: task=%s key=%s", task.id, task.alignment_json_key)
+            continue
+        except Exception as exc:
+            log.warning("读取任务对齐数据失败: %s (%s)", task.id, type(exc).__name__)
+            raise HTTPException(503, "Unable to load song data. Please retry later.") from exc
 
         title = task.song_title or task.title or "Untitled"
         updated_dt = getattr(task, "updated_at", None) or task.completed_at or task.created_at
@@ -106,7 +110,16 @@ async def get_alignment(
         response.headers["X-Resource-Version"] = str(int(updated_dt.timestamp()))
 
     storage = get_storage()
-    return await _load_alignment(storage, task.alignment_json_key)
+    try:
+        return await _load_alignment(storage, task.alignment_json_key)
+    except FileNotFoundError as exc:
+        log.warning("对齐文件缺失: task=%s key=%s", task.id, task.alignment_json_key)
+        raise HTTPException(404, "Alignment file is missing from storage. Please import and align this song again.") from exc
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(422, "Alignment file is invalid. Please import and align this song again.") from exc
+    except Exception as exc:
+        log.warning("读取任务对齐数据失败: %s (%s)", task.id, type(exc).__name__)
+        raise HTTPException(503, "Unable to load alignment from storage. Please retry later.") from exc
 
 
 @router.put("/tasks/{task_id}/align")

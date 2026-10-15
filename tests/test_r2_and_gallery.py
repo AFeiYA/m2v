@@ -148,3 +148,18 @@ def test_settings_r2_mapping_and_s3_storage(monkeypatch):
     mock_boto.generate_presigned_url.assert_called_once()
 
 
+
+
+@pytest.mark.parametrize('code', ['404', 'NoSuchKey', 'NotFound', '403', 'AccessDenied', 'NoSuchBucket', '500'])
+def test_s3_load_distinguishes_missing_objects_from_storage_failures(tmp_path, code):
+    import asyncio
+    from botocore.exceptions import ClientError
+    from src.storage import S3Storage
+
+    backend = S3Storage.__new__(S3Storage)
+    backend.bucket = 'test-bucket'
+    backend.client = MagicMock()
+    backend.client.download_file.side_effect = ClientError({'Error': {'Code': code}}, 'HeadObject')
+    expected = FileNotFoundError if code in {'404', 'NoSuchKey', 'NotFound'} else ClientError
+    with pytest.raises(expected):
+        asyncio.run(backend.load('results/missing_alignment.json', tmp_path / 'alignment.json'))

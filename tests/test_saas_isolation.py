@@ -1288,3 +1288,53 @@ def test_completed_export_request_is_not_rendered_again_after_journal_loss(sandb
     assert sandbox.client.get('/api/editor/jobs/'+first['task_id'], headers=headers()).json()['status'] == 'completed'
     assert sandbox.client.get('/api/editor/jobs/'+first['task_id']+'/video', headers=headers()).content == b'video'
     assert sandbox.client.post(endpoint, headers=headers(), json={**body,'theme':'neon'}).status_code == 409
+
+
+@pytest.mark.parametrize('backend_kind', ['local', 'r2'])
+def test_missing_alignment_is_404_and_not_listed_as_editable(sandbox, monkeypatch, backend_kind):
+    from unittest.mock import MagicMock
+    from botocore.exceptions import ClientError
+    async def seed():
+        async with sandbox.sessions() as db:
+            db.add(Task(id='missing-alignment', user_id='alice', title='Missing file',
+                        input_mp3_key='source.mp3', input_lyrics_key='source.txt',
+                        alignment_json_key='results/missing/source_alignment.json', status=TaskStatus.COMPLETED))
+            await db.commit()
+    asyncio.run(seed())
+    if backend_kind == 'r2':
+        backend = storage.S3Storage.__new__(storage.S3Storage)
+        backend.bucket = 'isolated-test-bucket'
+        backend.client = MagicMock()
+        backend.client.download_file.side_effect = ClientError({'Error': {'Code': '404'}}, 'HeadObject')
+        monkeypatch.setattr(storage, '_storage_instance', backend)
+    response = sandbox.client.get('/api/editor/tasks/missing-alignment/align', headers=headers())
+    assert response.status_code == 404
+    assert 'import and align' in response.json()['detail']
+    assert sandbox.client.get('/api/editor/songs', headers=headers()).json() == []
+    # Account isolation still runs before accessing storage.
+    assert sandbox.client.get('/api/editor/tasks/missing-alignment/align', headers=headers('bob')).status_code == 404
+    async def check_preserved():
+        async with sandbox.sessions() as db:
+            row = await db.get(Task, 'missing-alignment')
+            assert row.alignment_json_key == 'results/missing/source_alignment.json'
+    asyncio.run(check_preserved())
+
+
+def test_alignment_storage_outage_is_retryable_not_missing(sandbox, monkeypatch):
+    from unittest.mock import MagicMock
+    from botocore.exceptions import ClientError
+    async def seed():
+        async with sandbox.sessions() as db:
+            db.add(Task(id='unavailable-alignment', user_id='alice', input_mp3_key='source.mp3',
+                        input_lyrics_key='source.txt', alignment_json_key='results/test/alignment.json'))
+            await db.commit()
+    asyncio.run(seed())
+    backend = storage.S3Storage.__new__(storage.S3Storage)
+    backend.bucket = 'isolated-test-bucket'
+    backend.client = MagicMock()
+    backend.client.download_file.side_effect = ClientError({'Error': {'Code': 'AccessDenied'}}, 'HeadObject')
+    monkeypatch.setattr(storage, '_storage_instance', backend)
+    for url in ('/api/editor/tasks/unavailable-alignment/align', '/api/editor/songs'):
+        response = sandbox.client.get(url, headers=headers())
+        assert response.status_code == 503
+        assert 'retry' in response.json()['detail'].lower()

@@ -140,8 +140,16 @@ class S3Storage(StorageBackend):
         return key
 
     async def load(self, key: str, local_path: Path) -> Path:
+        from botocore.exceptions import ClientError
+
         local_path.parent.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(self.client.download_file, self.bucket, key, str(local_path))
+        try:
+            await asyncio.to_thread(self.client.download_file, self.bucket, key, str(local_path))
+        except ClientError as exc:
+            if str(exc.response.get("Error", {}).get("Code")) in {"404", "NoSuchKey", "NotFound"}:
+                raise FileNotFoundError(f"存储文件不存在: {key}") from exc
+            # Permission, bucket configuration and transient failures are not missing files.
+            raise
         return local_path
 
     async def delete(self, key: str) -> None:

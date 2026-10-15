@@ -15,3 +15,15 @@
   remain while another task references that audio; the final deletion removes them.
 - This does not merge existing task rows, retroactively deduplicate stored files,
   or introduce a single song/project table. Task history remains versioned.
+
+## Missing stored alignment
+
+A database key is a reference, not proof that the object still exists in the active
+bucket. Editor song discovery omits missing alignment objects, and direct reads
+return 404 with a reimport instruction. S3/R2 object-not-found errors are normalized
+to the same missing-file exception as local storage; permission and service errors
+remain retryable failures (503 at the editor API), rather than being treated as
+missing data. Logs include the task ID and object key for investigation. These
+reads do not delete or rewrite task records or fabricate replacement timestamps.
+Reimport checks the stored result exists before reusing a completed task and can
+reuse the original audio if it is still present.
