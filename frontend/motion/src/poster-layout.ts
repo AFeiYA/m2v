@@ -704,7 +704,7 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     const compiled=nodes.at(-1)!;
     if(design.highlight&&design.highlight!=='none'){
       const spans=compileHighlightSpans(line.words,n.word_indices,resolved,size,weight,measure);
-      if(spans.length)compiled.highlight={mode:design.highlight,spans,foreground,pending:muted,accent:design.accent};
+      if(spans.length)compiled.highlight={mode:design.highlight,spans,foreground:compiled.color,pending:muted,accent:design.accent};
       compiled.start=line.start;compiled.settled=line.start;compiled.entrance='none';compiled.beat_reaction='none';
     }
     y+=height+gap;

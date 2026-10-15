@@ -134,6 +134,7 @@
 
         <section class="panel">
           <h2 data-i18n="ms_sec2_title">02 / 动效导演</h2>
+          <h3 data-i18n="ms_group_style">整体风格 · 主题配色</h3>
           <label for="preset" data-i18n="ms_lbl_preset">偏好色调主题</label>
           <select id="preset">
             <option value="impact">荧绿 · 极速光效</option>
@@ -151,6 +152,7 @@
             <option value="dark" data-i18n="ms_opt_bg_dark">暗夜深色底（舞台高反差 · 推荐）</option>
             <option value="light" data-i18n="ms_opt_bg_light">浅色纸质底（日系明亮感）</option>
           </select>
+          <h3 data-i18n="ms_group_line">Line · 分组与排版</h3>
           <label for="default-layout-preset" data-i18n="ms_lbl_layout_preset">默认排版格式（非LLM）</label>
           <select id="default-layout-preset">
             <option value="smart" data-i18n="ms_opt_layout_smart">智能短语分行（推荐）</option>
@@ -160,13 +162,14 @@
             <option value="three-stack" data-i18n="ms_opt_layout_three">三段阶梯</option>
             <option value="word-by-word" data-i18n="ms_opt_layout_word">逐词击打</option>
           </select>
+          <h3 data-i18n="ms_group_word">Word · 演唱高亮</h3>
           <label for="highlight-mode" data-i18n="ms_lbl_highlight">演唱高亮（整曲未锁定句）</label>
           <select id="highlight-mode">
             <option value="none" data-i18n="ms_opt_highlight_none">关闭 · 保留入场动画</option>
             <option value="word" data-i18n="ms_opt_highlight_word">逐词点亮 · 稳定排版</option>
             <option value="sweep" data-i18n="ms_opt_highlight_sweep">平滑过光 · 稳定排版</option>
           </select>
-          <p class="help" data-i18n="ms_help_highlight">整句排好后按演唱时间高亮，不位移、不缩放。词内过光为视觉插值，不代表音节时间；支持中英文。</p>
+          <p class="help" data-i18n="ms_help_highlight">过光跟随主题强调色，唱完恢复各文字块原有配色，保留重点色。排版稳定，词内过光为视觉插值，不代表音节时间；支持中英文。</p>
           <button id="generate" class="primary" data-i18n="ms_btn_rule_gen">规则生成基础方案</button>
           <label for="director-instruction" data-i18n="ms_lbl_director_inst">导演偏好（可选）</label>
           <textarea id="director-instruction" placeholder="例如：先设计最终海报，以兔子洞为主标题，再规划词组依次进入并落位" data-i18n-placeholder="ms_ph_director_inst" rows="3"></textarea>

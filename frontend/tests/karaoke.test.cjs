@@ -45,6 +45,9 @@ test('karaoke keeps geometry and timing, removes entrance movement and pulse in 
   assert.deepEqual(highlighted.nodes.map(n=>n.rows),original.nodes.map(n=>n.rows));
   const n=highlighted.nodes[0];assert.equal(n.start,line.start);assert.equal(n.settled,line.start);assert.equal(n.entrance,'none');assert.equal(n.beat_reaction,'none');
   assert.deepEqual(n.highlight.spans.map(s=>s.start),line.words.map(word=>word.start));
+  assert.equal(n.highlight.foreground,n.color);assert.equal(n.highlight.foreground,base.poster.accent);
+  const supporting=compilePoster(line,{...base,poster:{...base.poster,highlight:'sweep',nodes:base.poster.nodes.map(n=>({...n,color_role:'muted'}))}},w,h,measure).nodes[0];
+  assert.equal(supporting.highlight.foreground,supporting.color);assert.notEqual(supporting.highlight.foreground,base.poster.accent);
   assert.equal(base.poster.highlight,undefined);
  }
 });
