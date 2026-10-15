@@ -163,3 +163,19 @@ def test_s3_load_distinguishes_missing_objects_from_storage_failures(tmp_path, c
     expected = FileNotFoundError if code in {'404', 'NoSuchKey', 'NotFound'} else ClientError
     with pytest.raises(expected):
         asyncio.run(backend.load('results/missing_alignment.json', tmp_path / 'alignment.json'))
+
+
+@pytest.mark.parametrize('code', ['404', 'NoSuchKey', '403', 'AccessDenied', 'NoSuchBucket', '500'])
+def test_s3_exists_never_treats_permission_or_service_failure_as_missing(code):
+    import asyncio
+    from botocore.exceptions import ClientError
+    from src.storage import S3Storage
+    backend = S3Storage.__new__(S3Storage)
+    backend.bucket = 'test-bucket'
+    backend.client = MagicMock()
+    backend.client.head_object.side_effect = ClientError({'Error': {'Code': code}}, 'HeadObject')
+    if code in {'404', 'NoSuchKey'}:
+        assert asyncio.run(backend.exists('alignment.json')) is False
+    else:
+        with pytest.raises(ClientError):
+            asyncio.run(backend.exists('alignment.json'))

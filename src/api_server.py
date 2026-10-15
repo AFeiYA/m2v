@@ -595,6 +595,8 @@ async def delete_task(
 ):
     """删除任务及其文件"""
     task = await _get_user_task(db, user.id, task_id)
+    # Serialize task deletion with export publication (same lock ordering).
+    await db.execute(select(Task).where(Task.id == task.id).with_for_update())
     storage = get_storage()
 
     # 删除存储文件
@@ -618,11 +620,13 @@ async def delete_task(
             except Exception:
                 pass
 
-    from src.models import VideoExport
+    from src.models import ExportJob, VideoExport
     exports = (await db.execute(select(VideoExport).where(VideoExport.task_id == task.id))).scalars().all()
     for record in exports:
         await storage.delete(record.storage_key)
         await db.delete(record)
+    from sqlalchemy import delete
+    await db.execute(delete(ExportJob).where(ExportJob.task_id == task.id))
     await db.delete(task)
     return MessageResponse(message="任务已删除")
 

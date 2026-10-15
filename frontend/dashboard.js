@@ -271,6 +271,10 @@ async function logout() {
   refreshToken = null;
   currentUser = null;
   exportSequence++;
+  renderJobsSequence++;
+  if (renderJobsTimer) clearTimeout(renderJobsTimer);
+  loadRenderJobs.hadActive = false;
+  if ($("#render-jobs-list")) $("#render-jobs-list").innerHTML = "";
   closeExportPreview();
   if ($("#exports-list")) $("#exports-list").innerHTML = "";
   authProvider = null;
@@ -321,6 +325,7 @@ function showApp() {
   $("#app").style.display = "";
   loadTasks();
   loadExports();
+  loadRenderJobs();
   startPolling();
 }
 
@@ -411,7 +416,7 @@ function initUpload() {
           sunoForm.reset();
           loadTasks();
           connectProgressWS(data.task_id);
-          if (data.video_job_id) trackImportedVideo(data.video_job_id);
+          if (data.video_job_id) { loadRenderJobs(); trackImportedVideo(data.video_job_id); }
         } else {
           const err = await res.json();
           showStatus(`❌ ${err.detail || "Unable to create project"}`, true);
@@ -875,6 +880,49 @@ document.addEventListener("DOMContentLoaded", async () => {
 // Durable video library. Request media only after a user clicks Preview/Download.
 let exportPage = 1;
 let exportSequence = 0;
+let renderJobsSequence = 0;
+let renderJobsTimer;
+async function loadRenderJobs() {
+  const uid = currentUser?.id, sequence = ++renderJobsSequence;
+  if (renderJobsTimer) clearTimeout(renderJobsTimer);
+  if (!uid) return;
+  try {
+    const response = await api("/api/editor/render-jobs");
+    if (currentUser?.id !== uid || sequence !== renderJobsSequence) return;
+    if (!response.ok) throw Error("Unable to load render progress. Refresh to retry.");
+    const data = await response.json();
+    if (currentUser?.id !== uid || sequence !== renderJobsSequence) return;
+    const rows = data.jobs || [];
+    const active = rows.some(row => ["queued", "running", "uploading"].includes(row.status));
+    const labels = {queued:"Queued",running:"Rendering",uploading:"Uploading",failed:"Failed",interrupted:"Interrupted"};
+    $("#render-jobs-list").innerHTML = rows.map(row => {
+      const retryable = ["failed", "interrupted"].includes(row.status);
+      const percent = Math.max(0, Math.min(100, Number(row.progress) || 0));
+      return `<article class="task-card"><strong>${escapeHtml(row.title || "Untitled")}</strong><p>${escapeHtml(labels[row.status] || row.status)} · ${percent}% · Attempt ${Number(row.attempt) || 1}</p><progress max="100" value="${percent}" aria-label="Render progress"></progress><p>${escapeHtml(row.error || row.message || "")}</p>${retryable ? `<div class="export-actions"><button class="btn btn-sm" data-render-job="${escapeHtml(row.id)}" data-render-action="retry">Retry rendering</button><button class="btn btn-sm btn-outline" data-render-job="${escapeHtml(row.id)}" data-render-action="dismiss">Dismiss</button></div>` : ""}</article>`;
+    }).join("");
+    // Refresh the completed library too: a job may finish in another browser.
+    if (loadRenderJobs.hadActive) await loadExports();
+    if (currentUser?.id !== uid || sequence !== renderJobsSequence) return;
+    loadRenderJobs.hadActive = active;
+    if (active) renderJobsTimer = setTimeout(() => { if (currentUser?.id === uid) loadRenderJobs(); }, 5000);
+  } catch (error) {
+    if (currentUser?.id === uid && sequence === renderJobsSequence) $("#render-jobs-list").textContent = error.message;
+  }
+}
+async function handleRenderAction(button) {
+  const uid = currentUser?.id, id = button.dataset.renderJob, retry = button.dataset.renderAction === "retry";
+  button.disabled = true;
+  try {
+    const response = await api(`/api/editor/jobs/${encodeURIComponent(id)}${retry ? "/retry" : ""}`, {method:retry ? "POST" : "DELETE"});
+    const data = await response.json();
+    if (!response.ok) throw Error(data.detail || "Unable to update export job.");
+    if (currentUser?.id !== uid) return;
+    await loadRenderJobs();
+    if (retry) await loadExports();
+  } catch (error) {
+    if (currentUser?.id === uid) $("#exports-status").textContent = error.message;
+  } finally { button.disabled = false; }
+}
 async function trackImportedVideo(jobId) {
   const uid = currentUser?.id;
   if (!uid) return;
@@ -912,7 +960,7 @@ async function loadExports(page = exportPage) {
     exportPage = page;
     const rows = data.exports || [];
     $("#exports-list").innerHTML = rows.map(item => {
-      const detail = item.details || {}, size = detail.size_bytes ? (detail.size_bytes / 1048576).toFixed(1) + " MB" : "";
+      const detail = item.details || {}, size = detail.size_bytes ? (detail.size_bytes < 1048576 ? Math.max(1, Math.round(detail.size_bytes / 1024)) + " KB" : (detail.size_bytes / 1048576).toFixed(1) + " MB") : "";
       const resolution = detail.resolution?.every(Boolean) ? detail.resolution.join(" × ") : "";
       const duration = detail.duration ? Number(detail.duration).toFixed(1) + "s" : "";
       const meta = [detail.recovered ? "Recovered" : "", ({lyric:"Lyric Video",poster:"Motion Studio",rhythm:"Rhythm Studio"})[item.kind] || "Video", resolution, duration, size, new Date(item.created_at).toLocaleString()].filter(Boolean).join(" · ");
@@ -958,7 +1006,11 @@ async function handleExportAction(button) {
   } finally { button.disabled = false; }
 }
 function initExportLibrary() {
-  $("#btn-refresh-exports")?.addEventListener("click", () => loadExports());
+  $("#btn-refresh-exports")?.addEventListener("click", () => { loadExports(); loadRenderJobs(); });
+  $("#render-jobs-list")?.addEventListener("click", event => {
+    const button = event.target.closest("button[data-render-action]");
+    if (button) void handleRenderAction(button);
+  });
   $("#exports-prev")?.addEventListener("click", () => loadExports(exportPage - 1));
   $("#exports-next")?.addEventListener("click", () => loadExports(exportPage + 1));
   $("#btn-close-export-preview")?.addEventListener("click", closeExportPreview);

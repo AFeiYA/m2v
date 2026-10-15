@@ -1390,7 +1390,8 @@ def test_suno_video_request_reuses_alignment_and_has_valid_export_download(sandb
             task = await db.get(Task, task_id)
             assert sandbox.storage.get_local_path(task.alignment_json_key).read_bytes() == saved
             record = await db.get(VideoExport, job_id)
-            assert record.storage_key == f'results/{task_id}/exports/{job_id}.mp4'
+            assert record.storage_key.startswith(f'results/{task_id}/exports/{job_id}/')
+            assert record.storage_key.endswith('.mp4')
             assert sandbox.storage.get_local_path(record.storage_key).read_bytes() == download.content
             assert (await db.get(User, 'alice')).credits == 0
     asyncio.run(verify())
@@ -1405,3 +1406,176 @@ def test_suno_render_only_options_do_not_create_another_alignment_task(sandbox, 
     assert response.json()['task_id'] == first['task_id']
     assert response.json()['video_job_id'] is None
     assert len(observed) == 1
+
+
+def test_export_progress_survives_lost_local_journal_and_only_expired_lease_interrupts(sandbox, monkeypatch):
+    from datetime import timedelta
+    from src import export_jobs, editor_operations
+    from src.models import ExportJob
+    from src.task_store import TaskStore
+    seed_editor_song(sandbox)
+    called = []
+    async def queued_only(job_id):
+        called.append(job_id)  # Simulate a worker not yet available.
+    monkeypatch.setattr(export_jobs, 'run', queued_only)
+    response = sandbox.client.post('/api/editor/tasks/editor/lyric-video', headers=headers(), json={})
+    job_id = response.json()['task_id']
+    monkeypatch.setattr(editor_operations, 'jobs', TaskStore(sandbox.output / 'new-process-empty-journal'))
+    state = sandbox.client.get(f'/api/editor/jobs/{job_id}', headers=headers()).json()
+    assert state['status'] == 'queued'  # A fresh lease is not a lost worker.
+    listing = sandbox.client.get('/api/editor/render-jobs', headers=headers()).json()
+    assert listing['jobs'][0]['id'] == job_id
+    assert 'alignment_key' not in listing['jobs'][0]
+    assert sandbox.client.get('/api/editor/render-jobs', headers=headers('bob')).json()['jobs'] == []
+    assert sandbox.client.post(f'/api/editor/jobs/{job_id}/retry', headers=headers('bob')).status_code == 404
+    async def expire():
+        async with sandbox.sessions() as db:
+            row = await db.get(ExportJob, job_id)
+            row.lease_until = export_jobs.now()-timedelta(seconds=1)
+            await db.commit()
+    asyncio.run(expire())
+    assert sandbox.client.get(f'/api/editor/jobs/{job_id}', headers=headers()).json()['status'] == 'interrupted'
+    assert sandbox.client.get('/api/editor/render-jobs', headers=headers()).json()['jobs'][0]['status'] == 'interrupted'
+    assert called == [job_id]  # Reading status never launches another render.
+
+
+def test_failed_export_retry_reuses_saved_inputs_and_same_job_without_new_alignment(sandbox, monkeypatch):
+    from src import export_jobs, editor_operations
+    from src.models import ExportJob
+    from sqlalchemy import select
+    alignment = seed_editor_song(sandbox)
+    before = alignment.read_bytes()
+    attempts = []
+    def render(saved_alignment, audio, output, options, progress):
+        attempts.append(options)
+        assert saved_alignment.read_bytes() == before
+        assert audio.read_bytes() == b'original'
+        if len(attempts) == 1:
+            raise RuntimeError('temporary renderer failure')
+        output.write_bytes(b'retried-video')
+        return {'duration': 2}
+    def forbidden(*args, **kwargs):
+        raise AssertionError('A render retry must never dispatch separation or alignment')
+    monkeypatch.setattr(editor_operations, 'render_video', render)
+    monkeypatch.setattr(api_server, '_dispatch_task', forbidden)
+    job_id = sandbox.client.post('/api/editor/tasks/editor/lyric-video', headers=headers(), json={'start_time':.5}).json()['task_id']
+    state_url = f'/api/editor/jobs/{job_id}'
+    assert sandbox.client.get(state_url, headers=headers()).json()['status'] == 'failed'
+    assert sandbox.client.get('/api/exports', headers=headers()).json()['total'] == 0
+    assert sandbox.client.post(state_url+'/retry', headers=headers('bob')).status_code == 404
+    response = sandbox.client.post(state_url+'/retry', headers=headers())
+    assert response.json()['task_id'] == job_id
+    state = sandbox.client.get(state_url, headers=headers()).json()
+    assert state['status'] == 'completed'
+    assert attempts[0] == attempts[1]
+    assert sandbox.client.post(state_url+'/retry', headers=headers()).status_code == 409
+    exports = sandbox.client.get('/api/exports', headers=headers()).json()['exports']
+    assert len(exports) == 1 and exports[0]['id'] == job_id
+    access = sandbox.client.get(f'/api/exports/{job_id}/access', headers=headers()).json()
+    assert sandbox.client.get(access['url']).content == b'retried-video'
+    async def verify():
+        async with sandbox.sessions() as db:
+            row = await db.get(ExportJob, job_id)
+            assert row.attempt == 2
+            assert row.options['start_time'] == .5
+            assert len((await db.execute(select(Task))).scalars().all()) == 1
+            assert (await db.get(User, 'alice')).credits == 5
+    asyncio.run(verify())
+    assert alignment.read_bytes() == before
+    assert sandbox.client.get('/api/editor/render-jobs', headers=headers()).json()['jobs'] == []
+
+
+@pytest.mark.parametrize('fault', ['not_saved', 'wrong_size', 'publication'])
+def test_export_is_not_completed_until_upload_and_database_publication_succeed(sandbox, monkeypatch, fault):
+    from src import export_jobs, editor_operations
+    seed_editor_song(sandbox)
+    def render(alignment, audio, output, options, progress):
+        output.write_bytes(b'rendered-video')
+        return {}
+    monkeypatch.setattr(editor_operations, 'render_video', render)
+    if fault == 'not_saved':
+        async def no_save(key, path):
+            return key
+        monkeypatch.setattr(sandbox.storage, 'save', no_save)
+    elif fault == 'wrong_size':
+        async def wrong_size(key):
+            return 999
+        monkeypatch.setattr(sandbox.storage, 'get_size', wrong_size)
+    else:
+        async def unavailable(*args):
+            raise RuntimeError('publication transaction unavailable')
+        monkeypatch.setattr(export_jobs, 'publish', unavailable)
+    job_id = sandbox.client.post('/api/editor/tasks/editor/lyric-video', headers=headers(), json={}).json()['task_id']
+    state = sandbox.client.get(f'/api/editor/jobs/{job_id}', headers=headers()).json()
+    assert state['status'] == 'failed'
+    assert state['result'] is None
+    assert sandbox.client.get('/api/exports', headers=headers()).json()['total'] == 0
+    assert sandbox.client.get(f'/api/editor/jobs/{job_id}/video', headers=headers()).status_code == 404
+    assert asyncio.run(sandbox.storage.list_keys('results/editor/exports/')) == []
+
+
+def test_old_render_attempt_cannot_publish_over_a_retried_export(sandbox, monkeypatch):
+    from datetime import timedelta
+    from src import export_jobs, editor_operations
+    from src.models import ExportJob, VideoExport
+    seed_editor_song(sandbox)
+    async def no_worker(job_id):
+        pass
+    monkeypatch.setattr(export_jobs, 'run', no_worker)
+    job_id = sandbox.client.post('/api/editor/tasks/editor/lyric-video', headers=headers(), json={}).json()['task_id']
+    async def expire():
+        async with sandbox.sessions() as db:
+            row = await db.get(ExportJob, job_id)
+            row.status, row.run_token = 'running', 'old-token'
+            row.lease_until = export_jobs.now()-timedelta(seconds=1)
+            await db.commit()
+    asyncio.run(expire())
+    assert sandbox.client.get(f'/api/editor/jobs/{job_id}', headers=headers()).json()['status'] == 'interrupted'
+    async def late_publish():
+        with pytest.raises(RuntimeError):
+            await export_jobs.publish(job_id, 'old-token', 'old.mp4', {}, 1)
+    asyncio.run(late_publish())
+    assert sandbox.client.get('/api/exports', headers=headers()).json()['total'] == 0
+    # Two retry clicks on an active request schedule it only once.
+    scheduled = []
+    async def capture(job_id):
+        scheduled.append(job_id)
+    monkeypatch.setattr(export_jobs, 'run', capture)
+    for _ in range(2):
+        assert sandbox.client.post(f'/api/editor/jobs/{job_id}/retry', headers=headers()).status_code == 200
+    assert scheduled == [job_id]
+
+
+def test_dismiss_failed_render_is_private_and_preserves_song(sandbox, monkeypatch):
+    from src import editor_operations
+    seed_editor_song(sandbox)
+    def fail(*args):
+        raise RuntimeError('failure')
+    monkeypatch.setattr(editor_operations, 'render_video', fail)
+    job_id = sandbox.client.post('/api/editor/tasks/editor/lyric-video', headers=headers(), json={}).json()['task_id']
+    url = f'/api/editor/jobs/{job_id}'
+    assert sandbox.client.delete(url, headers=headers('bob')).status_code == 404
+    assert sandbox.client.delete(url, headers=headers()).status_code == 200
+    assert sandbox.client.get(url, headers=headers()).status_code == 404
+    assert sandbox.client.get('/api/editor/render-jobs', headers=headers()).json()['jobs'] == []
+    assert sandbox.client.get('/api/tasks/editor', headers=headers()).status_code == 200
+    assert sandbox.client.get('/api/editor/tasks/editor/align', headers=headers()).status_code == 200
+
+
+def test_successful_export_is_not_deleted_when_commit_acknowledgement_is_lost(sandbox, monkeypatch):
+    from src import export_jobs, editor_operations
+    seed_editor_song(sandbox)
+    def render(alignment, audio, output, options, progress):
+        output.write_bytes(b'committed-video')
+        return {}
+    monkeypatch.setattr(editor_operations, 'render_video', render)
+    publish = export_jobs.publish
+    async def committed_but_disconnected(*args):
+        await publish(*args)
+        raise RuntimeError('connection lost after commit')
+    monkeypatch.setattr(export_jobs, 'publish', committed_but_disconnected)
+    job_id = sandbox.client.post('/api/editor/tasks/editor/lyric-video', headers=headers(), json={}).json()['task_id']
+    assert sandbox.client.get(f'/api/editor/jobs/{job_id}', headers=headers()).json()['status'] == 'completed'
+    access = sandbox.client.get(f'/api/exports/{job_id}/access', headers=headers())
+    assert access.status_code == 200
+    assert sandbox.client.get(access.json()['url']).content == b'committed-video'

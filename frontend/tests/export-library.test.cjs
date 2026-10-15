@@ -52,3 +52,26 @@ test('reused import video completion refreshes My Exports without importing agai
  assert.match(s.calls[1].url,/api\/exports\?page=1/);
  assert.equal(s.calls.some(c=>c.url.includes('from-suno')),false);
 });
+
+test('render requests restore queued and failed progress without starting inference',async()=>{
+ const s=setup();s.context.fetch=async(url)=>{
+  s.calls.push({url});return {ok:true,headers:{get:()=> 'application/json'},json:async()=>({jobs:[
+   {id:'queued',title:'<Pending>',status:'queued',progress:0,attempt:1},
+   {id:'failed',title:'Song',status:'failed',progress:45,error:'<failed>',attempt:2}
+  ]})};
+ };
+ await s.run('loadRenderJobs()');
+ const html=s.nodes.get('#render-jobs-list').innerHTML;
+ assert.match(html,/Queued/);assert.match(html,/Retry rendering/);assert.match(html,/Attempt 2/);
+ assert.match(html,/&lt;Pending>/);assert.match(html,/&lt;failed>/);
+ assert.equal(s.calls.length,1);assert.match(s.calls[0].url,/api\/editor\/render-jobs$/);
+});
+
+test('retry invokes only the owned render retry endpoint',async()=>{
+ const s=setup();s.context.fetch=async(url,options={})=>{
+  s.calls.push({url,method:options.method});return {ok:true,headers:{get:()=> 'application/json'},json:async()=>url.includes('/render-jobs')?{jobs:[]}:url.includes('/api/exports')?{exports:[],total:0}:{task_id:'failed',status:'queued'}};
+ };
+ await s.run('handleRenderAction({dataset:{renderJob:"failed",renderAction:"retry"}})');
+ assert.match(s.calls[0].url,/api\/editor\/jobs\/failed\/retry$/);assert.equal(s.calls[0].method,'POST');
+ assert.equal(s.calls.some(c=>c.url.includes('from-suno') || c.url.includes('analyze')),false);
+});

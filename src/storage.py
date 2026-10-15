@@ -51,6 +51,10 @@ class StorageBackend(ABC):
         """Enumerate an application's private namespace."""
         raise NotImplementedError("存储后端不支持列举资源")
 
+    async def get_size(self, key: str) -> int | None:
+        """Object length when available, without downloading the video."""
+        return None
+
 
 # ======================================================================
 # 本地文件存储
@@ -98,6 +102,9 @@ class LocalStorage(StorageBackend):
     async def exists(self, key: str) -> bool:
         return self._resolve_key(key).exists()
 
+    async def get_size(self, key: str) -> int:
+        return self._resolve_key(key).stat().st_size
+
     async def list_keys(self, prefix: str) -> list[str]:
         folder = self._resolve_key(prefix)
         if not folder.is_dir():
@@ -135,7 +142,7 @@ class S3Storage(StorageBackend):
         )
 
     async def save(self, key: str, local_path: Path) -> str:
-        self.client.upload_file(str(local_path), self.bucket, key)
+        await asyncio.to_thread(self.client.upload_file, str(local_path), self.bucket, key)
         log.debug("S3Storage: uploaded %s → s3://%s/%s", local_path.name, self.bucket, key)
         return key
 
@@ -167,11 +174,18 @@ class S3Storage(StorageBackend):
         return url
 
     async def exists(self, key: str) -> bool:
+        from botocore.exceptions import ClientError
         try:
-            self.client.head_object(Bucket=self.bucket, Key=key)
+            await asyncio.to_thread(self.client.head_object, Bucket=self.bucket, Key=key)
             return True
-        except Exception:
-            return False
+        except ClientError as exc:
+            if str(exc.response.get("Error", {}).get("Code")) in {"404", "NoSuchKey", "NotFound"}:
+                return False
+            raise
+
+    async def get_size(self, key: str) -> int:
+        result = await asyncio.to_thread(self.client.head_object, Bucket=self.bucket, Key=key)
+        return result["ContentLength"]
 
     async def list_keys(self, prefix: str) -> list[str]:
         def collect():

@@ -43,7 +43,7 @@ pending imports remain the same task; the response instructs users to export fro
 Lyric Editor after alignment is ready. First imports and explicit realignments
 still require the normal audio/alignment pipeline.
 
-Render-only MP4 objects use `results/{task_id}/exports/{video_job_id}.mp4`. Their
+Render-only MP4 objects use `results/{task_id}/exports/{video_job_id}/{attempt_token}.mp4`. Their
 VideoExport records point to that exact object key. Download through
 `/api/exports/{video_job_id}/access`, not the old task's `output_mp4_key`: it returns
 a fresh private R2 signed URL (or a scoped local ticket). Render failure leaves

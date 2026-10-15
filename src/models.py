@@ -181,3 +181,29 @@ class VideoExport(Base):
     details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ExportJob(Base):
+    """Durable render request; a lease fences attempts after worker loss."""
+    __tablename__ = "export_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id"), index=True)
+    title: Mapped[str] = mapped_column(String(255), default="")
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    phase: Mapped[str] = mapped_column(String(20), default="queued")
+    progress: Mapped[int] = mapped_column(Integer, default=0)
+    message: Mapped[str] = mapped_column(Text, default="Waiting to render")
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    options: Mapped[dict] = mapped_column(JSON)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    alignment_key: Mapped[str] = mapped_column(String(1024))
+    audio_key: Mapped[str] = mapped_column(String(1024))
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    output_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    run_token: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    lease_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

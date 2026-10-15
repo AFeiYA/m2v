@@ -74,7 +74,11 @@ async def media_access(export_id: str, preview: bool = False,
                        user: User = Depends(get_current_user_flexible), db: AsyncSession = Depends(get_db)):
     record = await owned_export(export_id, user.id, db)
     storage = get_storage()
-    if not await storage.exists(record.storage_key):
+    try:
+        exists = await storage.exists(record.storage_key)
+    except Exception as exc:
+        raise HTTPException(503, "Video storage is temporarily unavailable. Please retry.") from exc
+    if not exists:
         raise HTTPException(404, "Video file is unavailable. You can delete this export record.")
     filename = (record.title or "lyric-video") + ".mp4"
     if isinstance(storage, S3Storage):

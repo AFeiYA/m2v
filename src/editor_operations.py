@@ -90,58 +90,27 @@ async def run_job(job_id: str, storage, alignment_key: str, audio_key: str, opti
                 audio = work / ("source" + Path(audio_key).suffix)
                 await storage.load(alignment_key, alignment)
                 await storage.load(audio_key, audio)
-                if job["kind"] == "video":
-                    from src.song_assets import source_keys
-                    from src.song_sections import bind_source_sections
-                    metadata_key, cover_key = source_keys(audio_key)
-                    payload = json.loads(alignment.read_text())
-                    if await storage.exists(metadata_key):
-                        metadata = work / 'source_suno.json'
-                        await storage.load(metadata_key, metadata)
-                        bind_source_sections(payload, json.loads(metadata.read_text()).get('sections') or [])
-                        alignment.write_text(json.dumps(payload, ensure_ascii=False))
-                    options = video_options(payload, options)
-                    if await storage.exists(cover_key):
-                        cover = work / 'source_cover.jpg'
-                        await storage.load(cover_key, cover)
-                        options['cover_path'] = str(cover)
-                    output = work / "lyric_video.mp4"
-                    def progress(value, message):
-                        job.update(progress=value, message=message)
-                    result = await asyncio.to_thread(render_video, alignment, audio, output, options, progress)
-                    key = f"results/{job['song_task_id']}/exports/{job_id}.mp4"
-                    await storage.save(key, output)
-                    # Never return temporary paths or an unowned local-file URL.
-                    result = {k: result[k] for k in ("resolution", "size_mb", "elapsed_seconds", "duration") if k in result}
-                    from src.export_library import record_export
-                    await record_export(job_id, job['user_id'], job['song_task_id'], key,
-                                        details={**result, "size_bytes": output.stat().st_size,
-                                                 "request_fingerprint": job.get("fingerprint")})
-                    result["export_id"] = job_id
-                    result["video_url"] = f"/api/editor/jobs/{job_id}/video"
-                    job.update(output_key=key, status="completed", progress=100, result=result)
-                else:
-                    cache_key = f"results/{job['song_task_id']}/audio_analysis.json"
-                    cache = work / "analysis.json"
-                    if await storage.exists(cache_key):
-                        await storage.load(cache_key, cache)
-                    analysis = await asyncio.to_thread(analyze_audio, audio, cache, options.get("force", False))
-                    # Reload after inference so lyrics saved during analysis survive.
-                    await storage.load(alignment_key, alignment)
-                    payload = json.loads(alignment.read_text(encoding="utf-8"))
-                    from src.storyboard_schema import MusicSection
-                    from src.audio_analyzer import detect_cut_candidates
-                    sections = [MusicSection.model_validate(s) for s in payload.get("sections", [])]
-                    analysis.sections = sections
-                    analysis.cut_candidates = detect_cut_candidates(analysis.duration, analysis.beats,
-                        analysis.downbeats, analysis.drum_hits, analysis.energy_curve, sections)
-                    payload.update(analysis=analysis.model_dump(), duration=analysis.duration)
-                    alignment.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-                    await storage.save(alignment_key, alignment)
-                    if cache.exists():
-                        await storage.save(cache_key, cache)
-                    job.update(status="completed", progress=100, result={"bpm": analysis.bpm,
-                        "beats": len(analysis.beats), "cache_hit": analysis.metadata.get("cache_hit", False)})
+                cache_key = f"results/{job['song_task_id']}/audio_analysis.json"
+                cache = work / "analysis.json"
+                if await storage.exists(cache_key):
+                    await storage.load(cache_key, cache)
+                analysis = await asyncio.to_thread(analyze_audio, audio, cache, options.get("force", False))
+                # Reload after inference so lyrics saved during analysis survive.
+                await storage.load(alignment_key, alignment)
+                payload = json.loads(alignment.read_text(encoding="utf-8"))
+                from src.storyboard_schema import MusicSection
+                from src.audio_analyzer import detect_cut_candidates
+                sections = [MusicSection.model_validate(s) for s in payload.get("sections", [])]
+                analysis.sections = sections
+                analysis.cut_candidates = detect_cut_candidates(analysis.duration, analysis.beats,
+                    analysis.downbeats, analysis.drum_hits, analysis.energy_curve, sections)
+                payload.update(analysis=analysis.model_dump(), duration=analysis.duration)
+                alignment.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+                await storage.save(alignment_key, alignment)
+                if cache.exists():
+                    await storage.save(cache_key, cache)
+                job.update(status="completed", progress=100, result={"bpm": analysis.bpm,
+                    "beats": len(analysis.beats), "cache_hit": analysis.metadata.get("cache_hit", False)})
     except Exception as exc:
         log.exception("Cloud editor operation failed: %s", job_id)
         job.update(status="failed", error=str(exc), message="处理失败")
@@ -152,6 +121,9 @@ async def start_job(task_id, kind, options, background, user, db):
     task = await _get_user_task(db, user.id, task_id)
     if not task.alignment_json_key or not task.input_mp3_key:
         raise HTTPException(404, "任务缺少对齐数据或原曲音频")
+    if kind == "video":
+        from src.export_jobs import create
+        return await create(task, user, options, background, db)
     values = options.model_dump(mode='json')
     request_id = values.get('request_id')
     job_id = hashlib.sha256(f'{user.id}:{task_id}:{kind}:{request_id}'.encode()).hexdigest() if request_id else uuid.uuid4().hex
@@ -201,6 +173,13 @@ async def owned_job(job_id, user, db):
                 "output_key": completed.storage_key,
                 "result": {**(completed.details or {}), "export_id": completed.id,
                            "video_url": f"/api/editor/jobs/{job_id}/video"}}
+    from src.models import ExportJob
+    row = await db.get(ExportJob, job_id)
+    if row is not None:
+        from src.export_jobs import owned, public_job
+        row = await owned(db, job_id, user.id)
+        await _get_user_task(db, user.id, row.task_id)
+        return {**public_job(row), "output_key": row.output_key}
     job = jobs.get(job_id)
     if not job or job["user_id"] != user.id:
         raise HTTPException(404, "任务不存在或已过期")
@@ -211,7 +190,7 @@ async def owned_job(job_id, user, db):
 @router.get("/jobs/{job_id}")
 async def job_status(job_id: str, user: User = Depends(get_current_user_flexible), db: AsyncSession = Depends(get_db)):
     job = await owned_job(job_id, user, db)
-    return {k: job[k] for k in ("status", "progress", "message", "error", "result") if k in job}
+    return {k: job[k] for k in ("status", "phase", "progress", "message", "error", "result", "attempt") if k in job}
 
 
 @router.get("/jobs/{job_id}/video")
@@ -221,3 +200,28 @@ async def job_video(job_id: str, user: User = Depends(get_current_user_flexible)
     if job["status"] != "completed" or not job.get("output_key"):
         raise HTTPException(404, "视频尚未生成")
     return await _stream_storage_file(get_storage(), job["output_key"])
+
+
+@router.get("/render-jobs")
+async def render_jobs(user: User = Depends(get_current_user_flexible), db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import case, select
+    from src.export_jobs import ACTIVE, RETRYABLE, public_job, reconcile
+    from src.models import ExportJob
+    await reconcile(db, user.id)
+    records = (await db.execute(select(ExportJob).where(
+        ExportJob.user_id == user.id, ExportJob.status.in_((*ACTIVE, *RETRYABLE)),
+    ).order_by(case((ExportJob.status.in_(ACTIVE), 0), else_=1), ExportJob.created_at.desc()).limit(50))).scalars()
+    return {"jobs": [public_job(row) for row in records]}
+
+
+@router.post("/jobs/{job_id}/retry")
+async def retry_render(job_id: str, background: BackgroundTasks,
+                       user: User = Depends(get_current_user_flexible), db: AsyncSession = Depends(get_db)):
+    from src.export_jobs import retry
+    return await retry(db, job_id, user.id, background)
+
+
+@router.delete("/jobs/{job_id}")
+async def dismiss_render(job_id: str, user: User = Depends(get_current_user_flexible), db: AsyncSession = Depends(get_db)):
+    from src.export_jobs import dismiss
+    return await dismiss(db, job_id, user.id)
