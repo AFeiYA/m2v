@@ -28,7 +28,7 @@ function setup(saveOk = true) {
   context.window.apiFetch = async (url, options = {}) => {
     calls.push({url, body: options.body && JSON.parse(options.body)});
     if (url.endsWith('/lyric-video')) return {ok: true, json: async () => ({task_id: 'job'})};
-    if (url.endsWith('/video')) return {ok: true, blob: async () => ({})};
+    if (url.includes('/access?')) return {ok: true, json: async () => ({url: 'https://files.invalid/video.mp4', filename:'lyric_video.mp4'})};
     return {ok: true, json: async () => ({status: 'completed', progress: 100, result: {video_url: '/api/editor/jobs/job/video'}})};
   };
   vm.createContext(context);
@@ -37,7 +37,7 @@ function setup(saveOk = true) {
   return {elements, calls, notices, start: () => element('#btn-start-lyric-export').handlers.click(), poll: () => poll()};
 }
 
-test('cloud modal saves edits then exports a selected segment and downloads through owned jobs', async () => {
+test('cloud modal shows completed export immediately and loads preview only on demand', async () => {
   const s = setup();
   await s.start();
   assert.equal(s.calls[0].saved, true);
@@ -46,8 +46,12 @@ test('cloud modal saves edits then exports a selected segment and downloads thro
   assert.equal(s.calls[1].body.end_time, 15);
   assert.equal('json_path' in s.calls[1].body, false);
   await s.poll();
-  assert.deepEqual(s.calls.slice(2).map(c => c.url), ['/api/editor/jobs/job', '/api/editor/jobs/job/video']);
-  assert.equal(s.elements.get('#lyric-modal-video').src, 'blob:video');
+  assert.deepEqual(s.calls.slice(2).map(c => c.url), ['/api/editor/jobs/job']);
+  assert.equal(s.elements.get('#lyric-modal-video').src, undefined);
+  assert.equal(s.elements.get('#lyric-result-box').style.display, 'flex');
+  await s.elements.get('#btn-preview-lyric-mp4').onclick();
+  assert.equal(s.calls.at(-1).url, '/api/exports/job/access?preview=true');
+  assert.equal(s.elements.get('#lyric-modal-video').src, 'https://files.invalid/video.mp4');
   assert.equal(s.elements.get('#btn-download-lyric-mp4').download, 'lyric_video.mp4');
 });
 

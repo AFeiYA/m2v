@@ -603,6 +603,11 @@ async def delete_task(
             except Exception:
                 pass
 
+    from src.models import VideoExport
+    exports = (await db.execute(select(VideoExport).where(VideoExport.task_id == task.id))).scalars().all()
+    for record in exports:
+        await storage.delete(record.storage_key)
+        await db.delete(record)
     await db.delete(task)
     return MessageResponse(message="任务已删除")
 
@@ -737,6 +742,8 @@ async def task_progress_ws(websocket: WebSocket, task_id: str):
 # 集成时间轴编辑器 (通过 Router 挂载)
 # ======================================================================
 
+from src.export_library import router as export_library_router
+api_router.include_router(export_library_router)
 app.include_router(api_router)
 app.include_router(editor_router)
 from src.motion_cloud import router as cloud_motion_router

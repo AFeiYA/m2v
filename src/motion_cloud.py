@@ -92,6 +92,16 @@ class Workspace:
         with self.io_gate:
             if self.validate(path).relative_to(self.root.resolve()).parts[0] not in self.deleted:
                 asyncio.run(self.storage.save(self.object_key(path), Path(path)))
+                if Path(path).name.endswith('_status.json'):
+                    data = json.loads(Path(path).read_text())
+                    video = Path(path).with_name(data['id'] + '.mp4')
+                    if data.get('status') == 'done' and video.is_file():
+                        from src.export_library import record_export
+                        task_id = self.validate(path).relative_to(self.root.resolve()).parts[0]
+                        asyncio.run(record_export(data['id'], self.uid, task_id, self.object_key(video),
+                            kind='rhythm' if data.get('scene') == 'rhythm' else 'poster',
+                            details={'resolution': [data.get('width'), data.get('height')],
+                                     'duration': data.get('total', 0)/30, 'size_bytes': video.stat().st_size}))
 
     def remove(self, path):
         asyncio.run(self.storage.delete(self.object_key(path)))

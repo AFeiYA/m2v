@@ -5,6 +5,8 @@
 
 const I18N = {
   zh: {
+    btn_preview_export: "预览视频",
+    nav_my_exports: "我的导出 ↗",
     // App & Header
     app_title: "M2V 歌词与字幕对齐编辑器",
     header_title: "🎤 M2V 歌词",
@@ -411,6 +413,8 @@ const I18N = {
   },
 
   en: {
+    btn_preview_export: "Preview video",
+    nav_my_exports: "My Exports ↗",
     // App & Header
     app_title: "M2V Lyrics & Subtitle Alignment Editor",
     header_title: "🎤 M2V Lyrics",

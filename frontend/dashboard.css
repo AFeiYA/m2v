@@ -513,3 +513,5 @@ header {
 .task-suno-link a:hover {
   text-decoration: underline;
 }
+
+#exports-section {max-width:1100px;margin:24px auto;padding:0 24px} #exports-status {color:var(--text-muted);font-size:13px} .export-actions {display:flex;gap:8px;flex-wrap:wrap;margin-top:12px} #exports-list .task-card {margin:12px 0} #exports-section [hidden] {display:none!important}

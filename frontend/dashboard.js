@@ -270,6 +270,9 @@ async function logout() {
   token = null;
   refreshToken = null;
   currentUser = null;
+  exportSequence++;
+  closeExportPreview();
+  if ($("#exports-list")) $("#exports-list").innerHTML = "";
   authProvider = null;
   localStorage.removeItem("m2v_token");
   localStorage.removeItem("m2v_user");
@@ -317,6 +320,7 @@ function showApp() {
   $("#auth-overlay").style.display = "none";
   $("#app").style.display = "";
   loadTasks();
+  loadExports();
   startPolling();
 }
 
@@ -776,6 +780,7 @@ function initApiConfig() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   initApiConfig();
+  initExportLibrary();
   initAuth();
   initUpload();
 
@@ -864,3 +869,93 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   showAuth();
 });
+
+
+// Durable video library. Request media only after a user clicks Preview/Download.
+let exportPage = 1;
+let exportSequence = 0;
+function closeExportPreview() {
+  const video = $("#export-preview-video");
+  video?.pause?.(); video?.removeAttribute?.("src"); video?.load?.();
+  if ($("#exports-preview")) $("#exports-preview").hidden = true;
+}
+async function loadExports(page = exportPage) {
+  const sequence = ++exportSequence, uid = currentUser?.id;
+  if (!uid || !$("#exports-list")) return;
+  $("#exports-status").textContent = "Loading exports…";
+  try {
+    const response = await api(`/api/exports?page=${page}&page_size=20`);
+    if (!response.ok) throw Error(`Unable to load exports (HTTP ${response.status}).`);
+    const data = await response.json();
+    if (sequence !== exportSequence || currentUser?.id !== uid) return;
+    exportPage = page;
+    const rows = data.exports || [];
+    $("#exports-list").innerHTML = rows.map(item => {
+      const detail = item.details || {}, size = detail.size_bytes ? (detail.size_bytes / 1048576).toFixed(1) + " MB" : "";
+      const resolution = detail.resolution?.every(Boolean) ? detail.resolution.join(" × ") : "";
+      const duration = detail.duration ? Number(detail.duration).toFixed(1) + "s" : "";
+      const meta = [detail.recovered ? "Recovered" : "", ({lyric:"Lyric Video",poster:"Motion Studio",rhythm:"Rhythm Studio"})[item.kind] || "Video", resolution, duration, size, new Date(item.created_at).toLocaleString()].filter(Boolean).join(" · ");
+      return `<article class="task-card"><strong>${escapeHtml(item.title || "Untitled")}</strong><p>${escapeHtml(meta)}</p><span class="badge">Ready</span><div class="export-actions"><button class="btn btn-sm" data-export="${escapeHtml(item.id)}" data-export-action="preview">Preview</button><button class="btn btn-sm" data-export="${escapeHtml(item.id)}" data-export-action="download">Download MP4</button><button class="btn btn-sm btn-outline" data-export="${escapeHtml(item.id)}" data-export-action="delete">Delete video</button></div></article>`;
+    }).join("");
+    $("#exports-status").textContent = data.total ? `${data.total} exports · Preview loads only when requested.` : "No exports yet. Export from Lyric Editor or Motion Studio, or find earlier exports.";
+    $("#exports-page").textContent = `Page ${page}`;
+    $("#exports-prev").disabled = page <= 1;
+    $("#exports-next").disabled = page * 20 >= data.total;
+  } catch (error) {
+    if (sequence === exportSequence && currentUser?.id === uid) $("#exports-status").textContent = error.message;
+  }
+}
+async function handleExportAction(button) {
+  const id = button.dataset.export, action = button.dataset.exportAction, uid = currentUser?.id;
+  button.disabled = true;
+  try {
+    if (action === "delete") {
+      if (!confirm("Delete this exported video? Your song and lyric alignment will be kept.")) return;
+      const response = await api(`/api/exports/${id}`, {method:"DELETE"});
+      if (!response.ok) throw Error("Unable to delete video. Please retry.");
+      if (currentUser?.id !== uid) return;
+      closeExportPreview();
+      await loadExports(1);
+      return;
+    }
+    const response = await api(`/api/exports/${id}/access?preview=${action === "preview"}`);
+    const data = await response.json();
+    if (!response.ok) throw Error(data.detail || "Unable to access video.");
+    if (currentUser?.id !== uid) return;
+    const url = data.url.startsWith("/") ? API + data.url : data.url;
+    if (action === "preview") {
+      closeExportPreview();
+      $("#exports-preview").hidden = false;
+      const video = $("#export-preview-video"); video.src = url;
+      video.play().catch(() => {});
+    } else {
+      const link = document.createElement("a"); link.href = url; link.download = data.filename;
+      document.body.appendChild(link); link.click(); link.remove();
+    }
+  } catch (error) {
+    if (currentUser?.id === uid) $("#exports-status").textContent = error.message;
+  } finally { button.disabled = false; }
+}
+function initExportLibrary() {
+  $("#btn-refresh-exports")?.addEventListener("click", () => loadExports());
+  $("#exports-prev")?.addEventListener("click", () => loadExports(exportPage - 1));
+  $("#exports-next")?.addEventListener("click", () => loadExports(exportPage + 1));
+  $("#btn-close-export-preview")?.addEventListener("click", closeExportPreview);
+  $("#exports-list")?.addEventListener("click", event => {
+    const button = event.target.closest("button[data-export-action]");
+    if (button) void handleExportAction(button);
+  });
+  $("#btn-discover-exports")?.addEventListener("click", async event => {
+    const button = event.currentTarget, uid = currentUser?.id;
+    button.disabled = true; $("#exports-status").textContent = "Looking for earlier exports…";
+    try {
+      const response = await api("/api/exports/discover", {method:"POST"});
+      if (!response.ok) throw Error("Recovery scan failed. Please retry.");
+      const data = await response.json();
+      if (currentUser?.id !== uid) return;
+      await loadExports(1);
+      $("#exports-status").textContent = `${data.added} earlier exports found. ${data.message}`;
+    } catch(error) { if(currentUser?.id === uid) $("#exports-status").textContent = error.message; }
+    finally {button.disabled = false;}
+  });
+}

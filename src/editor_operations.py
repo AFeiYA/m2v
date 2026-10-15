@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth import get_current_user_flexible
 from src.database import get_db
-from src.models import User
+from src.models import User, VideoExport
 from src.settings import get_settings
 from src.storage import get_storage
 from src.task_store import TaskStore
@@ -113,6 +113,11 @@ async def run_job(job_id: str, storage, alignment_key: str, audio_key: str, opti
                     await storage.save(key, output)
                     # Never return temporary paths or an unowned local-file URL.
                     result = {k: result[k] for k in ("resolution", "size_mb", "elapsed_seconds", "duration") if k in result}
+                    from src.export_library import record_export
+                    await record_export(job_id, job['user_id'], job['song_task_id'], key,
+                                        details={**result, "size_bytes": output.stat().st_size,
+                                                 "request_fingerprint": job.get("fingerprint")})
+                    result["export_id"] = job_id
                     result["video_url"] = f"/api/editor/jobs/{job_id}/video"
                     job.update(output_key=key, status="completed", progress=100, result=result)
                 else:
@@ -151,6 +156,14 @@ async def start_job(task_id, kind, options, background, user, db):
     request_id = values.get('request_id')
     job_id = hashlib.sha256(f'{user.id}:{task_id}:{kind}:{request_id}'.encode()).hexdigest() if request_id else uuid.uuid4().hex
     fingerprint = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+    if request_id:
+        completed = await db.get(VideoExport, job_id)
+        if completed:
+            if completed.user_id != user.id or completed.task_id != task_id:
+                raise HTTPException(404, "Export not found")
+            if completed.deleted_at or (completed.details or {}).get("request_fingerprint") != fingerprint:
+                raise HTTPException(409, "Start a new export request for deleted videos or changed settings")
+            return {"task_id": job_id, "status": "completed"}
     with jobs.lock:
         existing = jobs.get(job_id)
         if existing:
@@ -178,6 +191,16 @@ async def analyze(task_id: str, options: AnalysisOptions, background: Background
 
 async def owned_job(job_id, user, db):
     from src.editor_server import _get_user_task
+    completed = await db.get(VideoExport, job_id)
+    if completed:
+        if completed.user_id != user.id or completed.deleted_at:
+            raise HTTPException(404, "Export not found")
+        await _get_user_task(db, user.id, completed.task_id)
+        return {"user_id": user.id, "song_task_id": completed.task_id, "kind": "video",
+                "status": "completed", "progress": 100, "message": "Video ready",
+                "output_key": completed.storage_key,
+                "result": {**(completed.details or {}), "export_id": completed.id,
+                           "video_url": f"/api/editor/jobs/{job_id}/video"}}
     job = jobs.get(job_id)
     if not job or job["user_id"] != user.id:
         raise HTTPException(404, "任务不存在或已过期")

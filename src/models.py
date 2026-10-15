@@ -166,3 +166,18 @@ class Task(Base):
 
     # Celery task id (用于查询/取消)
     celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class VideoExport(Base):
+    """Durable, user-owned export library; videos live in object storage."""
+    __tablename__ = "video_exports"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id"), index=True)
+    title: Mapped[str] = mapped_column(String(255), default="")
+    kind: Mapped[str] = mapped_column(String(20), default="lyric")
+    storage_key: Mapped[str] = mapped_column(String(1024))
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

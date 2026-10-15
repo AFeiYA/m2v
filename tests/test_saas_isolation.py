@@ -1098,3 +1098,193 @@ def test_suno_realign_restores_stems_but_never_reuses_old_alignment(sandbox, mon
     })
     assert response.status_code == 200
     assert checked == [True]
+
+
+def test_export_library_survives_job_journal_loss_and_is_private(sandbox, monkeypatch):
+    from src import editor_operations as ops
+    from src.task_store import TaskStore
+    seed_editor_song(sandbox)
+    monkeypatch.setattr(ops, 'jobs', TaskStore(sandbox.output / 'export-journal'))
+    def render(alignment, audio, output, options, progress):
+        output.write_bytes(b'private-video')
+        return {'resolution': [1080, 1920], 'duration': 3, 'size_mb': .1}
+    monkeypatch.setattr(ops, 'render_video', render)
+    response = sandbox.client.post('/api/editor/tasks/editor/lyric-video', headers=headers(), json={})
+    assert response.status_code == 200
+    export_id = response.json()['task_id']
+    ops.jobs.clear()
+    for path in (sandbox.output / 'export-journal').glob('*.json'):
+        path.unlink()
+    listing = sandbox.client.get('/api/exports', headers=headers())
+    assert listing.status_code == 200
+    assert listing.json()['total'] == 1
+    assert listing.json()['exports'][0]['details']['size_bytes'] == len(b'private-video')
+    assert 'storage_key' not in listing.json()['exports'][0]
+    assert sandbox.client.get('/api/exports', headers=headers('bob')).json()['total'] == 0
+    assert sandbox.client.get(f'/api/exports/{export_id}/access', headers=headers('bob')).status_code == 404
+    access = sandbox.client.get(f'/api/exports/{export_id}/access', headers=headers()).json()
+    assert 'm2v_token' not in access['url']
+    assert sandbox.client.get(access['url']).content == b'private-video'
+    # A scoped media ticket is not an account access token and cannot access another export.
+    ticket = access['url'].split('ticket=')[1]
+    assert sandbox.client.get('/api/auth/me', headers={'Authorization': 'Bearer '+ticket}).status_code == 401
+    assert sandbox.client.get('/api/exports/other/file', params={'ticket': ticket}).status_code == 401
+    assert sandbox.client.delete(f'/api/exports/{export_id}', headers=headers('bob')).status_code == 404
+    assert sandbox.client.delete(f'/api/exports/{export_id}', headers=headers()).status_code == 200
+    assert sandbox.client.get('/api/exports', headers=headers()).json()['total'] == 0
+    assert sandbox.client.get(access['url']).status_code == 404
+    assert sandbox.client.get('/api/tasks/editor', headers=headers()).status_code == 200
+    assert sandbox.client.get('/api/editor/tasks/editor/align', headers=headers()).status_code == 200
+
+
+def test_export_library_recovers_legacy_objects_without_cross_account_scan(sandbox):
+    seed_editor_song(sandbox)
+    path = sandbox.output / 'old.mp4'
+    path.write_bytes(b'old-video')
+    export_id = 'a' * 32
+    key = f'results/editor/exports/{export_id}.mp4'
+    asyncio.run(sandbox.storage.save(key, path))
+    assert sandbox.client.post('/api/exports/discover', headers=headers('bob')).json()['added'] == 0
+    assert sandbox.client.post('/api/exports/discover', headers=headers()).json()['added'] == 1
+    assert sandbox.client.post('/api/exports/discover', headers=headers()).json()['added'] == 0
+    assert sandbox.client.delete(f'/api/exports/{export_id}', headers=headers()).status_code == 200
+    # A previously signed URL or old journal cannot resurrect a deleted record.
+    asyncio.run(sandbox.storage.save(key, path))
+    assert sandbox.client.post('/api/exports/discover', headers=headers()).json()['added'] == 0
+    assert sandbox.client.get('/api/exports', headers=headers()).json()['total'] == 0
+
+
+def test_export_access_signs_private_r2_object_even_with_public_domain(sandbox, monkeypatch):
+    from src import storage
+    from src.export_library import record_export
+    seed_editor_song(sandbox)
+    export_id = 'd' * 32
+    asyncio.run(record_export(export_id, 'alice', 'editor', 'results/editor/exports/video.mp4'))
+    remote = storage.S3Storage.__new__(storage.S3Storage)
+    remote.bucket = 'private-data'
+    remote.public_domain = 'https://public.invalid'
+    signed = []
+    class Client:
+        def generate_presigned_url(self, operation, **kwargs):
+            signed.append((operation, kwargs))
+            return 'https://r2.invalid/private-signed-url'
+        def head_object(self, **kwargs):
+            return {}
+    remote.client = Client()
+    monkeypatch.setattr(storage, '_storage_instance', remote)
+    response = sandbox.client.get(f'/api/exports/{export_id}/access', headers=headers())
+    assert response.status_code == 200
+    assert response.json()['url'] == 'https://r2.invalid/private-signed-url'
+    assert response.headers['cache-control'] == 'private, no-store'
+    params = signed[0][1]
+    assert params['ExpiresIn'] == 900
+    assert params['Params']['Bucket'] == 'private-data'
+    assert params['Params']['ResponseContentDisposition'].startswith('attachment;')
+    assert sandbox.client.get(f'/api/exports/{export_id}/access?preview=true', headers=headers()).status_code == 200
+    assert signed[-1][1]['Params']['ResponseContentDisposition'].startswith('inline;')
+
+
+def test_motion_export_enters_library_and_deletion_removes_cached_copies(sandbox):
+    from src.motion_cloud import workspace_for
+    seed_editor_song(sandbox)
+    workspace = workspace_for('alice', sandbox.storage)
+    export_id = 'e' * 32
+    directory = workspace.root / 'editor' / 'motion_exports'
+    directory.mkdir(parents=True)
+    video = directory / f'{export_id}.mp4'
+    video.write_bytes(b'rhythm-video')
+    workspace.persist(video)
+    status = directory / f'{export_id}_status.json'
+    import json
+    status.write_text(json.dumps({'id': export_id, 'scene': 'rhythm', 'status': 'done',
+                                  'width': 640, 'height': 360, 'total': 90}))
+    workspace.persist(status)
+    listing = sandbox.client.get('/api/exports', headers=headers()).json()
+    assert listing['total'] == 1
+    assert listing['exports'][0]['kind'] == 'rhythm'
+    assert listing['exports'][0]['details']['duration'] == 3
+    assert sandbox.client.delete(f'/api/exports/{export_id}', headers=headers()).status_code == 200
+    assert not video.exists()
+    assert not status.exists()
+    assert not asyncio.run(sandbox.storage.exists(workspace.object_key(video)))
+    assert not asyncio.run(sandbox.storage.exists(workspace.object_key(status)))
+    assert sandbox.client.get('/api/editor/tasks/editor/align', headers=headers()).status_code == 200
+
+
+def test_deleting_song_also_removes_its_export_library_records(sandbox):
+    from src.export_library import record_export
+    seed_editor_song(sandbox)
+    export_id = 'f' * 32
+    path = sandbox.output / 'export.mp4'
+    path.write_bytes(b'video')
+    key = f'results/editor/exports/{export_id}.mp4'
+    asyncio.run(sandbox.storage.save(key, path))
+    asyncio.run(record_export(export_id, 'alice', 'editor', key))
+    assert sandbox.client.delete('/api/tasks/editor', headers=headers()).status_code == 200
+    assert sandbox.client.get('/api/exports', headers=headers()).json()['total'] == 0
+    assert not asyncio.run(sandbox.storage.exists(key))
+
+
+def test_recover_pipeline_video_then_delete_keeps_alignment_and_clears_video_pointer(sandbox):
+    seed_editor_song(sandbox)
+    key = 'results/editor/source.mp4'
+    path = sandbox.output / 'pipeline.mp4'
+    path.write_bytes(b'pipeline-video')
+    asyncio.run(sandbox.storage.save(key, path))
+    async def attach():
+        async with sandbox.sessions() as db:
+            task = await db.get(Task, 'editor')
+            task.output_mp4_key = key
+            await db.commit()
+    asyncio.run(attach())
+    assert sandbox.client.post('/api/exports/discover', headers=headers()).json()['added'] == 1
+    item = sandbox.client.get('/api/exports', headers=headers()).json()['exports'][0]
+    assert sandbox.client.delete('/api/exports/'+item['id'], headers=headers()).status_code == 200
+    task = sandbox.client.get('/api/tasks/editor', headers=headers()).json()
+    assert task['output_mp4_key'] is None
+    assert task['alignment_json_key']
+
+
+def test_recovery_reads_rhythm_scene_metadata(sandbox):
+    from src.motion_cloud import task_prefix
+    import json
+    seed_editor_song(sandbox)
+    export_id = 'b' * 32
+    prefix = task_prefix('alice', 'editor') + 'motion_exports/'
+    path = sandbox.output / 'earlier.mp4'
+    path.write_bytes(b'rhythm')
+    asyncio.run(sandbox.storage.save(prefix+export_id+'.mp4', path))
+    path = sandbox.output / 'earlier_status.json'
+    path.write_text(json.dumps({'scene':'rhythm','width':640,'height':360,'total':60}))
+    asyncio.run(sandbox.storage.save(prefix+export_id+'_status.json', path))
+    assert sandbox.client.post('/api/exports/discover', headers=headers()).json()['added'] == 1
+    item = sandbox.client.get('/api/exports', headers=headers()).json()['exports'][0]
+    assert item['kind'] == 'rhythm'
+    assert item['details']['duration'] == 2
+
+
+def test_completed_export_request_is_not_rendered_again_after_journal_loss(sandbox, monkeypatch):
+    from src import editor_operations as ops
+    from src.task_store import TaskStore
+    import uuid
+    seed_editor_song(sandbox)
+    monkeypatch.setattr(ops, 'jobs', TaskStore(sandbox.output / 'idempotent-export-jobs'))
+    renders = []
+    def render(alignment, audio, output, options, progress):
+        renders.append(True)
+        output.write_bytes(b'video')
+        return {'duration': 2}
+    monkeypatch.setattr(ops, 'render_video', render)
+    body = {'request_id': str(uuid.uuid4())}
+    endpoint = '/api/editor/tasks/editor/lyric-video'
+    first = sandbox.client.post(endpoint, headers=headers(), json=body).json()
+    ops.jobs.clear()
+    for path in (sandbox.output / 'idempotent-export-jobs').glob('*.json'):
+        path.unlink()
+    second = sandbox.client.post(endpoint, headers=headers(), json=body)
+    assert second.status_code == 200
+    assert second.json()['task_id'] == first['task_id']
+    assert renders == [True]
+    assert sandbox.client.get('/api/editor/jobs/'+first['task_id'], headers=headers()).json()['status'] == 'completed'
+    assert sandbox.client.get('/api/editor/jobs/'+first['task_id']+'/video', headers=headers()).content == b'video'
+    assert sandbox.client.post(endpoint, headers=headers(), json={**body,'theme':'neon'}).status_code == 409

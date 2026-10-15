@@ -33,7 +33,7 @@
       document.head.appendChild(s1);
     }
   </script>
-  <script src="/static/i18n.js?v=20261015_english"></script>
+  <script src="/static/i18n.js?v=20261015_exports"></script>
   <script src="/static/wavesurfer.min.js"></script>
   <link rel="stylesheet" href="/static/style.css?v=20261010_i18n">
 </head>
@@ -342,8 +342,10 @@
             <span data-i18n="render_success" style="color: #10b981; font-weight: 600; font-size: 13px;">🎉 Motion video rendered successfully!</span>
             <span id="lyric-result-meta" style="color: #94a3b8; font-size: 11px;"></span>
           </div>
-          <video id="lyric-modal-video" controls playsinline style="max-height: 280px; max-width: 100%; border-radius: 6px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></video>
-          <div style="display: flex; gap: 10px; width: 100%;">
+          <video id="lyric-modal-video" preload="none" controls playsinline style="max-height: 280px; max-width: 100%; border-radius: 6px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></video>
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; width: 100%;">
+            <button id="btn-preview-lyric-mp4" type="button" data-i18n="btn_preview_export">Preview video</button>
+            <a id="lyric-my-exports" hidden href="/#exports-section" target="_blank" data-i18n="nav_my_exports">My Exports ↗</a>
             <a id="btn-download-lyric-mp4" download href="#" data-i18n="btn_download_mp4" style="flex: 1; text-align: center; text-decoration: none; background: #10b981; color: #fff; font-weight: 600; padding: 8px 12px; border-radius: 6px; font-size: 13px;">⬇️ Download MP4 Video</a>
             <button id="btn-re-render" type="button" data-i18n="btn_re_render" style="background: #1e293b; color: #cbd5e1; border: 1px solid #334155; padding: 8px 14px; border-radius: 6px; font-size: 13px; cursor: pointer;">🔄 Re-render with new settings</button>
           </div>
@@ -362,7 +364,7 @@
 
   <script src="/static/cache.js?v=20261013_cache"></script>
   <script src="/static/common.js?v=20261015_english"></script>
-  <script src="/static/lyric_editor.js?v=20261012_cloud_ops"></script>
+  <script src="/static/lyric_editor.js?v=exports_20261012_cloud_ops"></script>
 </body>
 
 </html>

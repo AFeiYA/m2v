@@ -190,6 +190,7 @@ function initLyricExportModal() {
   const resultMeta = $("#lyric-result-meta");
   const resultVideo = $("#lyric-modal-video");
   const btnDownload = $("#btn-download-lyric-mp4");
+  const btnPreview = $("#btn-preview-lyric-mp4");
 
   if (!btnOpen || !modal) return;
 
@@ -197,7 +198,7 @@ function initLyricExportModal() {
 
   const closeModal = () => {
     modal.style.display = "none";
-    if (resultVideo) resultVideo.pause();
+    if (resultVideo) { resultVideo.pause(); resultVideo.removeAttribute?.("src"); resultVideo.load(); }
   };
 
   const openModal = () => {
@@ -494,27 +495,45 @@ function initLyricExportModal() {
 
               // 展示结果
               const result = task.result || {};
-              // Polling has stopped; a download error must surface immediately.
+              // Rendering completion does not wait for video transfer.
               pollErrors = 3;
-              if (cloud && result.video_url) {
-                const video = await fetchFn(result.video_url);
-                if (!video.ok) throw new Error(`视频读取失败 (HTTP ${video.status})`);
-                if (resultVideo?.dataset.blobUrl) URL.revokeObjectURL(resultVideo.dataset.blobUrl);
-                result.video_url = URL.createObjectURL(await video.blob());
-                if (resultVideo) resultVideo.dataset.blobUrl = result.video_url;
-              }
               resultBox.style.display = "flex";
+              const libraryLink = $("#lyric-my-exports");
+              if (libraryLink) libraryLink.hidden = !cloud;
               const elapsedLabel = window.currentLocale === "en" ? "Elapsed" : "耗时";
               resultMeta.textContent = `${result.resolution ? result.resolution.join('x') : ''} · ${result.size_mb || 0}MB · ${elapsedLabel} ${result.elapsed_seconds || 0}s`;
-
-              if (resultVideo && result.video_url) {
-                resultVideo.src = result.video_url;
-                resultVideo.load();
-                resultVideo.play().catch(() => {});
+              if (resultVideo) {
+                resultVideo.pause(); resultVideo.removeAttribute?.("src");
+                resultVideo.preload = "none"; resultVideo.hidden = true;
               }
-              if (btnDownload && result.video_url) {
-                btnDownload.href = result.video_url;
-                btnDownload.download = cloud ? "lyric_video.mp4" : result.video_url.split("/").pop() || "lyric_video.mp4";
+              const accessVideo = async (preview) => {
+                if (!cloud) return {url: result.video_url, filename: "lyric_video.mp4"};
+                const response = await fetchFn(`/api/exports/${result.export_id || taskId}/access?preview=${preview}`);
+                const data = await response.json();
+                if (!response.ok) throw Error(data.detail || "Unable to access video. Please retry from My Exports.");
+                if (data.url.startsWith("/") && window.getApiUrl) data.url = window.getApiUrl(data.url);
+                return data;
+              };
+              if (btnPreview) btnPreview.onclick = async () => {
+                btnPreview.disabled = true;
+                try {
+                  const data = await accessVideo(true);
+                  resultVideo.src = data.url; resultVideo.hidden = false;
+                  await resultVideo.play().catch(() => {});
+                } catch (error) { alert(error.message); }
+                finally {btnPreview.disabled = false;}
+              };
+              if (btnDownload) {
+                btnDownload.href = cloud ? "#" : result.video_url;
+                btnDownload.download = "lyric_video.mp4";
+                btnDownload.onclick = cloud ? async (event) => {
+                  event.preventDefault();
+                  try {
+                    const data = await accessVideo(false), link = document.createElement("a");
+                    link.href = data.url; link.download = data.filename;
+                    document.body.appendChild(link); link.click(); link.remove();
+                  } catch(error) {alert(error.message);}
+                } : null;
               }
               status(window.t ? t("msg_video_success") : "🎉 动效短视频已生成完成！");
             } else if (["failed", "interrupted"].includes(task.status)) {
