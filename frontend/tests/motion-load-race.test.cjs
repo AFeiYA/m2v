@@ -84,7 +84,7 @@ test('a failed save preserves the draft and permits retry',async()=>{
 test('switching and exporting never silently save an unfinished preview',async()=>{
  const s=await loaded();s.api.rules();await s.api.load('other');
  assert.equal(s.nodes.get('project-select').value,'song');
- await assert.rejects(s.api.exportVideo(),/保存/);assert.equal(s.writes.length,0);
+ await assert.rejects(s.api.exportVideo(),/Save/);assert.equal(s.writes.length,0);
 });
 test('format and signature edits use the same explicit save',async()=>{
  const s=await loaded();s.nodes.get('aspect').value='9:16';s.nodes.get('aspect').input();

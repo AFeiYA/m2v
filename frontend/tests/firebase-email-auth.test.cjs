@@ -55,13 +55,14 @@ test('missing Firebase user never returns the stale cached token', async () => {
 test('password reset and authentication errors have explicit handling', async () => {
   const s = setup();
   await s.helper.resetPassword('test@example.com');
+  assert.equal(s.auth.languageCode, 'en');
   assert.deepEqual(s.calls, [['reset', 'test@example.com']]);
-  assert.equal(s.helper.errorMessage({code: 'auth/invalid-credential'}), '邮箱或密码错误');
-  assert.equal(s.helper.errorMessage({code: 'auth/email-already-in-use'}), '该邮箱已有账号，请登录或重置密码');
+  assert.equal(s.helper.errorMessage({code: 'auth/invalid-credential'}), 'Incorrect email or password.');
+  assert.equal(s.helper.errorMessage({code: 'auth/email-already-in-use'}), 'This email already has an account. Sign in or reset your password.');
 });
 
 test('invalid display names do not create a partially configured account', async () => {
   const s = setup();
-  await assert.rejects(s.helper.registerWithEmail('test@example.com', 'password', ''), /用户名/);
+  await assert.rejects(s.helper.registerWithEmail('test@example.com', 'password', ''), /Display name/);
   assert.deepEqual(s.calls, []);
 });

@@ -292,7 +292,7 @@
   // ─── Load Song alignment and analysis ───
   async function loadSongData(songName) {
     songTitle.textContent = songName;
-    songBpm.textContent = '载入分析中...';
+    songBpm.textContent = 'Loading analysis…';
     gameLoaded = false;
     
     try {
@@ -327,7 +327,7 @@
       songBpm.textContent = `BPM: ${analysis.bpm.toFixed(1)}`;
       gameLoaded = true;
     } catch (e) {
-      songBpm.textContent = `加载失败: ${e.message}`;
+      songBpm.textContent = `Unable to load: ${e.message}`;
       alert(`加载失败:\n${e.message}`);
     }
   }
@@ -1319,10 +1319,10 @@
       autoPilot = !autoPilot;
       if (autoPilot) {
         btnAutopilot.classList.add('active');
-        btnAutopilot.textContent = '🤖 自动驾驶: 开';
+        btnAutopilot.textContent = '🤖 Autopilot: On';
       } else {
         btnAutopilot.classList.remove('active');
-        btnAutopilot.textContent = '🤖 自动驾驶: 关';
+        btnAutopilot.textContent = '🤖 Autopilot: Off';
       }
     });
   }

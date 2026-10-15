@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title data-i18n="gal_app_title">作品展厅 · 导出的动效 MV 视频库 · m2v</title>
+  <title data-i18n="gal_app_title">MV Gallery · Exported Kinetic MV Library · m2v</title>
   <link rel="stylesheet" href="/motion-lab.css">
-  <script src="/static/i18n.js?v=20261011"></script>
+  <script src="/static/i18n.js?v=20261015_english"></script>
   <style>
     :root {
       --bg-dark: #080d07;
@@ -779,18 +779,18 @@
     <div class="brand-group">
       <div class="brand-mark">M</div>
       <div>
-        <span class="brand-title" data-i18n="gal_brand">Motion Gallery</span>
-        <span class="brand-sub" data-i18n="gal_brand_sub">导出的动态歌词 MV 作品库</span>
+        <span class="brand-title" data-i18n="gal_brand">MV Gallery</span>
+        <span class="brand-sub" data-i18n="gal_brand_sub">Exported Kinetic MV Library</span>
       </div>
     </div>
     <div class="nav-actions">
-      <button id="btn-syndicate-header" class="btn-gradient-syndicate nav-btn" style="padding:4px 12px;cursor:pointer">🚀 一键全网多发</button>
-      <div id="r2-status-badge" class="r2-badge local" title="点击查看存储配置说明">
-        <span>💾</span> <span id="r2-status-text">检查存储状态…</span>
+      <button id="btn-syndicate-header" class="btn-gradient-syndicate nav-btn" style="padding:4px 12px;cursor:pointer">🚀 Publish to platforms</button>
+      <div id="r2-status-badge" class="r2-badge local" title="View storage setup">
+        <span>💾</span> <span id="r2-status-text">Checking storage…</span>
       </div>
-      <a href="/motion-studio" class="nav-btn" data-i18n="gal_nav_motion">⚡ 动效工作室 ↗</a>
-      <a href="/lyric-editor" class="nav-btn" data-i18n="gal_nav_editor">🎤 歌词编辑器 ↗</a>
-      <a href="/" class="nav-btn" data-i18n="gal_nav_dashboard">🏠 控制台 ↗</a>
+      <a href="/motion-studio" class="nav-btn" data-i18n="gal_nav_motion">⚡ Motion Studio ↗</a>
+      <a href="/lyric-editor" class="nav-btn" data-i18n="gal_nav_editor">🎤 Lyric Editor ↗</a>
+      <a href="/" class="nav-btn" data-i18n="gal_nav_dashboard">🏠 Dashboard ↗</a>
       <button id="btn-lang-toggle" onclick="toggleLocale()" class="nav-btn" style="cursor:pointer">🌐 English</button>
     </div>
   </header>
@@ -799,14 +799,14 @@
   <main class="gallery-main">
     <div class="hero-section">
       <div class="hero-title">
-        <h1>已渲染的动效视频</h1>
-        <p>支持 9:16 手机短视频与 16:9 横屏全曲 · 随时在线流式播放、直链分享与下载</p>
+        <h1>Your exported lyric videos</h1>
+        <p>Portrait clips and landscape videos · Stream, share, and download</p>
       </div>
       <div class="filter-bar">
-        <button class="filter-btn active" data-filter="all">全部视频 (<span id="count-all">0</span>)</button>
-        <button class="filter-btn" data-filter="9:16">📱 9:16 竖屏 (<span id="count-portrait">0</span>)</button>
-        <button class="filter-btn" data-filter="16:9">💻 16:9 横屏 (<span id="count-landscape">0</span>)</button>
-        <button id="refresh-btn" class="refresh-btn">🔄 刷新列表</button>
+        <button class="filter-btn active" data-filter="all">All videos (<span id="count-all">0</span>)</button>
+        <button class="filter-btn" data-filter="9:16">📱 9:16 Portrait (<span id="count-portrait">0</span>)</button>
+        <button class="filter-btn" data-filter="16:9">💻 16:9 Landscape (<span id="count-landscape">0</span>)</button>
+        <button id="refresh-btn" class="refresh-btn">🔄 Refresh</button>
       </div>
     </div>
 
@@ -818,9 +818,9 @@
     <!-- 空状态提示 -->
     <div id="empty-state" class="empty-state" hidden>
       <div style="font-size:48px;margin-bottom:12px">🎬</div>
-      <h3>暂无导出的动效视频</h3>
-      <p>前往动效演播室选择歌曲，点击“导出 MP4”即可在这里自动收录并播放！</p>
-      <a href="/motion" class="btn-action primary" style="display:inline-flex;margin-top:14px;padding:8px 18px">前往动效演播室 →</a>
+      <h3>No exported videos yet</h3>
+      <p>Select a song in Motion Studio and export an MP4. Your video will appear here.</p>
+      <a href="/motion" class="btn-action primary" style="display:inline-flex;margin-top:14px;padding:8px 18px">Open Motion Studio →</a>
     </div>
   </main>
 
@@ -828,7 +828,7 @@
   <div id="player-modal" class="player-modal">
     <div class="modal-box">
       <div class="modal-header">
-        <h3 id="modal-title">视频播放</h3>
+        <h3 id="modal-title">Video playback</h3>
         <button id="modal-close" class="modal-close" title="按 ESC 键也可关闭">✕</button>
       </div>
       <div class="modal-video-wrap">
@@ -837,10 +837,10 @@
       <div class="modal-footer">
         <div id="modal-url" class="url-display"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button id="btn-copy-url" class="btn-action">🔗 复制直链</button>
-          <button id="btn-syndicate-player" class="btn-action btn-gradient-syndicate">🚀 一键全网多发</button>
-          <button id="btn-bili-player" class="btn-action bili-btn">📺 发布到 B站</button>
-          <a id="btn-download-modal" class="btn-action primary" download>⬇ 下载视频</a>
+          <button id="btn-copy-url" class="btn-action">🔗 Copy link</button>
+          <button id="btn-syndicate-player" class="btn-action btn-gradient-syndicate">🚀 Publish to platforms</button>
+          <button id="btn-bili-player" class="btn-action bili-btn">📺 Publish to Bilibili</button>
+          <a id="btn-download-modal" class="btn-action primary" download>⬇ Download video</a>
         </div>
       </div>
     </div>
@@ -849,11 +849,11 @@
   <!-- 手机扫码弹窗 -->
   <div id="qr-modal" class="qr-modal">
     <div class="qr-box">
-      <h3 style="margin:0 0 6px 0;color:#fff;font-size:16px">📱 手机扫码全屏观看</h3>
-      <p style="margin:0;color:var(--text-muted);font-size:12px">用微信或系统相机扫码，直接在手机上全屏体验 9:16 动效短视频</p>
+      <h3 style="margin:0 0 6px 0;color:#fff;font-size:16px">📱 Scan to watch on your phone</h3>
+      <p style="margin:0;color:var(--text-muted);font-size:12px">Scan with your phone camera or WeChat to watch in full screen.</p>
       <img id="qr-img" src="" alt="播放链接二维码">
       <div>
-        <button id="qr-close" class="btn-action" style="width:100%">关闭</button>
+        <button id="qr-close" class="btn-action" style="width:100%">Close</button>
       </div>
     </div>
   </div>
@@ -861,20 +861,20 @@
   <!-- R2 配置说明弹窗 -->
   <div id="r2-modal" class="qr-modal">
     <div class="qr-box" style="max-width:480px;text-align:left">
-      <h3 style="margin:0 0 8px 0;color:#fff;font-size:16px">☁️ Cloudflare R2 存储配置说明</h3>
+      <h3 style="margin:0 0 8px 0;color:#fff;font-size:16px">☁️ Cloudflare R2 storage setup</h3>
       <p style="margin:0 0 12px 0;color:var(--text-muted);font-size:12px">
-        Cloudflare R2 提供<b>每月 10GB 永久免费存储且完全 0 流量费用</b>。配置后导出视频会自动上传到 R2 并生成全球极速 CDN 外链。
+        Cloudflare R2 includes<b>a monthly 10GB-month free Standard storage allowance and no egress fees</b>. Once configured, exported videos upload to R2 and receive a shareable URL.
       </p>
-      <div style="background:#090d08;border:1px solid #233020;border-radius:6px;padding:10px;font-size:12px;color:#c8ff00;font-family:monospace;white-space:pre-wrap;user-select:all" id="r2-env-snippet"># 在项目根目录的 .env 文件中配置：
-R2_ACCOUNT_ID=你的Cloudflare_Account_ID
-R2_ACCESS_KEY_ID=你的R2_Access_Key_ID
-R2_SECRET_ACCESS_KEY=你的R2_Secret_Access_Key
+      <div style="background:#090d08;border:1px solid #233020;border-radius:6px;padding:10px;font-size:12px;color:#c8ff00;font-family:monospace;white-space:pre-wrap;user-select:all" id="r2-env-snippet"># Configure in the project root .env file:
+R2_ACCOUNT_ID=your_cloudflare_account_id
+R2_ACCESS_KEY_ID=your_r2_access_key_id
+R2_SECRET_ACCESS_KEY=your_r2_secret_access_key
 R2_BUCKET_NAME=suno2mv-videos
 R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       <p style="margin:12px 0 14px 0;color:var(--text-muted);font-size:11px">
-        未配置时系统会自动平滑降级为后端本地磁盘存储，依然可正常预览和下载。
+        Without R2, files use the backend local disk and remain available for preview and download.
       </p>
-      <button id="r2-close" class="btn-action primary" style="width:100%">我知道了</button>
+      <button id="r2-close" class="btn-action primary" style="width:100%">Got it</button>
     </div>
   </div>
 
@@ -884,10 +884,10 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <div>
           <h3 style="margin:0;color:#fff;font-size:18px;display:flex;align-items:center;gap:8px">
-            <span style="font-size:22px">🚀</span> 全网多平台一键分发中心
+            <span style="font-size:22px">🚀</span> Multi-platform publishing
           </h3>
           <p style="margin:4px 0 0 0;font-size:12px;color:var(--text-muted)">
-            支持并发同步发布至 哔哩哔哩 · 小红书 · 微信视频号 · 抖音 · YouTube
+            Publish to Bilibili · Xiaohongshu · WeChat Channels · Douyin · YouTube
           </p>
         </div>
         <button id="syndicate-close" class="modal-close" style="font-size:16px">✕</button>
@@ -896,11 +896,11 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       <!-- 平台选择与授权状态 -->
       <div style="margin-bottom:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <label class="form-label" style="margin:0">目标发布平台 (点击卡片可快速扫码登录或勾选)</label>
+          <label class="form-label" style="margin:0">Platforms (select a platform or sign in)</label>
           <div style="display:flex;gap:6px;align-items:center">
-            <span style="font-size:11px;padding:2px 8px;border-radius:12px;background:rgba(7,193,96,0.15);color:#07C160;border:1px solid rgba(7,193,96,0.3)">🔒 会话沙箱隔离</span>
-            <button onclick="clearMySessionData()" class="btn-action" style="font-size:11px;padding:2px 8px;color:#f87171" title="从云端彻底擦除当前绑定的所有平台登录凭据">🧹 清理我的凭据</button>
-            <button id="syndicate-refresh-status" class="btn-action" style="font-size:11px;padding:2px 8px">🔄 刷新</button>
+            <span style="font-size:11px;padding:2px 8px;border-radius:12px;background:rgba(7,193,96,0.15);color:#07C160;border:1px solid rgba(7,193,96,0.3)">🔒 Isolated session</span>
+            <button onclick="clearMySessionData()" class="btn-action" style="font-size:11px;padding:2px 8px;color:#f87171" title="从云端彻底擦除当前绑定的所有平台登录凭据">🧹 Clear my credentials</button>
+            <button id="syndicate-refresh-status" class="btn-action" style="font-size:11px;padding:2px 8px">🔄 Refresh</button>
           </div>
         </div>
         <div id="syndicate-platform-grid" class="platform-grid">
@@ -910,17 +910,17 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
         <!-- 嵌入式扫码登录抽屉 -->
         <div id="syndicate-qr-drawer" class="platform-qr-panel">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-            <span id="qr-drawer-title" style="font-weight:600;color:#fff;font-size:14px">平台扫码登录</span>
+            <span id="qr-drawer-title" style="font-weight:600;color:#fff;font-size:14px">Sign in with a QR code</span>
             <button id="qr-drawer-close" class="modal-close" style="font-size:14px">✕</button>
           </div>
-          <p id="qr-drawer-tip" style="margin:0 0 12px 0;color:var(--text-muted);font-size:12px">请使用对应手机 App 扫码登录</p>
+          <p id="qr-drawer-tip" style="margin:0 0 12px 0;color:var(--text-muted);font-size:12px">Scan using the platform app to sign in</p>
           <div style="background:#fff;display:inline-block;padding:14px;border-radius:14px;margin-bottom:12px;box-shadow:0 4px 16px rgba(0,0,0,0.25)">
             <img id="syndicate-qr-img" src="" alt="登录二维码" style="width:200px;height:200px;display:block;image-rendering:-webkit-optimize-contrast;image-rendering:crisp-edges">
           </div>
-          <div id="syndicate-qr-status" style="font-size:12px;color:#a4bca0;margin-bottom:10px">正在加载二维码...</div>
+          <div id="syndicate-qr-status" style="font-size:12px;color:#a4bca0;margin-bottom:10px">Loading QR code…</div>
           <div style="display:flex;gap:8px;justify-content:center">
-            <button id="syndicate-qr-refresh-btn" class="btn-action" style="font-size:11px">🔄 刷新二维码</button>
-            <button id="syndicate-browser-login-btn" class="btn-action" style="font-size:11px">🖥️ 打开浏览器窗口登录</button>
+            <button id="syndicate-qr-refresh-btn" class="btn-action" style="font-size:11px">🔄 Refresh QR code</button>
+            <button id="syndicate-browser-login-btn" class="btn-action" style="font-size:11px">🖥️ Sign in using a browser window</button>
           </div>
         </div>
       </div>
@@ -928,30 +928,30 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       <!-- 发布表单区域 -->
       <div id="syndicate-form-section">
         <div class="form-group">
-          <label class="form-label">发布标题 (自动适配各平台)</label>
+          <label class="form-label">Post title (adapted for each platform)</label>
           <input type="text" id="syndicate-input-title" class="form-input" maxlength="80" required placeholder="请输入视频发布标题">
         </div>
 
         <div class="form-group">
-          <label class="form-label">标签话题 (用逗号分隔，各平台自动匹配 #话题)</label>
+          <label class="form-label">Tags (comma-separated; adapted for each platform)</label>
           <input type="text" id="syndicate-input-tags" class="form-input" value="Suno,AI音乐,自制MV,宝藏音乐,音乐日记,治愈系">
         </div>
 
         <div class="form-group">
-          <label class="form-label">动态简介 / 歌词内容</label>
+          <label class="form-label">Description / lyrics</label>
           <textarea id="syndicate-input-desc" class="form-textarea" rows="3" placeholder="填写作品简介或歌词..."></textarea>
         </div>
 
         <div style="display:flex;gap:10px;margin-top:20px">
-          <button type="button" id="syndicate-btn-cancel" class="btn-action" style="flex:1">取消</button>
-          <button type="button" id="syndicate-btn-submit" class="btn-action btn-gradient-syndicate" style="flex:2">🚀 立即并发全网多发</button>
+          <button type="button" id="syndicate-btn-cancel" class="btn-action" style="flex:1">Cancel</button>
+          <button type="button" id="syndicate-btn-submit" class="btn-action btn-gradient-syndicate" style="flex:2">🚀 Publish to selected platforms</button>
         </div>
       </div>
 
       <!-- 进度监控区域 -->
       <div id="syndicate-progress-section" style="display:none;padding:12px 0">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <span style="font-size:14px;color:#fff;font-weight:600">全网并发分发进度</span>
+          <span style="font-size:14px;color:#fff;font-weight:600">Publishing progress</span>
           <span id="syndicate-overall-pct" style="font-size:13px;color:var(--accent);font-weight:700">0%</span>
         </div>
         <div class="progress-track" style="margin:6px 0 16px 0">
@@ -962,7 +962,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
           <!-- 实时展示每个平台的发布状态 -->
         </div>
 
-        <button type="button" id="syndicate-btn-done" class="btn-action primary" style="width:100%;margin-top:16px;display:none">完成关闭</button>
+        <button type="button" id="syndicate-btn-done" class="btn-action primary" style="width:100%;margin-top:16px;display:none">Done</button>
       </div>
     </div>
   </div>
@@ -972,19 +972,19 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
     <div class="bili-box">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <h3 style="margin:0;color:#fff;font-size:17px;display:flex;align-items:center;gap:8px">
-          <span style="color:#00aeec;font-size:20px">📺</span> 哔哩哔哩 · 一键发布视频
+          <span style="color:#00aeec;font-size:20px">📺</span> Bilibili · Publish video
         </h3>
         <button id="bili-close" class="modal-close" style="font-size:16px">✕</button>
       </div>
 
       <!-- 登录区 (未登录时显示) -->
       <div id="bili-login-section" style="display:none;text-align:center;padding:16px 0">
-        <p style="margin:0 0 14px 0;color:var(--text-muted);font-size:13px">请打开 <b>哔哩哔哩 手机客户端</b> 扫码登录授权</p>
+        <p style="margin:0 0 14px 0;color:var(--text-muted);font-size:13px">Open <b>the Bilibili mobile app</b> Scan to sign in</p>
         <div style="background:#fff;display:inline-block;padding:12px;border-radius:12px;margin-bottom:12px">
           <img id="bili-qr-img" src="" alt="B站登录二维码" style="width:180px;height:180px;display:block">
         </div>
-        <div id="bili-qr-status" style="font-size:13px;color:#a4bca0;margin-bottom:14px">正在加载登录二维码...</div>
-        <button id="bili-qr-refresh" class="btn-action" style="font-size:12px">🔄 刷新二维码</button>
+        <div id="bili-qr-status" style="font-size:13px;color:#a4bca0;margin-bottom:14px">Loading sign-in QR code…</div>
+        <button id="bili-qr-refresh" class="btn-action" style="font-size:12px">🔄 Refresh QR code</button>
       </div>
 
       <!-- 投稿表单区 (已登录时显示) -->
@@ -999,39 +999,39 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
             </div>
             <div id="bili-user-mid" style="font-size:11px;color:var(--text-muted);margin-top:2px">UID: -</div>
           </div>
-          <button id="bili-btn-logout" class="btn-action" style="font-size:11px;padding:4px 8px">退出登录</button>
+          <button id="bili-btn-logout" class="btn-action" style="font-size:11px;padding:4px 8px">Sign out</button>
         </div>
 
         <form id="bili-publish-form" onsubmit="return false">
           <div class="form-group">
-            <label class="form-label">稿件标题 (最大 80 字)</label>
+            <label class="form-label">Video title (up to 80 characters)</label>
             <input type="text" id="bili-input-title" class="form-input" maxlength="80" required placeholder="请输入视频标题">
           </div>
 
           <div style="display:flex;gap:12px">
             <div class="form-group" style="flex:1">
-              <label class="form-label">投稿分区 (TID)</label>
+              <label class="form-label">Category (TID)</label>
               <select id="bili-select-tid" class="form-select"></select>
             </div>
             <div class="form-group" style="flex:1">
-              <label class="form-label">发布来源</label>
+              <label class="form-label">Source</label>
               <div id="bili-video-source-label" style="font-size:12px;color:#a4bca0;padding:8px 12px;background:#090e08;border:1px solid #243422;border-radius:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
             </div>
           </div>
 
           <div class="form-group">
-            <label class="form-label">标签话题 (用逗号分隔)</label>
+            <label class="form-label">Tags (comma-separated)</label>
             <input type="text" id="bili-input-tags" class="form-input" value="Suno,AI音乐,音乐MV,原创音乐,音乐日记,华语流行">
           </div>
 
           <div class="form-group">
-            <label class="form-label">稿件简介 (Description)</label>
+            <label class="form-label">Video description</label>
             <textarea id="bili-input-desc" class="form-textarea" rows="3" placeholder="填写视频简介..."></textarea>
           </div>
 
           <div style="display:flex;gap:10px;margin-top:20px">
-            <button type="button" id="bili-btn-cancel" class="btn-action" style="flex:1">取消</button>
-            <button type="button" id="bili-btn-submit" class="btn-action bili-primary" style="flex:2">🚀 立即发布到 B站</button>
+            <button type="button" id="bili-btn-cancel" class="btn-action" style="flex:1">Cancel</button>
+            <button type="button" id="bili-btn-submit" class="btn-action bili-primary" style="flex:2">🚀 Publish to Bilibili</button>
           </div>
         </form>
       </div>
@@ -1039,7 +1039,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       <!-- 任务进度区 -->
       <div id="bili-progress-section" style="display:none;text-align:center;padding:28px 10px">
         <div style="font-size:32px;margin-bottom:12px">⏳</div>
-        <h4 id="bili-progress-msg" style="margin:0 0 12px 0;color:#fff;font-size:15px">正在准备投稿数据...</h4>
+        <h4 id="bili-progress-msg" style="margin:0 0 12px 0;color:#fff;font-size:15px">Preparing upload…</h4>
         <div class="progress-track">
           <div id="bili-progress-bar" class="progress-fill"></div>
         </div>
@@ -1049,24 +1049,24 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       <!-- 成功结果区 -->
       <div id="bili-success-section" style="display:none;text-align:center;padding:24px 10px">
         <div style="font-size:46px;margin-bottom:10px">🎉</div>
-        <h4 style="margin:0 0 6px 0;color:#fff;font-size:17px">投稿成功！已提交 B 站审核</h4>
-        <p style="margin:0 0 18px 0;color:var(--text-muted);font-size:13px">视频已正式上传并进入哔哩哔哩创作者中心</p>
+        <h4 style="margin:0 0 6px 0;color:#fff;font-size:17px">Uploaded and submitted for Bilibili review</h4>
+        <p style="margin:0 0 18px 0;color:var(--text-muted);font-size:13px">Your video is now in Bilibili Creator Center</p>
         
         <div style="background:#162015;border:1px solid #293826;border-radius:10px;padding:12px;margin-bottom:20px">
-          <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">稿件 BV 号</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">Video BV ID</div>
           <div id="bili-result-bvid" style="font-size:20px;font-weight:700;color:#00aeec;font-family:monospace"></div>
         </div>
 
         <div style="display:flex;gap:10px">
-          <button id="bili-btn-done" class="btn-action" style="flex:1">完成</button>
-          <a id="bili-btn-view" href="" target="_blank" class="btn-action bili-primary" style="flex:2;text-decoration:none;display:flex;align-items:center;justify-content:center">📺 在 B站 观看稿件</a>
+          <button id="bili-btn-done" class="btn-action" style="flex:1">Done</button>
+          <a id="bili-btn-view" href="" target="_blank" class="btn-action bili-primary" style="flex:2;text-decoration:none;display:flex;align-items:center;justify-content:center">📺 Watch on Bilibili</a>
         </div>
       </div>
     </div>
   </div>
 
   <!-- Toast 提示 -->
-  <div id="toast" class="toast">已复制到剪贴板</div>
+  <div id="toast" class="toast">Copied to clipboard</div>
 
   <script>
     const $ = (id) => document.getElementById(id);
@@ -1314,7 +1314,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
 
       $('btn-copy-url').onclick = () => {
         navigator.clipboard.writeText(playUrl).then(() => {
-          showToast('已复制视频播放直链！');
+          showToast('已复制Video playback直链！');
         });
       };
 
@@ -1679,7 +1679,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       const btn = $('syndicate-btn-submit');
       if (!btn) return;
       const count = selectedPlatforms.size;
-      btn.textContent = `🚀 立即并发全网多发 (已选 ${count} 个平台)`;
+      btn.textContent = `🚀 Publish to selected platforms (已选 ${count} 个平台)`;
       btn.disabled = count === 0;
     }
 
@@ -1690,7 +1690,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
 
       $('syndicate-qr-drawer').style.display = 'block';
       $('qr-drawer-title').textContent = `${p.icon} ${p.name} 扫码授权登录`;
-      $('qr-drawer-tip').textContent = `请打开 ${p.name} 手机客户端扫描屏幕二维码并确认登录`;
+      $('qr-drawer-tip').textContent = `Open ${p.name} 手机客户端扫描屏幕二维码并确认登录`;
       $('syndicate-qr-status').textContent = '正在获取最新登录二维码...';
       $('syndicate-qr-img').src = '';
 
@@ -1713,7 +1713,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
         }
 
         if (!data.success) {
-          $('syndicate-qr-status').innerHTML = '⚠️ 获取二维码失败: ' + (data.message || '网络超时') + '<br><span style="color:#888;font-size:11px">若已登录或提示过期，可点击右侧【🖥️ 打开浏览器窗口登录】</span>';
+          $('syndicate-qr-status').innerHTML = '⚠️ 获取二维码失败: ' + (data.message || '网络超时') + '<br><span style="color:#888;font-size:11px">若已登录或提示过期，可点击右侧【🖥️ Sign in using a browser window】</span>';
           return;
         }
 
@@ -1752,7 +1752,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
             } else if (pData.status === 'expired' || pData.code === 86038) {
               clearInterval(syndicateQrTimer);
               syndicateQrTimer = null;
-              $('syndicate-qr-status').textContent = '⌛ 二维码已过期，请点击下方 [🔄 刷新二维码]';
+              $('syndicate-qr-status').textContent = '⌛ 二维码已过期，请点击下方 [🔄 Refresh QR code]';
             } else if (pData.message) {
               $('syndicate-qr-status').textContent = pData.message;
             }

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>M2V — 卡拉OK视频生成器</title>
+  <title>M2V — Lyric Video Studio</title>
   <link rel="stylesheet" href="/dashboard.css?v=20261012_v2">
   <script>
     window.M2V_API_BASE = "https://lucazhou-suno2mv-api.hf.space";
@@ -14,32 +14,32 @@
   <!-- ========== 登录/注册弹窗 ========== -->
   <div id="auth-overlay" class="overlay">
     <div class="auth-card">
-      <h2 id="auth-title">🎤 M2V 登录</h2>
+      <h2 id="auth-title">🎤 Sign in to M2V</h2>
       <div class="google-auth-section" style="margin-bottom: 16px;">
         <button type="button" id="btn-google-login" class="btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; background: #fff; color: #3c4043; border: 1px solid #dadce0; border-radius: 6px; padding: 10px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgba(60,64,67,0.2);">
           <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/><path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.347 2.825.957 4.039l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z"/></svg>
-          Google 账号一键登录
+          Continue with Google
         </button>
         <div style="display: flex; align-items: center; margin: 14px 0 8px 0; color: #888;">
           <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.15);"></div>
-          <span style="padding: 0 10px; font-size: 12px; color: #aaa;">或使用邮箱密码</span>
+          <span style="padding: 0 10px; font-size: 12px; color: #aaa;">or use email and password</span>
           <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.15);"></div>
         </div>
       </div>
       <form id="auth-form">
-        <input id="auth-username" type="text" placeholder="显示名称" maxlength="128" autocomplete="username" style="display:none">
-        <input id="auth-email" type="email" placeholder="邮箱" required autocomplete="email">
-        <input id="auth-password" type="password" placeholder="密码 (至少6位)" minlength="6" required autocomplete="current-password">
-        <button type="submit" id="auth-submit">登录</button>
+        <input id="auth-username" type="text" placeholder="Display name" maxlength="128" autocomplete="username" style="display:none">
+        <input id="auth-email" type="email" placeholder="Email" required autocomplete="email">
+        <input id="auth-password" type="password" placeholder="Password (at least 6 characters)" minlength="6" required autocomplete="current-password">
+        <button type="submit" id="auth-submit">Sign in</button>
       </form>
-      <button type="button" id="auth-reset-password" class="btn btn-sm btn-outline">忘记密码</button>
+      <button type="button" id="auth-reset-password" class="btn btn-sm btn-outline">Forgot password?</button>
       <p class="auth-switch">
-        <span id="auth-toggle-text">没有账号？</span>
-        <a href="#" id="auth-toggle">去注册</a>
+        <span id="auth-toggle-text">New to M2V?</span>
+        <a href="#" id="auth-toggle">Create an account</a>
       </p>
       <div style="margin-top: 10px; font-size: 12px; text-align: center; color: #888;">
-        <span>后端服务: </span>
-        <a href="#" id="btn-config-api" style="color: #4285F4; text-decoration: underline;">配置 API 地址</a>
+        <span>Backend service: </span>
+        <a href="#" id="btn-config-api" style="color: #4285F4; text-decoration: underline;">Configure API address</a>
       </div>
       <p id="auth-error" class="error-text"></p>
     </div>
@@ -51,53 +51,53 @@
     <header>
       <div class="header-left">
         <h1>🎤 M2V</h1>
-        <span class="subtitle">卡拉OK视频生成器</span>
+        <span class="subtitle">Lyric Video Studio</span>
       </div>
       <div class="header-right">
         <span id="user-info"></span>
-        <button id="btn-edit-nickname" class="btn btn-sm btn-outline" title="修改显示昵称" style="padding: 2px 7px; font-size: 11px;">✏️ 昵称</button>
+        <button id="btn-edit-nickname" class="btn btn-sm btn-outline" title="Edit display name" style="padding: 2px 7px; font-size: 11px;">✏️ Name</button>
         <span id="user-credits" class="badge"></span>
-        <a href="/lyric-editor" target="_blank" class="btn btn-sm">📝 时间轴编辑器</a>
-        <button id="btn-copy-plugin-token" class="btn btn-sm btn-outline" title="复制插件登录 Token">📋 插件 Token</button>
-        <button id="btn-config-api-app" class="btn btn-sm btn-outline" title="设置后端 API 地址">⚙️ API</button>
-        <button id="btn-logout" class="btn btn-sm btn-outline">退出</button>
+        <a href="/lyric-editor" target="_blank" class="btn btn-sm">📝 Lyric Editor</a>
+        <button id="btn-copy-plugin-token" class="btn btn-sm btn-outline" title="Copy extension sign-in token">📋 Extension token</button>
+        <button id="btn-config-api-app" class="btn btn-sm btn-outline" title="Set backend API address">⚙️ API</button>
+        <button id="btn-logout" class="btn btn-sm btn-outline">Sign out</button>
       </div>
     </header>
 
     <!-- 创作区 (Suno 链接解析 / 本地文件上传) -->
     <section id="upload-section">
       <div class="upload-card">
-        <h2>🎵 创作卡拉OK MV</h2>
+        <h2>🎵 Create a lyric video</h2>
 
         <div class="mode-tabs">
-          <button type="button" class="tab-btn active" id="tab-suno">🔗 粘贴 Suno 链接</button>
-          <button type="button" class="tab-btn" id="tab-local">📁 本地文件上传</button>
+          <button type="button" class="tab-btn active" id="tab-suno">🔗 Suno link</button>
+          <button type="button" class="tab-btn" id="tab-local">📁 Upload files</button>
         </div>
 
         <!-- Mode 1: Suno 链接表单 -->
         <form id="suno-form">
           <div class="upload-field" style="margin-bottom: 1rem;">
-            <label for="input-suno-url">Suno 歌曲链接 (必填)</label>
-            <input type="url" id="input-suno-url" placeholder="例如: https://suno.com/song/xxx 或 https://suno.com/s/xxx" required style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
+            <label for="input-suno-url">Suno song link (required)</label>
+            <input type="url" id="input-suno-url" placeholder="https://suno.com/song/xxx or https://suno.com/s/xxx" required style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
           </div>
           <div class="upload-field" style="margin-bottom: 1rem;">
-            <label for="input-suno-title">歌名 (可选，留空将自动从 Suno 获取)</label>
-            <input type="text" id="input-suno-title" placeholder="歌曲名称" style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
+            <label for="input-suno-title">Song title (optional; fetched from Suno if blank)</label>
+            <input type="text" id="input-suno-title" placeholder="Song title" style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
           </div>
           <div class="upload-options">
-            <label><input type="checkbox" id="suno-opt-skip-sep"> 跳过人声分离</label>
-            <label><input type="checkbox" id="suno-opt-render-video"> 直接合成 MV 视频 (跳过歌词微调)</label>
-            <label><input type="checkbox" id="suno-opt-beat" checked> 节奏特征分析</label>
+            <label><input type="checkbox" id="suno-opt-skip-sep"> Skip vocal separation</label>
+            <label><input type="checkbox" id="suno-opt-render-video"> Render video immediately (skip lyric editing)</label>
+            <label><input type="checkbox" id="suno-opt-beat" checked> Analyze rhythm features</label>
             <select id="suno-opt-lang">
-              <option value="auto" selected>自动检测</option>
-              <option value="zh">中文</option>
-              <option value="en">英文</option>
-              <option value="ja">日文</option>
-              <option value="ko">韩文</option>
+              <option value="auto" selected>Auto-detect</option>
+              <option value="zh">Chinese</option>
+              <option value="en">English</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
             </select>
           </div>
           <button type="submit" id="btn-suno-submit" class="btn btn-primary" style="width:100%;">
-            ⚡ 导入并对齐歌词
+            ⚡ Import & align lyrics
           </button>
         </form>
 
@@ -105,38 +105,38 @@
         <form id="upload-form" style="display:none">
           <div class="upload-row">
             <div class="upload-field">
-              <label for="file-mp3">音频文件 (MP3/WAV)</label>
+              <label for="file-mp3">Audio file (MP3/WAV/FLAC)</label>
               <input type="file" id="file-mp3" accept=".mp3,.wav,.flac" required>
             </div>
             <div class="upload-field">
-              <label for="file-lyrics">歌词文件 (TXT/LRC)</label>
+              <label for="file-lyrics">Lyrics file (TXT/LRC)</label>
               <input type="file" id="file-lyrics" accept=".txt,.lrc" required>
             </div>
           </div>
           <div class="upload-row">
             <div class="upload-field">
-              <label for="local-song-title">歌名 (可选，默认使用文件名)</label>
-              <input type="text" id="local-song-title" placeholder="歌曲标题" style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
+              <label for="local-song-title">Song title (optional; defaults to filename)</label>
+              <input type="text" id="local-song-title" placeholder="Song title" style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
             </div>
             <div class="upload-field">
-              <label for="local-suno-url">Suno 原曲链接 (可选)</label>
+              <label for="local-suno-url">Original Suno link (optional)</label>
               <input type="url" id="local-suno-url" placeholder="https://suno.com/song/..." style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
             </div>
           </div>
           <div class="upload-options">
-            <label><input type="checkbox" id="opt-skip-sep"> 跳过人声分离 (已是纯人声)</label>
-            <label><input type="checkbox" id="opt-ass-only"> 只生成 ASS 字幕</label>
-            <label><input type="checkbox" id="opt-beat"> 节奏动画</label>
+            <label><input type="checkbox" id="opt-skip-sep"> Skip vocal separation (audio is already vocals only)</label>
+            <label><input type="checkbox" id="opt-ass-only"> Generate ASS subtitles only</label>
+            <label><input type="checkbox" id="opt-beat"> Beat effects</label>
             <select id="opt-lang">
-              <option value="auto" selected>自动检测</option>
-              <option value="zh">中文</option>
-              <option value="en">英文</option>
-              <option value="ja">日文</option>
-              <option value="ko">韩文</option>
+              <option value="auto" selected>Auto-detect</option>
+              <option value="zh">Chinese</option>
+              <option value="en">English</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
             </select>
           </div>
           <button type="submit" id="btn-upload" class="btn btn-primary" style="width:100%;">
-            🚀 上传并生成
+            🚀 Upload & generate
           </button>
         </form>
       </div>
@@ -145,12 +145,12 @@
     <!-- 任务列表 -->
     <section id="tasks-section">
       <div class="section-header">
-        <h2>📋 我的任务</h2>
-        <button id="btn-refresh" class="btn btn-sm">🔄 刷新</button>
+        <h2>📋 My projects</h2>
+        <button id="btn-refresh" class="btn btn-sm">🔄 Refresh</button>
       </div>
       <div id="tasks-list"></div>
       <div id="tasks-empty" class="empty-state" style="display:none">
-        <p>还没有任务，上传音频开始吧！</p>
+        <p>No projects yet. Import a Suno song or upload audio to get started.</p>
       </div>
     </section>
   </div>
@@ -159,7 +159,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="/static/cache.js?v=20261013_cache"></script>
-  <script src="/firebase-config.js?v=20261013_email"></script>
-  <script src="/dashboard.js?v=20261013_routes"></script>
+  <script src="/firebase-config.js?v=20261015_english"></script>
+  <script src="/dashboard.js?v=20261015_english"></script>
 </body>
 </html>

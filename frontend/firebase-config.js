@@ -20,9 +20,11 @@ if (typeof firebase !== "undefined" && !firebase.apps.length) {
 
 function firebaseAuth() {
   if (typeof firebase === "undefined" || !firebase.auth) {
-    throw new Error("登录服务尚未加载，请刷新页面后重试");
+    throw new Error("Sign-in is unavailable. Please refresh and try again.");
   }
-  return firebase.auth();
+  const auth = firebase.auth();
+  auth.languageCode = window.currentLocale === "zh" ? "zh-CN" : "en";
+  return auth;
 }
 
 async function saveFirebaseSession(user) {
@@ -58,7 +60,7 @@ window.m2vAuth = {
 
   async registerWithEmail(email, password, displayName) {
     const name = displayName.trim();
-    if (!name || name.length > 128) throw new Error("用户名需为 1–128 个字符");
+    if (!name || name.length > 128) throw new Error("Display name must contain 1–128 characters.");
     const result = await firebaseAuth().createUserWithEmailAndPassword(email, password);
     await result.user.updateProfile({ displayName: name });
     // Refresh so the first backend request sees the new name in the ID token.
@@ -72,18 +74,18 @@ window.m2vAuth = {
 
   errorMessage(error) {
     const messages = {
-      "auth/invalid-credential": "邮箱或密码错误",
-      "auth/user-not-found": "邮箱或密码错误",
-      "auth/wrong-password": "邮箱或密码错误",
-      "auth/email-already-in-use": "该邮箱已有账号，请登录或重置密码",
-      "auth/weak-password": "密码强度不足，请使用更长的密码",
-      "auth/invalid-email": "请输入有效邮箱",
-      "auth/user-disabled": "该账号已停用",
-      "auth/too-many-requests": "尝试次数过多，请稍后重试",
-      "auth/network-request-failed": "登录服务连接失败，请检查网络",
-      "auth/operation-not-allowed": "邮箱登录尚未启用，请联系管理员",
+      "auth/invalid-credential": "Incorrect email or password.",
+      "auth/user-not-found": "Incorrect email or password.",
+      "auth/wrong-password": "Incorrect email or password.",
+      "auth/email-already-in-use": "This email already has an account. Sign in or reset your password.",
+      "auth/weak-password": "Password is too weak. Use a longer password.",
+      "auth/invalid-email": "Enter a valid email address.",
+      "auth/user-disabled": "This account has been disabled.",
+      "auth/too-many-requests": "Too many attempts. Please try again later.",
+      "auth/network-request-failed": "Cannot connect to sign-in. Check your connection.",
+      "auth/operation-not-allowed": "Email sign-in is unavailable. Please contact support.",
     };
-    return messages[error.code] || error.message || "登录失败，请重试";
+    return messages[error.code] || error.message || "Sign-in failed. Please try again.";
   },
 
   /**
@@ -91,13 +93,13 @@ window.m2vAuth = {
    */
   async loginWithGoogle() {
     if (typeof firebase === "undefined" || !firebase.auth) {
-      throw new Error("Firebase Auth SDK 尚未加载");
+      throw new Error("The Firebase Auth SDK has not loaded.");
     }
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.addScope("profile");
     provider.addScope("email");
 
-    const result = await firebase.auth().signInWithPopup(provider);
+    const result = await firebaseAuth().signInWithPopup(provider);
     return saveFirebaseSession(result.user);
   },
 

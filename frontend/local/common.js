@@ -41,7 +41,7 @@ function updateAuthUi() {
   } catch (_) {}
 
   if (token) {
-    if (info) info.textContent = user?.displayName || user?.email || "👤 已登录";
+    if (info) info.textContent = user?.displayName || user?.email || "👤 Signed in";
     if (!user || !user.displayName) {
       apiFetch("/api/auth/me")
         .then(r => r.ok ? r.json() : null)
@@ -53,7 +53,7 @@ function updateAuthUi() {
               email: u.email,
             };
             localStorage.setItem("m2v_user", JSON.stringify(userData));
-            if (info) info.textContent = userData.displayName || "👤 已登录";
+            if (info) info.textContent = userData.displayName || "👤 Signed in";
           }
         })
         .catch(() => {});
@@ -84,7 +84,7 @@ function updateAuthUi() {
           updateAuthUi();
           await loadFileList();
         } catch (e) {
-          alert("登录失败: " + e.message);
+          alert("Sign-in failed: " + e.message);
         }
       } else {
         window.location.href = "/";
@@ -423,7 +423,7 @@ async function loadFileList(preferredTitle) {
       const r = await apiFetch("/api/editor/songs");
       if (r.status === 401) {
         if (dom.songSelect) {
-          dom.songSelect.innerHTML = `<option value="">未登录，请先登录云端</option>`;
+          dom.songSelect.innerHTML = `<option value="">Sign in to view your projects</option>`;
         }
         status(window.t ? t("msg_login_required") : "云端模式需要登录，请点击右上角登录", true);
         return;
@@ -638,71 +638,6 @@ async function loadSong(idx) {
 }
 
 // ---------------------------------------------------------------------------
-// Suno URL 10-Item Local History
-// ---------------------------------------------------------------------------
-const DEFAULT_URL_HISTORY = [
-  "https://suno.com/s/toVdvY4vNA3pRYbG", // Tailwind
-  "https://suno.com/s/3PeLT56j07K4vjk8", // Circus in my head
-  "https://suno.com/s/eNqSlezWB2i53tD3", // Road Closed, Door Open
-  "https://suno.com/s/gLAkLu9fiymSb0eV", // Look Up·抬头看
-];
-
-function getSunoUrlHistory() {
-  try {
-    const raw = localStorage.getItem("suno_url_history_v1");
-    if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr) && arr.length > 0) return arr.slice(0, 10);
-    }
-  } catch (e) {}
-  return [...DEFAULT_URL_HISTORY];
-}
-
-function saveSunoUrlHistory(url) {
-  if (!url || typeof url !== "string") return;
-  const clean = url.trim();
-  if (!clean || clean.length < 5) return;
-  try {
-    const history = getSunoUrlHistory().filter((u) => u !== clean);
-    history.unshift(clean);
-    const top10 = history.slice(0, 10);
-    localStorage.setItem("suno_url_history_v1", JSON.stringify(top10));
-    renderSunoUrlHistory(top10);
-  } catch (e) {}
-}
-
-function renderSunoUrlHistory(list) {
-  const history = list || getSunoUrlHistory();
-  const datalist = document.getElementById("suno-url-history");
-  if (datalist) {
-    datalist.innerHTML = history.map((u) => `<option value="${u}"></option>`).join("");
-  }
-  const select = document.getElementById("suno-url-history-select");
-  if (select) {
-    const defaultLabel = window.t ? t("url_history_default") : "🕒 最近历史";
-    const options = [
-      `<option value="" data-i18n="url_history_default">${defaultLabel} (10条)</option>`,
-      ...history.map((u, i) => {
-        let label = u;
-        if (u.includes("toVdvY4vNA3pRYbG")) label = window.currentLocale === "en" ? "Tailwind (Bilingual/Solo)" : "Tailwind (双语/吉他Solo)";
-        else if (u.includes("3PeLT56j07K4vjk8")) label = window.currentLocale === "en" ? "Circus (Fast/Breathing)" : "Circus (快歌/气口)";
-        else if (u.includes("eNqSlezWB2i53tD3")) label = window.currentLocale === "en" ? "Road Closed (Outro repeat)" : "Road Closed (尾奏复唱)";
-        else if (u.includes("gLAkLu9fiymSb0eV")) label = window.currentLocale === "en" ? "Look Up (Whistling)" : "Look Up (口哨间奏)";
-        else {
-          label = u.replace(/^https?:\/\/(www\.)?/, "");
-          if (label.length > 30) label = label.slice(0, 27) + "...";
-        }
-        return `<option value="${u}">#${i + 1} ${label}</option>`;
-      }),
-    ];
-    select.innerHTML = options.join("");
-  }
-}
-window.getSunoUrlHistory = getSunoUrlHistory;
-window.saveSunoUrlHistory = saveSunoUrlHistory;
-window.renderSunoUrlHistory = renderSunoUrlHistory;
-
-// ---------------------------------------------------------------------------
 // Suno One-Click Import
 // ---------------------------------------------------------------------------
 async function handleSunoImport() {
@@ -716,27 +651,26 @@ async function handleSunoImport() {
     alert(window.t ? t("msg_enter_valid_url") : "请输入有效的 Suno / 网易云歌曲链接、iframe 代码或歌曲 ID");
     return;
   }
-  saveSunoUrlHistory(url);
 
   // 云端模式下的登录凭据前置检查
   if (isCloudMode()) {
     const token = localStorage.getItem("m2v_token");
     if (!token) {
       if (window.m2vAuth?.loginWithGoogle) {
-        const proceed = confirm("云端对齐需要登录以隔离您的工程任务，是否立即使用 Google 账号登录？");
+        const proceed = confirm("Sign in with Google to keep your projects private and align this song?");
         if (proceed) {
           try {
             await editorLogin();
             updateAuthUi();
           } catch (authErr) {
-            alert("登录已取消或失败: " + authErr.message);
+            alert("Sign-in cancelled or failed: " + authErr.message);
             return;
           }
         } else {
           return;
         }
       } else {
-        alert("云端模式需要先登录账号，请返回首页登录后再进行导入");
+        alert("Sign in on the home page before importing a song.");
         return;
       }
     }
@@ -813,7 +747,7 @@ async function handleSunoImport() {
           continue;
         }
         if (!pollRes.ok) {
-          if (pollRes.status === 401) throw new Error("登录会话已过期，请重新登录");
+          if (pollRes.status === 401) throw new Error("Your session expired. Please sign in again.");
           continue;
         }
         pollTask = await pollRes.json();
@@ -959,7 +893,6 @@ async function downloadOriginalAudio() {
   );
 
   if (isImportUrl) {
-    saveSunoUrlHistory(rawUrl);
     const isNetEase = rawUrl.includes("163.com") || rawUrl.includes("163cn.tv") || rawUrl.includes("<iframe") || /^\d{5,}$/.test(rawUrl);
     status(isNetEase ? "⏳ [1/2] 正在连接网易云音乐解析歌曲音频..." : "⏳ [1/2] 正在连接 Suno 解析歌曲信息与歌词...");
     let dlUrl = `/api/suno/download_mp3?url=${encodeURIComponent(rawUrl)}`;
@@ -1286,7 +1219,8 @@ window.escapeHtml = escapeHtml;
 window.renderLineCharSpans = renderLineCharSpans;
 
 window.addEventListener("DOMContentLoaded", () => {
-  renderSunoUrlHistory();
+  // Remove obsolete URL history; saved projects are the source of song history.
+  try { localStorage.removeItem("suno_url_history_v1"); } catch (_) {}
   updateAuthUi();
   setupEditorAuth();
 
@@ -1299,7 +1233,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const titleEl = document.querySelector("header h1");
   if (titleEl) {
     titleEl.style.cursor = "pointer";
-    titleEl.title = window.t ? t("header_title_title") : "三击标题可显示/隐藏开发者调试选项（含音频分析、分镜制作与URL测试历史）";
+    titleEl.title = window.t ? t("header_title_title") : "三击标题可显示/隐藏开发者调试选项（音频分析、分镜制作）";
     titleEl.addEventListener("click", () => {
       clickCount++;
       clearTimeout(clickTimer);
@@ -1373,7 +1307,6 @@ function updateAudioAnalysisSummary() {
 }
 
 window.addEventListener("languagechange", () => {
-  if (typeof renderSunoUrlHistory === "function") renderSunoUrlHistory();
   updateAudioAnalysisSummary();
   if (ws) updatePlayPauseBtn(ws.isPlaying());
   const titleEl = document.querySelector("header h1");
@@ -1392,11 +1325,6 @@ function checkAndApplyDevMode() {
                 params.get("debug") === "1" ||
                 params.get("mode") === "dev" ||
                 localStorage.getItem("suno2mv_dev_mode") === "true";
-
-  const devOpt = document.getElementById("suno-dev-options");
-  if (devOpt) {
-    devOpt.style.display = isDev ? "inline-flex" : "none";
-  }
 
   // 分析音频与分镜制作（Debug 模式，默认隐藏，三击标题显示）
   const analyzeBtn = document.getElementById("btn-analyze-audio");
@@ -1432,7 +1360,7 @@ window.toggleDevMode = function(forceState) {
   console.log(`[Suno2MV] 开发者调试模式已${next ? "开启" : "关闭"}`);
   if (typeof status === "function") {
     status(next
-      ? (window.t ? t("msg_dev_enabled") : "🛠 已开启开发者调试模式（已显示 分析音频、分镜制作及测试历史）")
+      ? (window.t ? t("msg_dev_enabled") : "🛠 已开启开发者调试模式（已显示音频分析、分镜制作）")
       : (window.t ? t("msg_dev_disabled") : "🛠 已隐藏开发者调试选项"));
   }
   return next;

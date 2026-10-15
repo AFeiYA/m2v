@@ -97,7 +97,7 @@ async function api(path, options = {}) {
   const contentType = res.headers.get("content-type") || "";
   if (contentType.includes("text/html")) {
     console.error("[M2V] API 返回了 HTML 静态页面而非 JSON:", url, res.status);
-    throw new Error(`后端 API 尚未连通：请求目标 [${url}] 返回了静态页面，请确认后端服务运行状态。`);
+    throw new Error(`Cannot connect to the backend: [${url}] returned an HTML page. Check the backend service.`);
   }
 
   if (res.status === 401) {
@@ -172,7 +172,7 @@ function initAuth() {
       $("#auth-error").textContent = "";
       try {
         if (!window.m2vAuth) {
-          throw new Error("Firebase 授权服务初始化中，请稍候");
+          throw new Error("Authentication is starting. Please try again shortly.");
         }
         const { user, idToken } = await window.m2vAuth.loginWithGoogle();
         token = idToken;
@@ -187,21 +187,21 @@ function initAuth() {
           showApp();
         } else {
           logout();
-          throw new Error(userLoadError || "云端用户身份校验未通过，请重试");
+          throw new Error(userLoadError || "Account verification failed. Please try again.");
         }
       } catch (err) {
         console.error("Google 登录异常:", err);
-        $("#auth-error").textContent = err.message || "Google 登录失败，请重试";
+        $("#auth-error").textContent = err.message || "Google sign-in failed. Please try again.";
       }
     });
   }
 
   $("#auth-reset-password")?.addEventListener("click", async () => {
     const email = $("#auth-email").value.trim();
-    if (!email) { $("#auth-error").textContent = "请先填写邮箱"; return; }
+    if (!email) { $("#auth-error").textContent = "Enter your email address first."; return; }
     try {
       await window.m2vAuth.resetPassword(email);
-      $("#auth-error").textContent = "若该邮箱已注册，你将收到密码重置邮件。";
+      $("#auth-error").textContent = "If an account exists for this email, you will receive a password reset email.";
     } catch (error) {
       $("#auth-error").textContent = window.m2vAuth?.errorMessage(error) || error.message;
     }
@@ -222,7 +222,7 @@ function initAuth() {
     const username = $("#auth-username").value.trim();
 
     try {
-      if (!window.m2vAuth) throw new Error("登录服务尚未加载，请刷新页面后重试");
+      if (!window.m2vAuth) throw new Error("Sign-in is unavailable. Please refresh and try again.");
       const result = isLoginMode
         ? await window.m2vAuth.loginWithEmail(email, password)
         : await window.m2vAuth.registerWithEmail(email, password, username);
@@ -234,7 +234,7 @@ function initAuth() {
       localStorage.setItem("m2v_token", token);
       syncAuthCookie(token);
       if (await loadUser()) showApp();
-      else throw new Error(userLoadError || "无法读取账户信息，请重试");
+      else throw new Error(userLoadError || "Unable to load your account. Please try again.");
     } catch (error) {
       $("#auth-error").textContent = window.m2vAuth?.errorMessage(error) || error.message;
     }
@@ -243,18 +243,18 @@ function initAuth() {
 
 function updateAuthUI() {
   if (isLoginMode) {
-    $("#auth-title").textContent = "🎤 M2V 登录";
-    $("#auth-submit").textContent = "登录";
-    $("#auth-toggle-text").textContent = "没有账号？";
-    $("#auth-toggle").textContent = "去注册";
+    $("#auth-title").textContent = "🎤 Sign in to M2V";
+    $("#auth-submit").textContent = "Sign in";
+    $("#auth-toggle-text").textContent = "New to M2V?";
+    $("#auth-toggle").textContent = "Create an account";
     $("#auth-username").style.display = "none";
     $("#auth-username").required = false;
     $("#auth-password").autocomplete = "current-password";
   } else {
-    $("#auth-title").textContent = "🎤 M2V 注册";
-    $("#auth-submit").textContent = "注册";
-    $("#auth-toggle-text").textContent = "已有账号？";
-    $("#auth-toggle").textContent = "去登录";
+    $("#auth-title").textContent = "🎤 Create your M2V account";
+    $("#auth-submit").textContent = "Create account";
+    $("#auth-toggle-text").textContent = "Already have an account?";
+    $("#auth-toggle").textContent = "Sign in";
     $("#auth-username").style.display = "";
     $("#auth-username").required = true;
     $("#auth-password").autocomplete = "new-password";
@@ -328,7 +328,7 @@ async function loadUser() {
       currentUser = await res.json();
       const displayName = currentUser.display_name || currentUser.username;
       $("#user-info").textContent = `👤 ${displayName}`;
-      $("#user-credits").textContent = `剩余 ${currentUser.credits} 次`;
+      $("#user-credits").textContent = `${currentUser.credits} credits remaining`;
       localStorage.setItem("m2v_user", JSON.stringify({
         id: currentUser.id,
         displayName: displayName,
@@ -337,10 +337,10 @@ async function loadUser() {
       return true;
     }
     userLoadError = res.status >= 500
-      ? `后端读取账户信息失败（HTTP ${res.status}），请检查云端数据库与服务日志`
-      : `云端用户身份校验未通过（HTTP ${res.status}），请重新登录`;
+      ? `Unable to load account (HTTP ${res.status}). Check the backend database and service logs.`
+      : `Account verification failed (HTTP ${res.status}). Please sign in again.`;
   } catch (e) {
-    userLoadError = `无法读取云端账户信息：${e.message}`;
+    userLoadError = `Unable to load account: ${e.message}`;
     console.error("[M2V] 加载用户信息失败:", e);
   }
   currentUser = null;
@@ -383,7 +383,7 @@ function initUpload() {
 
       const btn = $("#btn-suno-submit");
       btn.disabled = true;
-      btn.textContent = "⏳ 解析 Suno 歌曲与音频…";
+      btn.textContent = "⏳ Importing Suno song and audio…";
 
       try {
         const renderVideo = $("#suno-opt-render-video") ? $("#suno-opt-render-video").checked : false;
@@ -403,19 +403,19 @@ function initUpload() {
 
         if (res.ok) {
           const data = await res.json();
-          showStatus(data.message || `✅ 任务已创建: ${data.task_id.slice(0, 8)}…`);
+          showStatus(data.message || `✅ Project created: ${data.task_id.slice(0, 8)}…`);
           sunoForm.reset();
           loadTasks();
           connectProgressWS(data.task_id);
         } else {
           const err = await res.json();
-          showStatus(`❌ ${err.detail || "创建任务失败"}`, true);
+          showStatus(`❌ ${err.detail || "Unable to create project"}`, true);
         }
       } catch (err) {
-        showStatus(`❌ ${err.message || "网络错误"}`, true);
+        showStatus(`❌ ${err.message || "Network error"}`, true);
       } finally {
         btn.disabled = false;
-        btn.textContent = "✨ 解析 Suno 并生成 MV";
+        btn.textContent = "⚡ Import & align lyrics";
       }
     });
   }
@@ -431,7 +431,7 @@ function initUpload() {
 
       const btn = $("#btn-upload");
       btn.disabled = true;
-      btn.textContent = "⏳ 上传中…";
+      btn.textContent = "⏳ Uploading…";
 
       const form = new FormData();
       form.append("mp3", mp3File);
@@ -457,20 +457,20 @@ function initUpload() {
 
         if (res.ok) {
           const data = await res.json();
-          showStatus(`✅ 任务已创建: ${data.task_id.slice(0, 8)}…`);
+          showStatus(`✅ Project created: ${data.task_id.slice(0, 8)}…`);
           uploadForm.reset();
           loadTasks();
           // 连接 WebSocket 监听进度
           connectProgressWS(data.task_id);
         } else {
           const err = await res.json();
-          showStatus(`❌ ${err.detail || "上传失败"}`, true);
+          showStatus(`❌ ${err.detail || "Upload failed"}`, true);
         }
       } catch (e) {
-        showStatus("❌ 网络错误", true);
+        showStatus("❌ Network error", true);
       } finally {
         btn.disabled = false;
-        btn.textContent = "🚀 上传并生成";
+        btn.textContent = "🚀 Upload & generate";
       }
     });
   }
@@ -506,21 +506,21 @@ async function loadTasks() {
 
 function renderTask(task) {
   const statusMap = {
-    pending: "⏳ 等待中",
-    processing: "🔄 处理中",
-    completed: "✅ 已完成",
-    failed: "❌ 失败",
+    pending: "⏳ Queued",
+    processing: "🔄 Processing",
+    completed: "✅ Completed",
+    failed: "❌ Failed",
   };
 
   const stepMap = {
-    queued: "排队中",
-    preprocessing: "歌词预处理",
-    separating: "人声分离",
-    aligning: "词级对齐",
-    subtitle: "字幕生成",
-    compositing: "视频合成",
-    done: "完成",
-    error: "错误",
+    queued: "Queued",
+    preprocessing: "Preparing lyrics",
+    separating: "Separating vocals",
+    aligning: "Aligning words",
+    subtitle: "Generating subtitles",
+    compositing: "Rendering video",
+    done: "Done",
+    error: "Error",
   };
 
   const statusText = statusMap[task.status] || task.status;
@@ -540,24 +540,24 @@ function renderTask(task) {
   let actions = "";
   if (task.status === "completed") {
     if (task.output_mp4_key) {
-      actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="mp4">📹 下载 MP4</button>`;
+      actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="mp4">📹 Download MP4</button>`;
     }
     if (task.output_ass_key) {
-      actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="ass">📄 下载 ASS</button>`;
+      actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="ass">📄 Download ASS</button>`;
     }
     if (task.alignment_json_key) {
-      actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="alignment">📊 下载 JSON</button>`;
-      actions += `<a class="btn btn-sm" href="/lyric-editor/${task.id}" target="_blank">✏️ 编辑时间轴</a>`;
+      actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="alignment">📊 Download JSON</button>`;
+      actions += `<a class="btn btn-sm" href="/lyric-editor/${task.id}" target="_blank">✏️ Edit lyrics</a>`;
     }
   }
   if (task.status === "failed" && task.error_message) {
-    actions += `<span class="error-text" title="${escapeHtml(task.error_message)}">💬 查看错误</span>`;
+    actions += `<span class="error-text" title="${escapeHtml(task.error_message)}">💬 View error</span>`;
   }
   actions += `<button class="btn btn-sm btn-danger" data-action="delete" data-task="${task.id}">🗑️</button>`;
 
-  const displayTitle = task.song_title || task.title || "未命名";
+  const displayTitle = task.song_title || task.title || "Untitled";
   const sunoLink = task.suno_url
-    ? `<div class="task-suno-link"><a href="${escapeHtml(task.suno_url)}" target="_blank" rel="noopener noreferrer">🔗 原曲 Suno 页面</a></div>`
+    ? `<div class="task-suno-link"><a href="${escapeHtml(task.suno_url)}" target="_blank" rel="noopener noreferrer">🔗 Original song on Suno</a></div>`
     : "";
 
   return `
@@ -569,7 +569,7 @@ function renderTask(task) {
       ${sunoLink}
       ${progressBar}
       <div class="task-meta">
-        <span>创建: ${date}</span>
+        <span>Created: ${date}</span>
       </div>
       <div class="task-actions">${actions}</div>
     </div>
@@ -584,7 +584,7 @@ async function handleTaskAction(e) {
   if (action === "download") {
     const type = btn.dataset.type;
     const originalText = btn.textContent;
-    btn.textContent = "下载中...";
+    btn.textContent = "Downloading...";
     btn.disabled = true;
     try {
       const res = await api(`/api/tasks/${taskId}/download/${type}`);
@@ -610,13 +610,13 @@ async function handleTaskAction(e) {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
     } catch (err) {
-      alert(`下载失败: ${err.message}`);
+      alert(`Download failed: ${err.message}`);
     } finally {
       btn.textContent = originalText;
       btn.disabled = false;
     }
   } else if (action === "delete") {
-    if (!confirm("确定删除此任务？")) return;
+    if (!confirm("Delete this project?")) return;
     const res = await api(`/api/tasks/${taskId}`, { method: "DELETE" });
     if (res.ok) loadTasks();
   }
@@ -730,19 +730,19 @@ function initApiConfig() {
     let label = "";
     try {
       const u = new URL(cur);
-      label = `服务: ${u.host}`;
+      label = `Service: ${u.host}`;
     } catch (e) {
-      label = cur ? `服务: ${cur}` : "未配置 (点击设置)";
+      label = cur ? `Service: ${cur}` : "Not configured (click to set up)";
     }
     if (el) el.textContent = label;
-    if (elApp) elApp.title = `后端 API: ${cur}`;
+    if (elApp) elApp.title = `Backend API: ${cur}`;
   };
 
   const configure = (e) => {
     e?.preventDefault();
     const current = localStorage.getItem("m2v_api_base") || API;
     const input = prompt(
-      "请输入 Python 后端 API 服务地址：\n(留空恢复默认: " + getDefaultApi() + ")",
+      "Enter the Python backend API address:\n(Leave blank for the default: " + getDefaultApi() + ")",
       current
     );
     if (input !== null) {
@@ -780,7 +780,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     btnEditNickname.addEventListener("click", async () => {
       if (!currentUser) return;
       const currentName = currentUser.display_name || currentUser.username || "";
-      const newName = prompt("请输入新的显示昵称（不超过64个字符）：", currentName);
+      const newName = prompt("Enter your display name (up to 64 characters):", currentName);
       if (newName === null) return;
       const trimmed = newName.trim();
       try {
@@ -798,13 +798,13 @@ document.addEventListener("DOMContentLoaded", async () => {
             displayName: displayName,
             email: currentUser.email,
           }));
-          alert("昵称修改成功！");
+          alert("Display name updated.");
         } else {
           const err = await res.json().catch(() => ({}));
-          alert("修改昵称失败: " + (err.detail || "请求异常"));
+          alert("Unable to update display name: " + (err.detail || "Request failed"));
         }
       } catch (err) {
-        alert("修改昵称失败: " + err.message);
+        alert("Unable to update display name: " + err.message);
       }
     });
   }
@@ -815,18 +815,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     btnCopyToken.addEventListener("click", async () => {
       const activeToken = token || localStorage.getItem("m2v_token");
       if (!activeToken) {
-        alert("请先登录后再复制插件 Token");
+        alert("Sign in before copying your extension token.");
         return;
       }
       try {
         await navigator.clipboard.writeText(activeToken);
         const originalText = btnCopyToken.textContent;
-        btnCopyToken.textContent = "✅ 已复制 Token";
+        btnCopyToken.textContent = "✅ Token copied";
         setTimeout(() => {
           btnCopyToken.textContent = originalText;
         }, 2000);
       } catch (err) {
-        prompt("请手动复制您的 Token：", activeToken);
+        prompt("Copy your token:", activeToken);
       }
     });
   }

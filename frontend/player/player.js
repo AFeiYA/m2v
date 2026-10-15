@@ -97,7 +97,7 @@
     activeLineIndex = -1;
 
     songTitle.textContent = songName;
-    songSubtitle.textContent = '加载中…';
+    songSubtitle.textContent = 'Loading…';
 
     try {
       // Fetch alignment JSON
@@ -121,7 +121,7 @@
       processStoryboard(alignmentData, songName, songMeta);
 
       const lineCount = alignmentData.lines.filter(l => l.text.trim() !== '...' && l.text.trim() !== '').length;
-      songSubtitle.textContent = `${lineCount} 行歌词 · 逐字过光`;
+      songSubtitle.textContent = `${lineCount} lyric lines · Word highlighting`;
 
       // Audio events
       audio.addEventListener('loadedmetadata', () => {
@@ -136,7 +136,7 @@
       // Start render loop
       startRenderLoop();
     } catch (e) {
-      songSubtitle.textContent = `加载失败: ${e.message}`;
+      songSubtitle.textContent = `Unable to load: ${e.message}`;
     }
   }
 

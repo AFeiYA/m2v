@@ -27,10 +27,10 @@ test('expired Firebase tokens refresh once before retrying',async()=>{
 });
 test('HTML service errors do not become JSON SyntaxError',async()=>{
   const s=setup({responses:[new Response('<!doctype html>',{status:404,headers:{'Content-Type':'text/html'}})]});
-  await assert.rejects(s.api.motionJson('projects'),/非 JSON.*404/);
+  await assert.rejects(s.api.motionJson('projects'),/non-JSON.*404/);
 });
 test('missing login prevents anonymous cloud directory access',async()=>{
-  const s=setup({token:null});await assert.rejects(s.api.motionJson('projects'),/请先在首页登录/);
+  const s=setup({token:null});await assert.rejects(s.api.motionJson('projects'),/Sign in on the home page/);
   assert.equal(s.calls.length,0);
 });
 test('external media never receives the account credential',async()=>{
@@ -65,9 +65,9 @@ test('Motion audio persists across calls and invalidates by audio version, not l
 test('cached Motion audio is unavailable after logout or switching users',async()=>{
  const s=audioSetup();await s.api.serviceAudio('/api/editor/tasks/a/audio','a',{uid:'alice',version:'v1'});
  s.switchUser('bob');
- await assert.rejects(s.api.serviceAudio('/api/editor/tasks/a/audio','a',{uid:'alice',version:'v1'}),/账号已切换/);
+ await assert.rejects(s.api.serviceAudio('/api/editor/tasks/a/audio','a',{uid:'alice',version:'v1'}),/Account changed/);
  s.switchUser(null);
- await assert.rejects(s.api.serviceAudio('/api/editor/tasks/a/audio','a',{uid:'alice',version:'v1'}),/登录/);
+ await assert.rejects(s.api.serviceAudio('/api/editor/tasks/a/audio','a',{uid:'alice',version:'v1'}),/Sign in/);
  assert.equal(s.calls.length,1);
 });
 test('Bob cannot hit Alice audio cache even with an identical task and version',async()=>{

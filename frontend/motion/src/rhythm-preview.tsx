@@ -18,7 +18,7 @@ export class RhythmPreview {
         canvas.hidden = true;
         canvas.parentElement!.append(this.host);
         this.root = createRoot(this.host);
-        this.root.render(<Player ref={this.ref} component={RhythmVideo} inputProps={{ project, options, rhythm }} durationInFrames={Math.max(1, Math.ceil(project.duration * 30))} compositionWidth={width} compositionHeight={height} fps={30} initialFrame={this.latest} controls={false} clickToPlay={false} spaceKeyToPlayOrPause={false} style={{ width: '100%', height: '100%' }} errorFallback={({ error }) => <div role="alert" style={{ padding: 30, color: '#fca5a5' }}>3D 预览不可用：{error.message}。请检查浏览器 WebGL2 支持。</div>}/>);
+        this.root.render(<Player ref={this.ref} component={RhythmVideo} inputProps={{ project, options, rhythm }} durationInFrames={Math.max(1, Math.ceil(project.duration * 30))} compositionWidth={width} compositionHeight={height} fps={30} initialFrame={this.latest} controls={false} clickToPlay={false} spaceKeyToPlayOrPause={false} style={{ width: '100%', height: '100%' }} errorFallback={({ error }) => <div role="alert" style={{ padding: 30, color: '#fca5a5' }}>3D preview unavailable: {error.message}. Check WebGL2 support in your browser.</div>}/>);
         const ready = () => { if (this.ref.current)
             this.ref.current.seekTo(this.latest);
         else

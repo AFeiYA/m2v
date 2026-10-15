@@ -8,10 +8,8 @@ const I18N = {
     // App & Header
     app_title: "M2V 歌词与字幕对齐编辑器",
     header_title: "🎤 M2V 歌词",
-    header_title_title: "三击标题可显示/隐藏开发者调试选项（含音频分析、分镜制作与URL测试历史）",
+    header_title_title: "三击标题可显示/隐藏开发者调试选项（音频分析、分镜制作）",
     url_placeholder: "粘贴 Suno / 网易云歌曲链接或 iframe...",
-    url_history_title: "最近 10 条测试 URL 历史记录",
-    url_history_default: "🕒 最近历史",
     chk_sep_title: "勾选：提取纯人声干音，适合流行/摇滚/电音等复杂伴奏，100%防止漏词跳句；取消勾选：极速模式直接对齐原曲",
     chk_sep_label: "分离伴奏",
     chk_gpu_title: "勾选：优先调用 GPU 硬件加速 (云端 ZeroGPU A100 / 本地 MPS)；取消勾选：使用 CPU 运行",
@@ -198,7 +196,7 @@ const I18N = {
     msg_no_undo: "无可撤销操作",
     msg_redone: "已重做",
     msg_no_redo: "无可重做操作",
-    msg_dev_enabled: "🛠 已开启开发者调试模式（包含URL测试历史）",
+    msg_dev_enabled: "🛠 已开启开发者调试模式（音频分析、分镜制作）",
     msg_dev_disabled: "🛠 已隐藏开发者调试选项",
     msg_select_song_first: "请先选择歌曲",
     msg_analyzing_audio: "正在分析原曲节拍、能量和频段变化…",
@@ -416,10 +414,8 @@ const I18N = {
     // App & Header
     app_title: "M2V Lyrics & Subtitle Alignment Editor",
     header_title: "🎤 M2V Lyrics",
-    header_title_title: "Triple-click title to toggle developer options (audio analysis, storyboard & URL history)",
+    header_title_title: "Triple-click title to toggle developer options (audio analysis and storyboard)",
     url_placeholder: "Paste Suno / NetEase song link or iframe...",
-    url_history_title: "Recent 10 test URL history items",
-    url_history_default: "🕒 Recent History",
     chk_sep_title: "Checked: Isolate vocal stem (avoids missing words in complex music); Unchecked: Fast mode direct alignment",
     chk_sep_label: "Separate Stems",
     chk_gpu_title: "Checked: GPU hardware acceleration (ZeroGPU A100 / Local MPS); Unchecked: CPU mode",
@@ -606,7 +602,7 @@ const I18N = {
     msg_no_undo: "Nothing to undo",
     msg_redone: "Redone",
     msg_no_redo: "Nothing to redo",
-    msg_dev_enabled: "🛠 Developer debug mode enabled (with URL history)",
+    msg_dev_enabled: "🛠 Developer debug mode enabled (audio analysis and storyboard)",
     msg_dev_disabled: "🛠 Developer debug options hidden",
     msg_select_song_first: "Please select a song first",
     msg_analyzing_audio: "Analyzing audio beats, BPM & frequency envelopes…",
@@ -825,13 +821,11 @@ const I18N = {
 // Locale State & Helper Functions
 // ---------------------------------------------------------------------------
 
-let currentLocale = "zh";
+let currentLocale = "en";
 try {
   const saved = localStorage.getItem("m2v_locale");
   if (saved === "en" || saved === "zh") {
     currentLocale = saved;
-  } else if (navigator.language && navigator.language.toLowerCase().startsWith("en")) {
-    currentLocale = "en";
   }
 } catch (e) {}
 
@@ -842,8 +836,8 @@ window.currentLocale = currentLocale;
  * Supports parameter interpolation: t("msg_all_ready", null, { name: "test", count: 10 })
  */
 function t(key, fallback = "", params = null) {
-  const loc = window.currentLocale || "zh";
-  let str = I18N[loc]?.[key] ?? I18N["zh"]?.[key] ?? fallback ?? key;
+  const loc = window.currentLocale || "en";
+  let str = I18N[loc]?.[key] ?? I18N["en"]?.[key] ?? fallback ?? key;
   if (params && typeof params === "object") {
     for (const [k, v] of Object.entries(params)) {
       str = str.replace(new RegExp(`\\{${k}\\}`, "g"), v);
@@ -857,7 +851,7 @@ window.t = t;
  * Apply translations to all DOM elements marked with data-i18n attributes.
  */
 function applyTranslations() {
-  const loc = window.currentLocale || "zh";
+  const loc = window.currentLocale || "en";
   document.documentElement.lang = loc === "en" ? "en" : "zh-CN";
 
   // 1. Text Content

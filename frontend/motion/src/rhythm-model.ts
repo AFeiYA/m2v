@@ -52,11 +52,11 @@ export function buildRhythmChart(project: Project, settings: RhythmSettings): Rh
         if (notes.length >= 12000)
             break;
     }
-    const warnings = ['拍点和鼓点是估计结果；AUTO PERFECT 是程序演出，不是玩家成绩。'];
+    const warnings = ['Beats and drums are estimates. AUTO PERFECT is a simulation, not a player score.'];
     if (!notes.length)
-        warnings.push('没有可用拍点：请先在歌词编辑器分析音频，再重新载入歌曲。');
+        warnings.push('No usable beats. Analyze audio in Lyric Editor, then reload this song.');
     else if (notes[0].time < settings.approach)
-        warnings.push('开头音符使用歌曲开始前的虚拟进场，不移动音频或命中时间。');
+        warnings.push('Opening notes approach virtually before the song starts; audio and hit times stay unchanged.');
     return { notes, warnings, seed: settings.seed };
 }
 export function rhythmState(chart: RhythmChart, t: number) {

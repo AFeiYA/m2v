@@ -14,7 +14,7 @@ catch (e) {
     status(e instanceof Error ? e.message : String(e));
 } }; }
 function dirty() { return !!project && JSON.stringify(settings) !== saved; }
-function saveState() { $<HTMLButtonElement>('save-rhythm').disabled = !dirty() || saving; $('draft-state').textContent = saving ? '保存中…' : dirty() ? '场景预览尚未保存' : project ? '已保存' : '选择歌曲开始'; }
+function saveState() { $<HTMLButtonElement>('save-rhythm').disabled = !dirty() || saving; $('draft-state').textContent = saving ? 'Saving…' : dirty() ? 'Unsaved scene preview' : project ? 'Saved' : 'Select a song to start'; }
 function preview() { if (!project)
     return; engine?.dispose(); const size = renderSize(opts), canvas = $<HTMLCanvasElement>('rhythm-stage'); canvas.width = size.width; canvas.height = size.height; $('stage-box').style.aspectRatio = `${size.width}/${size.height}`; engine = new RhythmPreview(canvas, project, opts, size.width, size.height, settings, audio.currentTime); engine.renderAt(audio.currentTime); const chart = buildRhythmChart(project, settings); $('note-count').textContent = String(chart.notes.length); $('rhythm-warnings').replaceChildren(); for (const text of chart.warnings) {
     const li = document.createElement('li');
@@ -22,30 +22,30 @@ function preview() { if (!project)
     $('rhythm-warnings').append(li);
 } $('stage-meta').textContent = `${opts.aspect} · ${size.width}×${size.height}`; $<HTMLButtonElement>('export-rhythm').disabled = rendering || !chart.notes.length; saveState(); }
 function showSettings() { opts.aspect = settings.aspect; $<HTMLSelectElement>('rhythm-aspect').value = settings.aspect; $<HTMLSelectElement>('rhythm-quality').value = String(settings.height); for (const key of ['density', 'approach', 'palette', 'seed'] as const)
-    $<HTMLInputElement>('rhythm-' + key).value = String(settings[key]); $<HTMLInputElement>('rhythm-offset').value = String(Math.round(settings.offset * 1000)); $<HTMLInputElement>('rhythm-subtitles').checked = settings.subtitles; $('approach-value').textContent = settings.approach.toFixed(1) + ' 秒 · 调整预判距离，不移动命中时间'; }
+    $<HTMLInputElement>('rhythm-' + key).value = String(settings[key]); $<HTMLInputElement>('rhythm-offset').value = String(Math.round(settings.offset * 1000)); $<HTMLInputElement>('rhythm-subtitles').checked = settings.subtitles; $('approach-value').textContent = settings.approach.toFixed(1) + 's · Changes approach distance, not hit timing'; }
 function change() { if (!project)
     return; const seed = Number($<HTMLInputElement>('rhythm-seed').value), offset = Number($<HTMLInputElement>('rhythm-offset').value), approach = Number($<HTMLInputElement>('rhythm-approach').value); if (!Number.isInteger(seed) || seed < 0 || seed > 2147483647 || !Number.isFinite(offset) || Math.abs(offset) > 500 || !Number.isFinite(approach) || approach < 1.2 || approach > 4) {
     showSettings();
-    throw Error('种子或节奏参数超出范围');
-} settings = { ...settings, seed, offset: offset / 1000, approach, density: $<HTMLSelectElement>('rhythm-density').value as RhythmSettings['density'], palette: $<HTMLSelectElement>('rhythm-palette').value as RhythmSettings['palette'], subtitles: $<HTMLInputElement>('rhythm-subtitles').checked }; showSettings(); preview(); status('已更新本地场景预览，满意后保存。'); }
-async function load(id: string) { if (dirty() && !confirm('切换歌曲将放弃未保存的场景修改，是否继续？')) {
+    throw Error('Seed or rhythm settings are out of range.');
+} settings = { ...settings, seed, offset: offset / 1000, approach, density: $<HTMLSelectElement>('rhythm-density').value as RhythmSettings['density'], palette: $<HTMLSelectElement>('rhythm-palette').value as RhythmSettings['palette'], subtitles: $<HTMLInputElement>('rhythm-subtitles').checked }; showSettings(); preview(); status('Local preview updated. Save when ready.'); }
+async function load(id: string) { if (dirty() && !confirm('Switch songs and discard unsaved scene changes?')) {
     $<HTMLSelectElement>('rhythm-project').value = selected;
     return;
 } if (!id)
-    return; const seq = ++sequence; audio.pause(); playing = false; $('play-rhythm').textContent = '▶'; audioReady = false; $<HTMLButtonElement>('play-rhythm').disabled = true; status('正在读取歌曲、节奏与场景设置…'); const [data, config] = await Promise.all([api('project?project_id=' + encodeURIComponent(id)), api('rhythm?project_id=' + encodeURIComponent(id))]); if (seq !== sequence)
+    return; const seq = ++sequence; audio.pause(); playing = false; $('play-rhythm').textContent = '▶'; audioReady = false; $<HTMLButtonElement>('play-rhythm').disabled = true; status('Loading song, rhythm, and scene settings…'); const [data, config] = await Promise.all([api('project?project_id=' + encodeURIComponent(id)), api('rhythm?project_id=' + encodeURIComponent(id))]); if (seq !== sequence)
     return; project = normalizeProject(data.project); selected = id; settings = { ...rhythmDefaults, ...config.settings }; saved = JSON.stringify(settings); showSettings(); $('track-name').textContent = project.title; $<HTMLAnchorElement>('back-studio').href = '/motion-studio?project=' + encodeURIComponent(id); $<HTMLInputElement>('rhythm-seek').max = String(project.duration); $<HTMLInputElement>('rhythm-length').value = String(Math.min(30, Math.floor(project.duration))); $('rhythm-duration').textContent = project.duration.toFixed(1) + 's'; audio.src = ''; audio.currentTime = 0; preview(); let next = ''; if (data.audio_url && cloudService()) {
     const result = await serviceAudio(data.audio_url, id, data.project.audio_cache);
     if (seq !== sequence)
         return;
     next = URL.createObjectURL(result.blob);
 } if (audioUrl)
-    URL.revokeObjectURL(audioUrl); audioUrl = next; audio.src = next || data.audio_url || ''; audio.load(); audioReady = !!(next || data.audio_url); $<HTMLButtonElement>('play-rhythm').disabled = !audioReady; status('3D 演出已就绪 · 拖动进度检查卡点；自动 Perfect 不代表真人成绩。'); await history(); }
+    URL.revokeObjectURL(audioUrl); audioUrl = next; audio.src = next || data.audio_url || ''; audio.load(); audioReady = !!(next || data.audio_url); $<HTMLButtonElement>('play-rhythm').disabled = !audioReady; status('3D preview ready. Seek to check timing. Auto Perfect is a simulation, not a player score.'); await history(); }
 async function save() { if (!project || !selected || saving)
     return; const id = selected, seq = sequence, snapshot = JSON.stringify(settings); saving = true; saveState(); try {
     await api('rhythm', 'PUT', { project_id: id, settings: JSON.parse(snapshot) });
     if (id === selected && seq === sequence) {
         saved = snapshot;
-        status(dirty() ? '已保存提交版本，后续修改仍在本地。' : '场景设置已保存，原海报方案保持不变。');
+        status(dirty() ? 'Submitted version saved. Newer changes remain local.' : 'Scene settings saved. Your poster plan is unchanged.');
     }
 }
 finally {
@@ -55,22 +55,22 @@ finally {
 async function history() { const id = selected, seq = sequence, records = await api('exports?project_id=' + encodeURIComponent(id)); if (id !== selected || seq !== sequence)
     return; $('rhythm-history').replaceChildren(); for (const record of records.filter((r: any) => r.scene === 'rhythm' && r.status === 'done')) {
     const button = document.createElement('button');
-    button.textContent = '下载历史演出 · ' + new Date(record.created_at * 1000).toLocaleString();
+    button.textContent = 'Download previous export · ' + new Date(record.created_at * 1000).toLocaleString();
     button.onclick = action(() => downloadService(motionUrl('render/' + record.id + '/download'), 'rhythm-stage.mp4'));
     $('rhythm-history').append(button);
 } }
 async function exportClip() { if (!project || !selected)
     return; if (dirty())
-    throw Error('请先保存场景，再导出与当前预览一致的视频。'); if (rendering)
-    throw Error('已有节奏演出正在导出。'); const start = Number($<HTMLInputElement>('rhythm-start').value), length = Number($<HTMLInputElement>('rhythm-length').value); if (!Number.isFinite(start) || !Number.isFinite(length) || start < 0 || length < 1 || length > 60 || start + length > project.duration + .001)
-    throw Error('请选择歌曲范围内 1–60 秒的片段。'); const id = selected; rendering = true; $<HTMLButtonElement>('export-rhythm').disabled = true; try {
+    throw Error('Save the scene before exporting your current preview.'); if (rendering)
+    throw Error('A rhythm export is already running.'); const start = Number($<HTMLInputElement>('rhythm-start').value), length = Number($<HTMLInputElement>('rhythm-length').value); if (!Number.isFinite(start) || !Number.isFinite(length) || start < 0 || length < 1 || length > 60 || start + length > project.duration + .001)
+    throw Error('Select a 1–60 second clip within the song.'); const id = selected; rendering = true; $<HTMLButtonElement>('export-rhythm').disabled = true; try {
     const result = await api('render', 'POST', { project_id: id, scene: 'rhythm', aspect: opts.aspect, height: settings.height, start, length });
     job = result.id;
     $('cancel-rhythm').hidden = false;
     $('download-rhythm').hidden = true;
     for (;;) {
         const state = await api('render/' + job);
-        $('rhythm-export-status').textContent = state.status === 'running' ? `3D 渲染 ${state.frames}/${state.total} 帧` : state.status === 'queued' ? '等待渲染…' : state.status === 'done' ? '节奏演出已完成' : state.status === 'cancelled' ? '导出已取消' : '导出失败：' + state.error;
+        $('rhythm-export-status').textContent = state.status === 'running' ? `3D rendering: ${state.frames}/${state.total} frames` : state.status === 'queued' ? 'Waiting to render…' : state.status === 'done' ? 'Rhythm export complete' : state.status === 'cancelled' ? 'Export cancelled' : 'Export failed: ' + state.error;
         if (['done', 'failed', 'cancelled'].includes(state.status)) {
             if (state.status === 'done') {
                 $('download-rhythm').hidden = false;
@@ -88,7 +88,7 @@ finally {
 } }
 $('rhythm-project').onchange = action(() => { if (rendering) {
     $<HTMLSelectElement>('rhythm-project').value = selected;
-    throw Error('导出中请等待完成，再切换歌曲。');
+    throw Error('Wait for the export to finish before switching songs.');
 } return load($<HTMLSelectElement>('rhythm-project').value); });
 for (const id of ['density', 'approach', 'offset', 'palette', 'seed', 'subtitles'])
     $('rhythm-' + id).onchange = action(change);
@@ -101,7 +101,7 @@ $('cancel-rhythm').onclick = action(async () => { if (job)
     await api('render/' + job + '/cancel', 'POST'); });
 $('download-rhythm').onclick = action(() => downloadService(motionUrl('render/' + job + '/download'), 'rhythm-stage.mp4'));
 $('play-rhythm').onclick = action(async () => { if (!audioReady)
-    throw Error('音频尚未就绪'); if (playing) {
+    throw Error('Audio is not ready.'); if (playing) {
     audio.pause();
     playing = false;
 }
@@ -131,4 +131,4 @@ void action(async () => { const rows = await api('projects'); for (const row of 
     await load(chosen.id);
 }
 else
-    status('还没有歌曲，请先到歌词编辑器导入并分析音频。'); })();
+    status('No songs yet. Import a song and analyze its audio in Lyric Editor.'); })();

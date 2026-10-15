@@ -13,9 +13,9 @@ export async function serviceAudio(path:string,task:string,identity?:{uid:string
  await authentication();
  const checkAccount=async()=>{
   const token=await window.m2vAuth?.getIdToken(false);
-  if(!token)throw new Error('请先登录后再读取音频');
+  if(!token)throw new Error('Sign in before loading audio.');
   if(identity){let uid='';try{uid=JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).sub;}catch{}
-   if(uid!==identity.uid)throw new Error('账号已切换，请重新选择歌曲');}
+   if(uid!==identity.uid)throw new Error('Account changed. Please select your song again.');}
  };
  await checkAccount();
  if(!window.m2vCache){
@@ -26,11 +26,11 @@ export async function serviceAudio(path:string,task:string,identity?:{uid:string
  const cached=identity&&cache?await cache.getMedia(identity.uid,task,type,identity.version):null;
  if(cached){await checkAccount();return {blob:cached,cached:true};}
  const response=await serviceFetch(path);
- if(!response.ok)throw new Error(`原曲音频读取失败（HTTP ${response.status}）`);
+ if(!response.ok)throw new Error(`Unable to load original audio (HTTP ${response.status}).`);
  const contentType=response.headers.get('content-type')||'';
- if(!/^(audio\/|application\/octet-stream)/i.test(contentType))throw new Error('原曲接口未返回音频，未写入缓存');
+ if(!/^(audio\/|application\/octet-stream)/i.test(contentType))throw new Error('The server did not return audio. Nothing was cached.');
  const blob=await response.blob();
- if(!blob.size)throw new Error('原曲音频为空，未写入缓存');
+ if(!blob.size)throw new Error('Audio is empty. Nothing was cached.');
  await checkAccount();
  if(identity&&cache)await cache.saveMedia(identity.uid,task,type,blob,identity.version);
  return {blob,cached:false};
@@ -49,7 +49,7 @@ export function serviceUrl(path: string): string {
 function script(src: string): Promise<void> {
  return new Promise((resolve,reject)=>{
   const tag=document.createElement('script');tag.src=src;tag.onload=()=>resolve();
-  tag.onerror=()=>reject(new Error('登录服务加载失败，请检查网络后刷新'));document.head.append(tag);
+  tag.onerror=()=>reject(new Error('Unable to load sign-in. Check your connection and refresh.'));document.head.append(tag);
  });
 }
 
@@ -75,13 +75,13 @@ export async function serviceFetch(path: string, options: RequestInit={}): Promi
  if(authenticated){
   await authentication();
   const token=await window.m2vAuth?.getIdToken(false);
-  if(!token)throw new Error('请先在首页登录，再打开动效工作室');
+  if(!token)throw new Error('Sign in on the home page before opening Motion Studio.');
   headers.set('Authorization','Bearer '+token);
  }
  let response=await fetch(url,{...options,headers});
  if(authenticated&&response.status===401){
   const token=await window.m2vAuth?.getIdToken(true);
-  if(!token)throw new Error('登录已过期，请重新登录');
+  if(!token)throw new Error('Your session expired. Please sign in again.');
   headers.set('Authorization','Bearer '+token);
   response=await fetch(url,{...options,headers});
  }
@@ -91,7 +91,7 @@ export async function serviceFetch(path: string, options: RequestInit={}): Promi
 export async function serviceJson(path: string, options: RequestInit={}): Promise<any> {
  const response=await serviceFetch(path,options);
  if(!response.headers.get('content-type')?.includes('json')){
-  throw new Error(`后端返回了非 JSON 响应（HTTP ${response.status}），请检查后端地址与服务状态`);
+  throw new Error(`The backend returned a non-JSON response (HTTP ${response.status}). Check its address and status.`);
  }
  const result=await response.json();
  if(!response.ok)throw new Error(typeof result.detail==='string'?result.detail:JSON.stringify(result.detail||result));
@@ -109,7 +109,7 @@ export function motionJson(path: string,method='GET',body?: unknown): Promise<an
 
 export async function downloadService(path:string,filename='motion-studio.mp4'): Promise<void> {
  const response=await serviceFetch(path);
- if(!response.ok)throw new Error(`视频下载失败（HTTP ${response.status}）`);
+ if(!response.ok)throw new Error(`Video download failed (HTTP ${response.status}).`);
  const url=URL.createObjectURL(await response.blob()),link=document.createElement('a');
  link.href=url;link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
