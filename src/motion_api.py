@@ -48,6 +48,7 @@ class StudioSettings(BaseModel):
     palette: str = Field(default='impact', max_length=64)
     background: Literal['auto', 'dark', 'light'] = 'auto'
     layout: Literal['smart', 'random', 'single', 'two-stack', 'three-stack', 'word-by-word'] = 'smart'
+    highlight: Literal['none', 'word', 'sweep'] = 'none'
 
 class SettingsRequest(BaseModel):
     project_id: str

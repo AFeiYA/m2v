@@ -1,9 +1,10 @@
+import {compileHighlightSpans,highlightState,type HighlightMode,type HighlightSpan} from './karaoke.ts';
 import {SONG_THEMES} from './song-theme.ts';
 import type {Line, CuePlan, PosterDirection, Project} from './model';
 export const POSTER_FONT='"PingFang SC","Microsoft YaHei","Noto Sans CJK SC",sans-serif';
-export type Metrics={width:number;ascent:number;descent:number};
+export type Metrics={width:number;advance?:number;ascent:number;descent:number};
 export type Measure=(text:string,size:number,weight:number)=>Metrics;
-export type CompiledNode={motion_strength?:number;text:string;word_indices:number[];role:'primary'|'secondary'|'support';x:number;y:number;width:number;height:number;fontSize:number;weight:number;color:string;rows:{text:string;x:number;y:number}[];start:number;settled:number;hold:'none'|'drift';beat_reaction:'none'|'pulse';entrance:PosterDirection['nodes'][number]['entrance']};
+export type CompiledNode={highlight?:{mode:HighlightMode;spans:HighlightSpan[];foreground:string;pending:string;accent:string};motion_strength?:number;text:string;word_indices:number[];role:'primary'|'secondary'|'support';x:number;y:number;width:number;height:number;fontSize:number;weight:number;color:string;rows:{text:string;x:number;y:number}[];start:number;settled:number;hold:'none'|'drift';beat_reaction:'none'|'pulse';entrance:PosterDirection['nodes'][number]['entrance']};
 export type CompiledPoster={visual_intensity:'restrained'|'expanded'|'peak';version:'motion-poster-layout-v1';line_id:string;source:'director'|'automatic';width:number;height:number;background:string;accent:string;motif:'none'|'rings';layout:PosterDirection['layout'];transition_out:'cut'|'fade';relations:NonNullable<PosterDirection['relations']>;semantic_arrangement:SemanticApplication[];start:number;end:number;handover?:{mode:'cut'|'fade'|'layered-fade';visible_end:number;exit_start:number;primary_exit_start:number;next_start:number|null};nodes:CompiledNode[]};
 
 export type DefaultLayoutPreset = 'smart' | 'single' | 'two-stack' | 'three-stack' | 'word-by-word' | 'random';
@@ -279,7 +280,7 @@ export function segmentWordByWord(line: Line, maxBlocks = 8): { text: string; wo
     if (blocks.length > 0) {
       while (wordIdx < line.words.length) {
         blocks[blocks.length - 1].word_indices.push(wordIdx);
-        blocks[blocks.length - 1].text += line.words[wordIdx].word;
+        blocks[blocks.length - 1].text = joinWordsWithSpacing(line.words,blocks[blocks.length - 1].word_indices);
         wordIdx++;
       }
     } else {
@@ -305,13 +306,13 @@ export function segmentWordByWord(line: Line, maxBlocks = 8): { text: string; wo
     if (bestIdx < merged.length - 1) {
       const cur = merged[bestIdx], nxt = merged[bestIdx + 1];
       merged.splice(bestIdx, 2, {
-        text: cur.text + nxt.text,
+        text: joinWordsWithSpacing(line.words,[...cur.word_indices,...nxt.word_indices]),
         word_indices: [...cur.word_indices, ...nxt.word_indices]
       });
     } else {
       const prv = merged[bestIdx - 1], cur = merged[bestIdx];
       merged.splice(bestIdx - 1, 2, {
-        text: prv.text + cur.text,
+        text: joinWordsWithSpacing(line.words,[...prv.word_indices,...cur.word_indices]),
         word_indices: [...prv.word_indices, ...cur.word_indices]
       });
     }
@@ -700,6 +701,12 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     const entrance=n.entrance!=='none'&&(dense||end-start<.16)?'fade':n.entrance;
     const duration=entrance==='none'?0:Math.min(.6,Math.max(1/30,(end-start)*n.settle_fraction),Math.max(0,(line.end-start)*.5));
     nodes.push({motion_strength:strength.motion,text:n.text,role:n.role,word_indices:[...n.word_indices],x,y,width,height,fontSize:size,weight,color:n.color_role==='accent'?design.accent:n.color_role==='muted'?muted:foreground,rows:resolved,start,settled:start+duration,hold:'none',beat_reaction:n.role==='primary'&&!dense?(n.beat_reaction||'none'):'none',entrance});
+    const compiled=nodes.at(-1)!;
+    if(design.highlight&&design.highlight!=='none'){
+      const spans=compileHighlightSpans(line.words,n.word_indices,resolved,size,weight,measure);
+      if(spans.length)compiled.highlight={mode:design.highlight,spans,foreground,pending:muted,accent:design.accent};
+      compiled.start=line.start;compiled.settled=line.start;compiled.entrance='none';compiled.beat_reaction='none';
+    }
     y+=height+gap;
   }
   return {visual_intensity,version:'motion-poster-layout-v1',line_id:line.id,source:cue?.poster?'director':'automatic',width:W,height:H,background:design.background,accent:design.accent,motif:design.motif,layout:design.layout,transition_out:design.transition_out,semantic_arrangement:semantic.applications,relations:(design.relations||[]).map(r=>({...r,node_indices:[...r.node_indices]})),start:line.start,end:line.end,nodes};
@@ -787,11 +794,13 @@ export function paintCompiledPoster(c:CanvasRenderingContext2D,plan:CompiledPost
     c.save();c.globalAlpha=alpha*state.alpha*(t===undefined?1:posterExitOpacity(plan,n,t));
     const {drift,pulse}=t===undefined?{drift:0,pulse:1}:posterHoldState(n,t,complete,W,H,beat);
     c.translate(n.x+n.width/2+state.dx,n.y+n.height/2+state.dy+drift);c.scale(state.scale*pulse,state.scale*pulse);
-    c.font=`${n.weight} ${n.fontSize}px ${POSTER_FONT}`;c.fillStyle=n.color;
-    for(const row of n.rows)c.fillText(row.text,row.x-(n.x+n.width/2),row.y-(n.y+n.height/2));c.restore();
+    c.font=`${n.weight} ${n.fontSize}px ${POSTER_FONT}`;c.fillStyle=t!==undefined&&n.highlight?n.highlight.pending:n.color;
+    for(const row of n.rows)c.fillText(row.text,row.x-(n.x+n.width/2),row.y-(n.y+n.height/2));
+    if(t!==undefined&&n.highlight)for(const span of n.highlight.spans){const state=highlightState(span,t,n.highlight.mode);if(!state.progress)continue;const row=n.rows[span.row];c.save();c.beginPath();c.rect(span.x-(n.x+n.width/2),span.top-(n.y+n.height/2),span.width*state.progress,span.height);c.clip();c.fillStyle=state.active?n.highlight.accent:n.highlight.foreground;c.fillText(row.text,row.x-(n.x+n.width/2),row.y-(n.y+n.height/2));c.restore();}
+    c.restore();
   }c.restore();
 }
-export function canvasMeasure(c:CanvasRenderingContext2D):Measure{return (text,size,weight)=>{c.font=`${weight} ${size}px ${POSTER_FONT}`;const m=c.measureText(text);return {width:Math.max(m.width,(m.actualBoundingBoxLeft||0)+(m.actualBoundingBoxRight||m.width)),ascent:m.actualBoundingBoxAscent||size*.85,descent:m.actualBoundingBoxDescent||size*.15};};}
+export function canvasMeasure(c:CanvasRenderingContext2D):Measure{return (text,size,weight)=>{c.font=`${weight} ${size}px ${POSTER_FONT}`;const m=c.measureText(text);return {advance:m.width,width:Math.max(m.width,(m.actualBoundingBoxLeft||0)+(m.actualBoundingBoxRight||m.width)),ascent:m.actualBoundingBoxAscent||size*.85,descent:m.actualBoundingBoxDescent||size*.15};};}
 
 export type CompiledIntroTitle={text:string;fontSize:number;weight:number;color:string;x:number;y:number;cx:number;cy:number;start:number;settled:number;exitStart:number;end:number};
 

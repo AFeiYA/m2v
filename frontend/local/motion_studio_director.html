@@ -160,6 +160,13 @@
             <option value="three-stack" data-i18n="ms_opt_layout_three">三段阶梯</option>
             <option value="word-by-word" data-i18n="ms_opt_layout_word">逐词击打</option>
           </select>
+          <label for="highlight-mode" data-i18n="ms_lbl_highlight">演唱高亮（整曲未锁定句）</label>
+          <select id="highlight-mode">
+            <option value="none" data-i18n="ms_opt_highlight_none">关闭 · 保留入场动画</option>
+            <option value="word" data-i18n="ms_opt_highlight_word">逐词点亮 · 稳定排版</option>
+            <option value="sweep" data-i18n="ms_opt_highlight_sweep">平滑过光 · 稳定排版</option>
+          </select>
+          <p class="help" data-i18n="ms_help_highlight">整句排好后按演唱时间高亮，不位移、不缩放。词内过光为视觉插值，不代表音节时间；支持中英文。</p>
           <button id="generate" class="primary" data-i18n="ms_btn_rule_gen">规则生成基础方案</button>
           <label for="director-instruction" data-i18n="ms_lbl_director_inst">导演偏好（可选）</label>
           <textarea id="director-instruction" placeholder="例如：先设计最终海报，以兔子洞为主标题，再规划词组依次进入并落位" data-i18n-placeholder="ms_ph_director_inst" rows="3"></textarea>
@@ -230,6 +237,12 @@
             </select>
             <button id="apply-palette" class="secondary" style="white-space:nowrap" data-i18n="ms_btn_apply_palette">应用配色</button>
           </div>
+          <label for="cue-highlight" data-i18n="ms_lbl_cue_highlight">本句演唱高亮</label>
+          <select id="cue-highlight">
+            <option value="none" data-i18n="ms_opt_highlight_none">关闭 · 保留入场动画</option>
+            <option value="word" data-i18n="ms_opt_highlight_word">逐词点亮 · 稳定排版</option>
+            <option value="sweep" data-i18n="ms_opt_highlight_sweep">平滑过光 · 稳定排版</option>
+          </select>
           <label for="visual-intensity" data-i18n="ms_lbl_visual_intensity">视觉强度</label>
           <select id="visual-intensity">
             <option value="auto" data-i18n="ms_opt_intensity_auto">自动（依据段落）</option>

@@ -444,3 +444,53 @@ def test_gemini_preview_requires_explicit_plan_save(song, monkeypatch):
         result = client.put('/api/motion/plan', json={'project_id':id, 'plan':preview.json()['plan'], 'from_llm':False})
         assert result.status_code == 200, result.text
         assert client.get('/api/motion/project', params={'project_id':id}).json()['plan'] == result.json()
+
+
+def test_karaoke_modes_save_without_touching_lyrics_or_timing(song):
+    path, id = song
+    original = path.read_text()
+    with TestClient(app) as client:
+        client.post('/api/motion/director/rules', json={'project_id':id})
+        bundle = client.post('/api/motion/director/line/input', json={'project_id':id, 'line_id':'line_0001'}).json()
+        plan = client.get('/api/motion/project', params={'project_id':id}).json()['plan']
+        plan['cues'][0]['poster'] = bundle['response_example']['cue']['poster']
+        for mode in ('word', 'sweep', 'none'):
+            plan['cues'][0]['poster']['highlight'] = mode
+            result = client.put('/api/motion/plan', json={'project_id':id, 'plan':plan, 'from_llm':False})
+            assert result.status_code == 200, result.text
+            saved = client.get('/api/motion/project', params={'project_id':id}).json()['plan']
+            assert saved['cues'][0]['poster']['highlight'] == mode
+        assert path.read_text() == original
+
+
+@pytest.mark.skipif(os.getenv('RUN_MOTION_RENDER')!='1', reason='需显式启用 Chrome/FFmpeg 成片测试')
+@pytest.mark.parametrize('worker',['render.mjs', 'render-remotion.mjs'])
+def test_karaoke_video_wipe_is_visible_and_monotonic(tmp_path, worker):
+    from PIL import Image
+    from src.motion_director import rule_plan, example_poster
+    root = Path(__file__).resolve().parents[1]
+    project = {'title':'Wipe Test', 'duration':2, 'lines':[{'text':'KARAOKE', 'start':0, 'end':2, 'words':[{'word':'KARAOKE','start':0,'end':2}]}]}
+    plan = rule_plan(project).model_dump()
+    poster = example_poster(project['lines'][0]).model_dump()
+    poster.update(highlight='sweep', background='#101010', accent='#00ff00', transition_out='cut')
+    plan['cues'][0]['poster'] = poster
+    project['motion_plan'] = plan
+    wav = tmp_path/'audio.wav'
+    sf.write(wav, np.zeros(22050*2), 22050)
+    job = tmp_path/'job.json'
+    job.write_text(json.dumps({'project':project, 'options':{'aspect':'16:9','height':360,'post':False}, 'start':0,'length':2,'audioPath':str(wav)}))
+    out = tmp_path/'karaoke.mp4'
+    rendered = subprocess.run(['node',str(root/'frontend/motion/scripts'/worker),str(job),str(out)],capture_output=True,text=True,timeout=120)
+    assert rendered.returncode == 0, rendered.stderr
+    counts = []
+    masks = []
+    for i, time in enumerate((.3,.9,1.5)):
+        image = tmp_path/f'frame{i}.png'
+        subprocess.run(['ffmpeg','-v','error','-ss',str(time),'-i',str(out),'-frames:v','1',str(image)],check=True)
+        rgb = np.asarray(Image.open(image).convert('RGB'),dtype=int)
+        green = (rgb[:,:,1] > rgb[:,:,0]+60) & (rgb[:,:,1] > rgb[:,:,2]+60)
+        counts.append(int(green.sum()))
+        masks.append((rgb.max(axis=2)>65))
+    assert 0 < counts[0] < counts[1] < counts[2], counts
+    # No movement/reflow: the same text silhouette is present at each timestamp.
+    assert np.logical_xor(masks[0], masks[2]).sum() < masks[0].sum()*.08

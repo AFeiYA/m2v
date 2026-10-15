@@ -186,7 +186,7 @@ def test_semantic_relations_round_trip_and_old_signatures_stay_valid(project):
     assert 'PosterRelation' in bundle['input']['output_schema']['$defs']
     empty=copy.deepcopy(bundle['response_example']);empty['cue']['poster'].pop('relations')
     old,_=line_response(project,empty,'line_0003');plan.cues[1]=old.cue
-    legacy=old.cue.model_dump();legacy['poster'].pop('relations');legacy['poster'].pop('semantic_mode');legacy['poster'].pop('visual_intensity')
+    legacy=old.cue.model_dump();legacy['poster'].pop('relations');legacy['poster'].pop('semantic_mode');legacy['poster'].pop('visual_intensity');legacy['poster'].pop('highlight')
     expected=hashlib.sha256(json.dumps({'cue':legacy,'seed':plan.seed},sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     assert cue_signature(plan,'line_0003')==expected
 

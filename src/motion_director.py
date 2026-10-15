@@ -60,6 +60,7 @@ class PosterDirection(BaseModel):
     nodes: list[PosterNode] = Field(min_length=1, max_length=12)
     visual_intensity: Literal['auto', 'restrained', 'expanded', 'peak'] = 'auto'
     semantic_mode: Literal['auto', 'off'] = 'auto'
+    highlight: Literal['none', 'word', 'sweep'] = Field(default='none', description='word/sweep displays the complete stable poster from line start and overrides cumulative entrances; word-level timing only')
     relations: list[PosterRelation] = Field(default_factory=list, max_length=12)
 
 
@@ -256,6 +257,8 @@ def cue_signature(plan, line_id):
         data['poster'].pop('visual_intensity', None)  # Existing plans keep their signatures.
     if data.get('poster') and data['poster'].get('semantic_mode') == 'auto':
         data['poster'].pop('semantic_mode', None)
+    if data.get('poster') and data['poster'].get('highlight') == 'none':
+        data['poster'].pop('highlight', None)
     if data.get('poster') and not data['poster'].get('relations'):
         data['poster'].pop('relations', None)  # Preserve signatures for existing relation-free plans.
     return hashlib.sha256(json.dumps({'cue': data, 'seed': plan.seed}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()

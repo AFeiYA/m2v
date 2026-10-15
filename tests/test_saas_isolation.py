@@ -992,7 +992,7 @@ def test_cloud_plugin_cannot_reopen_shared_local_video_routes(sandbox):
 def test_cloud_motion_settings_are_owned_and_survive_restart(sandbox):
     from src import motion_cloud
     seed_cloud_motion(sandbox)
-    settings = {'aspect':'9:16', 'height':360, 'palette':'neon', 'layout':'three-stack'}
+    settings = {'aspect':'9:16', 'height':360, 'palette':'neon', 'layout':'three-stack', 'highlight':'sweep'}
     denied = sandbox.client.put('/api/cloud-motion/settings', json={'project_id':'bob_motion', 'settings':settings}, headers=headers())
     assert denied.status_code == 404
     saved = sandbox.client.put('/api/cloud-motion/settings', json={'project_id':'alice_motion', 'settings':settings}, headers=headers())

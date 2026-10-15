@@ -1,4 +1,5 @@
-import {localRulePlan,localPalette} from './local-design';
+import type {HighlightMode} from './karaoke';
+import {localRulePlan,localPalette,preserveHighlight} from './local-design';
 import {compileSongLayout,paintSongLayout,paintCoverBackground} from './song-layout';
 import {POSTER_FONT} from './poster-layout';
 import {checkImportScope} from './import-scope';
@@ -40,12 +41,13 @@ function showCue(seek=true){const cue=plan?.cues.find(c=>c.line_id===currentCue)
   $<HTMLSelectElement>('cue-palette').value=cue.palette||'impact';
   if($('apply-palette'))$<HTMLButtonElement>('apply-palette').disabled=cue.locked;
  }
+ $<HTMLSelectElement>('cue-highlight').value=cue.poster?.highlight||'none';$<HTMLSelectElement>('cue-highlight').disabled=cue.locked;
  $<HTMLSelectElement>('visual-intensity').value=cue.poster?.visual_intensity||'auto';$<HTMLSelectElement>('visual-intensity').disabled=cue.locked;
  $<HTMLSelectElement>('semantic-mode').value=cue.poster?.semantic_mode||'auto';$<HTMLSelectElement>('semantic-mode').disabled=cue.locked;
  $<HTMLSelectElement>('cue-exit').value=cue.poster?.transition_out||'cut';$<HTMLSelectElement>('cue-exit').disabled=cue.locked;
  if(line){renderPosterNodes(line,cue);const size=renderSize(options),c=document.createElement('canvas').getContext('2d')!;
   const p=compileSongPosters(project!,size.width,size.height,canvasMeasure(c)).find(p=>p.line_id===line.id)!;
-  $('visual-intensity-status').textContent=`当前采用${{restrained:'克制',expanded:'展开',peak:'峰值'}[p.visual_intensity]}档 · 统一控制字号与入场幅度；快唱与安全区优先。`;
+  $('visual-intensity-status').textContent=cue.poster?.highlight&&cue.poster.highlight!=='none'?'演唱高亮模式：排版保持稳定，入场位移与拍点缩放不执行；词内过光使用已有词级时间。':`当前采用${{restrained:'克制',expanded:'展开',peak:'峰值'}[p.visual_intensity]}档 · 统一控制字号与入场幅度；快唱与安全区优先。`;
   $('handover-status').textContent=`唱完后保留 ${(Math.max(0,(p.handover?.visible_end||p.end)-p.end)).toFixed(2)} 秒 · ${p.handover?.mode==='layered-fade'?'辅文先退，核心词后退':p.handover?.mode==='fade'?'短淡出交接':'直接交接'}。歌词与音频时间保持原样。`;
  }
  $<HTMLSelectElement>('cue-template').value=cue.template;$<HTMLSelectElement>('cue-layout').value=cue.layout;$<HTMLSelectElement>('cue-palette').value=cue.palette;$<HTMLInputElement>('cue-intensity').value=String(cue.intensity);$<HTMLInputElement>('cue-emphasis').value=cue.emphasis;$<HTMLInputElement>('cue-locked').checked=cue.locked;
@@ -59,7 +61,7 @@ function updateSaveState(){
  $('save-state').dataset.dirty=String(changed);
 }
 function settingsSnapshot(){return {aspect:options.aspect,height:options.height,post:options.post,bloom:options.bloom,shake:options.shake,
- palette:$<HTMLSelectElement>('preset').value,background:$<HTMLSelectElement>('theme-bg').value,layout:$<HTMLSelectElement>('default-layout-preset').value};}
+ palette:$<HTMLSelectElement>('preset').value,background:$<HTMLSelectElement>('theme-bg').value,layout:$<HTMLSelectElement>('default-layout-preset').value,highlight:$<HTMLSelectElement>('highlight-mode').value||'none'};}
 async function savePlan(){
  if(!dirty||!plan||!selected)return;
  const id=selected,sequence=loadSequence,snapshot=JSON.stringify(plan),value=JSON.parse(snapshot);
@@ -95,7 +97,7 @@ async function load(id:string){
   project=normalizeProject(result.project);plan=result.plan;ruleSeed=result.rule_seed||null;selected=id;dirty=false;identityDirty=false;settingsDirty=false;
   {const v=result.settings||initialSettings;Object.assign(options,{aspect:v.aspect,height:v.height,post:v.post,bloom:v.bloom,shake:v.shake});
    for(const key of ['aspect','resolution','post','bloom','shake']){const node=$<HTMLInputElement>(key);if(key==='post')node.checked=options.post;else node.value=String(key==='resolution'?options.height:options[key as 'aspect'|'bloom'|'shake']);}
-   $<HTMLSelectElement>('preset').value=v.palette;$<HTMLSelectElement>('theme-bg').value=v.background;$<HTMLSelectElement>('default-layout-preset').value=v.layout;
+   $<HTMLSelectElement>('highlight-mode').value=v.highlight||'none';$<HTMLSelectElement>('preset').value=v.palette;$<HTMLSelectElement>('theme-bg').value=v.background;$<HTMLSelectElement>('default-layout-preset').value=v.layout;
   }
   audioReady=false;audio.src='';audio.currentTime=0;
   showIdentity();showCover();coverPending=cacheSunoCover(id);
@@ -126,6 +128,7 @@ function rules(onlyCurrent=false){
  const base=plan||ruleSeed;if(!base)throw new Error('请刷新页面以取得本地排版数据');
  plan=localRulePlan(project,base,$<HTMLSelectElement>(onlyCurrent?'cue-palette':'preset').value,$<HTMLSelectElement>(onlyCurrent?'cue-layout-preset':'default-layout-preset').value as DefaultLayoutPreset,
   $<HTMLSelectElement>('theme-bg').value as 'auto'|'light'|'dark',onlyCurrent?currentCue:undefined);
+ for(const cue of plan.cues)if(!cue.locked&&(!onlyCurrent||cue.line_id===currentCue)&&cue.poster&&!cue.poster.highlight)cue.poster.highlight=($<HTMLSelectElement>('highlight-mode').value||'none') as HighlightMode;
  dirty=true;settingsDirty=true;refresh();listCues();status('本地排版预览已更新，满意后点击保存');
 }
 function previewPalette(){
@@ -135,6 +138,14 @@ function previewPalette(){
  dirty=true;settingsDirty=true;refresh();showCue(false);status('主题已在本地更新，满意后点击保存');
 }
 $('preset').onchange=action(previewPalette);$('theme-bg').onchange=action(previewPalette);$('default-layout-preset').onchange=action(()=>rules());
+function previewHighlight(single=false){
+ if(!project||!selected)return;
+ if(!plan){rules();return;}
+ const mode=$<HTMLSelectElement>(single?'cue-highlight':'highlight-mode').value as HighlightMode;
+ for(const cue of plan.cues){if(cue.locked||(single&&cue.line_id!==currentCue))continue;const line=project.lines.find(l=>l.id===cue.line_id);if(!line)continue;cue.poster=cue.poster||automaticPoster(line,cue.palette);cue.poster.highlight=mode;}
+ dirty=true;if(!single)settingsDirty=true;refresh();listCues();status('演唱高亮已在本地预览，满意后点击保存');
+}
+$('highlight-mode').onchange=action(()=>previewHighlight());$('cue-highlight').onchange=action(()=>previewHighlight(true));
 async function exportVideo(){if(!selected||!plan)throw new Error('请先生成导演方案');requireSaved();if(coverPending)await coverPending;const full=$<HTMLSelectElement>('export-range').value==='full';const result=await api('render','POST',{project_id:selected,aspect:options.aspect,height:options.height,bloom:options.bloom,shake:options.shake,post:options.post,start:full?0:Number($<HTMLInputElement>('clip-start').value),length:full?null:Number($<HTMLInputElement>('clip-length').value)});jobId=result.id;$<HTMLButtonElement>('export').disabled=true;$('download').hidden=true;$('cancel').hidden=false;
  try{for(;;){const job=await api('render/'+jobId);$('export-status').textContent=job.status==='running'?`渲染 ${job.frames}/${job.total} 帧 (${Math.round(job.frames/job.total*100)}%)`:job.status==='queued'?'等待渲染…':job.status==='done'?'成片已完成':job.status==='cancelled'?'导出已取消':'导出失败：'+job.error;
  if(['done','failed','cancelled'].includes(job.status)){if(job.status==='done'){const link=$<HTMLAnchorElement>('download');link.href=motionUrl('render/'+jobId+'/download');link.onclick=event=>{event.preventDefault();void action(()=>downloadService(motionUrl('render/'+jobId+'/download')))();};link.hidden=false;}break;}await new Promise(resolve=>setTimeout(resolve,1000));}}
@@ -167,7 +178,7 @@ async function aiDirector(single:boolean){
  }finally{aiBusy=false;for(const id of ['ai-line','ai-song'])$<HTMLButtonElement>(id).disabled=false;}
 }
 $('ai-line').onclick=action(()=>aiDirector(true));$('ai-song').onclick=action(()=>aiDirector(false));
-$('ai-apply').onclick=action(async()=>{if(dirty||JSON.stringify(plan)!==aiBaseline)throw new Error('本地方案已修改，请保存后重新调用 Gemini，防止覆盖修改');const id=selected,sequence=loadSequence;const result=await api('director/jobs/'+aiJob+'/apply?preview=true','POST');if(selected!==id||sequence!==loadSequence||dirty||JSON.stringify(plan)!==aiBaseline)throw new Error('预览已发生变化，请重新应用，当前修改已保留');plan=result.plan;dirty=true;$('ai-apply').hidden=true;refresh();listCues();$('ai-job-status').textContent='Gemini 方案已应用到本地预览，点击保存后同步';status('已更新本地预览，满意后点击保存');});
+$('ai-apply').onclick=action(async()=>{if(dirty||JSON.stringify(plan)!==aiBaseline)throw new Error('本地方案已修改，请保存后重新调用 Gemini，防止覆盖修改');const id=selected,sequence=loadSequence;const result=await api('director/jobs/'+aiJob+'/apply?preview=true','POST');if(selected!==id||sequence!==loadSequence||dirty||JSON.stringify(plan)!==aiBaseline)throw new Error('预览已发生变化，请重新应用，当前修改已保留');plan=preserveHighlight(result.plan,plan,($<HTMLSelectElement>('highlight-mode').value||'none') as HighlightMode);dirty=true;$('ai-apply').hidden=true;refresh();listCues();$('ai-job-status').textContent='Gemini 方案已应用到本地预览，点击保存后同步';status('已更新本地预览，满意后点击保存');});
 new MutationObserver(updateSaveState).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
 void loadAIConfig();
 async function returnedPlan(apply:boolean){
@@ -264,7 +275,8 @@ if($('apply-layout-preset')){
   if(cue.locked)throw new Error('当前句已锁定，请先解锁');
   const preset=($<HTMLSelectElement>('cue-layout-preset')?.value as DefaultLayoutPreset)||'smart';
   const bgTone=($<HTMLSelectElement>('theme-bg')?.value as 'auto'|'light'|'dark')||'auto';
-  cue.poster=automaticPoster(line,cue.palette,preset,bgTone);
+  const highlight=cue.poster?.highlight||($<HTMLSelectElement>('highlight-mode').value as HighlightMode)||'none';
+  cue.poster=automaticPoster(line,cue.palette,preset,bgTone);cue.poster.highlight=highlight;
   dirty=true;refresh();showCue(false);status(`已应用「${preset}」排版预设，请保存方案`);
  });
 }
@@ -320,7 +332,7 @@ function renderPosterNodes(line:import('./model').Line,cue:import('./model').Cue
   const fields:[string,string,[string,string][]][]=[['role','层级',[['primary','主视觉'],['secondary','次级'],['support','辅助']]],['entrance','入场',[['none','直接出现'],['fade','淡入'],['slide-up','向上落位'],['slide-left','从左进入'],['scale-in','缩放落位']]],['beat_reaction','拍点',[['none','无'],['pulse','主视觉回弹']]]];
   for(const [key,label,choices] of fields){const wrapper=document.createElement('label');wrapper.textContent=label;const select=document.createElement('select');select.setAttribute('aria-label',node.text+' '+label);
    for(const [value,text] of choices){const option=document.createElement('option');option.value=value;option.textContent=text;select.append(option);}
-   select.value=String((node as any)[key]||'none');select.disabled=cue.locked;
+   select.value=String((node as any)[key]||'none');select.disabled=cue.locked||(!!direction.highlight&&direction.highlight!=='none'&&key!=='role');
    select.onchange=()=>{cue.poster=cue.poster||automaticPoster(line,cue.palette);const target=cue.poster.nodes[i];
     if(key==='role'&&select.value==='primary'){cue.poster.nodes.forEach(n=>{if(n.role==='primary'){n.role='secondary';n.beat_reaction='none';}});}
     if(key==='role'&&select.value!=='primary'&&target.role==='primary'){status('请先把另一个文字块设为主视觉');select.value='primary';return;}
