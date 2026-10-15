@@ -160,7 +160,7 @@ class S3Storage(StorageBackend):
         return local_path
 
     async def delete(self, key: str) -> None:
-        self.client.delete_object(Bucket=self.bucket, Key=key)
+        await asyncio.to_thread(self.client.delete_object, Bucket=self.bucket, Key=key)
         log.debug("S3Storage: deleted s3://%s/%s", self.bucket, key)
 
     async def get_url(self, key: str, expires: int = 3600) -> str:
