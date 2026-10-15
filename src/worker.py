@@ -233,6 +233,23 @@ def process_song_task(
         output_dir = temp_dir / "output"
         output_dir.mkdir()
 
+        # Reuse an owner-verified previous task's stems, never its alignment JSON.
+        # Missing/deleted stems fall back to the normal separation pipeline.
+        previous = (config_dict or {}).get("reuse_stems_from")
+        if previous and not config.skip_separation:
+            for track in ("vocals", "instrumental"):
+                for extension in ("wav", "mp3", "flac"):
+                    name = f"{mp3_local.stem}_{track}.{extension}"
+                    key = f"results/{previous}/{name}"
+                    target = output_dir / name
+                    try:
+                        if loop.run_until_complete(storage.exists(key)):
+                            loop.run_until_complete(storage.load(key, target))
+                            break
+                    except Exception as exc:
+                        target.unlink(missing_ok=True)
+                        log.warning("分离音轨缓存不可用，将重新分离: %s", type(exc).__name__)
+
         from src.main import process_one
         result_path = process_one(
             mp3_path=mp3_local,

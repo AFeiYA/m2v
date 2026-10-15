@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 from src.models import Task, TaskStatus
 
@@ -23,15 +23,16 @@ def direct_song_id(url: str) -> str | None:
     return parts[1].lower() if len(parts) >= 2 and parts[0] == "song" else None
 
 
-async def reusable_import(db, user_id, song, submitted_url, signature, options, storage):
+async def song_imports(db, user_id, song, submitted_url):
     """Match new IDs and lazily identify legacy tasks without trusting titles as identity."""
     query = select(Task).where(Task.user_id == user_id, Task.suno_url.isnot(None), or_(
-        Task.config_snapshot["suno_song_id"].as_string() == song.id,
+        func.lower(Task.config_snapshot["suno_song_id"].as_string()) == song.id,
         Task.suno_url == submitted_url,
-        Task.suno_url.contains(f"/song/{song.id}"),
+        func.lower(Task.suno_url).contains(f"/song/{song.id}"),
         Task.config_snapshot["suno_song_id"].as_string().is_(None),
     )).order_by(Task.created_at.desc())
     candidates = (await db.execute(query)).scalars().all()
+    matches = []
     for task in candidates:
         snapshot = dict(task.config_snapshot or {})
         identity = snapshot.get("suno_song_id") or direct_song_id(task.suno_url)
@@ -49,8 +50,25 @@ async def reusable_import(db, user_id, song, submitted_url, signature, options, 
                     continue
         snapshot["suno_song_id"] = identity
         task.config_snapshot = snapshot
-        if identity != song.id:
+        if str(identity).lower() != str(song.id).lower():
             continue
+        matches.append(task)
+    return matches
+
+
+async def reusable_audio(db, user_id, song, submitted_url, storage):
+    """Reuse only the owner's available original audio, independently of lyric versions."""
+    candidates = await song_imports(db, user_id, song, submitted_url)
+    candidates.sort(key=lambda task: task.status != TaskStatus.COMPLETED)
+    for task in candidates:
+        if task.input_mp3_key and await storage.exists(task.input_mp3_key):
+            return task
+    return None
+
+
+async def reusable_import(db, user_id, song, submitted_url, signature, options, storage):
+    for task in await song_imports(db, user_id, song, submitted_url):
+        snapshot = dict(task.config_snapshot or {})
         previous = snapshot.get("import_lyrics_signature")
         if previous is None:
             try:

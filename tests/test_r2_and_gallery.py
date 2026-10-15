@@ -79,7 +79,8 @@ def test_gallery_and_r2_endpoints(tmp_path, monkeypatch):
         # 1. 检查 /gallery HTML 页面
         res_page = client.get("/gallery")
         assert res_page.status_code == 200
-        assert "Motion Gallery" in res_page.text
+        assert 'data-i18n="gal_brand"' in res_page.text
+        assert '<html lang="en">' in res_page.text
 
         # 2. 检查 /api/motion/r2/status 接口
         res_r2 = client.get("/api/motion/r2/status")

@@ -415,12 +415,14 @@ async def create_task_from_suno(
     except Exception as e:
         raise HTTPException(400, f"提取 Suno 歌曲失败: {e}")
 
+    song.id = str(song.id).lower()
+    canonical_url = f"https://suno.com/song/{song.id}"
     final_title = (req.song_title or song.title or "Suno_Track").strip()
     lyrics_text = (req.lyrics_text if req.lyrics_text is not None else (song.lyrics or song.raw_prompt or "")).strip()
     if not lyrics_text:
         raise HTTPException(400, "未能从 Suno 页面提取到有效歌词，请检查该歌曲")
 
-    from src.suno_import_identity import lyrics_signature, reusable_import
+    from src.suno_import_identity import lyrics_signature, reusable_import, reusable_audio
     storage = get_storage()
     options = {
         "language": req.language,
@@ -452,44 +454,46 @@ async def create_task_from_suno(
         old_claim.idempotency_key = None
         await db.flush()
 
-    audio_url = song.audio_url or song.video_url
-    if not audio_url:
-        raise HTTPException(400, "未能获取 Suno 音频直链")
-
     import tempfile
 
     task_id = str(uuid.uuid4())
-
-    # Reuse the validated downloader, including public-video audio extraction.
-    # A fresh task directory must never search other users' local media.
+    cached_audio = await reusable_audio(db, user.id, song, clean_url, storage)
+    owns_audio = cached_audio is None
+    mp3_key = cached_audio.input_mp3_key if cached_audio else None
+    lyrics_key = f"uploads/{user.id}/{task_id}/source.txt"
     with tempfile.TemporaryDirectory(prefix="m2v-suno-") as download_dir:
-        try:
-            mp3_tmp, lyrics_tmp, _, _ = await asyncio.to_thread(
-                download_song, song, Path(download_dir), song_name="source",
-                save_json=False, allow_local_fallback=False,
-            )
-        except Exception as e:
-            raise HTTPException(400, f"下载 Suno 音频失败: {e}") from e
-        if mp3_tmp is None:
-            raise HTTPException(400, "Suno 音频及公开视频音轨均无法读取，请上传有权使用的音频文件")
-        mp3_key = f"uploads/{user.id}/{task_id}/source{mp3_tmp.suffix}"
-        lyrics_key = f"uploads/{user.id}/{task_id}/source.txt"
+        directory = Path(download_dir)
+        if owns_audio:
+            if not (song.audio_url or song.video_url):
+                raise HTTPException(400, "未能获取 Suno 音频直链")
+            try:
+                mp3_tmp, _, _, _ = await asyncio.to_thread(
+                    download_song, song, directory, song_name="source",
+                    save_json=False, allow_local_fallback=False,
+                )
+            except Exception as e:
+                raise HTTPException(400, f"下载 Suno 音频失败: {e}") from e
+            if mp3_tmp is None:
+                raise HTTPException(400, "Suno 音频及公开视频音轨均无法读取，请上传有权使用的音频文件")
+            mp3_key = f"uploads/{user.id}/{task_id}/source{mp3_tmp.suffix}"
+            await storage.save(mp3_key, mp3_tmp)
+            from src.song_assets import save_source
+            await save_source(storage, mp3_key, song)
+        lyrics_tmp = directory / "lyrics.txt"
         lyrics_tmp.write_text(lyrics_text, encoding="utf-8")
-        await storage.save(mp3_key, mp3_tmp)
         await storage.save(lyrics_key, lyrics_tmp)
-        from src.song_assets import save_source
-        await save_source(storage, mp3_key, song)
 
     task = Task(
         id=task_id,
         user_id=user.id,
         title=final_title,
         song_title=final_title,
-        suno_url=clean_url,
+        suno_url=canonical_url,
         input_mp3_key=mp3_key,
         input_lyrics_key=lyrics_key,
         idempotency_key=claim,
-        config_snapshot={**options, "suno_song_id": song.id, "import_lyrics_signature": signature},
+        config_snapshot={**options, "suno_song_id": song.id, "import_lyrics_signature": signature,
+                         **({"reuse_stems_from": cached_audio.id} if cached_audio else {})},
     )
     owner_id = user.id
     db.add(task)
@@ -500,11 +504,12 @@ async def create_task_from_suno(
         existing = (await db.execute(select(Task).where(
             Task.user_id == owner_id, Task.idempotency_key == claim,
         ))).scalar_one_or_none()
-        await storage.delete(mp3_key)
         await storage.delete(lyrics_key)
-        from src.song_assets import source_keys
-        for key in source_keys(mp3_key):
-            await storage.delete(key)
+        if owns_audio:
+            await storage.delete(mp3_key)
+            from src.song_assets import source_keys
+            for key in source_keys(mp3_key):
+                await storage.delete(key)
         if existing is None:
             raise
         return UploadResponse(
@@ -581,9 +586,12 @@ async def delete_task(
     from src.motion_cloud import delete_artifacts
     await delete_artifacts(user.id, task.id, storage)
     from src.song_assets import source_keys
+    other_audio_user = (await db.execute(select(Task.id).where(
+        Task.id != task.id, Task.input_mp3_key == task.input_mp3_key,
+    ).limit(1))).scalar_one_or_none()
+    audio_keys = [] if other_audio_user else [task.input_mp3_key, *source_keys(task.input_mp3_key)]
     for key in [
-        *source_keys(task.input_mp3_key),
-        task.input_mp3_key,
+        *audio_keys,
         task.input_lyrics_key,
         task.output_mp4_key,
         task.output_ass_key,

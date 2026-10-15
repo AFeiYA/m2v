@@ -430,6 +430,8 @@ def test_suno_changed_lyrics_force_and_user_isolation(sandbox, monkeypatch):
     other = sandbox.client.post("/api/tasks/from-suno", headers=headers("bob"), json=payload)
     assert other.status_code == 200
     assert other.json()["task_id"] != changed.json()["task_id"]
+    assert other.json()["mp3_key"] != changed.json()["mp3_key"]
+    assert forced.json()["mp3_key"] == changed.json()["mp3_key"] == first["mp3_key"]
     assert len(observed) == 4
     async def verify():
         async with sandbox.sessions() as db:
@@ -493,12 +495,14 @@ def test_suno_concurrent_alias_imports_only_charge_once(sandbox, monkeypatch):
     first = submit(sandbox, monkeypatch, "suno").json()
     pending = sandbox.client.post("/api/tasks/from-suno", headers=headers(), json={"suno_url": "https://suno.com/song/test-song-id"})
     assert pending.json()["task_id"] == first["task_id"]
-    original_download = suno_fetch.download_song
+    from src import suno_import_identity
+    original_reuse = suno_import_identity.reusable_audio
     barrier = Barrier(2)
-    def simultaneous_download(*args, **kwargs):
-        barrier.wait(timeout=10)
-        return original_download(*args, **kwargs)
-    monkeypatch.setattr(suno_fetch, "download_song", simultaneous_download)
+    async def simultaneous_reuse(*args, **kwargs):
+        audio = await original_reuse(*args, **kwargs)
+        await asyncio.to_thread(barrier.wait, timeout=10)
+        return audio
+    monkeypatch.setattr(suno_import_identity, "reusable_audio", simultaneous_reuse)
     def request(url):
         return sandbox.client.post("/api/tasks/from-suno", headers=headers(), json={
             "suno_url": url, "lyrics_text": "concurrent new lyrics"})
@@ -1016,3 +1020,81 @@ def test_rhythm_settings_are_private_and_persist_without_a_poster(sandbox):
     assert restored.json() == saved.json()
     project = sandbox.client.get('/api/cloud-motion/project',params={'project_id':'alice_motion'},headers=headers()).json()
     assert project['plan'] is None
+
+
+def test_suno_lyric_versions_share_audio_and_delete_only_last_reference(sandbox, monkeypatch):
+    from src import suno_fetch
+    install_pipeline(sandbox, monkeypatch, False)
+    first = submit(sandbox, monkeypatch, "suno").json()
+    def unexpected_download(*args, **kwargs):
+        raise AssertionError("Unchanged song audio must not be downloaded again")
+    monkeypatch.setattr(suno_fetch, "download_song", unexpected_download)
+    changed = sandbox.client.post("/api/tasks/from-suno", headers=headers(), json={
+        "suno_url": "https://suno.com/song/test-song-id?sh=another", "lyrics_text": "revised lyrics",
+    })
+    assert changed.status_code == 200
+    second = changed.json()
+    assert second["task_id"] != first["task_id"]
+    assert second["mp3_key"] == first["mp3_key"]
+    assert second["lyrics_key"] != first["lyrics_key"]
+    async def verify():
+        async with sandbox.sessions() as db:
+            old = await db.get(Task, first["task_id"])
+            new = await db.get(Task, second["task_id"])
+            assert old.suno_url == new.suno_url == "https://suno.com/song/test-song-id"
+            assert new.config_snapshot["reuse_stems_from"] == old.id
+            assert await sandbox.storage.exists(old.alignment_json_key)
+            assert await sandbox.storage.exists(new.alignment_json_key)
+    asyncio.run(verify())
+    assert sandbox.client.delete(f'/api/tasks/{first["task_id"]}', headers=headers()).status_code == 200
+    assert asyncio.run(sandbox.storage.exists(second["mp3_key"]))
+    assert sandbox.client.get(f'/api/tasks/{second["task_id"]}/download/mp3', headers=headers()).status_code == 200
+    assert sandbox.client.delete(f'/api/tasks/{second["task_id"]}', headers=headers()).status_code == 200
+    assert not asyncio.run(sandbox.storage.exists(second["mp3_key"]))
+
+
+def test_suno_missing_cached_audio_downloads_a_new_copy(sandbox, monkeypatch):
+    from src import suno_fetch
+    install_pipeline(sandbox, monkeypatch, False)
+    first = submit(sandbox, monkeypatch, "suno").json()
+    asyncio.run(sandbox.storage.delete(first["mp3_key"]))
+    original = suno_fetch.download_song
+    downloads = []
+    def record(*args, **kwargs):
+        downloads.append(True)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(suno_fetch, "download_song", record)
+    response = sandbox.client.post("/api/tasks/from-suno", headers=headers(), json={
+        "suno_url": "https://suno.com/song/test-song-id", "lyrics_text": "new lyrics",
+    })
+    assert response.status_code == 200
+    assert len(downloads) == 1
+    assert response.json()["mp3_key"] != first["mp3_key"]
+
+
+def test_suno_realign_restores_stems_but_never_reuses_old_alignment(sandbox, monkeypatch):
+    install_pipeline(sandbox, monkeypatch, False)
+    first = submit(sandbox, monkeypatch, "suno").json()
+    async def seed_stems():
+        for track in ("vocals", "instrumental"):
+            path = sandbox.output / f"{track}.wav"
+            path.write_bytes((track.encode() + b"-") * 20000)
+            await sandbox.storage.save(f'results/{first["task_id"]}/source_{track}.wav', path)
+    asyncio.run(seed_stems())
+    module = sys.modules['src.main']
+    original = module.process_one
+    checked = []
+    def verify_pipeline(**kwargs):
+        out = kwargs['output_dir']
+        assert (out / 'source_vocals.wav').stat().st_size > 100000
+        assert (out / 'source_instrumental.wav').stat().st_size > 100000
+        assert not (out / 'source_alignment.json').exists()
+        assert kwargs['lyrics_path'].read_text() == 'new words'
+        checked.append(True)
+        return original(**kwargs)
+    monkeypatch.setattr(module, 'process_one', verify_pipeline)
+    response = sandbox.client.post('/api/tasks/from-suno', headers=headers(), json={
+        'suno_url': 'https://suno.com/song/test-song-id', 'lyrics_text': 'new words',
+    })
+    assert response.status_code == 200
+    assert checked == [True]
