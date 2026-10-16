@@ -56,3 +56,29 @@ def test_pages_staging_requires_motion_lab_page(frontend, tmp_path):
     (frontend / "motion-lab.html").unlink()
     with pytest.raises(RuntimeError, match="Missing staged page: motion-lab.html"):
         prepare_pages.prepare(tmp_path / "pages")
+
+
+def test_canonical_editors_include_shared_picker_and_motion_boot_controls():
+    """The deployed director entry differs from the historical laboratory page."""
+    from html.parser import HTMLParser
+
+    class Page(HTMLParser):
+        def __init__(self, html):
+            super().__init__()
+            self.ids, self.scripts = set(), []
+            self.feed(html)
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if attrs.get('id'):
+                self.ids.add(attrs['id'])
+            if tag == 'script' and attrs.get('src'):
+                self.scripts.append(attrs['src'].split('?')[0])
+
+    root = Path(__file__).resolve().parents[1] / 'frontend'
+    for name in ('lyric-editor.html', 'motion-studio.html'):
+        page = Page((root / name).read_text())
+        assert '/static/song-picker.js' in page.scripts
+        if name == 'motion-studio.html':
+            assert {'project-select', 'highlight-mode', 'save-design', 'my-exports'} <= page.ids
+            assert '/motion/studio.js' in page.scripts

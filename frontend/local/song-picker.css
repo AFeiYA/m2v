@@ -1,0 +1,5 @@
+.song-picker {background:#171b29;color:#e2e8f0;border:1px solid #384157;border-radius:16px;padding:22px;width:min(620px,94vw);max-height:85vh;box-sizing:border-box}
+.song-picker::backdrop {background:#080b15b8}.song-picker form,.song-picker footer {display:flex;gap:12px;align-items:center;justify-content:space-between}
+.song-picker input,.song-picker select {padding:10px;border:1px solid #384157;border-radius:8px;background:#101523;color:#e2e8f0;box-sizing:border-box;width:100%;margin:12px 0}
+.song-picker .picker-list {max-height:50vh;overflow:auto}.song-picker section {padding:12px 0;border-top:1px solid #384157}.song-picker h3 {font-size:15px;margin:0}
+.song-picker button {padding:8px 12px;cursor:pointer;border:1px solid #495573;border-radius:8px;background:#253052;color:#e2e8f0}.song-picker button:disabled {opacity:.45;cursor:default}.song-picker [role=status] {font-size:13px;color:#a3b2cd}

@@ -271,11 +271,13 @@ async function logout() {
   refreshToken = null;
   currentUser = null;
   exportSequence++;
-  songSequence++; songPage=1; librarySongs.clear(); loadTasks.hasActive=false;
+  songSequence++; songPage=1; librarySongs.clear(); songPresentations.clear(); loadTasks.hasActive=false;
   if ($("#tasks-list")) $("#tasks-list").innerHTML="";
   for(const [id,value] of [["#song-search",""],["#song-view","active"],["#song-sort","recent"]])if($(id))$(id).value=value;
   if ($("#songs-status")) $("#songs-status").textContent="";
   if ($("#songs-page")) $("#songs-page").textContent="";
+  if($("#version-trash-list"))$("#version-trash-list").innerHTML='';
+  if($("#version-trash"))$("#version-trash").open=false;
   exportSongFilter=null;
   creditSequence++;
   if ($("#credit-history")) $("#credit-history").innerHTML = "";
@@ -505,6 +507,7 @@ function initUpload() {
 
 let songPage = 1, songSequence = 0, songSearchTimer;
 let librarySongs = new Map();
+const songPresentations = new Map();
 
 async function loadTasks(page = songPage) {
   if (!Number.isInteger(page)) page = songPage;
@@ -526,6 +529,7 @@ async function loadTasks(page = songPage) {
     const list = $("#tasks-list");
     const expanded = new Set(Array.from(list.querySelectorAll('.song-card')).filter(card=>card.querySelector('details')?.open).map(card=>card.id));
     list.innerHTML = data.songs.map(renderSong).join("");
+    void loadSongPresentations(data.songs,uid,sequence);
     list.querySelectorAll('.song-card').forEach(card=>{if(expanded.has(card.id))card.querySelector('details').open=true;});
     $("#tasks-empty").style.display = data.songs.length ? "none" : "";
     $("#songs-status").textContent = `${data.total} ${data.total===1?"song":"songs"} in this view · ${data.total_songs} in your library`;
@@ -551,10 +555,10 @@ function renderSong(song) {
       ${ready?`<button class="btn btn-sm btn-outline" data-action="download" data-task="${escapeHtml(v.id)}" data-type="alignment">Download JSON</button>`:''}
       ${v.has_ass?`<button class="btn btn-sm btn-outline" data-action="download" data-task="${escapeHtml(v.id)}" data-type="ass">Download ASS</button>`:''}
       ${v.has_video?`<button class="btn btn-sm btn-outline" data-action="download" data-task="${escapeHtml(v.id)}" data-type="mp4">Download video</button>`:''}
-      <button class="btn btn-sm btn-outline" data-action="delete" data-task="${escapeHtml(v.id)}">Delete version</button></div></div>`;
+      <button class="btn btn-sm btn-outline" data-song-action="trash" data-song="${id}" data-version="${escapeHtml(v.id)}">Move to Trash</button></div></div>`;
   }).join('');
   return `<article class="song-card" id="song-${id}" data-status="${escapeHtml(song.status)}">
-    <div class="song-heading"><span class="song-initial" aria-hidden="true">${escapeHtml((song.title||'♫').slice(0,1))}</span><div><h3>${escapeHtml(song.title)}</h3><p>${song.version_count} ${song.version_count===1?"version":"versions"} · ${song.export_count} ${song.export_count===1?"video":"videos"}${song.archived?' · Archived':''}</p></div>
+    <div class="song-heading"><span class="song-initial" aria-hidden="true">${escapeHtml((song.title||'♫').slice(0,1))}</span><div><h3>${escapeHtml(song.title)}</h3><span class="song-artist">${escapeHtml(song.artist||'')}</span><p>${song.version_count} ${song.version_count===1?"version":"versions"} · ${song.export_count} ${song.export_count===1?"video":"videos"}${song.archived?' · Archived':''}</p></div>
     <button class="song-star" data-song-action="star" data-song="${id}" aria-label="${song.starred?'Unfavorite':'Favorite'} song" aria-pressed="${song.starred}">${song.starred?'★':'☆'}</button></div>
     <p class="song-state">${escapeHtml(song.status==='completed'&&!current?'Import finished':labels[song.status]||song.status)}${song.status==='processing'?` · ${Math.max(0,Math.min(100,Number(song.progress)||0))}%`:''}</p>
     <p class="song-updated">Updated ${escapeHtml(new Date(song.updated_at).toLocaleDateString())}</p>
@@ -569,9 +573,19 @@ async function handleSongAction(button) {
   if (!song || !uid) return;
   if (action === "exports") {
     closeExportPreview();
-    exportSongFilter = song.versions.map(v=>v.id);
+    exportSongFilter = song.export_task_ids || song.versions.map(v=>v.id);
     await loadExports(1);
     $("#exports-section").scrollIntoView?.({behavior:"smooth"});
+    return;
+  }
+  if(action==='trash'){
+    if(!confirm('Move this lyric version to Trash? Finished videos will be kept. You can restore the version later.'))return;
+    button.disabled=true;
+    try{const res=await api(`/api/songs/versions/${encodeURIComponent(button.dataset.version)}/trash`,{method:'POST'});
+      if(!res.ok)throw Error('Unable to move this version to Trash. Please retry.');
+      if(currentUser?.id===uid){await loadTasks();await loadVersionTrash();await loadRenderJobs();await loadCredits();}
+    }catch(error){if(currentUser?.id===uid)$("#songs-status").textContent=error.message;}
+    finally{button.disabled=false;}
     return;
   }
   const changes=action==='star'?{starred:!song.starred}:action==='archive'?{archived:!song.archived}:{preferred_task_id:button.dataset.version};
@@ -584,7 +598,49 @@ async function handleSongAction(button) {
   finally{button.disabled=false;}
 }
 
+async function loadSongPresentations(songs,uid,sequence) {
+  await Promise.allSettled(songs.map(async song=>{
+    const task=song.current_task_id||song.latest_task_id;
+    const key=uid+':'+task+':'+song.updated_at;
+    try{
+      let data=songPresentations.get(key);
+      if(!data||data.until<Date.now()){
+        const response=await api(`/api/songs/versions/${encodeURIComponent(task)}/presentation`);
+        if(!response.ok)return;
+        data={...await response.json(),until:Date.now()+12*60*1000};
+        if(currentUser?.id!==uid)return;
+        songPresentations.set(key,data);
+      }
+      if(currentUser?.id!==uid||sequence!==songSequence)return;
+      const card=document.getElementById('song-'+song.id);if(!card)return;
+      card.querySelector('.song-artist').textContent=data.artist||'';
+      if(data.cover_url){
+        const source=new URL(data.cover_url,API||location.origin);
+        if(!/^https?:$/.test(source.protocol))return;
+        const image=document.createElement('img');image.alt='';image.loading='lazy';image.referrerPolicy='no-referrer';image.src=source.href;
+        image.onerror=()=>image.remove();card.querySelector('.song-initial').append(image);
+      }
+    }catch{/* Artwork is optional; never block the song library. */}
+  }));
+}
+
+let trashSequence=0;
+async function loadVersionTrash(){
+ const uid=currentUser?.id, sequence=++trashSequence;if(!uid)return;
+ try {
+ const response=await api('/api/songs/trash/versions');if(!response.ok||currentUser?.id!==uid)return;
+ const data=await response.json();if(currentUser?.id!==uid||sequence!==trashSequence)return;
+ const list=$("#version-trash-list");list.innerHTML=data.versions.length?data.versions.map(v=>`<div class="song-version"><strong>${escapeHtml(v.title)}</strong><p>${escapeHtml(new Date(v.updated_at).toLocaleString())}</p><button class="btn btn-sm" data-restore-version="${escapeHtml(v.id)}">Restore version</button></div>`).join(''):'Trash is empty.';
+ list.querySelectorAll('[data-restore-version]').forEach(button=>button.onclick=async()=>{
+  button.disabled=true;
+  try{const res=await api(`/api/songs/versions/${encodeURIComponent(button.dataset.restoreVersion)}/restore`,{method:'POST'});if(!res.ok)throw Error('Unable to restore version.');if(currentUser?.id===uid){await loadTasks();await loadVersionTrash();}}
+  catch(error){if(currentUser?.id===uid)$("#songs-status").textContent=error.message;}finally{button.disabled=false;}
+ });
+ } catch {if(currentUser?.id===uid&&sequence===trashSequence)$("#version-trash-list").textContent='Unable to load Trash. Close and reopen to retry.';}
+}
+
 function initSongLibrary() {
+  $("#version-trash")?.addEventListener('toggle',()=>{if($("#version-trash").open)void loadVersionTrash();});
   $("#song-search")?.addEventListener("input",()=>{clearTimeout(songSearchTimer);songSearchTimer=setTimeout(()=>loadTasks(1),250);});
   for(const id of ["#song-view","#song-sort"])$(id)?.addEventListener("change",()=>loadTasks(1));
   $("#songs-prev")?.addEventListener("click",()=>loadTasks(songPage-1));

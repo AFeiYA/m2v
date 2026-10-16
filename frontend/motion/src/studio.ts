@@ -212,7 +212,15 @@ $('export').onclick=action(exportVideo);$('cancel').onclick=action(()=>api('rend
 function tick(){if(engine&&playing){if(clipEnd!==null&&audio.currentTime>=clipEnd){audio.pause();audio.currentTime=clipReviewTime;clipEnd=null;playing=false;$('play').textContent='▶';status(reviewHandover?'Transition preview complete':'Line playback complete. Showing the final poster.');}engine.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';if(audio.ended){playing=false;$('play').textContent='▶';}}requestAnimationFrame(tick);}requestAnimationFrame(tick);
 audio.addEventListener('seeked',()=>{if(scrubbing)return;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';});
 window.addEventListener('beforeunload',event=>{if(dirty||identityDirty||settingsDirty){event.preventDefault();event.returnValue='';}});
-(async()=>{try{const rows=await api('projects'),select=$<HTMLSelectElement>('project-select');for(const row of rows){const item=document.createElement('option');item.value=row.id;item.textContent=row.name;select.append(item);}const params=new URLSearchParams(location.search),wanted=params.get('project')||params.get('song');const chosen=rows.find((row:{id:string;name:string})=>row.id===wanted||row.name===wanted)||(rows.length===1?rows[0]:null);if(chosen){select.value=chosen.id;await load(chosen.id);}}catch(error){status(String(error));}})();
+(async()=>{try{
+ const select=$<HTMLSelectElement>('project-select');
+ const rows=cloudService()?(await serviceJson('/api/songs?view=all&page_size=50')).songs.filter((s:any)=>s.current_task_id).map((s:any)=>({id:s.current_task_id,name:s.title})):await api('projects');
+ for(const row of rows){const item=document.createElement('option');item.value=row.id;item.textContent=row.name;select.append(item);}
+ if(cloudService())window.m2vSongPicker?.mount(select,serviceJson,async id=>{await load(id);return selected===id;});
+ const params=new URLSearchParams(location.search),wanted=params.get('project')||params.get('song');
+ const chosen=rows.find((row:{id:string;name:string})=>row.id===wanted||row.name===wanted)||(rows.length===1?rows[0]:null);
+ if(chosen){select.value=chosen.id;await load(chosen.id);}else if(cloudService()&&wanted){await load(wanted);}
+}catch(error){status(String(error));}})();
 
 async function loadExports(){
   const id=selected,sequence=loadSequence;

@@ -1,6 +1,8 @@
 """Song identity and immutable lyric snapshots for repeat Suno imports."""
 from __future__ import annotations
 
+from src.version_lifecycle import live_task
+
 import asyncio
 import hashlib
 import tempfile
@@ -31,7 +33,7 @@ def direct_song_id(url: str) -> str | None:
 
 async def song_imports(db, user_id, song, submitted_url):
     """Match new IDs and lazily identify legacy tasks without trusting titles as identity."""
-    query = select(Task).where(Task.user_id == user_id, Task.suno_url.isnot(None), or_(
+    query = select(Task).where(Task.user_id == user_id, live_task(), Task.suno_url.isnot(None), or_(
         func.lower(Task.config_snapshot["suno_song_id"].as_string()) == song.id,
         Task.suno_url == submitted_url,
         func.lower(Task.suno_url).contains(f"/song/{song.id}"),

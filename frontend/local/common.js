@@ -426,31 +426,24 @@ async function loadFileList(preferredTitle) {
   try {
     let files = [];
     if (isCloudMode()) {
-      const r = await apiFetch("/api/editor/songs");
-      if (r.status === 401) {
-        if (dom.songSelect) {
-          dom.songSelect.innerHTML = `<option value="">Sign in to view your projects</option>`;
-        }
-        status(window.t ? t("msg_login_required") : "云端模式需要登录，请点击右上角登录", true);
-        return;
+      const r = await apiFetch('/api/songs?view=all&page_size=50'+(preferredTitle?'&q='+encodeURIComponent(preferredTitle):''));
+      if (!r.ok) throw new Error('Unable to load your songs. Please sign in and retry.');
+      const data=await r.json();
+      files=data.songs.filter(s=>s.current_task_id).map(s=>cloudSongFile({task_id:s.current_task_id,name:s.title}));
+      const params=new URLSearchParams(window.location.search);
+      const target=params.get('task_id')||(window.location.pathname.match(/\/lyric-editor\/([0-9a-fA-F-]+)/)||[])[1];
+      if(target&&!files.some(f=>f.task_id===target)){
+        const response=await apiFetch('/api/editor/tasks/'+encodeURIComponent(target)+'/info');
+        if(response.ok)files.push(cloudSongFile(await response.json()));
       }
-      if (!r.ok) throw new Error(await r.text());
-      const songs = await r.json();
-      files = songs.map((s) => ({
-        name: s.name || s.stem || s.task_id,
-        task_id: s.task_id,
-        version: s.version || null,
-        is_saas: true,
-        json_path: s.task_id,
-        audio_path: `/api/editor/tasks/${s.task_id}/audio`,
-        audio_tracks: {
-          vocals: s.has_vocals ? `/api/editor/tasks/${s.task_id}/vocals` : null,
-          instrumental: s.has_instrumental ? `/api/editor/tasks/${s.task_id}/inst` : null,
-        },
-        lines_count: s.lines_count,
-        duration: s.duration,
-        status: s.status,
-      }));
+      if(window.m2vSongPicker)window.m2vSongPicker.mount(dom.songSelect,async path=>{
+        const response=await apiFetch(path);if(!response.ok)throw Error('Unable to load songs. Please retry.');return response.json();
+      },async id=>{
+        if(state.dirty&&!confirm('Switch versions and discard unsaved lyric changes?'))return false;
+        let index=state.allFiles.findIndex(f=>f.task_id===id);
+        if(index<0){state.allFiles.push(cloudSongFile({task_id:id,name:'Song'}));index=state.allFiles.length-1;}
+        await loadSong(index);return state.currentFile?.task_id===id;
+      });
     } else {
       const r = await apiFetch("/api/files");
       if (r.status === 403) {
@@ -468,7 +461,7 @@ async function loadFileList(preferredTitle) {
         ? `<option value="">${window.t ? t("song_select_empty") : "No song projects found"}</option>`
         : `<option value="">${window.t ? t("song_select_prompt") : "— Select a song —"}</option>` +
           state.allFiles.map((f, i) =>
-            `<option value="${i}">${f.name}${f.audio_path ? " 🎵" : ""}</option>`
+            `<option value="${i}">${escHtml(f.name)}${f.audio_path ? " 🎵" : ""}</option>`
           ).join("");
     }
 
@@ -497,9 +490,26 @@ async function loadFileList(preferredTitle) {
   }
 }
 
+function cloudSongFile(s) {
+ return {name:s.name||s.task_id,task_id:s.task_id,is_saas:true,json_path:s.task_id,version:s.version||null,
+   audio_path:`/api/editor/tasks/${s.task_id}/audio`,details_loaded:Boolean(s.version),
+   audio_tracks:{vocals:s.has_vocals?`/api/editor/tasks/${s.task_id}/vocals`:null,instrumental:s.has_instrumental?`/api/editor/tasks/${s.task_id}/inst`:null}};
+}
+
+let songLoadSequence = 0;
 async function loadSong(idx) {
+  const loadSequence = ++songLoadSequence;
+  const loadOwner = window.m2vCache?.getCurrentUid();
+  const isCurrentLoad = () => loadSequence === songLoadSequence && loadOwner === window.m2vCache?.getCurrentUid();
   const file = state.allFiles[idx];
   if (!file) return;
+  if(file.is_saas&&!file.details_loaded){
+    const response=await apiFetch(`/api/editor/tasks/${file.task_id}/info`);
+    if(!response.ok){status('Unable to open this version. Restore it from Trash if needed.',true);return;}
+    const info = await response.json();
+    if (!isCurrentLoad()) return;
+    Object.assign(file,cloudSongFile(info));
+  }
 
   if (ws) { ws.pause(); ws.empty(); }
   if (wsInst) { wsInst.pause(); wsInst.empty(); }
@@ -527,6 +537,7 @@ async function loadSong(idx) {
     let loadedFromCache = false;
     if (window.m2vCache && taskId && version) {
       const cachedAlign = await window.m2vCache.getProject(uid, taskId, "alignment", version);
+      if (!isCurrentLoad()) return;
       if (cachedAlign) {
         state.alignment = cachedAlign;
         loadedFromCache = true;
@@ -543,7 +554,9 @@ async function loadSong(idx) {
       }
       if (!r.ok) throw new Error(await r.text());
       const serverVersion = r.headers.get("X-Resource-Version") || version;
-      state.alignment = await r.json();
+      const alignment = await r.json();
+      if (!isCurrentLoad()) return;
+      state.alignment = alignment;
       if (window.m2vCache && taskId) {
         window.m2vCache.saveProject(uid, taskId, "alignment", state.alignment, serverVersion);
       }
@@ -552,6 +565,7 @@ async function loadSong(idx) {
     // 检查是否有未保存的本地草稿
     if (window.m2vCache && taskId) {
       const draft = await window.m2vCache.getDraft(uid, taskId, "alignment");
+      if (!isCurrentLoad()) return;
       if (draft && draft.data) {
         const draftTime = new Date(draft.savedAt).toLocaleTimeString();
         const restore = confirm(`检测到您在此设备上有未保存的本地草稿 (保存于 ${draftTime})。\n是否恢复该草稿？`);
@@ -567,6 +581,7 @@ async function loadSong(idx) {
 
     updateAudioAnalysisSummary();
   } catch (e) {
+    if (!isCurrentLoad()) return;
     status((window.t ? t("msg_align_load_failed") : "Failed to load alignment data: ") + e, true);
     state.alignment = null;
     return;

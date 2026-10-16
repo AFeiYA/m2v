@@ -14,6 +14,8 @@ Celery Worker — 异步执行 pipeline 任务
 
 from __future__ import annotations
 
+from src.version_lifecycle import live_task
+
 import asyncio
 import json
 import logging
@@ -139,7 +141,7 @@ def _update_task_status(
                 from src.alignment_execution import guard, current_token
                 changed = await session.execute(
                     update(Task)
-                    .where(Task.id == task_id, Task.status.in_([TaskStatus.PENDING, TaskStatus.PROCESSING]), guard(task_id))
+                    .where(Task.id == task_id, Task.status.in_([TaskStatus.PENDING, TaskStatus.PROCESSING]), guard(task_id), live_task())
                     .values(**values)
                 )
                 if status == "completed" and changed.rowcount:

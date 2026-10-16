@@ -44,15 +44,29 @@ personal library of tens to hundreds of songs, not a demonstrated million-row
 search architecture. If usage requires it, introduce persisted Song/Version rows
 and indexed database search behind the same API.
 
-The legacy editor/Motion selectors still expose task versions. The library links
-open a specific version; replacing both selectors with a shared searchable song
-picker is a subsequent step. Library cards use initials until authenticated cover
-thumbnails and author metadata can be added without loading audio or alignment.
+## Phase 2A — choosing and protecting versions (implemented)
 
-## Phase 2 — editing and clip completion (next)
+- Both cloud editors use the same searchable song/version dialog with 12 songs
+  per page. The current editable version is the default, and older version links
+  remain usable. Opening the picker reads metadata, not every alignment or stem.
+- Dashboard cards request private cover thumbnails and artist metadata separately;
+  absent artwork falls back to initials. User-edited artwork and credits take
+  precedence. Thumbnail links expire after 15 minutes; browser metadata caching
+  lasts at most 12 minutes and is scoped to the account and version update time.
+- Move to Trash hides a version from the library, import reuse and editor APIs.
+  Restore makes saved data accessible again; it never restarts failed processing.
+  Pending import/render reservations are returned once. Finished videos remain in
+  My Exports, even when their lyric version is in Trash.
+- Trash is recoverable storage, not space reclamation: no automatic expiry or
+  permanent-purge UI is included. The legacy task DELETE API remains destructive
+  for compatibility; the song library does not call it. Video deletion retains
+  its existing independent confirmation and behavior.
+- The new version_trash table is created by init_db without altering existing
+  task columns. Deploy the backend before the frontend using these new routes.
 
-1. Shared searchable song/version picker in both editors; honor the library's
-   current-version preference while preserving direct links to older versions.
+## Phase 2B — editing and clip completion (remaining)
+
+1. Validate the new library and editors with real accounts and production storage.
 2. Flag timing anomalies for review: compressed durations, excessive gaps and
    overlaps. Warnings need evidence and must not silently rewrite valid singing.
 3. Recommend multiple excerpt candidates from existing sections, lyrics and music

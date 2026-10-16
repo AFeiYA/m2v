@@ -255,3 +255,10 @@ class SongPreference(Base):
     starred: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     preferred_task_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+class VersionTrash(Base):
+    __tablename__ = "version_trash"
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    trashed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

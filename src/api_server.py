@@ -17,6 +17,8 @@ M2V API Server — FastAPI 主应用
 
 from __future__ import annotations
 
+from src.version_lifecycle import live_task
+
 import asyncio
 import json
 import uuid
@@ -545,7 +547,8 @@ async def create_task_from_suno(
                 from src.song_assets import save_source, source_keys
                 cleanup.extend([mp3_key, *source_keys(mp3_key)])
                 await storage.save(mp3_key, mp3_tmp)
-                await save_source(storage, mp3_key, song)
+                source_result = await save_source(storage, mp3_key, song)
+                task.config_snapshot = {**task.config_snapshot, 'library_artist':source_result['metadata'].get('artist','')}
             lyrics_tmp = directory / "lyrics.txt"
             lyrics_tmp.write_text(lyrics_text, encoding="utf-8")
             await storage.save(lyrics_key, lyrics_tmp)
@@ -572,13 +575,13 @@ async def list_tasks(
     from src.alignment_execution import reconcile
     await reconcile(db, user.id)
     # 总数
-    count_q = select(func.count(Task.id)).where(Task.user_id == user.id)
+    count_q = select(func.count(Task.id)).where(Task.user_id == user.id, live_task())
     total = (await db.execute(count_q)).scalar() or 0
 
     # 分页查询
     query = (
         select(Task)
-        .where(Task.user_id == user.id)
+        .where(Task.user_id == user.id, live_task())
         .order_by(Task.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
@@ -902,7 +905,7 @@ if frontend_dir.exists():
 async def _get_user_task(db: AsyncSession, user_id: str, task_id: str) -> Task:
     """获取属于指定用户的任务，不存在则 404"""
     result = await db.execute(
-        select(Task).where(Task.id == task_id, Task.user_id == user_id)
+        select(Task).where(Task.id == task_id, Task.user_id == user_id, live_task())
     )
     task = result.scalar_one_or_none()
     if task is None:

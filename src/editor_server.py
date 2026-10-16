@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from src.version_lifecycle import live_task
+
 import json
 import shutil
 import tempfile
@@ -44,7 +46,7 @@ async def list_songs(
     result = await db.execute(
         select(Task)
         .where(
-            Task.user_id == user.id,
+            Task.user_id == user.id, live_task(),
             Task.alignment_json_key.isnot(None),
         )
         .order_by(Task.created_at.desc())
@@ -87,6 +89,17 @@ async def list_songs(
         })
 
     return songs
+
+
+@router.get("/tasks/{task_id}/info")
+async def song_info(task_id: str, user: User = Depends(get_current_user_flexible), db: AsyncSession = Depends(get_db)):
+    task = await _get_user_task(db, user.id, task_id)
+    if not task.alignment_json_key:
+        raise HTTPException(404, "Alignment is not ready")
+    storage = get_storage()
+    return {"task_id":task.id,"name":task.song_title or task.title,"version":str(int((task.updated_at or task.created_at).timestamp())),
+            "has_vocals":await _find_track_key(storage,task,"vocals") is not None,
+            "has_instrumental":await _find_track_key(storage,task,"instrumental") is not None}
 
 
 # ======================================================================
@@ -381,7 +394,7 @@ def validate_alignment(data: dict) -> list[str]:
 async def _get_user_task(db: AsyncSession, user_id: str, task_id: str) -> Task:
     """获取属于指定用户的任务，不存在则 404"""
     result = await db.execute(
-        select(Task).where(Task.id == task_id, Task.user_id == user_id)
+        select(Task).where(Task.id == task_id, Task.user_id == user_id, live_task())
     )
     task = result.scalar_one_or_none()
     if task is None:

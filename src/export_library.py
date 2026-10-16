@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth import get_current_user_flexible
 from src.database import get_db
-from src.models import Task, User, VideoExport
+from src.models import Task, User, VideoExport, VersionTrash
 from src.settings import get_settings
 from src.storage import LocalStorage, S3Storage, get_storage
 
@@ -28,7 +28,7 @@ async def record_export(export_id, uid, task_id, key, kind="lyric", details=None
     from src.api_server import async_session
     async with async_session() as db:
         task = await db.get(Task, task_id)
-        if not task or task.user_id != uid:
+        if not task or task.user_id != uid or await db.get(VersionTrash, task_id):
             return
         existing = await db.get(VideoExport, export_id)
         # Keep deletion tombstones: reloading status files must not resurrect files.

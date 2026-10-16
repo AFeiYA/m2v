@@ -1,6 +1,8 @@
 """Authenticated cloud adapter for the existing Motion Studio engine."""
 from __future__ import annotations
 
+from src.version_lifecycle import live_task
+
 import asyncio
 import hashlib
 import json
@@ -92,6 +94,9 @@ class Workspace:
         with self.io_gate:
             if self.validate(path).relative_to(self.root.resolve()).parts[0] not in self.deleted:
                 asyncio.run(self.storage.save(self.object_key(path), Path(path)))
+                if Path(path).name in ('source_motion_identity.json','source_motion_cover.jpg'):
+                    from src.song_library import design_changed
+                    asyncio.run(design_changed(self.uid,self.validate(path).relative_to(self.root.resolve()).parts[0],Path(path)))
                 if Path(path).name.endswith('_status.json'):
                     data = json.loads(Path(path).read_text())
                     video = Path(path).with_name(data['id'] + '.mp4')
@@ -105,6 +110,10 @@ class Workspace:
 
     def remove(self, path):
         asyncio.run(self.storage.delete(self.object_key(path)))
+        if Path(path).name == 'source_motion_cover.jpg':
+            from src.song_library import design_changed
+            task_id = self.validate(path).relative_to(self.root.resolve()).parts[0]
+            asyncio.run(design_changed(self.uid, task_id, Path(path)))
 
     async def hydrate(self, task_id, audio=False):
         path = self.project_path(task_id)
@@ -216,7 +225,7 @@ async def refresh_source(request: Request, user: User = Depends(get_current_user
         data = SourceRequest.model_validate(await request.json())
     except ValueError as exc:
         raise HTTPException(422, '请选择有效歌曲') from exc
-    task = (await db.execute(select(Task).where(Task.id == data.project_id, Task.user_id == user.id))).scalar_one_or_none()
+    task = (await db.execute(select(Task).where(Task.id == data.project_id, Task.user_id == user.id, live_task()))).scalar_one_or_none()
     if task is None:
         raise HTTPException(404, '歌曲不存在或无权访问')
     if not task.alignment_json_key:
@@ -260,7 +269,7 @@ async def dispatch(route: str, request: Request,
     while not workspace.gate.acquire(blocking=False):
         await asyncio.sleep(.01)
     try:
-        rows = await db.execute(select(Task).where(Task.user_id == user.id,
+        rows = await db.execute(select(Task).where(Task.user_id == user.id, live_task(),
                                                  Task.alignment_json_key.isnot(None))
                                 .order_by(Task.created_at.desc()))
         workspace.tasks = {task.id: task for task in rows.scalars().all()}

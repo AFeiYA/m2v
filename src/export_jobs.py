@@ -19,7 +19,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
-from src.models import ExportJob, Task, VideoExport
+from src.models import VersionTrash, ExportJob, Task, VideoExport
 from src.utils import log
 
 ACTIVE = ("queued", "running", "uploading")
@@ -123,6 +123,8 @@ async def create(task, user, options, background, db):
 
 async def retry(db, job_id, uid, background, accepted_cost=None):
     row = await owned(db, job_id, uid)
+    if await db.get(VersionTrash, row.task_id):
+        raise HTTPException(409, "Restore this version from Trash before retrying.")
     if row.status in ACTIVE:
         await db.commit()
         return {"task_id": job_id, "status": row.status}
@@ -188,7 +190,7 @@ async def publish(job_id, token, key, result, size):
         ).with_for_update())).scalar_one_or_none()
         if row is None:
             raise RuntimeError("Render attempt was interrupted or deleted")
-        if task is None or task.user_id != row.user_id:
+        if task is None or task.user_id != row.user_id or await db.get(VersionTrash, task.id):
             raise RuntimeError("Song was deleted while rendering")
         if await db.get(VideoExport, job_id):
             raise RuntimeError("Export already exists")

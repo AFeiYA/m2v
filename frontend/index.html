@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>M2V — Lyric Video Studio</title>
-  <link rel="stylesheet" href="/dashboard.css?v=20261016_library">
+  <link rel="stylesheet" href="/dashboard.css?v=20261016_library2">
   <script>
     window.M2V_API_BASE = "https://lucazhou-suno2mv-api.hf.space";
   </script>
@@ -158,13 +158,14 @@
       </div>
       <p class="section-intro">Your songs, lyric versions and finished videos — together in one library.</p>
       <div class="song-toolbar">
-        <input id="song-search" type="search" placeholder="Search song titles…" aria-label="Search song titles">
+        <input id="song-search" type="search" placeholder="Search song titles or artists…" aria-label="Search song titles">
         <select id="song-view" aria-label="Song view"><option value="active">My songs</option><option value="starred">Favorites</option><option value="archived">Archived</option><option value="all">All songs</option></select>
         <select id="song-sort" aria-label="Sort songs"><option value="recent">Recently updated</option><option value="title">Title A–Z</option></select>
       </div>
       <p id="songs-status" role="status"></p>
       <div id="tasks-list" class="song-grid"></div>
       <div class="song-pagination"><button id="songs-prev" class="btn btn-sm" disabled>Previous</button><span id="songs-page"></span><button id="songs-next" class="btn btn-sm" disabled>Next</button></div>
+      <details id="version-trash"><summary>Version Trash · finished videos are kept</summary><div id="version-trash-list"></div></details>
       <div id="tasks-empty" class="empty-state" style="display:none">
         <p>No songs in this view. Import a song, change your search, or check Archived.</p>
       </div>
@@ -209,6 +210,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="/static/cache.js?v=20261013_cache"></script>
   <script src="/firebase-config.js?v=20261015_english"></script>
-  <script src="/dashboard.js?v=20261016_library"></script>
+  <script src="/dashboard.js?v=20261016_library2"></script>
 </body>
 </html>

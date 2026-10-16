@@ -1,6 +1,7 @@
 /** Motion Studio uses the same authenticated backend as the lyric editor. */
 declare global {
  interface Window {
+  m2vSongPicker?: {mount(select:HTMLElement,request:(path:string)=>Promise<any>,choose:(id:string)=>Promise<boolean>):unknown};
   M2V_API_BASE?: string;
   m2vAuth?: {ready?: Promise<unknown>; getIdToken(forceRefresh?: boolean): Promise<string|null>};
   m2vServiceAuthReady?: Promise<void>;
