@@ -271,6 +271,12 @@ async function logout() {
   refreshToken = null;
   currentUser = null;
   exportSequence++;
+  songSequence++; songPage=1; librarySongs.clear(); loadTasks.hasActive=false;
+  if ($("#tasks-list")) $("#tasks-list").innerHTML="";
+  for(const [id,value] of [["#song-search",""],["#song-view","active"],["#song-sort","recent"]])if($(id))$(id).value=value;
+  if ($("#songs-status")) $("#songs-status").textContent="";
+  if ($("#songs-page")) $("#songs-page").textContent="";
+  exportSongFilter=null;
   creditSequence++;
   if ($("#credit-history")) $("#credit-history").innerHTML = "";
   if ($("#credit-summary")) $("#credit-summary").textContent = "";
@@ -497,27 +503,92 @@ function initUpload() {
 // Tasks
 // ======================================================================
 
-async function loadTasks() {
-  const res = await api("/api/tasks?page=1&page_size=50");
-  if (!res.ok) return;
+let songPage = 1, songSequence = 0, songSearchTimer;
+let librarySongs = new Map();
 
-  const data = await res.json();
-  const list = $("#tasks-list");
-  const empty = $("#tasks-empty");
+async function loadTasks(page = songPage) {
+  if (!Number.isInteger(page)) page = songPage;
+  const uid = currentUser?.id, sequence = ++songSequence;
+  if (!uid) return;
+  const query = new URLSearchParams({page:String(page),page_size:"12",
+    q:$("#song-search")?.value || "",view:$("#song-view")?.value || "active",
+    sort:$("#song-sort")?.value || "recent"});
+  $("#songs-status").textContent = "Loading your songs…";
+  try {
+    const res = await api(`/api/songs?${query}`);
+    if (!res.ok) throw Error(`Unable to load songs (HTTP ${res.status}). Please retry.`);
+    const data = await res.json();
+    if (sequence !== songSequence || currentUser?.id !== uid) return;
+    if (!data.songs.length && data.total && page > 1) return loadTasks(page-1);
+    songPage = page;
+    librarySongs = new Map(data.songs.map(song => [song.id,song]));
+    loadTasks.hasActive = data.active_count > 0;
+    const list = $("#tasks-list");
+    const expanded = new Set(Array.from(list.querySelectorAll('.song-card')).filter(card=>card.querySelector('details')?.open).map(card=>card.id));
+    list.innerHTML = data.songs.map(renderSong).join("");
+    list.querySelectorAll('.song-card').forEach(card=>{if(expanded.has(card.id))card.querySelector('details').open=true;});
+    $("#tasks-empty").style.display = data.songs.length ? "none" : "";
+    $("#songs-status").textContent = `${data.total} ${data.total===1?"song":"songs"} in this view · ${data.total_songs} in your library`;
+    $("#songs-page").textContent = `Page ${page} of ${Math.max(1,Math.ceil(data.total/12))}`;
+    $("#songs-prev").disabled = page <= 1;
+    $("#songs-next").disabled = page*12 >= data.total;
+    list.querySelectorAll("[data-action]").forEach(btn=>btn.addEventListener("click",handleTaskAction));
+    list.querySelectorAll("[data-song-action]").forEach(btn=>btn.addEventListener("click",()=>handleSongAction(btn)));
+  } catch (error) {
+    if (sequence === songSequence && currentUser?.id === uid) $("#songs-status").textContent = error.message;
+  }
+}
 
-  if (data.tasks.length === 0) {
-    list.innerHTML = "";
-    empty.style.display = "";
+function renderSong(song) {
+  const id=escapeHtml(song.id), current=song.current_task_id;
+  const labels={pending:"Import queued",processing:"Aligning lyrics",completed:"Ready to edit",failed:song.current_task_id?"Latest import failed · saved version available":"Import failed"};
+  const versions=song.versions.map(v=>{
+    const ready=v.editable;
+    return `<div class="song-version"><div><strong>${escapeHtml(v.title)}</strong> <span class="badge">${escapeHtml(v.status)}</span>${v.id===current?' <span class="badge">Current</span>':''}</div>
+      <p>${escapeHtml(new Date(v.updated_at).toLocaleString())} · ${v.export_count} videos</p>
+      ${v.error?`<p class="error-text">${escapeHtml(v.error)}</p>`:''}
+      <div class="task-actions">${ready?`<a class="btn btn-sm" href="/lyric-editor/${encodeURIComponent(v.id)}">Open lyrics</a><button class="btn btn-sm btn-outline" data-song-action="current" data-song="${id}" data-version="${escapeHtml(v.id)}">Use this version</button>`:''}
+      ${ready?`<button class="btn btn-sm btn-outline" data-action="download" data-task="${escapeHtml(v.id)}" data-type="alignment">Download JSON</button>`:''}
+      ${v.has_ass?`<button class="btn btn-sm btn-outline" data-action="download" data-task="${escapeHtml(v.id)}" data-type="ass">Download ASS</button>`:''}
+      ${v.has_video?`<button class="btn btn-sm btn-outline" data-action="download" data-task="${escapeHtml(v.id)}" data-type="mp4">Download video</button>`:''}
+      <button class="btn btn-sm btn-outline" data-action="delete" data-task="${escapeHtml(v.id)}">Delete version</button></div></div>`;
+  }).join('');
+  return `<article class="song-card" id="song-${id}" data-status="${escapeHtml(song.status)}">
+    <div class="song-heading"><span class="song-initial" aria-hidden="true">${escapeHtml((song.title||'♫').slice(0,1))}</span><div><h3>${escapeHtml(song.title)}</h3><p>${song.version_count} ${song.version_count===1?"version":"versions"} · ${song.export_count} ${song.export_count===1?"video":"videos"}${song.archived?' · Archived':''}</p></div>
+    <button class="song-star" data-song-action="star" data-song="${id}" aria-label="${song.starred?'Unfavorite':'Favorite'} song" aria-pressed="${song.starred}">${song.starred?'★':'☆'}</button></div>
+    <p class="song-state">${escapeHtml(song.status==='completed'&&!current?'Import finished':labels[song.status]||song.status)}${song.status==='processing'?` · ${Math.max(0,Math.min(100,Number(song.progress)||0))}%`:''}</p>
+    <p class="song-updated">Updated ${escapeHtml(new Date(song.updated_at).toLocaleDateString())}</p>
+    <div class="task-actions">${current?`<a class="btn btn-primary btn-sm" href="/lyric-editor/${encodeURIComponent(current)}">Edit lyrics</a><a class="btn btn-sm btn-outline" href="/motion-studio?project=${encodeURIComponent(current)}">Design video</a>`:''}
+    ${song.export_count?`<button class="btn btn-sm btn-outline" data-song-action="exports" data-song="${id}">View videos</button>`:''}
+    <button class="btn btn-sm btn-outline" data-song-action="archive" data-song="${id}">${song.archived?'Restore':'Archive'}</button></div>
+    <details class="song-versions"><summary>Versions &amp; history (${song.version_count})</summary>${versions}</details></article>`;
+}
+
+async function handleSongAction(button) {
+  const song=librarySongs.get(button.dataset.song), action=button.dataset.songAction, uid=currentUser?.id;
+  if (!song || !uid) return;
+  if (action === "exports") {
+    closeExportPreview();
+    exportSongFilter = song.versions.map(v=>v.id);
+    await loadExports(1);
+    $("#exports-section").scrollIntoView?.({behavior:"smooth"});
     return;
   }
+  const changes=action==='star'?{starred:!song.starred}:action==='archive'?{archived:!song.archived}:{preferred_task_id:button.dataset.version};
+  button.disabled=true;
+  try {
+    const res=await api(`/api/songs/${song.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(changes)});
+    if(!res.ok)throw Error('Unable to update your song. Please retry.');
+    if(currentUser?.id===uid)await loadTasks();
+  }catch(error){if(currentUser?.id===uid)$("#songs-status").textContent=error.message;}
+  finally{button.disabled=false;}
+}
 
-  empty.style.display = "none";
-  list.innerHTML = data.tasks.map(renderTask).join("");
-
-  // 绑定按钮事件
-  list.querySelectorAll("[data-action]").forEach((btn) => {
-    btn.addEventListener("click", handleTaskAction);
-  });
+function initSongLibrary() {
+  $("#song-search")?.addEventListener("input",()=>{clearTimeout(songSearchTimer);songSearchTimer=setTimeout(()=>loadTasks(1),250);});
+  for(const id of ["#song-view","#song-sort"])$(id)?.addEventListener("change",()=>loadTasks(1));
+  $("#songs-prev")?.addEventListener("click",()=>loadTasks(songPage-1));
+  $("#songs-next")?.addEventListener("click",()=>loadTasks(songPage+1));
 }
 
 function renderTask(task) {
@@ -632,7 +703,7 @@ async function handleTaskAction(e) {
       btn.disabled = false;
     }
   } else if (action === "delete") {
-    if (!confirm("Delete this project?")) return;
+    if (!confirm("Delete this lyric version and its exported videos? Other versions of the song will be kept.")) return;
     const res = await api(`/api/tasks/${taskId}`, { method: "DELETE" });
     if (res.ok) loadTasks();
   }
@@ -713,7 +784,7 @@ function startPolling() {
   pollTimer = setInterval(async () => {
     // 检查是否有进行中的任务
     const processing = document.querySelectorAll('[data-status="processing"], [data-status="pending"]');
-    if (processing.length > 0) {
+    if (processing.length > 0 || loadTasks.hasActive) {
       await loadTasks();
     }
   }, 5000);
@@ -794,6 +865,7 @@ function initApiConfig() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   initApiConfig();
+  initSongLibrary();
   initExportLibrary();
   initCredits();
   initAuth();
@@ -888,6 +960,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 // Durable video library. Request media only after a user clicks Preview/Download.
 let exportPage = 1;
+let exportSongFilter = null;
 let exportSequence = 0;
 let exportPreviewSequence = 0;
 let renderJobsSequence = 0;
@@ -966,7 +1039,8 @@ async function loadExports(page = exportPage) {
   if (!uid || !$("#exports-list")) return;
   $("#exports-status").textContent = "Loading exports…";
   try {
-    const response = await api(`/api/exports?page=${page}&page_size=20`);
+    const filter = exportSongFilter?.length ? '&task_ids='+encodeURIComponent(exportSongFilter.join(',')) : '';
+    const response = await api(`/api/exports?page=${page}&page_size=20${filter}`);
     if (!response.ok) throw Error(`Unable to load exports (HTTP ${response.status}).`);
     const data = await response.json();
     if (sequence !== exportSequence || currentUser?.id !== uid) return;
@@ -979,6 +1053,7 @@ async function loadExports(page = exportPage) {
       const meta = [detail.recovered ? "Recovered" : "", ({lyric:"Lyric Video",poster:"Motion Studio",rhythm:"Rhythm Studio"})[item.kind] || "Video", resolution, duration, size, new Date(item.created_at).toLocaleString()].filter(Boolean).join(" · ");
       return `<article class="task-card"><strong>${escapeHtml(item.title || "Untitled")}</strong><p>${escapeHtml(meta)}</p><span class="badge">Ready</span><div class="export-actions"><button class="btn btn-sm" data-export="${escapeHtml(item.id)}" data-export-action="preview">Preview</button><button class="btn btn-sm" data-export="${escapeHtml(item.id)}" data-export-action="download">Download MP4</button><button class="btn btn-sm btn-outline" data-export="${escapeHtml(item.id)}" data-export-action="delete">Delete video</button></div></article>`;
     }).join("");
+    if ($("#exports-clear-filter")) $("#exports-clear-filter").hidden = !exportSongFilter;
     $("#exports-status").textContent = data.total ? `${data.total} exports · Preview loads only when requested.` : "No exports yet. Export from Lyric Editor or Motion Studio, or find earlier exports.";
     $("#exports-page").textContent = `Page ${page}`;
     $("#exports-prev").disabled = page <= 1;
@@ -1021,6 +1096,7 @@ async function handleExportAction(button) {
   } finally { button.disabled = false; }
 }
 function initExportLibrary() {
+  $("#exports-clear-filter")?.addEventListener("click",()=>{exportSongFilter=null;loadExports(1);});
   $("#btn-refresh-exports")?.addEventListener("click", () => { loadExports(); loadRenderJobs(); });
   $("#render-jobs-list")?.addEventListener("click", event => {
     const button = event.target.closest("button[data-render-action]");

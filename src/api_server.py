@@ -813,6 +813,8 @@ from src.export_library import router as export_library_router
 api_router.include_router(export_library_router)
 from src.credits import router as credits_router
 api_router.include_router(credits_router)
+from src.song_library import router as song_library_router
+api_router.include_router(song_library_router)
 app.include_router(api_router)
 app.include_router(editor_router)
 from src.motion_cloud import router as cloud_motion_router

@@ -244,3 +244,14 @@ class AlignmentExecution(Base):
     token: Mapped[str] = mapped_column(String(32), nullable=False)
     phase: Mapped[str] = mapped_column(String(16), nullable=False)
     lease_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class SongPreference(Base):
+    """Personal library settings; grouping never rewrites existing tasks/assets."""
+    __tablename__ = "song_preferences"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), nullable=False, index=True)
+    starred: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    preferred_task_id: Mapped[str | None] = mapped_column(String(36), nullable=True)

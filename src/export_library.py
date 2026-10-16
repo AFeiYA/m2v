@@ -61,8 +61,11 @@ def describe(record):
 
 @router.get("")
 async def list_exports(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=50),
+                       task_ids: str = Query('', max_length=20000),
                        user: User = Depends(get_current_user_flexible), db: AsyncSession = Depends(get_db)):
-    filters = (VideoExport.user_id == user.id, VideoExport.deleted_at.is_(None))
+    filters = [VideoExport.user_id == user.id, VideoExport.deleted_at.is_(None)]
+    if task_ids:
+        filters.append(VideoExport.task_id.in_(task_ids.split(',')))
     total = (await db.execute(select(func.count()).select_from(VideoExport).where(*filters))).scalar_one()
     records = (await db.execute(select(VideoExport).where(*filters).order_by(
         VideoExport.created_at.desc(), VideoExport.id.desc()).offset((page-1)*page_size).limit(page_size))).scalars()

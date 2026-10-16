@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>M2V — Lyric Video Studio</title>
-  <link rel="stylesheet" href="/dashboard.css?v=20261016_credits">
+  <link rel="stylesheet" href="/dashboard.css?v=20261016_library">
   <script>
     window.M2V_API_BASE = "https://lucazhou-suno2mv-api.hf.space";
   </script>
@@ -54,22 +54,26 @@
         <span class="subtitle">Lyric Video Studio</span>
       </div>
       <div class="header-right">
-        <span id="user-info"></span>
-        <button id="btn-edit-nickname" class="btn btn-sm btn-outline" title="Edit display name" style="padding: 2px 7px; font-size: 11px;">✏️ Name</button>
+        <a href="#tasks-section" class="btn btn-sm">My songs</a>
+        <a href="#exports-section" class="btn btn-sm">My Exports</a>
         <span id="user-credits" class="badge"></span>
-        <a href="#credits-section" class="btn btn-sm">Credits</a>
-        <a href="#exports-section" class="btn btn-sm">🎬 My Exports</a>
-        <a href="/lyric-editor" target="_blank" class="btn btn-sm">📝 Lyric Editor</a>
-        <button id="btn-copy-plugin-token" class="btn btn-sm btn-outline" title="Copy extension sign-in token">📋 Extension token</button>
-        <button id="btn-config-api-app" style="display: none;" class="btn btn-sm btn-outline" title="Set backend API address">⚙️ API</button>
-        <button id="btn-logout" class="btn btn-sm btn-outline">Sign out</button>
+        <details class="account-menu"><summary>Account &amp; tools</summary><div>
+          <span id="user-info"></span>
+          <button id="btn-edit-nickname" class="btn btn-sm btn-outline" title="Edit display name">Edit name</button>
+          <a href="#credits-section" class="btn btn-sm">Credit history</a>
+          <a href="/lyric-editor" class="btn btn-sm">Lyric Editor</a>
+          <button id="btn-copy-plugin-token" class="btn btn-sm btn-outline" title="Copy extension sign-in token">Extension token</button>
+          <button id="btn-config-api-app" style="display:none" class="btn btn-sm btn-outline" title="Set backend API address">API settings</button>
+          <button id="btn-logout" class="btn btn-sm btn-outline">Sign out</button>
+        </div></details>
       </div>
     </header>
 
     <!-- 创作区 (Suno 链接解析 / 本地文件上传) -->
     <section id="upload-section">
       <div class="upload-card">
-        <h2>🎵 Create a lyric video</h2>
+        <h2>Turn your song into a lyric video</h2>
+        <p class="creation-guide">Import your song <span>→</span> Check the lyrics <span>→</span> Design &amp; export</p>
 
         <div class="mode-tabs">
           <button type="button" class="tab-btn active" id="tab-suno">🔗 Suno link</button>
@@ -82,6 +86,7 @@
             <label for="input-suno-url">Suno song link (required)</label>
             <input type="url" id="input-suno-url" placeholder="https://suno.com/song/xxx or https://suno.com/s/xxx" required style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
           </div>
+          <details class="import-options"><summary>Import settings</summary>
           <div class="upload-field" style="margin-bottom: 1rem;">
             <label for="input-suno-title">Song title (optional; fetched from Suno if blank)</label>
             <input type="text" id="input-suno-title" placeholder="Song title" style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
@@ -98,6 +103,7 @@
               <option value="ko">Korean</option>
             </select>
           </div>
+          </details>
           <button type="submit" id="btn-suno-submit" class="btn btn-primary" style="width:100%;">
             ⚡ Import & align lyrics
           </button>
@@ -144,12 +150,33 @@
       </div>
     </section>
 
+    <!-- 任务列表 -->
+    <section id="tasks-section">
+      <div class="section-header">
+        <h2>My songs</h2>
+        <button id="btn-refresh" class="btn btn-sm">🔄 Refresh</button>
+      </div>
+      <p class="section-intro">Your songs, lyric versions and finished videos — together in one library.</p>
+      <div class="song-toolbar">
+        <input id="song-search" type="search" placeholder="Search song titles…" aria-label="Search song titles">
+        <select id="song-view" aria-label="Song view"><option value="active">My songs</option><option value="starred">Favorites</option><option value="archived">Archived</option><option value="all">All songs</option></select>
+        <select id="song-sort" aria-label="Sort songs"><option value="recent">Recently updated</option><option value="title">Title A–Z</option></select>
+      </div>
+      <p id="songs-status" role="status"></p>
+      <div id="tasks-list" class="song-grid"></div>
+      <div class="song-pagination"><button id="songs-prev" class="btn btn-sm" disabled>Previous</button><span id="songs-page"></span><button id="songs-next" class="btn btn-sm" disabled>Next</button></div>
+      <div id="tasks-empty" class="empty-state" style="display:none">
+        <p>No songs in this view. Import a song, change your search, or check Archived.</p>
+      </div>
+    </section>
+
     <section id="exports-section">
       <div class="section-header">
         <h2>🎬 My Exports</h2>
         <div><button id="btn-discover-exports" class="btn btn-sm btn-outline">Find earlier exports</button>
           <button id="btn-refresh-exports" class="btn btn-sm">Refresh</button></div>
       </div>
+      <button id="exports-clear-filter" class="btn btn-sm btn-outline" hidden>Show all videos</button>
       <p id="exports-status" role="status">Completed videos stay here after you close the editor.</p>
       <div id="render-jobs-list" aria-live="polite"></div>
       <div id="exports-list"></div>
@@ -174,17 +201,7 @@
       </div>
     </section>
 
-    <!-- 任务列表 -->
-    <section id="tasks-section">
-      <div class="section-header">
-        <h2>📋 My projects</h2>
-        <button id="btn-refresh" class="btn btn-sm">🔄 Refresh</button>
-      </div>
-      <div id="tasks-list"></div>
-      <div id="tasks-empty" class="empty-state" style="display:none">
-        <p>No projects yet. Import a Suno song or upload audio to get started.</p>
-      </div>
-    </section>
+
   </div>
 
   <!-- Firebase SDK & Cache -->
@@ -192,6 +209,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="/static/cache.js?v=20261013_cache"></script>
   <script src="/firebase-config.js?v=20261015_english"></script>
-  <script src="/dashboard.js?v=20261016_download"></script>
+  <script src="/dashboard.js?v=20261016_library"></script>
 </body>
 </html>
