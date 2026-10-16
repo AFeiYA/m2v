@@ -32,6 +32,19 @@ Preview or Download. It no longer downloads the entire MP4 into a Blob before
 showing completion. Native video/attachment requests do not put the account token
 in a URL. New access URLs are requested each time a user retries.
 
+Motion/Rhythm Studio download buttons also resolve their completed export ID
+through this scoped access endpoint. They hand the resulting attachment URL to the
+browser download manager rather than buffering the complete MP4 into a Blob. The
+cloud Motion page includes a My Exports link; local-only downloads stay local and
+require no cloud account. Signing out or switching accounts during link lookup
+cancels the browser download handoff.
+
+Preview requests are sequenced in the dashboard and Lyric Editor. Closing a
+preview/dialog, choosing a newer preview or starting a new export invalidates older
+pending responses, so a slow link lookup cannot reopen closed media or replace a
+newer selection. These changes remove an unnecessary full-file transfer before
+saving; actual throughput still depends on the user's connection to storage.
+
 ## Durable lyric render requests
 
 `export_jobs` is the source of truth for cloud **Lyric Editor** renders, including

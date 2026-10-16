@@ -889,6 +889,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 // Durable video library. Request media only after a user clicks Preview/Download.
 let exportPage = 1;
 let exportSequence = 0;
+let exportPreviewSequence = 0;
 let renderJobsSequence = 0;
 let renderJobsTimer;
 async function loadRenderJobs() {
@@ -955,6 +956,7 @@ async function trackImportedVideo(jobId) {
   }
 }
 function closeExportPreview() {
+  exportPreviewSequence++;
   const video = $("#export-preview-video");
   video?.pause?.(); video?.removeAttribute?.("src"); video?.load?.();
   if ($("#exports-preview")) $("#exports-preview").hidden = true;
@@ -987,6 +989,7 @@ async function loadExports(page = exportPage) {
 }
 async function handleExportAction(button) {
   const id = button.dataset.export, action = button.dataset.exportAction, uid = currentUser?.id;
+  const previewSequence = action === "preview" ? ++exportPreviewSequence : null;
   button.disabled = true;
   try {
     if (action === "delete") {
@@ -1004,6 +1007,7 @@ async function handleExportAction(button) {
     if (currentUser?.id !== uid) return;
     const url = data.url.startsWith("/") ? API + data.url : data.url;
     if (action === "preview") {
+      if (previewSequence !== exportPreviewSequence) return;
       closeExportPreview();
       $("#exports-preview").hidden = false;
       const video = $("#export-preview-video"); video.src = url;
@@ -1013,7 +1017,7 @@ async function handleExportAction(button) {
       document.body.appendChild(link); link.click(); link.remove();
     }
   } catch (error) {
-    if (currentUser?.id === uid) $("#exports-status").textContent = error.message;
+    if (currentUser?.id === uid && (previewSequence === null || previewSequence === exportPreviewSequence)) $("#exports-status").textContent = error.message;
   } finally { button.disabled = false; }
 }
 function initExportLibrary() {

@@ -76,3 +76,16 @@ test('ambiguous network failures reuse the same export request until source or o
   s.context.state.alignment={lines:[{text:'Changed lyrics',start:0,end:1}]};
   await s.start();assert.notEqual(bodies[1].request_id,bodies[2].request_id);
 });
+
+test('closing the export dialog during preview lookup keeps media stopped',async()=>{
+ const s=setup();let resolve;
+ const original=s.context.window.apiFetch;
+ s.context.window.apiFetch=(url,options)=>url.includes('/access?')?new Promise(r=>resolve=r):original(url,options);
+ await s.start();await s.poll();
+ const pending=s.elements.get('#btn-preview-lyric-mp4').onclick();
+ s.elements.get('#btn-close-lyric-modal').handlers.click();
+ resolve({ok:true,json:async()=>({url:'https://files.invalid/late.mp4'})});
+ await pending;
+ assert.equal(s.elements.get('#lyric-modal-video').src,undefined);
+ assert.equal(s.elements.get('#lyric-export-modal').style.display,'none');
+});

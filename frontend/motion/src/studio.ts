@@ -397,3 +397,5 @@ $<HTMLInputElement>('cover-file').onchange=action(async()=>{
  if(selected===id&&project){project.song_cover=result.cover;showCover();refresh();status('Cover saved. Preview and export are updated.');}
  $<HTMLInputElement>('cover-file').value='';
 });
+
+$('my-exports').hidden=!cloudService();

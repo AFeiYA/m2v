@@ -108,8 +108,27 @@ export function motionJson(path: string,method='GET',body?: unknown): Promise<an
 }
 
 export async function downloadService(path:string,filename='motion-studio.mp4'): Promise<void> {
- const response=await serviceFetch(path);
- if(!response.ok)throw new Error(`Video download failed (HTTP ${response.status}).`);
- const url=URL.createObjectURL(await response.blob()),link=document.createElement('a');
- link.href=url;link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ const backend=new URL(serviceUrl('/')),target=new URL(serviceUrl(path));
+ if(target.origin!==backend.origin)throw new Error('Invalid video download address.');
+ let url=target.href;
+ if(cloudService()){
+  const match=target.pathname.match(/^\/api\/cloud-motion\/render\/([a-f0-9]{32,64})\/download$/);
+  if(!match)throw new Error('Open My Exports to download this video.');
+  await authentication();
+  const account=async()=>{
+   const token=await window.m2vAuth?.getIdToken(false);
+   if(!token)return null;
+   try{return JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).sub||token;}catch{return token;}
+  };
+  const owner=await account();
+  const data=await serviceJson('/api/exports/'+match[1]+'/access?preview=false');
+  if(!owner||await account()!==owner)throw new Error('Account changed. Open My Exports to download your video.');
+  if(typeof data.url!=='string'||!data.url)throw new Error('Video link is unavailable. Please retry from My Exports.');
+  url=new URL(data.url,backend).href;
+  if(!/^https?:$/.test(new URL(url).protocol))throw new Error('Invalid video download address.');
+  filename=data.filename||filename;
+ }
+ // Let the browser download manager stream to disk. Never buffer an MP4 Blob.
+ const link=document.createElement('a');link.href=url;link.download=filename;
+ document.body.appendChild(link);link.click();link.remove();
 }

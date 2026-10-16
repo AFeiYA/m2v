@@ -196,6 +196,7 @@ function initLyricExportModal() {
 
   let currentDurationLimit = 0; // 0 = 全曲, 20 = 20s
   let creditQuote = null;
+  let previewSequence = 0;
   const requestCache = new Map();
   const pendingRequest = async (taskId, payload) => {
     const key = `m2v_export_request:${taskId}`;
@@ -239,11 +240,13 @@ function initLyricExportModal() {
   };
 
   const closeModal = () => {
+    previewSequence++;
     modal.style.display = "none";
     if (resultVideo) { resultVideo.pause(); resultVideo.removeAttribute?.("src"); resultVideo.load(); }
   };
 
   const openModal = async () => {
+    previewSequence++;
     if (!state.currentFile) {
       alert(window.t ? t("msg_select_song_first") : "请先选择或加载一首歌曲");
       return;
@@ -464,8 +467,9 @@ function initLyricExportModal() {
 
   if (btnReRender) {
     btnReRender.addEventListener("click", () => {
+      previewSequence++;
       resultBox.style.display = "none";
-      if (resultVideo) resultVideo.pause();
+      if (resultVideo) {resultVideo.pause();resultVideo.removeAttribute?.("src");resultVideo.load();}
     });
   }
 
@@ -473,6 +477,7 @@ function initLyricExportModal() {
   if (btnStart) {
     btnStart.addEventListener("click", async () => {
       if (!state.currentFile) return;
+      previewSequence++;
 
       const ratio = document.querySelector('input[name="export-ratio"]:checked')?.value || "9:16";
       const bg = document.querySelector('input[name="export-bg"]:checked')?.value || "full_bleed";
@@ -566,12 +571,14 @@ function initLyricExportModal() {
                 return data;
               };
               if (btnPreview) btnPreview.onclick = async () => {
+                const sequence = ++previewSequence;
                 btnPreview.disabled = true;
                 try {
                   const data = await accessVideo(true);
+                  if (sequence !== previewSequence || modal.style.display === "none" || state.currentFile?.task_id !== songTaskId) return;
                   resultVideo.src = data.url; resultVideo.hidden = false;
                   await resultVideo.play().catch(() => {});
-                } catch (error) { alert(error.message); }
+                } catch (error) { if (sequence === previewSequence && modal.style.display !== "none") alert(error.message); }
                 finally {btnPreview.disabled = false;}
               };
               if (btnDownload) {

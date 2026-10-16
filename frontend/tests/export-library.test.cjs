@@ -87,3 +87,24 @@ test('credit history shows available and reserved balances and escapes descripti
  assert.equal(s.nodes.get('#suno-opt-render-video').disabled,true);
  assert.equal(s.nodes.get('#opt-ass-only').checked,true);
 });
+
+test('closing preview while its link is loading does not reopen the player',async()=>{
+ const s=setup();let resolve;
+ s.context.fetch=()=>new Promise(r=>{resolve=r;});
+ const pending=s.run('handleExportAction({dataset:{export:"a",exportAction:"preview"}})');
+ s.run('closeExportPreview()');
+ resolve({ok:true,headers:{get:()=> 'application/json'},json:async()=>({url:'https://media.invalid/stale'})});
+ await pending;
+ assert.equal(s.nodes.get('#exports-preview').hidden,true);
+ assert.equal(s.nodes.get('#export-preview-video').src,undefined);
+});
+test('later preview selection wins even when the older request finishes last',async()=>{
+ const s=setup(),pending=[];
+ s.context.fetch=()=>new Promise(resolve=>pending.push(resolve));
+ const first=s.run('handleExportAction({dataset:{export:"a",exportAction:"preview"}})');
+ const second=s.run('handleExportAction({dataset:{export:"b",exportAction:"preview"}})');
+ const response=url=>({ok:true,headers:{get:()=> 'application/json'},json:async()=>({url})});
+ pending[1](response('https://media.invalid/new'));await second;
+ pending[0](response('https://media.invalid/old'));await first;
+ assert.equal(s.nodes.get('#export-preview-video').src,'https://media.invalid/new');
+});
