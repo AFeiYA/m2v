@@ -136,9 +136,10 @@ def _update_task_status(
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         try:
             async with session_factory() as session:
+                from src.alignment_execution import guard, current_token
                 changed = await session.execute(
                     update(Task)
-                    .where(Task.id == task_id, Task.status.in_([TaskStatus.PENDING, TaskStatus.PROCESSING]))
+                    .where(Task.id == task_id, Task.status.in_([TaskStatus.PENDING, TaskStatus.PROCESSING]), guard(task_id))
                     .values(**values)
                 )
                 if status == "completed" and changed.rowcount:
@@ -146,15 +147,20 @@ def _update_task_status(
                     task = await session.get(Task, task_id)
                     await finish(session, task.user_id, task_id, "alignment", success=True)
                 await session.commit()
+                if not changed.rowcount and current_token():
+                    raise RuntimeError("Alignment execution is no longer active")
         finally:
             await engine.dispose()
 
     asyncio.run(_inner())
 
 
+from src.alignment_execution import managed_worker
+
 # ── Pipeline 任务 ────────────────────────────────────────
 
 @_task_decorator
+@managed_worker
 def process_song_task(
     task_id: str,
     mp3_key: str,

@@ -26,11 +26,10 @@ No payment or public balance-adjustment endpoint is exposed.
 - Export interruption detection returns its held credits in the same transaction
   as marking it interrupted. Deleting an unfinished project releases held credits.
   Completed project deletion does not refund successful work or erase history.
-- Legacy task failures retain the existing one-time refund behavior. Alignment
-  failure still relies on the Task worker reporting failure; a killed alignment
-  worker without a failure report can remain reserved. This phase does not add an
-  alignment-worker lease/watchdog or automatic monthly credit grants. Despite its
-  existing name, FREE_MONTHLY_QUOTA is currently used as the initial allowance.
+- Legacy task failures retain the existing one-time refund behavior. New imports
+  use the alignment execution leases described below. Legacy tasks without leases
+  are not failed just because they are old. No automatic monthly credit grants
+  exist; FREE_MONTHLY_QUOTA is currently used as the initial allowance.
 
 ## Client and API
 
@@ -65,6 +64,37 @@ This is a trusted CLI, not a public API. Do not directly edit users.credits afte
 ledger adoption: that would bypass history. No real user balances are changed by
 unit tests or by deploying this feature.
 
-Before paid public launch, add payment-order/webhook idempotency and aligner worker
-restart reconciliation. Currency pricing, expiry policies and subscriptions are
-not implemented by this credit ledger.
+Before paid public launch, add payment-order/webhook idempotency. Currency pricing,
+credit expiry policies and subscriptions are not implemented by this credit ledger.
+
+## Alignment preparation and interrupted workers
+
+- Task, unique import claim, execution lease and credit hold are committed together
+  **before** Suno audio downloads or storage writes. An identical concurrent import
+  reuses that task without needing another credit. A different import must reserve
+  its own credit before performing expensive preparation.
+- Preparation exceptions (including request cancellation) mark the durable task
+  failed and release its hold. Cleanup is best effort and limited to the request's
+  own assets; reused audio is never deleted. Preparing tasks cannot lend their
+  not-yet-finalized audio to a different lyric version.
+- `alignment_executions` is a new table created by `init_db`; existing Task columns
+  need no migration. Preparing/running leases last 120 seconds, renewed every
+  10 seconds by an independent thread, including during blocking model inference.
+  Queue handoff allows 30 minutes before a worker starts. Queue duration is a
+  capacity limit, not an inference timeout.
+- A worker atomically claims the queued execution token once. Duplicate deliveries,
+  legacy invocations of a managed task, expired executions and deleted tasks cannot
+  publish successful Task results or settle credits. Live progress is not required
+  for liveness. Completed/failed states never become active again.
+- Owner task/credit queries, Suno/upload requests and an open progress WebSocket
+  reconcile expired managed executions. Each recovery uses its own short transaction
+  for status plus refund, without holding one task's balance while locking another
+  task. The request's cached ORM objects are then refreshed. No user activity means
+  recovery waits until the next query; there is no always-running global scheduler.
+- Recovery reports interruption and returns held credits once. It does not promise
+  continuation from a half-finished GPU stage or silently rerun the song. The user
+  can import again. A process kill during upload can still leave orphaned objects;
+  retention cleanup is separate from credit recovery.
+- Deploy backend **and** Celery workers together. Old queued tasks without managed
+  leases remain compatible. An old worker must not consume new leased tasks during
+  rollout, since it lacks the token guard and independent heartbeat.

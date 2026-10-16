@@ -143,6 +143,8 @@ async def grant(db, uid, amount, reference, description="Credits added by admini
 async def history(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=50),
                   user: User = Depends(get_current_user), db=Depends(get_db)):
     from src.export_jobs import reconcile
+    from src.alignment_execution import reconcile as reconcile_alignment
+    await reconcile_alignment(db, user.id)
     await reconcile(db, user.id)
     balance = await lock_balance(db, user.id)
     await opening(db, user.id, balance)

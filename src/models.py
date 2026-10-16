@@ -234,3 +234,13 @@ class CreditEntry(Base):
     balance_after: Mapped[int] = mapped_column(Integer)
     description: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
+class AlignmentExecution(Base):
+    """Lease for imports created by lease-aware API/worker versions only."""
+    __tablename__ = "alignment_executions"
+
+    task_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    token: Mapped[str] = mapped_column(String(32), nullable=False)
+    phase: Mapped[str] = mapped_column(String(16), nullable=False)
+    lease_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)

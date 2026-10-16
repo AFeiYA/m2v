@@ -67,6 +67,11 @@ async def reusable_audio(db, user_id, song, submitted_url, storage):
     candidates = await song_imports(db, user_id, song, submitted_url)
     candidates.sort(key=lambda task: task.status != TaskStatus.COMPLETED)
     for task in candidates:
+        from src.models import AlignmentExecution
+        execution = await db.get(AlignmentExecution, task.id)
+        # Preparing imports may still fail and remove their private uploads.
+        if execution and execution.phase == "preparing":
+            continue
         if task.input_mp3_key and await storage.exists(task.input_mp3_key):
             return task
     return None

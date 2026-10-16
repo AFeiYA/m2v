@@ -268,15 +268,73 @@ def _dispatch_task(task_id: str, mp3_key: str, lyrics_key: str, config_snapshot:
     return f"thread-{t.name}"
 
 
-async def _commit_and_dispatch(db: AsyncSession, task: Task) -> None:
-    """Reserve credits atomically and commit before any worker can see the task."""
+async def _reserve_import(db: AsyncSession, task: Task) -> None:
+    """Persist the task and its hold together, before external storage/downloads.
+
+    The unique import claim is flushed first. Concurrent identical imports can
+    reuse the winner even when only one credit remains.
+    """
     from src.credits import reserve
+    db.add(task)
+    await db.flush()
+    from src.models import AlignmentExecution
+    from src.alignment_execution import now, LEASE_SECONDS
+    from datetime import timedelta
+    db.add(AlignmentExecution(task_id=task.id, token=uuid.uuid4().hex, phase="preparing",
+                              lease_until=now()+timedelta(seconds=LEASE_SECONDS)))
     await reserve(db, task.user_id, task.id, "alignment", task.cost_credits)
     await db.commit()
+
+
+@asynccontextmanager
+async def _prepare_import(db, task, storage, cleanup_keys):
+    """A failed preparation has a durable task to refund; it never reaches a worker."""
     task_id = task.id
+    from src.models import AlignmentExecution
+    from src.alignment_execution import heartbeat
+    lease = await db.get(AlignmentExecution, task_id)
+    try:
+        with heartbeat(task_id, lease.token, "preparing"):
+            yield
+            await db.commit()
+    except BaseException:
+        await db.rollback()
+        from src.task_lifecycle import fail_task_and_refund
+        await fail_task_and_refund(db, task_id, "Import file preparation interrupted or failed. Please retry.")
+        await db.commit()
+        for asset_key in cleanup_keys:
+            try:
+                await storage.delete(asset_key)
+            except Exception:
+                log.warning("Import cleanup failed: task=%s", task_id)
+        raise
+
+
+async def _commit_and_dispatch(db: AsyncSession, task: Task) -> None:
+    """Hand off a prepared, reserved task once; never revive a cancelled import."""
+    from src.models import AlignmentExecution
+    from src.alignment_execution import now, QUEUE_SECONDS
+    from datetime import timedelta
+    task_id = task.id
+    active = await db.execute(update(Task).where(
+        Task.id == task_id, Task.status == TaskStatus.PENDING,
+    ).values(progress=Task.progress, updated_at=Task.updated_at))
+    lease = (await db.execute(update(AlignmentExecution).where(
+        AlignmentExecution.task_id == task_id, AlignmentExecution.phase == "preparing",
+        AlignmentExecution.lease_until > now(),
+    ).values(phase="queued", lease_until=now()+timedelta(seconds=QUEUE_SECONDS))
+      .returning(AlignmentExecution.token))).scalar_one_or_none() if active.rowcount else None
+    if lease is None:
+        await db.rollback()
+        from src.task_lifecycle import fail_task_and_refund
+        await fail_task_and_refund(db, task_id, "Import interrupted before dispatch; credits returned.")
+        await db.commit()
+        raise HTTPException(409, "Import was interrupted. Please try again.")
+    await db.commit()
     try:
         task.celery_task_id = _dispatch_task(
-            task.id, task.input_mp3_key, task.input_lyrics_key, task.config_snapshot or {},
+            task.id, task.input_mp3_key, task.input_lyrics_key,
+            {**(task.config_snapshot or {}), "_execution_token": lease},
         )
         await db.flush()
     except Exception as exc:
@@ -306,6 +364,8 @@ async def upload_and_create_task(
     db: AsyncSession = Depends(get_db),
 ):
     """上传音频 + 歌词，创建处理任务"""
+    from src.alignment_execution import reconcile
+    await reconcile(db, user.id)
     # 配额检查
     if not ass_only and settings.LYRIC_EXPORT_CREDITS:
         raise HTTPException(409, "Import alignment only, then export from Lyric Editor to review the video credit price.")
@@ -331,70 +391,36 @@ async def upload_and_create_task(
     if len(lyrics_content) > 5 * 1024 * 1024:  # 歌词最大 5MB
         raise HTTPException(400, "歌词文件过大")
 
-    # 保存文件到存储 (需要先拿到 key 再创建 Task，因为 key 是 NOT NULL)
     import tempfile
-
-    storage = get_storage()
-    task_id = str(uuid.uuid4())
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(mp3.filename).suffix) as f:
-        f.write(mp3_content)
-        mp3_tmp = Path(f.name)
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(lyrics.filename).suffix) as f:
-        f.write(lyrics_content)
-        lyrics_tmp = Path(f.name)
-
     import re
 
-    def _clean_fname(raw_name: str | None, fallback: str) -> str:
-        base = Path(raw_name or fallback).name
-        cleaned = re.sub(r'[^\w\.\-\u4e00-\u9fa5]', '_', base).strip(".")
-        return cleaned or fallback
+    def clean_name(raw, fallback):
+        return re.sub(r'[^\w.\-\u4e00-\u9fa5]', '_', Path(raw or fallback).name).strip('.') or fallback
 
-    safe_mp3_name = _clean_fname(mp3.filename, "audio.mp3")
-    safe_lyrics_name = _clean_fname(lyrics.filename, "lyrics.txt")
-
-    try:
-        mp3_key = f"uploads/{user.id}/{task_id}/{safe_mp3_name}"
-        lyrics_key = f"uploads/{user.id}/{task_id}/{safe_lyrics_name}"
-
-        await storage.save(mp3_key, mp3_tmp)
-        await storage.save(lyrics_key, lyrics_tmp)
-    finally:
-        mp3_tmp.unlink(missing_ok=True)
-        lyrics_tmp.unlink(missing_ok=True)
-
-    # 歌名与 Suno 链接
-    final_title = song_title.strip() if song_title and song_title.strip() else Path(mp3.filename).stem
-    clean_suno_url = suno_url.strip() if suno_url and suno_url.strip() else None
-
-    # 创建 Task 记录（所有 NOT NULL 字段已就绪）
+    task_id = str(uuid.uuid4())
+    prefix = f"uploads/{user.id}/{task_id}"
+    mp3_key = f"{prefix}/{clean_name(mp3.filename, 'audio.mp3')}"
+    lyrics_key = f"{prefix}/{clean_name(lyrics.filename, 'lyrics.txt')}"
+    final_title = (song_title or "").strip() or Path(mp3.filename).stem
     task = Task(
-        id=task_id,
-        user_id=user.id,
-        title=final_title,
-        song_title=final_title,
-        suno_url=clean_suno_url,
-        input_mp3_key=mp3_key,
-        input_lyrics_key=lyrics_key,
-        config_snapshot={
-            "language": language,
-            "skip_separation": skip_separation,
-            "ass_only": ass_only,
-            "beat_effects": beat_effects,
-        },
+        id=task_id, user_id=user.id, title=final_title, song_title=final_title,
+        suno_url=(suno_url or "").strip() or None,
+        input_mp3_key=mp3_key, input_lyrics_key=lyrics_key,
+        config_snapshot={"language": language, "skip_separation": skip_separation,
+                         "ass_only": ass_only, "beat_effects": beat_effects},
     )
-    db.add(task)
-    await db.flush()
-
+    await _reserve_import(db, task)
+    storage = get_storage()
+    async with _prepare_import(db, task, storage, [mp3_key, lyrics_key]):
+        with tempfile.TemporaryDirectory(prefix="m2v-upload-") as directory:
+            audio = Path(directory) / ("audio" + Path(mp3.filename).suffix)
+            text = Path(directory) / "lyrics.txt"
+            audio.write_bytes(mp3_content)
+            text.write_bytes(lyrics_content)
+            await storage.save(mp3_key, audio)
+            await storage.save(lyrics_key, text)
     await _commit_and_dispatch(db, task)
-
-    return UploadResponse(
-        mp3_key=mp3_key,
-        lyrics_key=lyrics_key,
-        task_id=task.id,
-    )
+    return UploadResponse(mp3_key=mp3_key, lyrics_key=lyrics_key, task_id=task.id)
 
 
 @api_router.post("/api/tasks/from-suno", response_model=UploadResponse, tags=["Tasks"])
@@ -405,6 +431,8 @@ async def create_task_from_suno(
     db: AsyncSession = Depends(get_db),
 ):
     """从 Suno 链接自动拉取歌名、歌词、音频并创建生成任务"""
+    from src.alignment_execution import reconcile
+    await reconcile(db, user.id)
     clean_url = req.suno_url.strip()
     if not req.ass_only and settings.LYRIC_EXPORT_CREDITS:
         raise HTTPException(409, "Import alignment only, then export from Lyric Editor to review the video credit price.")
@@ -474,70 +502,56 @@ async def create_task_from_suno(
     task_id = str(uuid.uuid4())
     cached_audio = await reusable_audio(db, user.id, song, clean_url, storage)
     owns_audio = cached_audio is None
-    mp3_key = cached_audio.input_mp3_key if cached_audio else None
+    mp3_key = cached_audio.input_mp3_key if cached_audio else f"uploads/{user.id}/{task_id}/source.mp3"
     lyrics_key = f"uploads/{user.id}/{task_id}/source.txt"
-    with tempfile.TemporaryDirectory(prefix="m2v-suno-") as download_dir:
-        directory = Path(download_dir)
-        if owns_audio:
-            if not (song.audio_url or song.video_url):
-                raise HTTPException(400, "未能获取 Suno 音频直链")
-            try:
-                mp3_tmp, _, _, _ = await asyncio.to_thread(
-                    download_song, song, directory, song_name="source",
-                    save_json=False, allow_local_fallback=False,
-                )
-            except Exception as e:
-                raise HTTPException(400, f"下载 Suno 音频失败: {e}") from e
-            if mp3_tmp is None:
-                raise HTTPException(400, "Suno 音频及公开视频音轨均无法读取，请上传有权使用的音频文件")
-            mp3_key = f"uploads/{user.id}/{task_id}/source{mp3_tmp.suffix}"
-            await storage.save(mp3_key, mp3_tmp)
-            from src.song_assets import save_source
-            await save_source(storage, mp3_key, song)
-        lyrics_tmp = directory / "lyrics.txt"
-        lyrics_tmp.write_text(lyrics_text, encoding="utf-8")
-        await storage.save(lyrics_key, lyrics_tmp)
-
     task = Task(
-        id=task_id,
-        user_id=user.id,
-        title=final_title,
-        song_title=final_title,
-        suno_url=canonical_url,
-        input_mp3_key=mp3_key,
-        input_lyrics_key=lyrics_key,
+        id=task_id, user_id=user.id, title=final_title, song_title=final_title,
+        suno_url=canonical_url, input_mp3_key=mp3_key, input_lyrics_key=lyrics_key,
         idempotency_key=claim,
         config_snapshot={**options, "suno_song_id": song.id, "import_lyrics_signature": signature,
                          **({"reuse_stems_from": cached_audio.id} if cached_audio else {})},
     )
     owner_id = user.id
-    db.add(task)
     try:
-        await db.flush()
+        await _reserve_import(db, task)
     except IntegrityError:
         await db.rollback()
         existing = (await db.execute(select(Task).where(
             Task.user_id == owner_id, Task.idempotency_key == claim,
         ))).scalar_one_or_none()
-        await storage.delete(lyrics_key)
-        if owns_audio:
-            await storage.delete(mp3_key)
-            from src.song_assets import source_keys
-            for key in source_keys(mp3_key):
-                await storage.delete(key)
         if existing is None:
             raise
-        return UploadResponse(
-            mp3_key=existing.input_mp3_key, lyrics_key=existing.input_lyrics_key,
-            task_id=existing.id, message="复用同时提交的歌曲任务，不重复扣减额度",
-        )
+        return await reuse_response(existing)
 
+    # Only this request's assets may be cleaned up. Never delete shared audio.
+    cleanup = [lyrics_key]
+    async with _prepare_import(db, task, storage, cleanup):
+        with tempfile.TemporaryDirectory(prefix="m2v-suno-") as download_dir:
+            directory = Path(download_dir)
+            if owns_audio:
+                if not (song.audio_url or song.video_url):
+                    raise HTTPException(400, "未能获取 Suno 音频直链")
+                try:
+                    mp3_tmp, _, _, _ = await asyncio.to_thread(
+                        download_song, song, directory, song_name="source",
+                        save_json=False, allow_local_fallback=False,
+                    )
+                except Exception as e:
+                    raise HTTPException(400, f"下载 Suno 音频失败: {e}") from e
+                if mp3_tmp is None:
+                    raise HTTPException(400, "Suno 音频及公开视频音轨均无法读取，请上传有权使用的音频文件")
+                mp3_key = f"uploads/{owner_id}/{task_id}/source{mp3_tmp.suffix}"
+                task.input_mp3_key = mp3_key
+                from src.song_assets import save_source, source_keys
+                cleanup.extend([mp3_key, *source_keys(mp3_key)])
+                await storage.save(mp3_key, mp3_tmp)
+                await save_source(storage, mp3_key, song)
+            lyrics_tmp = directory / "lyrics.txt"
+            lyrics_tmp.write_text(lyrics_text, encoding="utf-8")
+            await storage.save(lyrics_key, lyrics_tmp)
     await _commit_and_dispatch(db, task)
-
     return UploadResponse(
-        mp3_key=mp3_key,
-        lyrics_key=lyrics_key,
-        task_id=task.id,
+        mp3_key=mp3_key, lyrics_key=lyrics_key, task_id=task.id,
         message=f"Suno 歌曲《{final_title}》解析成功，任务已创建",
     )
 
@@ -555,6 +569,8 @@ async def list_tasks(
     db: AsyncSession = Depends(get_db),
 ):
     """获取当前用户的任务列表"""
+    from src.alignment_execution import reconcile
+    await reconcile(db, user.id)
     # 总数
     count_q = select(func.count(Task.id)).where(Task.user_id == user.id)
     total = (await db.execute(count_q)).scalar() or 0
@@ -583,6 +599,8 @@ async def get_task(
     db: AsyncSession = Depends(get_db),
 ):
     """获取单个任务详情"""
+    from src.alignment_execution import reconcile
+    await reconcile(db, user.id)
     task = await _get_user_task(db, user.id, task_id)
     return _task_to_response(task)
 
@@ -641,6 +659,8 @@ async def delete_task(
         await db.delete(record)
     from sqlalchemy import delete
     await db.execute(delete(ExportJob).where(ExportJob.task_id == task.id))
+    from src.models import AlignmentExecution
+    await db.execute(delete(AlignmentExecution).where(AlignmentExecution.task_id == task.id))
     await db.delete(task)
     return MessageResponse(message="任务已删除")
 
@@ -736,7 +756,21 @@ async def task_progress_ws(websocket: WebSocket, task_id: str):
         pubsub = r.pubsub()
         await pubsub.subscribe(f"task_progress:{task_id}")
 
+        import time
+        checked_at = 0.0
         while True:
+            if time.monotonic() - checked_at >= 10:
+                from src.alignment_execution import reconcile
+                async with async_session() as db:
+                    await reconcile(db, user.id)
+                    await db.commit()
+                    current = await db.get(Task, task_id)
+                    if current is None:
+                        break
+                    if current.status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+                        await websocket.send_text(_task_to_response(current).model_dump_json())
+                        break
+                checked_at = time.monotonic()
             message = await pubsub.get_message(
                 ignore_subscribe_messages=True, timeout=1.0
             )
