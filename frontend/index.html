@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>M2V — Lyric Video Studio</title>
-  <link rel="stylesheet" href="/dashboard.css?v=20261015_exports">
+  <link rel="stylesheet" href="/dashboard.css?v=20261016_credits">
   <script>
     window.M2V_API_BASE = "https://lucazhou-suno2mv-api.hf.space";
   </script>
@@ -57,6 +57,7 @@
         <span id="user-info"></span>
         <button id="btn-edit-nickname" class="btn btn-sm btn-outline" title="Edit display name" style="padding: 2px 7px; font-size: 11px;">✏️ Name</button>
         <span id="user-credits" class="badge"></span>
+        <a href="#credits-section" class="btn btn-sm">Credits</a>
         <a href="#exports-section" class="btn btn-sm">🎬 My Exports</a>
         <a href="/lyric-editor" target="_blank" class="btn btn-sm">📝 Lyric Editor</a>
         <button id="btn-copy-plugin-token" class="btn btn-sm btn-outline" title="Copy extension sign-in token">📋 Extension token</button>
@@ -162,6 +163,17 @@
       </div>
     </section>
 
+    <section id="credits-section">
+      <div class="section-header"><h2>Credit history</h2><button id="btn-refresh-credits" class="btn btn-sm">Refresh</button></div>
+      <p id="credit-summary" role="status"></p>
+      <p id="credit-pricing"></p>
+      <div id="credit-history"></div>
+      <div style="display:flex;gap:12px;align-items:center;margin:12px 0">
+        <button id="credits-prev" class="btn btn-sm" disabled>Previous</button>
+        <span id="credits-page"></span><button id="credits-next" class="btn btn-sm" disabled>Next</button>
+      </div>
+    </section>
+
     <!-- 任务列表 -->
     <section id="tasks-section">
       <div class="section-header">
@@ -180,6 +192,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="/static/cache.js?v=20261013_cache"></script>
   <script src="/firebase-config.js?v=20261015_english"></script>
-  <script src="/dashboard.js?v=20261016_export_jobs"></script>
+  <script src="/dashboard.js?v=20261016_credits"></script>
 </body>
 </html>

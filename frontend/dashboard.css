@@ -515,3 +515,15 @@ header {
 }
 
 #exports-section {max-width:1100px;margin:24px auto;padding:0 24px} #exports-status {color:var(--text-muted);font-size:13px} .export-actions {display:flex;gap:8px;flex-wrap:wrap;margin-top:12px} #exports-list .task-card {margin:12px 0} #exports-section [hidden] {display:none!important}
+
+#credits-section {max-width:1100px;margin:24px auto;padding:0 24px}
+#credit-summary {font-size:15px;margin:12px 0 6px}
+#credit-pricing {color:var(--text-muted);font-size:13px;line-height:1.6;margin-bottom:16px}
+#credit-history {border:1px solid var(--border);border-radius:12px;background:var(--bg-card);padding:4px 12px}
+#credit-history table {border-collapse:collapse;font-size:13px;min-width:560px}
+#credit-history th {color:var(--text-muted);font-size:12px;font-weight:600}
+#credit-history th,#credit-history td {padding:12px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+#credit-history tbody tr:last-child td {border-bottom:0}
+#credit-history td:first-child {white-space:nowrap;color:var(--text-muted)}
+#credit-history td:nth-child(3),#credit-history td:nth-child(4) {font-variant-numeric:tabular-nums;white-space:nowrap}
+@media(max-width:600px) {#credits-section {padding:0 16px} #credit-history {padding:0 4px}}

@@ -48,11 +48,14 @@ def public_job(row):
 async def reconcile(db, uid):
     # Do not mark all running jobs interrupted on startup: another process may
     # still own a valid lease. Conditional updates also fence that old worker.
-    await db.execute(update(ExportJob).where(
+    changed = await db.execute(update(ExportJob).where(
         ExportJob.user_id == uid, ExportJob.status.in_(ACTIVE), ExportJob.lease_until < now(),
     ).execution_options(synchronize_session=False).values(status="interrupted", phase="interrupted", run_token=None,
              message="Rendering was interrupted. Retry uses your saved audio and timeline.",
-             error="The render worker stopped responding.", updated_at=now()))
+             error="The render worker stopped responding.", updated_at=now()).returning(ExportJob.id))
+    from src.credits import finish
+    for job_id in changed.scalars().all():
+        await finish(db, uid, job_id, "lyric_export", success=False)
 
 
 async def owned(db, job_id, uid):
@@ -68,6 +71,8 @@ async def owned(db, job_id, uid):
 
 async def create(task, user, options, background, db):
     values = options.model_dump(mode="json")
+    if values.get("accepted_cost") is None:
+        values.pop("accepted_cost", None)
     request_id = values.get("request_id")
     job_id = hashlib.sha256(f'{user.id}:{task.id}:video:{request_id}'.encode()).hexdigest() if request_id else uuid.uuid4().hex
     fingerprint = hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
@@ -89,6 +94,12 @@ async def create(task, user, options, background, db):
         await db.commit()
         return {"task_id": job_id, "status": existing.status}
     uid, tid = user.id, task.id
+    from src.settings import get_settings
+    price = get_settings().LYRIC_EXPORT_CREDITS
+    if price and not request_id:
+        raise HTTPException(409, "A request_id is required for paid exports to prevent duplicate charges.")
+    if price and values.get("accepted_cost") != price:
+        raise HTTPException(409, "Review and accept the current export credit price before rendering.")
     db.add(ExportJob(id=job_id, user_id=uid, task_id=tid,
                      title=task.song_title or task.title, options=values, fingerprint=fingerprint,
                      alignment_key=task.alignment_json_key, audio_key=task.input_mp3_key,
@@ -96,6 +107,9 @@ async def create(task, user, options, background, db):
     try:
         # Commit before starting the worker or returning the ID. A different
         # browser/process must be able to read a queued request immediately.
+        await db.flush()
+        from src.credits import reserve
+        await reserve(db, uid, job_id, "lyric_export", price)
         await db.commit()
     except IntegrityError:
         await db.rollback()
@@ -107,19 +121,29 @@ async def create(task, user, options, background, db):
     return {"task_id": job_id, "status": "queued"}
 
 
-async def retry(db, job_id, uid, background):
+async def retry(db, job_id, uid, background, accepted_cost=None):
     row = await owned(db, job_id, uid)
     if row.status in ACTIVE:
         await db.commit()
         return {"task_id": job_id, "status": row.status}
     if row.status not in RETRYABLE:
         raise HTTPException(409, "Only failed or interrupted exports can be retried")
+    from src.credits import key
+    from src.models import CreditReservation
+    from src.settings import get_settings
+    previous = await db.get(CreditReservation, key(uid, "lyric_export", job_id))
+    price = previous.amount if previous else get_settings().LYRIC_EXPORT_CREDITS
+    if price and accepted_cost != price:
+        raise HTTPException(409, "Review and accept the retry credit price before rendering.")
     claimed = await db.execute(update(ExportJob).where(
         ExportJob.id == job_id, ExportJob.user_id == uid, ExportJob.status.in_(RETRYABLE),
     ).values(status="queued", phase="queued", progress=0, error=None, result=None,
              output_key=None, run_token=None, attempt=ExportJob.attempt+1,
              message="Waiting to retry rendering", updated_at=now(),
              lease_until=now()+timedelta(seconds=LEASE_SECONDS)))
+    if claimed.rowcount:
+        from src.credits import reserve
+        await reserve(db, uid, job_id, "lyric_export", price)
     await db.commit()
     if claimed.rowcount:
         background.add_task(run, job_id)
@@ -141,9 +165,13 @@ async def change(job_id, token, **values):
     async with sessions() as db:
         result = await db.execute(update(ExportJob).where(
             ExportJob.id == job_id, ExportJob.run_token == token, ExportJob.status.in_(ACTIVE),
-        ).values(**values, updated_at=now(), lease_until=now()+timedelta(seconds=LEASE_SECONDS)))
+        ).values(**values, updated_at=now(), lease_until=now()+timedelta(seconds=LEASE_SECONDS)).returning(ExportJob.user_id))
+        uid = result.scalar_one_or_none()
+        if uid and values.get("status") in RETRYABLE:
+            from src.credits import finish
+            await finish(db, uid, job_id, "lyric_export", success=False)
         await db.commit()
-        if result.rowcount != 1:
+        if uid is None:
             raise RuntimeError("Render attempt no longer owns this job")
 
 
@@ -172,6 +200,8 @@ async def publish(job_id, token, key, result, size):
         row.result = {**result, "export_id": job_id, "video_url": f"/api/editor/jobs/{job_id}/video"}
         row.message, row.error = "Video ready in My Exports", None
         row.run_token = None
+        from src.credits import finish
+        await finish(db, row.user_id, job_id, "lyric_export", success=True)
         await db.commit()
 
 

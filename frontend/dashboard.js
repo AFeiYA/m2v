@@ -271,6 +271,10 @@ async function logout() {
   refreshToken = null;
   currentUser = null;
   exportSequence++;
+  creditSequence++;
+  if ($("#credit-history")) $("#credit-history").innerHTML = "";
+  if ($("#credit-summary")) $("#credit-summary").textContent = "";
+  if ($("#credit-pricing")) $("#credit-pricing").textContent = "";
   renderJobsSequence++;
   if (renderJobsTimer) clearTimeout(renderJobsTimer);
   loadRenderJobs.hadActive = false;
@@ -326,6 +330,7 @@ function showApp() {
   loadTasks();
   loadExports();
   loadRenderJobs();
+  loadCredits();
   startPolling();
 }
 
@@ -416,6 +421,7 @@ function initUpload() {
           sunoForm.reset();
           loadTasks();
           connectProgressWS(data.task_id);
+          loadCredits();
           if (data.video_job_id) { loadRenderJobs(); trackImportedVideo(data.video_job_id); }
         } else {
           const err = await res.json();
@@ -669,6 +675,7 @@ function connectProgressWS(taskId) {
     // 任务完成后刷新列表
     setTimeout(loadTasks, 500);
     loadUser();  // 刷新配额
+    loadCredits();
   };
 }
 
@@ -692,6 +699,7 @@ function updateTaskProgress(data) {
 
   if (data.current_step === "done" || data.current_step === "error") {
     setTimeout(loadTasks, 500);
+    loadCredits();
   }
 }
 
@@ -787,6 +795,7 @@ function initApiConfig() {
 document.addEventListener("DOMContentLoaded", async () => {
   initApiConfig();
   initExportLibrary();
+  initCredits();
   initAuth();
   initUpload();
 
@@ -898,10 +907,11 @@ async function loadRenderJobs() {
     $("#render-jobs-list").innerHTML = rows.map(row => {
       const retryable = ["failed", "interrupted"].includes(row.status);
       const percent = Math.max(0, Math.min(100, Number(row.progress) || 0));
-      return `<article class="task-card"><strong>${escapeHtml(row.title || "Untitled")}</strong><p>${escapeHtml(labels[row.status] || row.status)} · ${percent}% · Attempt ${Number(row.attempt) || 1}</p><progress max="100" value="${percent}" aria-label="Render progress"></progress><p>${escapeHtml(row.error || row.message || "")}</p>${retryable ? `<div class="export-actions"><button class="btn btn-sm" data-render-job="${escapeHtml(row.id)}" data-render-action="retry">Retry rendering</button><button class="btn btn-sm btn-outline" data-render-job="${escapeHtml(row.id)}" data-render-action="dismiss">Dismiss</button></div>` : ""}</article>`;
+      const cost = Math.max(0, Number(row.credit_cost) || 0);
+      return `<article class="task-card"><strong>${escapeHtml(row.title || "Untitled")}</strong><p>${escapeHtml(labels[row.status] || row.status)} · ${percent}% · Attempt ${Number(row.attempt) || 1}</p><progress max="100" value="${percent}" aria-label="Render progress"></progress><p>${escapeHtml(row.error || row.message || "")}</p>${retryable ? `<div class="export-actions"><button class="btn btn-sm" data-render-job="${escapeHtml(row.id)}" data-render-cost="${cost}" data-render-action="retry">Retry rendering${cost ? ` · ${cost} credits` : " · Free"}</button><button class="btn btn-sm btn-outline" data-render-job="${escapeHtml(row.id)}" data-render-action="dismiss">Dismiss</button></div>` : ""}</article>`;
     }).join("");
     // Refresh the completed library too: a job may finish in another browser.
-    if (loadRenderJobs.hadActive) await loadExports();
+    if (loadRenderJobs.hadActive) { await loadExports(); await loadCredits(); }
     if (currentUser?.id !== uid || sequence !== renderJobsSequence) return;
     loadRenderJobs.hadActive = active;
     if (active) renderJobsTimer = setTimeout(() => { if (currentUser?.id === uid) loadRenderJobs(); }, 5000);
@@ -913,12 +923,13 @@ async function handleRenderAction(button) {
   const uid = currentUser?.id, id = button.dataset.renderJob, retry = button.dataset.renderAction === "retry";
   button.disabled = true;
   try {
-    const response = await api(`/api/editor/jobs/${encodeURIComponent(id)}${retry ? "/retry" : ""}`, {method:retry ? "POST" : "DELETE"});
+    const response = await api(`/api/editor/jobs/${encodeURIComponent(id)}${retry ? "/retry" : ""}`, {method:retry ? "POST" : "DELETE", ...(retry ? {json:{accepted_cost:Math.max(0, Number(button.dataset.renderCost) || 0)}} : {})});
     const data = await response.json();
     if (!response.ok) throw Error(data.detail || "Unable to update export job.");
     if (currentUser?.id !== uid) return;
     await loadRenderJobs();
     if (retry) await loadExports();
+    if (retry) await loadCredits();
   } catch (error) {
     if (currentUser?.id === uid) $("#exports-status").textContent = error.message;
   } finally { button.disabled = false; }
@@ -1031,4 +1042,39 @@ function initExportLibrary() {
     } catch(error) { if(currentUser?.id === uid) $("#exports-status").textContent = error.message; }
     finally {button.disabled = false;}
   });
+}
+
+let creditPage = 1;
+let creditSequence = 0;
+async function loadCredits(page = creditPage) {
+  const uid = currentUser?.id, sequence = ++creditSequence;
+  if (!uid) return;
+  try {
+    const response = await api(`/api/credits?page=${page}&page_size=20`);
+    if (!response.ok) throw Error(`Unable to load credit history (HTTP ${response.status}).`);
+    const data = await response.json();
+    if (currentUser?.id !== uid || sequence !== creditSequence) return;
+    creditPage = page;
+    const available = Number(data.available) || 0, reserved = Number(data.reserved) || 0;
+    $("#credit-summary").textContent = `${available} available · ${reserved} reserved. Failed operations return reserved credits.`;
+    $("#user-credits").textContent = `${available} credits available`;
+    const exportCost = Number(data.pricing?.lyric_export) || 0;
+    $("#credit-pricing").textContent = `Lyrics alignment: ${data.pricing?.alignment ?? 1} credit per task. Lyric video export: ${exportCost ? exportCost + " credits" : "currently free"}. Reusing an unchanged alignment and downloading an existing video are free.`;
+    const immediate = $("#suno-opt-render-video"), assOnly = $("#opt-ass-only");
+    if (immediate) { immediate.disabled = exportCost > 0; if (exportCost > 0) immediate.checked = false; }
+    if (assOnly) { assOnly.disabled = exportCost > 0; if (exportCost > 0) assOnly.checked = true; }
+    const labels = {opening:"Starting balance",reserve:"Reserved",settle:"Completed",release:"Returned",grant:"Added"};
+    const entries = data.entries || [];
+    $("#credit-history").innerHTML = entries.length ? `<div style="overflow-x:auto"><table style="width:100%;text-align:left"><thead><tr><th>Date</th><th>Activity</th><th>Credits</th><th>Available after</th></tr></thead><tbody>${entries.map(row => `<tr><td>${escapeHtml(new Date(row.created_at).toLocaleString())}</td><td>${escapeHtml(row.description || labels[row.event] || row.event)}</td><td>${row.event === "settle" ? "—" : (Number(row.amount)>0 ? "+" : "")+(Number(row.amount)||0)}</td><td>${Number(row.balance_after)||0}</td></tr>`).join("")}</tbody></table></div>` : "No credit activity yet.";
+    $("#credits-page").textContent = `Page ${page}`;
+    $("#credits-prev").disabled = page <= 1;
+    $("#credits-next").disabled = page * 20 >= (data.total || 0);
+  } catch (error) {
+    if (currentUser?.id === uid && sequence === creditSequence) $("#credit-summary").textContent = error.message;
+  }
+}
+function initCredits() {
+  $("#btn-refresh-credits")?.addEventListener("click", () => loadCredits());
+  $("#credits-prev")?.addEventListener("click", () => loadCredits(creditPage-1));
+  $("#credits-next")?.addEventListener("click", () => loadCredits(creditPage+1));
 }

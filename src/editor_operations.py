@@ -27,6 +27,7 @@ jobs = TaskStore(lambda: Path(get_settings().UPLOAD_DIR) / "editor_jobs")
 
 class VideoOptions(BaseModel):
     request_id: uuid.UUID | None = None
+    accepted_cost: int | None = Field(default=None, ge=0)
     section_name: Literal['', 'chorus', 'verse1', 'intro'] = ''
     aspect_ratio: Literal["9:16", "16:9"] = "9:16"
     template: Literal["apple", "center_bounce", "tv"] = "apple"
@@ -56,6 +57,7 @@ def render_video(alignment: Path, audio: Path, output: Path, options: dict, prog
 def video_options(payload: dict, options: dict) -> dict:
     result = dict(options)
     result.pop('request_id', None)
+    result.pop('accepted_cost', None)
     section = result.pop('section_name', '')
     if section:
         import re
@@ -206,19 +208,29 @@ async def job_video(job_id: str, user: User = Depends(get_current_user_flexible)
 async def render_jobs(user: User = Depends(get_current_user_flexible), db: AsyncSession = Depends(get_db)):
     from sqlalchemy import case, select
     from src.export_jobs import ACTIVE, RETRYABLE, public_job, reconcile
-    from src.models import ExportJob
+    from src.models import CreditReservation, ExportJob
     await reconcile(db, user.id)
     records = (await db.execute(select(ExportJob).where(
         ExportJob.user_id == user.id, ExportJob.status.in_((*ACTIVE, *RETRYABLE)),
-    ).order_by(case((ExportJob.status.in_(ACTIVE), 0), else_=1), ExportJob.created_at.desc()).limit(50))).scalars()
-    return {"jobs": [public_job(row) for row in records]}
+    ).order_by(case((ExportJob.status.in_(ACTIVE), 0), else_=1), ExportJob.created_at.desc()).limit(50))).scalars().all()
+    prices = (await db.execute(select(CreditReservation.operation_id, CreditReservation.amount).where(
+        CreditReservation.user_id == user.id, CreditReservation.kind == "lyric_export",
+        CreditReservation.operation_id.in_([row.id for row in records]),
+    ))).all()
+    costs = dict(prices)
+    return {"jobs": [{**public_job(row), "credit_cost": costs.get(row.id, get_settings().LYRIC_EXPORT_CREDITS)} for row in records]}
+
+
+class RetryOptions(BaseModel):
+    accepted_cost: int | None = Field(default=None, ge=0)
 
 
 @router.post("/jobs/{job_id}/retry")
 async def retry_render(job_id: str, background: BackgroundTasks,
+                       options: RetryOptions = RetryOptions(),
                        user: User = Depends(get_current_user_flexible), db: AsyncSession = Depends(get_db)):
     from src.export_jobs import retry
-    return await retry(db, job_id, user.id, background)
+    return await retry(db, job_id, user.id, background, options.accepted_cost)
 
 
 @router.delete("/jobs/{job_id}")

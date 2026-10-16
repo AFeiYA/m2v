@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models import Task, TaskStatus, TaskStep, User
+from src.models import Task, TaskStatus, TaskStep
 
 
 async def fail_task_and_refund(db: AsyncSession, task_id: str, error: str) -> bool:
@@ -28,10 +28,13 @@ async def fail_task_and_refund(db: AsyncSession, task_id: str, error: str) -> bo
     claimed = result.first()
     if claimed is None:
         return False
-    await db.execute(
-        update(User).where(User.id == claimed.user_id)
-        .values(credits=User.credits + claimed.cost_credits)
-    )
+    from src.credits import finish, key, legacy_refund
+    from src.models import CreditReservation
+    reservation = await db.get(CreditReservation, key(claimed.user_id, "alignment", task_id))
+    if reservation:
+        await finish(db, claimed.user_id, task_id, "alignment", success=False)
+    else:
+        await legacy_refund(db, claimed.user_id, task_id, claimed.cost_credits)
     return True
 
 

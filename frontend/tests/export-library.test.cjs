@@ -75,3 +75,15 @@ test('retry invokes only the owned render retry endpoint',async()=>{
  assert.match(s.calls[0].url,/api\/editor\/jobs\/failed\/retry$/);assert.equal(s.calls[0].method,'POST');
  assert.equal(s.calls.some(c=>c.url.includes('from-suno') || c.url.includes('analyze')),false);
 });
+
+test('credit history shows available and reserved balances and escapes descriptions',async()=>{
+ const s=setup();s.context.fetch=async(url)=>{
+  s.calls.push({url});return {ok:true,headers:{get:()=> 'application/json'},json:async()=>({available:3,reserved:2,total:2,pricing:{alignment:1,lyric_export:2},entries:[{created_at:'2026-10-16T00:00:00Z',event:'reserve',amount:-2,balance_after:3,description:'<export>'}]})};
+ };
+ await s.run('loadCredits()');
+ assert.match(s.nodes.get('#credit-summary').textContent,/3 available · 2 reserved/);
+ assert.match(s.nodes.get('#credit-pricing').textContent,/Lyric video export: 2 credits/);
+ assert.match(s.nodes.get('#credit-history').innerHTML,/&lt;export>/);
+ assert.equal(s.nodes.get('#suno-opt-render-video').disabled,true);
+ assert.equal(s.nodes.get('#opt-ass-only').checked,true);
+});

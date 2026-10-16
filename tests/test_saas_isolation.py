@@ -924,6 +924,7 @@ def test_worker_persists_source_sections_in_alignment(sandbox, monkeypatch):
     def pipeline(**kwargs):
         result = kwargs['output_dir'] / 'source_alignment.json'
         result.write_bytes(sandbox.storage.get_local_path('results/alice_motion/source_alignment.json').read_bytes())
+        (kwargs['output_dir'] / 'source.ass').write_text('subtitle')
         return result
     module = types.ModuleType('src.main')
     module.process_one = pipeline

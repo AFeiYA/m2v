@@ -100,7 +100,7 @@ def _update_task_status(
     from sqlalchemy import update
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from sqlalchemy.pool import NullPool
-    from src.models import Task, TaskStep
+    from src.models import Task, TaskStep, TaskStatus
 
     async def _inner():
         values = {}
@@ -136,11 +136,15 @@ def _update_task_status(
         session_factory = async_sessionmaker(engine, expire_on_commit=False)
         try:
             async with session_factory() as session:
-                await session.execute(
+                changed = await session.execute(
                     update(Task)
-                    .where(Task.id == task_id)
+                    .where(Task.id == task_id, Task.status.in_([TaskStatus.PENDING, TaskStatus.PROCESSING]))
                     .values(**values)
                 )
+                if status == "completed" and changed.rowcount:
+                    from src.credits import finish
+                    task = await session.get(Task, task_id)
+                    await finish(session, task.user_id, task_id, "alignment", success=True)
                 await session.commit()
         finally:
             await engine.dispose()
@@ -266,6 +270,8 @@ def process_song_task(
 
         # alignment JSON
         align_json = output_dir / f"{stem}_alignment.json"
+        if not align_json.is_file() or align_json.stat().st_size == 0:
+            raise RuntimeError("Alignment result was not generated; credits will be returned")
         if align_json.exists():
             from src.song_assets import source_keys
             from src.song_sections import bind_source_sections
@@ -279,13 +285,25 @@ def process_song_task(
                     align_json.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
             key = f"results/{task_id}/{align_json.name}"
             loop.run_until_complete(storage.save(key, align_json))
+            if not loop.run_until_complete(storage.exists(key)):
+                raise RuntimeError("Alignment upload could not be verified")
+            size = loop.run_until_complete(storage.get_size(key))
+            if size is not None and size != align_json.stat().st_size:
+                raise RuntimeError("Alignment upload size mismatch")
             result_keys["alignment_json_key"] = key
 
         # ASS 字幕
         ass_file = output_dir / f"{stem}.ass"
+        if not ass_file.is_file() or ass_file.stat().st_size == 0:
+            raise RuntimeError("Subtitle result was not generated; credits will be returned")
         if ass_file.exists():
             key = f"results/{task_id}/{ass_file.name}"
             loop.run_until_complete(storage.save(key, ass_file))
+            if not loop.run_until_complete(storage.exists(key)):
+                raise RuntimeError("Subtitle upload could not be verified")
+            size = loop.run_until_complete(storage.get_size(key))
+            if size is not None and size != ass_file.stat().st_size:
+                raise RuntimeError("Subtitle upload size mismatch")
             result_keys["output_ass_key"] = key
 
         # MP4 视频

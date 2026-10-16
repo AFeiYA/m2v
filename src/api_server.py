@@ -270,12 +270,8 @@ def _dispatch_task(task_id: str, mp3_key: str, lyrics_key: str, config_snapshot:
 
 async def _commit_and_dispatch(db: AsyncSession, task: Task) -> None:
     """Reserve credits atomically and commit before any worker can see the task."""
-    reserved = await db.execute(
-        update(User).where(User.id == task.user_id, User.credits >= task.cost_credits)
-        .values(credits=User.credits - task.cost_credits)
-    )
-    if reserved.rowcount != 1:
-        raise HTTPException(403, "配额不足，请升级套餐")
+    from src.credits import reserve
+    await reserve(db, task.user_id, task.id, "alignment", task.cost_credits)
     await db.commit()
     task_id = task.id
     try:
@@ -311,6 +307,8 @@ async def upload_and_create_task(
 ):
     """上传音频 + 歌词，创建处理任务"""
     # 配额检查
+    if not ass_only and settings.LYRIC_EXPORT_CREDITS:
+        raise HTTPException(409, "Import alignment only, then export from Lyric Editor to review the video credit price.")
     if user.credits <= 0:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -408,6 +406,8 @@ async def create_task_from_suno(
 ):
     """从 Suno 链接自动拉取歌名、歌词、音频并创建生成任务"""
     clean_url = req.suno_url.strip()
+    if not req.ass_only and settings.LYRIC_EXPORT_CREDITS:
+        raise HTTPException(409, "Import alignment only, then export from Lyric Editor to review the video credit price.")
     if not clean_url:
         raise HTTPException(400, "请提供有效的 Suno 链接")
 
@@ -596,7 +596,22 @@ async def delete_task(
     """删除任务及其文件"""
     task = await _get_user_task(db, user.id, task_id)
     # Serialize task deletion with export publication (same lock ordering).
-    await db.execute(select(Task).where(Task.id == task.id).with_for_update())
+    locked = await db.execute(update(Task).where(Task.id == task.id).values(progress=Task.progress, updated_at=Task.updated_at))
+    if not locked.rowcount:
+        raise HTTPException(404, "Task not found")
+    await db.refresh(task)
+    from src.models import ExportJob, VideoExport
+    from src.credits import finish
+    render_rows = (await db.execute(select(ExportJob).where(ExportJob.task_id == task.id).with_for_update())).scalars().all()
+    if task.status in (TaskStatus.PENDING, TaskStatus.PROCESSING):
+        from src.credits import key, legacy_refund
+        from src.models import CreditReservation
+        if await db.get(CreditReservation, key(user.id, "alignment", task.id)):
+            await finish(db, user.id, task.id, "alignment", success=False)
+        else:
+            await legacy_refund(db, user.id, task.id, task.cost_credits)
+    for render in render_rows:
+        await finish(db, user.id, render.id, "lyric_export", success=False)
     storage = get_storage()
 
     # 删除存储文件
@@ -620,7 +635,6 @@ async def delete_task(
             except Exception:
                 pass
 
-    from src.models import ExportJob, VideoExport
     exports = (await db.execute(select(VideoExport).where(VideoExport.task_id == task.id))).scalars().all()
     for record in exports:
         await storage.delete(record.storage_key)
@@ -763,6 +777,8 @@ async def task_progress_ws(websocket: WebSocket, task_id: str):
 
 from src.export_library import router as export_library_router
 api_router.include_router(export_library_router)
+from src.credits import router as credits_router
+api_router.include_router(credits_router)
 app.include_router(api_router)
 app.include_router(editor_router)
 from src.motion_cloud import router as cloud_motion_router

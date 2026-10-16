@@ -27,6 +27,7 @@ function setup(saveOk = true) {
   };
   context.window.apiFetch = async (url, options = {}) => {
     calls.push({url, body: options.body && JSON.parse(options.body)});
+    if (url.startsWith('/api/credits')) return {ok:true,json:async()=>({available:5,pricing:{lyric_export:0}})};
     if (url.endsWith('/lyric-video')) return {ok: true, json: async () => ({task_id: 'job'})};
     if (url.includes('/access?')) return {ok: true, json: async () => ({url: 'https://files.invalid/video.mp4', filename:'lyric_video.mp4'})};
     return {ok: true, json: async () => ({status: 'completed', progress: 100, result: {video_url: '/api/editor/jobs/job/video'}})};
@@ -34,19 +35,20 @@ function setup(saveOk = true) {
   vm.createContext(context);
   vm.runInContext(source, context);
   vm.runInContext('initLyricExportModal()', context);
-  return {elements, calls, notices, start: () => element('#btn-start-lyric-export').handlers.click(), poll: () => poll()};
+  return {context, elements, calls, notices, start: () => element('#btn-start-lyric-export').handlers.click(), poll: () => poll()};
 }
 
 test('cloud modal shows completed export immediately and loads preview only on demand', async () => {
   const s = setup();
   await s.start();
   assert.equal(s.calls[0].saved, true);
-  assert.equal(s.calls[1].url, '/api/editor/tasks/song/lyric-video');
-  assert.equal(s.calls[1].body.start_time, 5);
-  assert.equal(s.calls[1].body.end_time, 15);
-  assert.equal('json_path' in s.calls[1].body, false);
+  assert.equal(s.calls[1].url, '/api/credits?page_size=1');
+  const render=s.calls.find(c=>c.url?.endsWith('/lyric-video'));
+  assert.equal(render.body.start_time,5);assert.equal(render.body.end_time,15);
+  assert.equal(render.body.accepted_cost,0);assert.match(render.body.request_id,/^[0-9a-f-]{36}$/);
+  assert.equal('json_path' in render.body,false);
   await s.poll();
-  assert.deepEqual(s.calls.slice(2).map(c => c.url), ['/api/editor/jobs/job']);
+  assert.deepEqual(s.calls.slice(3).map(c => c.url), ['/api/editor/jobs/job']);
   assert.equal(s.elements.get('#lyric-modal-video').src, undefined);
   assert.equal(s.elements.get('#lyric-result-box').style.display, 'flex');
   await s.elements.get('#btn-preview-lyric-mp4').onclick();
@@ -61,4 +63,16 @@ test('failed alignment save prevents rendering stale lyrics', async () => {
   assert.equal(s.calls.length, 1);
   assert.equal(s.elements.get('#btn-start-lyric-export').disabled, false);
   assert.ok(s.notices.some(m => m.includes('保存失败')));
+});
+
+test('ambiguous network failures reuse the same export request until source or options change', async () => {
+  const s=setup(), original=s.context.window.apiFetch, bodies=[];
+  s.context.window.apiFetch=async(url,options)=>{
+    if(url.endsWith('/lyric-video')) {bodies.push(JSON.parse(options.body));throw Error('Network timeout after submission');}
+    return original(url,options);
+  };
+  await s.start();await s.start();
+  assert.equal(bodies[0].request_id,bodies[1].request_id);
+  s.context.state.alignment={lines:[{text:'Changed lyrics',start:0,end:1}]};
+  await s.start();assert.notEqual(bodies[1].request_id,bodies[2].request_id);
 });

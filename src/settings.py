@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from functools import lru_cache
+from pydantic import Field
 
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -121,6 +122,8 @@ class Settings(BaseSettings):
 
     # ── 用户配额 ──────────────────────────────────────────
     FREE_MONTHLY_QUOTA: int = 5         # 免费用户每月可生成次数
+    # Zero keeps lyric exports free until pricing is explicitly enabled.
+    LYRIC_EXPORT_CREDITS: int = Field(default=0, ge=0)
     PRO_MONTHLY_QUOTA: int = 100
     MAX_UPLOAD_SIZE_MB: int = 50        # 单文件最大上传 MB
 

@@ -195,18 +195,68 @@ function initLyricExportModal() {
   if (!btnOpen || !modal) return;
 
   let currentDurationLimit = 0; // 0 = 全曲, 20 = 20s
+  let creditQuote = null;
+  const requestCache = new Map();
+  const pendingRequest = async (taskId, payload) => {
+    const key = `m2v_export_request:${taskId}`;
+    const source = JSON.stringify(state.alignment || null);
+    let revision;
+    if (window.crypto?.subtle && typeof TextEncoder !== "undefined") {
+      const digest = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(source));
+      revision = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2,"0")).join("");
+    } else {
+      let hash = 2166136261;
+      for (let i=0;i<source.length;i++) hash = Math.imul(hash ^ source.charCodeAt(i),16777619);
+      revision = String(hash >>> 0);
+    }
+    const signature = JSON.stringify([state.currentFile.version || null, revision, payload]);
+    let previous = requestCache.get(key);
+    try { previous = JSON.parse(localStorage.getItem(key)) || previous; } catch (_) {}
+    if (!previous || previous.signature !== signature) {
+      const id = window.crypto?.randomUUID?.() || 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {const r=Math.random()*16|0;return (c==='x'?r:(r&3|8)).toString(16);});
+      previous = {signature, id};
+    }
+    requestCache.set(key, previous);
+    try { localStorage.setItem(key, JSON.stringify(previous)); } catch (_) {}
+    return previous.id;
+  };
+  const clearRequest = (taskId, requestId) => {
+    const key = `m2v_export_request:${taskId}`;
+    if (requestCache.get(key)?.id === requestId) requestCache.delete(key);
+    try { if (JSON.parse(localStorage.getItem(key))?.id === requestId) localStorage.removeItem(key); } catch (_) {}
+  };
+  const loadCreditQuote = async () => {
+    if (!(state.currentFile?.is_saas || state.currentFile?.task_id)) return null;
+    const taskId = state.currentFile.task_id;
+    const response = await (window.apiFetch || fetch)("/api/credits?page_size=1");
+    const data = await response.json();
+    if (!response.ok || !Number.isInteger(data.pricing?.lyric_export)) throw Error(data.detail || "Unable to check export credit price. Please retry.");
+    if (state.currentFile?.task_id !== taskId) throw Error("Song changed. Please reopen the export dialog.");
+    creditQuote = {taskId, cost:data.pricing.lyric_export};
+    const label = $("#lyric-credit-price");
+    if (label) label.textContent = window.currentLocale === "zh" ? `导出：${creditQuote.cost ? creditQuote.cost+" 积分" : "当前免费"}。失败自动退回预留积分。` : `Export: ${creditQuote.cost ? creditQuote.cost+" credits" : "currently free"}. Failed exports return reserved credits.`;
+    return creditQuote;
+  };
 
   const closeModal = () => {
     modal.style.display = "none";
     if (resultVideo) { resultVideo.pause(); resultVideo.removeAttribute?.("src"); resultVideo.load(); }
   };
 
-  const openModal = () => {
+  const openModal = async () => {
     if (!state.currentFile) {
       alert(window.t ? t("msg_select_song_first") : "请先选择或加载一首歌曲");
       return;
     }
     modal.style.display = "flex";
+    creditQuote = null;
+    if (state.currentFile.is_saas || state.currentFile.task_id) {
+      btnStart.disabled = true;
+      try { await loadCreditQuote(); btnStart.disabled = false; }
+      catch (error) { if ($("#lyric-credit-price")) $("#lyric-credit-price").textContent = error.message; }
+    } else {
+      if ($("#lyric-credit-price")) $("#lyric-credit-price").textContent = "Local export · no cloud credits";
+    }
   };
 
   btnOpen.addEventListener("click", openModal);
@@ -449,19 +499,19 @@ function initLyricExportModal() {
         if (cloud && state.dirty && !(await saveAlignment())) {
           throw new Error("歌词修改保存失败，未提交导出任务");
         }
+        if (cloud && creditQuote?.taskId !== state.currentFile.task_id) await loadCreditQuote();
+        const songTaskId = state.currentFile.task_id;
+        const payload = {
+          ...(cloud ? {accepted_cost:creditQuote.cost} : {json_path: state.currentFile.json_path}),
+          aspect_ratio: ratio, template, theme, background_mode: bg,
+          duration_limit: durLimit, start_time: st, end_time: et,
+        };
+        const requestId = cloud ? await pendingRequest(songTaskId, payload) : null;
+        if (cloud) payload.request_id = requestId;
         const res = await fetchFn(cloud ? `/api/editor/tasks/${state.currentFile.task_id}/lyric-video` : "/api/lyric_video/export", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...(cloud ? {} : {json_path: state.currentFile.json_path}),
-            aspect_ratio: ratio,
-            template: template,
-            theme: theme,
-            background_mode: bg,
-            duration_limit: durLimit,
-            start_time: st,
-            end_time: et,
-          }),
+          body: JSON.stringify(payload),
         });
 
         const data = await res.json();
@@ -487,6 +537,7 @@ function initLyricExportModal() {
             progressText.textContent = task.message || (window.currentLocale === "en" ? "Rendering video..." : "视频渲染中...");
 
             if (task.status === "completed") {
+              if (cloud) clearRequest(songTaskId, requestId);
               clearInterval(pollInterval);
               btnStart.disabled = false;
               btnStart.textContent = window.t ? t("btn_modal_start") : "🚀 立即开始合成短视频";
@@ -537,6 +588,7 @@ function initLyricExportModal() {
               }
               status(window.t ? t("msg_video_success") : "🎉 动效短视频已生成完成！");
             } else if (["failed", "interrupted"].includes(task.status)) {
+              if (cloud) clearRequest(songTaskId, requestId);
               clearInterval(pollInterval);
               btnStart.disabled = false;
               btnStart.textContent = window.t ? t("btn_modal_start") : "🚀 立即开始合成短视频";
