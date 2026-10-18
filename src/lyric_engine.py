@@ -102,9 +102,84 @@ BACKGROUND_MODES = {
     },
 }
 
+RESOLUTION_PROFILES = {
+    "720p": {
+        "id": "720p",
+        "name": "720p Fast Draft",
+        "desc": "720×1280 (9:16) / 1280×720 (16:9) — faster render & smaller download for quick review",
+        "scale": 2.0 / 3.0,
+    },
+    "1080p": {
+        "id": "1080p",
+        "name": "1080p Full HD",
+        "desc": "1080×1920 (9:16) / 1920×1080 (16:9) — crisp typography for final social publishing",
+        "scale": 1.0,
+    },
+}
+
+CURATED_THEMES = [
+    {
+        "id": "apple_white_ambient",
+        "name": "Apple Pearl Ambient",
+        "subtitle": "Blurred cover card + pearl karaoke focus",
+        "template": "apple",
+        "theme": "apple_white",
+        "background_mode": "blurred_ambient",
+        "accent": "#ffffff",
+        "secondary": "#94a3b8",
+        "bg_preview": "linear-gradient(145deg, #1e293b 0%, #0f172a 100%)",
+    },
+    {
+        "id": "cyber_neon_bounce",
+        "name": "Cyber Neon Pulse",
+        "subtitle": "Full-bleed cover + center bounce neon hook",
+        "template": "center_bounce",
+        "theme": "cyber_neon",
+        "background_mode": "full_bleed",
+        "accent": "#00ffff",
+        "secondary": "#ff007f",
+        "bg_preview": "linear-gradient(145deg, #090d16 0%, #1e1b4b 60%, #3b0764 100%)",
+    },
+    {
+        "id": "amber_vinyl_classic",
+        "name": "Amber Vinyl Studio",
+        "subtitle": "Spinning vinyl platter + warm gold scroll",
+        "template": "apple",
+        "theme": "amber_gold",
+        "background_mode": "vinyl",
+        "accent": "#ffd700",
+        "secondary": "#d2691e",
+        "bg_preview": "linear-gradient(145deg, #1c1917 0%, #292524 60%, #451a03 100%)",
+    },
+    {
+        "id": "midnight_ktv_duet",
+        "name": "Midnight KTV Dual",
+        "subtitle": "Ken Burns motion + classic two-line sweep",
+        "template": "tv",
+        "theme": "midnight_purple",
+        "background_mode": "ken_burns",
+        "accent": "#e0b0ff",
+        "secondary": "#8a2be2",
+        "bg_preview": "linear-gradient(145deg, #0f0720 0%, #2e1065 100%)",
+    },
+    {
+        "id": "emerald_minimal_black",
+        "name": "Emerald Minimalist",
+        "subtitle": "Pure black studio + high-contrast mint bounce",
+        "template": "center_bounce",
+        "theme": "emerald_mint",
+        "background_mode": "solid_black",
+        "accent": "#00ff7f",
+        "secondary": "#008040",
+        "bg_preview": "linear-gradient(145deg, #050505 0%, #064e3b 100%)",
+    },
+]
+
 
 def get_lyric_video_options() -> dict[str, Any]:
     """返回供前端 UI 渲染的模板、色彩、比例与背景模式选项"""
+    from src.editing_review import PORTRAIT_SAFE_AREA
+
     themes_list = []
     for tid, info in COLOR_PALETTES.items():
         # 将 ASS 颜色 (&H00BBGGRR / &HBBGGRR) 转换为前端 CSS Hex (#RRGGBB)
@@ -119,9 +194,12 @@ def get_lyric_video_options() -> dict[str, Any]:
 
     return {
         "aspect_ratios": list(ASPECT_RATIOS.values()),
+        "resolutions": list(RESOLUTION_PROFILES.values()),
         "templates": list(TEMPLATES.values()),
         "themes": themes_list,
+        "curated_themes": CURATED_THEMES,
         "background_modes": list(BACKGROUND_MODES.values()),
+        "safe_area": PORTRAIT_SAFE_AREA,
     }
 
 
@@ -440,13 +518,13 @@ def build_lyric_video_ffmpeg_cmd(
 
         # 叠加唱盘到上部/左部
         if height > width:
-            # 竖屏 9:16: 唱盘位于屏幕上部 (X居中, Y=180)
-            overlay_x = f"(W-w)/2"
-            overlay_y = 190
+            # 竖屏 9:16: 唱盘位于屏幕安全区上部 (X居中, Y=14%H)
+            overlay_x = "(W-w)/2"
+            overlay_y = int(height * 0.14)
         else:
-            # 横屏 16:9: 唱盘位于左侧 (X=160, Y居中)
-            overlay_x = 160
-            overlay_y = f"(H-h)/2"
+            # 横屏 16:9: 唱盘位于左侧 (X=8.3%W, Y居中)
+            overlay_x = int(width * 0.083)
+            overlay_y = "(H-h)/2"
 
         filters.append(f"[bg_blur][spinning_disc]overlay=x={overlay_x}:y={overlay_y}[v_layered]")
         filters.append(f"[v_layered]subtitles='{escaped_sub}'[v_out]")
@@ -457,9 +535,9 @@ def build_lyric_video_ffmpeg_cmd(
         inputs.extend(audio_args)
 
         if height > width:
-            # 📱 9:16 竖屏短视频布局
-            card_size = int(width * 0.62)
-            card_y = 160
+            # 📱 9:16 竖屏短视频布局 (卡片置于 14% 顶部安全区下方)
+            card_size = int(width * 0.56)
+            card_y = int(height * 0.14)
             filters.append(
                 f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
                 f"crop={width}:{height},"
@@ -474,7 +552,8 @@ def build_lyric_video_ffmpeg_cmd(
             filters.append(f"[v_card]subtitles='{escaped_sub}'[v_out]")
         else:
             # 💻 16:9 横屏布局
-            card_size = int(height * 0.58)  # ~620px
+            card_size = int(height * 0.58)
+            card_x = int(width * 0.083)
             filters.append(
                 f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase,"
                 f"crop={width}:{height},"
@@ -485,7 +564,7 @@ def build_lyric_video_ffmpeg_cmd(
                 f"crop={card_size}:{card_size},"
                 f"pad={card_size+8}:{card_size+8}:4:4:color=white@0.25[card]"
             )
-            filters.append(f"[bg_blur][card]overlay=x=160:y=(H-h)/2[v_card]")
+            filters.append(f"[bg_blur][card]overlay=x={card_x}:y=(H-h)/2[v_card]")
             filters.append(f"[v_card]subtitles='{escaped_sub}'[v_out]")
 
     else:
@@ -559,10 +638,11 @@ def export_lyric_video(
     duration_limit: float | None = None,
     start_time: float = 0.0,
     end_time: float | None = None,
+    resolution: str = "1080p",
     progress_callback: Callable[[float, str], None] | None = None,
 ) -> dict[str, Any]:
     """
-    一键导出商业级动效歌词短视频 (9:16 / 16:9)。
+    一键导出商业级动效歌词短视频 (9:16 / 16:9, 720p / 1080p)。
 
     Returns:
         {
@@ -573,6 +653,7 @@ def export_lyric_video(
             "duration": float,
             "size_mb": float,
             "resolution": [width, height],
+            "resolution_preset": str,
             "aspect_ratio": str,
             "template": str,
             "theme": str,
@@ -618,11 +699,13 @@ def export_lyric_video(
     if progress_callback:
         progress_callback(10.0, "解析歌曲封面与比例规格...")
 
-    # 3. 匹配分辨率规格
+    # 3. 匹配分辨率规格 (720p vs 1080p)
     ratio_spec = ASPECT_RATIOS.get(aspect_ratio, ASPECT_RATIOS["9:16"])
-    width = ratio_spec["width"]
-    height = ratio_spec["height"]
-    actual_font_size = font_size or ratio_spec["default_font_size"]
+    res_spec = RESOLUTION_PROFILES.get(str(resolution or "1080p").lower(), RESOLUTION_PROFILES["1080p"])
+    scale = float(res_spec["scale"])
+    width = int(round(ratio_spec["width"] * scale / 2.0) * 2)
+    height = int(round(ratio_spec["height"] * scale / 2.0) * 2)
+    actual_font_size = font_size or max(28, int(round(ratio_spec["default_font_size"] * scale)))
 
     # 4. 解析封面
     resolved_cover = resolve_song_cover(song_dir, stem=song_dir.name, custom_cover=cover_path)
@@ -631,8 +714,8 @@ def export_lyric_video(
         _create_fallback_cover(fallback_cover, title=song_dir.name)
         resolved_cover = fallback_cover
 
-    log.info("🎯 歌词视频配置: 比例=%s (%dx%d), 模板=%s, 主题=%s, 背景=%s, 封面=%s",
-             aspect_ratio, width, height, template, theme, background_mode, resolved_cover.name)
+    log.info("🎯 歌词视频配置: 比例=%s (%dx%d, %s), 模板=%s, 主题=%s, 背景=%s, 封面=%s",
+             aspect_ratio, width, height, res_spec["id"], template, theme, background_mode, resolved_cover.name)
 
     if progress_callback:
         progress_callback(30.0, "生成高精度动效 ASS 字幕...")
@@ -643,17 +726,17 @@ def export_lyric_video(
         font_size=actual_font_size,
         play_res_x=width,
         play_res_y=height,
-        margin_x=70 if width == 1080 else 100,
+        margin_x=max(56, int(width * 0.08)) if aspect_ratio == "9:16" else int(width * 0.055),
         render_mode=template,
         theme=theme,
         use_karaoke_gradient=True,
     )
 
-    # 针对不同背景与比例微调焦点的垂直坐标
+    # 针对不同背景与比例微调焦点的垂直坐标 (严格保持在 9:16 安全区 14%~76% 内)
     if aspect_ratio == "9:16":
         if background_mode in ("blurred_ambient", "vinyl"):
-            # 上半部分有封面卡片，歌词焦点下移到 56% 处 (~1075px)
-            sub_config.center_y = int(height * 0.56)
+            # 上半部分有封面卡片，歌词焦点置于 54% 处，底部滚动不越过 76% 安全线
+            sub_config.center_y = int(height * 0.54)
         else:
             sub_config.center_y = int(height * 0.45)
     else:
@@ -717,6 +800,7 @@ def export_lyric_video(
         "size_mb": size_mb,
         "elapsed_seconds": elapsed,
         "resolution": [width, height],
+        "resolution_preset": res_spec["id"],
         "aspect_ratio": aspect_ratio,
         "template": template,
         "theme": theme,

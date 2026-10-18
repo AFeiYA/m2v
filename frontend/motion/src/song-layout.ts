@@ -74,7 +74,7 @@ export function paintSongLayout(c:CanvasRenderingContext2D,layout:SongLayout|nul
  if(state.rule){c.strokeStyle=accent;c.lineWidth=Math.max(1,Math.min(W,H)*.0015);c.globalAlpha=state.alpha*.5;c.beginPath();c.moveTo(W*.07,H*(state.cover?(layout.artwork?.82:.3):.125));c.lineTo(W*.93,H*(state.cover?(layout.artwork?.82:.3):.125));c.stroke();c.globalAlpha=state.alpha;}
  c.fillStyle=songTextColor(background);
  for(const item of state.texts){c.textAlign=item.anchor==='middle'?'center':item.anchor==='end'?'right':'left';c.font=`${item.weight} ${item.fontSize}px ${font}`;c.fillText(item.text,item.x,item.y);}
- if(state.section){c.textAlign='left';c.fillStyle=accent;c.font=`${Math.min(W,H)*.022}px ${font}`;c.fillText(state.section,W*.07,H*(H>W?.84:.94));}
+ if(state.section){c.textAlign='left';c.fillStyle=accent;c.font=`${Math.min(W,H)*.022}px ${font}`;c.fillText(state.section,W*.07,H*(H>W?.75:.94));}
  c.restore();
 }
 

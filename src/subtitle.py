@@ -86,7 +86,18 @@ def generate_ass(
 
     play_res_x = getattr(config, "play_res_x", 1920)
     play_res_y = getattr(config, "play_res_y", 1080)
-    margin_x = getattr(config, "margin_x", 100 if play_res_x >= 1920 else 70)
+    is_portrait = play_res_y > play_res_x
+    if is_portrait:
+        margin_x = max(getattr(config, "margin_x", 70), int(play_res_x * 0.08))
+        config.margin_x = margin_x
+        # Keep 9:16 text clear of the right 14% social action rail (86% max X)
+        if config.render_mode in ("center_bounce", "bounce", "center"):
+            max_width = int(play_res_x * 0.72)
+        else:
+            max_width = int(play_res_x * 0.86) - margin_x
+    else:
+        margin_x = getattr(config, "margin_x", 100 if play_res_x >= 1920 else 70)
+        max_width = play_res_x - 2 * margin_x
 
     log.info("生成 ASS 字幕: %d 行 (分辨率: %dx%d, 风格: %s, 模式: %s)",
              len(alignment.lines), play_res_x, play_res_y, getattr(config, 'theme', 'default'), config.render_mode)
@@ -95,7 +106,6 @@ def generate_ass(
     header = _load_template_header(config)
 
     # 自动换行处理 (根据实际视频分辨率自适应边距与最大宽度)
-    max_width = play_res_x - 2 * margin_x
     alignment = _wrap_lines(alignment, max_width, config.font_size, config.font_name)
     log.info("自动换行后: %d 行 (最大宽度限制: %dpx)", len(alignment.lines), max_width)
 
@@ -387,15 +397,19 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
     # Apple Music 风格的焦点行通常偏上，给下方即将到来的歌词留出更多视野
     play_res_x = getattr(config, "play_res_x", 1920)
     play_res_y = getattr(config, "play_res_y", 1080)
-    margin_x = getattr(config, "margin_x", 100 if play_res_x >= 1920 else 70)
+    is_portrait = play_res_y > play_res_x
+    margin_x = getattr(config, "margin_x", max(70, int(play_res_x * 0.08)) if is_portrait else (100 if play_res_x >= 1920 else 70))
 
     if getattr(config, "center_y", None) is not None:
         center_y = config.center_y
-    elif play_res_y > play_res_x:
-        # 9:16 竖屏短视频：焦点偏黄金分割点 52%，留出上半部视觉焦点 (如主画/星球/人物)，下半部畅快展示歌词
-        center_y = play_res_y * 0.52
+    elif is_portrait:
+        # 9:16 竖屏短视频：焦点置于安全区内 (48% 处)，保证上下滚动行均在 14%~76% 安全区内
+        center_y = play_res_y * 0.48
     else:
         center_y = config.font_size * 4.5
+
+    safe_y_min = play_res_y * 0.14 if is_portrait else config.font_size * 1.2
+    safe_y_max = play_res_y * 0.76 if is_portrait else play_res_y - config.font_size * 1.2
         
     def parse_color(ass_color: str) -> tuple[str, str]:
         if ass_color.startswith("&H") and len(ass_color) >= 10:
@@ -438,9 +452,10 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
             else:
                 return f"\\1c{c}\\1a{alpha}\\fscx{scale}\\fscy{scale}\\blur{blur:.1f}"
 
-        # 扩大视野到前后 4 行，以展示深远的模糊渐变
-        k_min = max(0, j-4)
-        k_max = min(N-1, j+4)
+        # 竖屏限制前后视野行数为 2，避免超出顶部 14% 与底部 76% 安全区；横屏前后 4 行
+        window_span = 2 if is_portrait else 4
+        k_min = max(0, j - window_span)
+        k_max = min(N - 1, j + window_span)
         
         for k in range(k_min, k_max + 1):
             slot_start, slot_end = slots[k]
@@ -470,6 +485,11 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
             
             y_start = center_y + local_y[j] - local_y[k]
             y_end = center_y + local_y[j] - local_y[k+1] if k < N - 1 else center_y + local_y[j] - local_y[k]
+            if is_portrait:
+                if (y_start < safe_y_min and y_end < safe_y_min) or (y_start > safe_y_max and y_end > safe_y_max):
+                    continue
+                y_start = min(safe_y_max, max(safe_y_min, y_start))
+                y_end = min(safe_y_max, max(safe_y_min, y_end))
             
             # 状态生成
             d_start = abs(j - k)
@@ -558,12 +578,11 @@ def _generate_tv_events(
     margin_x = getattr(config, "margin_x", 100 if play_res_x >= 1920 else 70)
 
     if play_res_y > play_res_x:
-        # 竖屏 9:16
-        y_upper = int(play_res_y * 0.76)
-        y_lower = int(play_res_y * 0.84)
-        margin = margin_x
-        x_left  = margin
-        x_right = play_res_x - margin
+        # 竖屏 9:16: 避开底部 24% 平台文案区与右侧 14% 互动图标栏
+        y_upper = int(play_res_y * 0.62)
+        y_lower = int(play_res_y * 0.70)
+        x_left  = max(margin_x, int(play_res_x * 0.08))
+        x_right = int(play_res_x * 0.86)
     else:
         # 横屏 16:9
         y_upper = 850    # 上行
@@ -681,13 +700,14 @@ def _generate_center_bounce_events(
 
     play_res_x = getattr(config, "play_res_x", 1920)
     play_res_y = getattr(config, "play_res_y", 1080)
-    center_x = play_res_x / 2.0
+    is_portrait = play_res_y > play_res_x
+    center_x = play_res_x * 0.47 if is_portrait else play_res_x / 2.0
 
     if getattr(config, "center_y", None) is not None:
-        center_y = config.center_y
-    elif play_res_y > play_res_x:
-        # 竖屏 9:16: 居中偏下 58% (避开顶部封面与底部控件)
-        center_y = play_res_y * 0.58
+        center_y = min(float(config.center_y), play_res_y * 0.66) if is_portrait else float(config.center_y)
+    elif is_portrait:
+        # 竖屏 9:16: 居中偏下 56% (避开顶部封面与底部 24% 控件区)
+        center_y = play_res_y * 0.56
     else:
         # 横屏 16:9: 居中偏下 65%
         center_y = play_res_y * 0.65
@@ -734,6 +754,8 @@ def _generate_center_bounce_events(
         if i + 1 < N:
             nxt = lines[i + 1]
             sub_y = center_y + config.font_size * 1.5
+            if is_portrait:
+                sub_y = min(sub_y, play_res_y * 0.75)
             dim_tags = (
                 f"\\an5\\pos({center_x:.1f},{sub_y:.1f})"
                 f"\\1a&HAA&\\2a&HAA&\\fscx85\\fscy85\\blur2"
