@@ -1190,6 +1190,7 @@ def test_motion_export_enters_library_and_deletion_removes_cached_copies(sandbox
     seed_editor_song(sandbox)
     workspace = workspace_for('alice', sandbox.storage)
     export_id = 'e' * 32
+    workspace.before_render('editor', export_id)
     directory = workspace.root / 'editor' / 'motion_exports'
     directory.mkdir(parents=True)
     video = directory / f'{export_id}.mp4'
@@ -1200,6 +1201,7 @@ def test_motion_export_enters_library_and_deletion_removes_cached_copies(sandbox
     status.write_text(json.dumps({'id': export_id, 'scene': 'rhythm', 'status': 'done',
                                   'width': 640, 'height': 360, 'total': 90}))
     workspace.persist(status)
+    workspace.on_render_finish(export_id, True)
     listing = sandbox.client.get('/api/exports', headers=headers()).json()
     assert listing['total'] == 1
     assert listing['exports'][0]['kind'] == 'rhythm'

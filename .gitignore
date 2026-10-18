@@ -65,3 +65,4 @@ frontend/local/remotion/
 .agents/
 skills-lock.json
 *.zip
+backups/

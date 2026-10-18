@@ -65,6 +65,8 @@ class Workspace:
             audio_url=lambda task_id: f"/api/editor/tasks/{task_id}/audio",
             on_write=self.persist, on_delete=self.remove,
             input_root=self.root, public_exports=False,
+            before_render=self.before_render, on_render_finish=self.on_render_finish,
+            on_render_heartbeat=self.on_render_heartbeat,
         ))
 
     def validate(self, path):
@@ -101,12 +103,42 @@ class Workspace:
                     data = json.loads(Path(path).read_text())
                     video = Path(path).with_name(data['id'] + '.mp4')
                     if data.get('status') == 'done' and video.is_file():
+                        if not self.on_render_heartbeat(data['id']):
+                            raise RuntimeError('Render lease expired before publication')
                         from src.export_library import record_export
                         task_id = self.validate(path).relative_to(self.root.resolve()).parts[0]
                         asyncio.run(record_export(data['id'], self.uid, task_id, self.object_key(video),
                             kind='rhythm' if data.get('scene') == 'rhythm' else 'poster',
                             details={'resolution': [data.get('width'), data.get('height')],
                                      'duration': data.get('total', 0)/30, 'size_bytes': video.stat().st_size}))
+
+    def before_render(self, project_id, job_id):
+        from src.export_jobs import sessions
+        from src.queue_limiter import reserve_motion
+        async def reserve():
+            async with sessions() as db:
+                await reserve_motion(db, self.uid, job_id)
+                await db.commit()
+        asyncio.run(reserve())
+
+    def on_render_heartbeat(self, job_id):
+        from src.export_jobs import sessions
+        from src.queue_limiter import heartbeat_motion
+        async def heartbeat():
+            async with sessions() as db:
+                alive = await heartbeat_motion(db, self.uid, job_id)
+                await db.commit()
+                return alive
+        return asyncio.run(heartbeat())
+
+    def on_render_finish(self, job_id, success):
+        from src.export_jobs import sessions
+        from src.queue_limiter import release_motion
+        async def release():
+            async with sessions() as db:
+                await release_motion(db, self.uid, job_id)
+                await db.commit()
+        asyncio.run(release())
 
     def remove(self, path):
         asyncio.run(self.storage.delete(self.object_key(path)))

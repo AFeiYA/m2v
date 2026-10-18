@@ -118,3 +118,19 @@ same titles with different UUIDs stay separate. Search finds old-version titles;
 page 6 can reach a 61st song. Archive is reversible, preferences are isolated,
 a deleted preferred version falls back safely, and filtering videos never exposes
 another owner's records. No library operation downloads audio or consumes credits.
+
+## Resource hardening and billing isolation — 2026-10-18
+
+- Shared database admission replaces process-local counting for lyric and Motion
+  renders; leases expire, renew and fence stale publication.
+- Quota display and import checks share a deduplicated estimate including Trash.
+  Exact physical bytes and in-flight byte reservations remain future work.
+- 720p landscape KTV positions scale with the output canvas.
+- Backups require explicit administrator user IDs and real PostgreSQL tooling.
+  Scheduling, off-host durability and production restore drills remain pending.
+- Payment-provider and sandbox payment changes are isolated to
+  `feat/subscriptions-and-topups`; main exposes no checkout or payment webhook.
+  The existing credit ledger remains available for import accounting.
+
+See [render admission and storage](RENDER_ADMISSION_AND_STORAGE.md) for rollout
+requirements, test coverage and limitations.

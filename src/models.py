@@ -262,3 +262,17 @@ class VersionTrash(Base):
     task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
     trashed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class RenderAdmissionMutex(Base):
+    """One database row serializes capacity checks with task admission commits."""
+    __tablename__ = "render_admission_mutex"
+    id: Mapped[str] = mapped_column(String(16), primary_key=True)
+
+
+class MotionRenderLease(Base):
+    """Durable capacity reservation for a cloud Motion rendering process."""
+    __tablename__ = "motion_render_leases"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    lease_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

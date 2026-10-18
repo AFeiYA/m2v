@@ -584,12 +584,13 @@ def _generate_tv_events(
         x_left  = max(margin_x, int(play_res_x * 0.08))
         x_right = int(play_res_x * 0.86)
     else:
-        # 横屏 16:9
-        y_upper = 850    # 上行
-        y_lower = 960    # 下行 (间距 110px)
-        margin = 360
-        x_left  = margin    # 左对齐 x
-        x_right = 1920 - margin   # 右对齐 x
+        # 横屏 16:9: 自适应 720p / 1080p / 4K 画布，规避固定像素越界出画
+        y_upper = int(play_res_y * 0.78)   # 上行 (~842px on 1080p, ~561px on 720p)
+        y_lower = int(play_res_y * 0.88)   # 下行 (~950px on 1080p, ~633px on 720p)
+        margin  = int(play_res_x * 0.18)   # 左右边距 (~345px on 1920p, ~230px on 1280p)
+        x_left  = margin                   # 左对齐 x
+        x_right = play_res_x - margin      # 右对齐 x
+
 
     # 配色: 支持使用配置中的主题色或经典 KTV 配色
     theme = getattr(config, "theme", "apple_white")

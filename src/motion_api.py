@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import signal
 import threading
 import time
 import uuid
@@ -96,8 +97,10 @@ class RenderRequest(ProjectRequest):
 
 def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/api/motion',
                          resolve_project=None, list_projects=None, audio_url=None,
-                         on_write=None, on_delete=None, input_root=None, public_exports=True):
+                         on_write=None, on_delete=None, input_root=None, public_exports=True,
+                         before_render=None, on_render_finish=None, on_render_heartbeat=None):
     router = APIRouter(prefix=prefix)
+
     inputs = input_root if input_root is not None else ROOT / 'input'
     jobs, processes = {}, {}
     lock = threading.Lock()
@@ -503,62 +506,114 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
         with lock:
             if any(job['status'] in ('running', 'queued') for job in jobs.values()):
                 raise HTTPException(409, '已有视频正在导出，请等待完成或取消')
-            job_id = uuid.uuid4().hex
-            outdir = path.parent / 'motion_exports'
-            outdir.mkdir(exist_ok=True)
-            out = outdir / f'{job_id}.mp4'
-            snapshot = outdir / f'{job_id}.json'
-            payload['duration'] = duration
-            payload['motion_plan'] = plan
-            options = {'aspect': req.aspect, 'height': req.height, 'mode': 'phrase', 'preset': req.style,
-                       'bloom': req.bloom, 'grain': .035, 'shake': req.shake, 'punch': .7, 'post': req.post}
-            atomic_write(snapshot, {'project': payload, 'options': options, 'scene': req.scene, 'rhythm': rhythm, 'audioPath': str(audio), 'start': req.start, 'length': length})
-            jobs[job_id] = {'id': job_id, 'scene': req.scene, 'session_id': sid, 'status': 'queued', 'frames': 0, 'total': round(length*30), 'error': '', 'created_at': time.time(), 'width': round(req.height*16/9) if req.aspect == '16:9' else req.height, 'height': req.height if req.aspect == '16:9' else round(req.height*16/9), 'output': str(out)}
 
-        def run():
-            diagnostics = ''
-            rhythm_slot = False
-            try:
-                if req.scene == 'rhythm':
-                    while not _RHYTHM_RENDER_GATE.acquire(timeout=.5):
+        job_id = uuid.uuid4().hex
+        if before_render is not None:
+            before_render(req.project_id, job_id)
+
+        outdir = path.parent / 'motion_exports'
+        out = outdir / f'{job_id}.mp4'
+        snapshot = outdir / f'{job_id}.json'
+
+        try:
+            with lock:
+                if any(job['status'] in ('running', 'queued') for job in jobs.values()):
+                    raise HTTPException(409, '已有视频正在导出，请等待完成或取消')
+                outdir.mkdir(exist_ok=True)
+                payload['duration'] = duration
+                payload['motion_plan'] = plan
+                options = {'aspect': req.aspect, 'height': req.height, 'mode': 'phrase', 'preset': req.style,
+                           'bloom': req.bloom, 'grain': .035, 'shake': req.shake, 'punch': .7, 'post': req.post}
+                atomic_write(snapshot, {'project': payload, 'options': options, 'scene': req.scene, 'rhythm': rhythm, 'audioPath': str(audio), 'start': req.start, 'length': length})
+                jobs[job_id] = {'id': job_id, 'scene': req.scene, 'session_id': sid, 'status': 'queued', 'frames': 0, 'total': round(length*30), 'error': '', 'created_at': time.time(), 'width': round(req.height*16/9) if req.aspect == '16:9' else req.height, 'height': req.height if req.aspect == '16:9' else round(req.height*16/9), 'output': str(out)}
+            def run():
+
+                diagnostics = ''
+                rhythm_slot = False
+                heartbeat_stop = threading.Event()
+                def keep_lease():
+                    while not heartbeat_stop.wait(10):
+                        try:
+                            if on_render_heartbeat(job_id):
+                                continue
+                        except Exception:
+                            pass
                         with lock:
-                            if jobs[job_id]['status'] == 'cancelled': return
-                    rhythm_slot = True
-                with lock:
-                    if jobs[job_id]['status'] == 'cancelled': return
-                    child = subprocess.Popen([node, str(ROOT/'frontend/motion/scripts/render-remotion.mjs'), str(snapshot), str(out)],
-                                             cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
-                    processes[job_id] = child
-                    jobs[job_id]['status'] = 'running'
-                for line in child.stdout:
-                    if line.startswith('PROGRESS '):
-                        value, total = line.split()[1].split('/')
-                        jobs[job_id].update(frames=int(value), total=int(total))
-                    else: diagnostics = (diagnostics + line)[-3000:]
-                code = child.wait()
-                with lock:
-                    if jobs[job_id]['status'] != 'cancelled':
-                        is_done = code == 0 and out.exists()
-                        if is_done and on_write is not None:
-                            on_write(out)
-                        jobs[job_id].update(status='done' if is_done else 'failed', error='' if code == 0 else diagnostics)
-                        if is_done and public_exports and r2_storage.is_configured():
-                            try:
-                                r2_res = r2_storage.upload_video(out, f"exports/{job_id}.mp4")
-                                if r2_res:
-                                    jobs[job_id]['cdn_url'] = r2_res['url']
-                                    jobs[job_id]['r2_key'] = r2_res['key']
-                            except Exception:
-                                pass
-            except Exception as exc:
-                jobs[job_id].update(status='failed', error=str(exc))
-            finally:
-                if rhythm_slot: _RHYTHM_RENDER_GATE.release()
-                atomic_write(outdir / f'{job_id}_status.json', {key: value for key, value in jobs[job_id].items() if key != 'output'})
-                processes.pop(job_id, None)
-                if jobs[job_id]['status'] != 'done': out.unlink(missing_ok=True)
-        threading.Thread(target=run, daemon=True).start()
-        return {'id': job_id}
+                            jobs[job_id].update(status='cancelled', error='Render lease lost. Please retry.')
+                            child = processes.get(job_id)
+                            if child and child.poll() is None:
+                                try: os.killpg(child.pid, signal.SIGTERM)
+                                except ProcessLookupError: pass
+                        return
+                try:
+                    if on_render_heartbeat is not None:
+                        if not on_render_heartbeat(job_id):
+                            raise RuntimeError('Render lease expired before the process started')
+                        threading.Thread(target=keep_lease, daemon=True).start()
+                    if req.scene == 'rhythm':
+                        while not _RHYTHM_RENDER_GATE.acquire(timeout=.5):
+                            with lock:
+                                if jobs[job_id]['status'] == 'cancelled': return
+                        rhythm_slot = True
+                    with lock:
+                        if jobs[job_id]['status'] == 'cancelled': return
+                        child = subprocess.Popen([node, str(ROOT/'frontend/motion/scripts/render-remotion.mjs'), str(snapshot), str(out)],
+                                                 cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+                        processes[job_id] = child
+                        jobs[job_id]['status'] = 'running'
+                    for line in child.stdout:
+                        if line.startswith('PROGRESS '):
+                            value, total = line.split()[1].split('/')
+                            jobs[job_id].update(frames=int(value), total=int(total))
+                        else: diagnostics = (diagnostics + line)[-3000:]
+                    code = child.wait()
+                    with lock:
+                        if jobs[job_id]['status'] != 'cancelled':
+                            is_done = code == 0 and out.exists()
+                            if is_done and on_write is not None:
+                                on_write(out)
+                            jobs[job_id].update(status='done' if is_done else 'failed', error='' if code == 0 else diagnostics)
+                            if is_done and public_exports and r2_storage.is_configured():
+                                try:
+                                    r2_res = r2_storage.upload_video(out, f"exports/{job_id}.mp4")
+                                    if r2_res:
+                                        jobs[job_id]['cdn_url'] = r2_res['url']
+                                        jobs[job_id]['r2_key'] = r2_res['key']
+                                except Exception:
+                                    pass
+                except Exception as exc:
+                    jobs[job_id].update(status='failed', error=str(exc))
+                finally:
+                    heartbeat_stop.set()
+                    if rhythm_slot: _RHYTHM_RENDER_GATE.release()
+                    success = False
+                    try:
+                        atomic_write(outdir / f'{job_id}_status.json', {key: value for key, value in jobs[job_id].items() if key != 'output'})
+                        success = jobs[job_id]['status'] == 'done'
+                    except Exception as exc:
+                        jobs[job_id].update(status='failed', error=str(exc))
+                    finally:
+                        processes.pop(job_id, None)
+                        if not success: out.unlink(missing_ok=True)
+                        if on_render_finish is not None:
+                            on_render_finish(job_id, success)
+
+            threading.Thread(target=run, daemon=True).start()
+            return {'id': job_id}
+
+        except Exception:
+            with lock:
+                jobs.pop(job_id, None)
+            out.unlink(missing_ok=True)
+            snapshot.unlink(missing_ok=True)
+            if on_render_finish is not None:
+                try:
+                    on_render_finish(job_id, False)
+                except Exception:
+                    pass
+            raise
+
+
 
     @router.get('/exports')
     def exports(project_id: str, sid: str = Depends(resolve_session_id)):

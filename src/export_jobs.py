@@ -70,6 +70,8 @@ async def owned(db, job_id, uid):
 
 
 async def create(task, user, options, background, db):
+    from src.queue_limiter import lock_admission, check_render_admission
+    await lock_admission(db)
     values = options.model_dump(mode="json")
     if values.get("accepted_cost") is None:
         values.pop("accepted_cost", None)
@@ -94,6 +96,7 @@ async def create(task, user, options, background, db):
         await db.commit()
         return {"task_id": job_id, "status": existing.status}
     uid, tid = user.id, task.id
+    await check_render_admission(db, uid)
     from src.settings import get_settings
     price = get_settings().LYRIC_EXPORT_CREDITS
     if price and not request_id:
@@ -122,6 +125,8 @@ async def create(task, user, options, background, db):
 
 
 async def retry(db, job_id, uid, background, accepted_cost=None):
+    from src.queue_limiter import lock_admission, check_render_admission
+    await lock_admission(db)
     row = await owned(db, job_id, uid)
     if await db.get(VersionTrash, row.task_id):
         raise HTTPException(409, "Restore this version from Trash before retrying.")
@@ -130,6 +135,7 @@ async def retry(db, job_id, uid, background, accepted_cost=None):
         return {"task_id": job_id, "status": row.status}
     if row.status not in RETRYABLE:
         raise HTTPException(409, "Only failed or interrupted exports can be retried")
+    await check_render_admission(db, uid)
     from src.credits import key
     from src.models import CreditReservation
     from src.settings import get_settings
@@ -166,7 +172,7 @@ async def dismiss(db, job_id, uid):
 async def change(job_id, token, **values):
     async with sessions() as db:
         result = await db.execute(update(ExportJob).where(
-            ExportJob.id == job_id, ExportJob.run_token == token, ExportJob.status.in_(ACTIVE),
+            ExportJob.id == job_id, ExportJob.run_token == token, ExportJob.status.in_(ACTIVE), ExportJob.lease_until > now(),
         ).values(**values, updated_at=now(), lease_until=now()+timedelta(seconds=LEASE_SECONDS)).returning(ExportJob.user_id))
         uid = result.scalar_one_or_none()
         if uid and values.get("status") in RETRYABLE:
@@ -186,7 +192,7 @@ async def publish(job_id, token, key, result, size):
             raise RuntimeError("Song was deleted while rendering")
         task = (await db.execute(select(Task).where(Task.id == candidate.task_id).with_for_update())).scalar_one_or_none()
         row = (await db.execute(select(ExportJob).where(
-            ExportJob.id == job_id, ExportJob.run_token == token, ExportJob.status.in_(ACTIVE),
+            ExportJob.id == job_id, ExportJob.run_token == token, ExportJob.status.in_(ACTIVE), ExportJob.lease_until > now(),
         ).with_for_update())).scalar_one_or_none()
         if row is None:
             raise RuntimeError("Render attempt was interrupted or deleted")
@@ -215,7 +221,7 @@ async def run(job_id):
     token = uuid.uuid4().hex
     async with sessions() as db:
         claimed = await db.execute(update(ExportJob).where(
-            ExportJob.id == job_id, ExportJob.status == "queued", ExportJob.run_token.is_(None),
+            ExportJob.id == job_id, ExportJob.status == "queued", ExportJob.run_token.is_(None), ExportJob.lease_until > now(),
         ).values(run_token=token, lease_until=now()+timedelta(seconds=LEASE_SECONDS), updated_at=now()))
         await db.commit()
         if not claimed.rowcount:
