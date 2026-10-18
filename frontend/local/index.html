@@ -144,6 +144,18 @@
     <div id="editor-container">
       <!-- 左栏：歌词行列表与整行微调 -->
       <section id="lyrics-panel" style="width: 42%;">
+        <!-- 时间异常审查导航栏（只读诊断，绝不静默篡改有效演唱时间戳） -->
+        <div id="timing-review-bar" class="timing-review-bar" style="display: none;">
+          <div class="timing-review-summary">
+            <span id="timing-review-badge" class="timing-badge">0 warnings</span>
+            <span id="timing-review-counts" class="timing-counts"></span>
+          </div>
+          <div class="timing-review-actions">
+            <button id="btn-prev-anomaly" type="button" title="Jump to previous flagged lyric line">◀ Prev</button>
+            <button id="btn-next-anomaly" type="button" title="Jump to next flagged lyric line">Next ▶</button>
+            <button id="btn-filter-anomalies" type="button" title="Show only lines with timing warnings">Flagged Only</button>
+          </div>
+        </div>
         <div id="lyrics-list"></div>
       </section>
 
@@ -165,6 +177,9 @@
             <button id="btn-snap-end-playhead" title="Snap last word end time to current playhead" data-i18n="btn_snap_end_playhead" data-i18n-title="btn_snap_end_playhead_title">✂ Snap End</button>
           </div>
         </div>
+
+        <!-- 当前选中行的诊断证据提示条 -->
+        <div id="line-timing-warnings" class="line-timing-warnings" style="display: none;"></div>
 
         <!-- 宽敞的字级时间轴拖拽区域 -->
         <div id="word-timeline" style="flex: 1; min-height: 280px; overflow-x: auto; overflow-y: hidden; padding: 20px; position: relative; background: #0f141c;"></div>
@@ -194,7 +209,7 @@
 
   <!-- 动效歌词短视频导出弹窗 -->
   <div id="lyric-export-modal" style="display: none; position: fixed; inset: 0; z-index: 10000; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); justify-content: center; align-items: center;">
-    <div style="background: #181b22; border: 1px solid #2d3342; border-radius: 12px; width: 680px; max-width: 95vw; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); display: flex; flex-direction: column;">
+    <div style="background: #181b22; border: 1px solid #2d3342; border-radius: 12px; width: 760px; max-width: 95vw; max-height: 92vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); display: flex; flex-direction: column;">
       
       <!-- Modal Header -->
       <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #2d3342;">
@@ -208,24 +223,66 @@
       <!-- Modal Body -->
       <div style="padding: 20px; display: flex; flex-direction: column; gap: 16px;">
         
-        <!-- 视频画幅比例 -->
-        <div>
-          <label data-i18n="modal_step1_label" style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">1. Video Aspect Ratio</label>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-            <label class="ratio-option active" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0f1218; border: 1px solid #10b981; border-radius: 8px; cursor: pointer;">
-              <input type="radio" name="export-ratio" value="9:16" checked style="accent-color: #10b981;">
-              <div>
-                <div data-i18n="ratio_9_16_title" style="font-weight: 600; font-size: 13px; color: #fff;">📱 9:16 Vertical Video (1080x1920)</div>
-                <div data-i18n="ratio_9_16_desc" style="font-size: 11px; color: #8b949e;">Optimized for TikTok, Reels, Shorts &amp; RED</div>
+        <!-- 视频画幅比例与清晰度规格 -->
+        <div style="display: grid; grid-template-columns: 1.35fr 1fr; gap: 12px;">
+          <div>
+            <label data-i18n="modal_step1_label" style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">1. Video Aspect Ratio</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <label class="ratio-option active" style="display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #0f1218; border: 1px solid #10b981; border-radius: 8px; cursor: pointer;">
+                <input type="radio" name="export-ratio" value="9:16" checked style="accent-color: #10b981;">
+                <div>
+                  <div data-i18n="ratio_9_16_title" style="font-weight: 600; font-size: 12px; color: #fff;">📱 9:16 Vertical</div>
+                  <div data-i18n="ratio_9_16_desc" style="font-size: 10px; color: #8b949e;">TikTok / Reels / Shorts</div>
+                </div>
+              </label>
+              <label class="ratio-option" style="display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; cursor: pointer;">
+                <input type="radio" name="export-ratio" value="16:9" style="accent-color: #10b981;">
+                <div>
+                  <div data-i18n="ratio_16_9_title" style="font-weight: 600; font-size: 12px; color: #fff;">💻 16:9 Widescreen</div>
+                  <div data-i18n="ratio_16_9_desc" style="font-size: 10px; color: #8b949e;">YouTube / Bilibili</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <label style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">Resolution Profile</label>
+            <select id="export-resolution-select" style="width: 100%; height: 48px; padding: 0 10px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; color: #fff; font-size: 12px; outline: none;">
+              <option value="1080p">1080p Full HD (1080×1920 — Crisp Typography)</option>
+              <option value="720p">720p Fast Draft (720×1280 — ~2.1× Faster Render)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 精选完整主题 + 9:16 竖屏安全区实时预览 -->
+        <div style="display: grid; grid-template-columns: 1fr 190px; gap: 14px; align-items: stretch; padding: 12px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px;">
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">Curated Complete Themes (One-Click Preset)</label>
+              <span style="font-size: 11px; color: #64748b;">Sets background + template + palette</span>
+            </div>
+            <div id="curated-theme-cards" class="curated-theme-cards"></div>
+          </div>
+
+          <!-- 9:16 竖屏安全区与主题实时预览画布 -->
+          <div class="safe-area-preview-wrap">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <span style="font-size: 11px; font-weight: 600; color: #cbd5e1;">Theme &amp; Safe Area</span>
+              <label style="font-size: 10px; color: #94a3b8; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                <input id="toggle-safe-area-guides" type="checkbox" checked style="accent-color: #10b981;"> Guides
+              </label>
+            </div>
+            <div id="theme-safe-area-preview" class="theme-safe-area-stage portrait">
+              <div class="unsafe-zone unsafe-top" title="Top 14%: Platform status &amp; search bar">TOP 14% UI</div>
+              <div class="unsafe-zone unsafe-right" title="Right 14%: Social action rail">RAIL</div>
+              <div class="unsafe-zone unsafe-bottom" title="Bottom 24%: Caption &amp; scrub bar">CAPTION 24%</div>
+              <div class="safe-zone-box" id="safe-zone-box">
+                <div class="preview-cover-chip" id="preview-cover-chip"></div>
+                <div class="preview-lyric-prev" id="preview-lyric-prev">Previous lyric line</div>
+                <div class="preview-lyric-active" id="preview-lyric-active">Active singing hook</div>
+                <div class="preview-lyric-next" id="preview-lyric-next">Upcoming lyric line</div>
               </div>
-            </label>
-            <label class="ratio-option" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; cursor: pointer;">
-              <input type="radio" name="export-ratio" value="16:9" style="accent-color: #10b981;">
-              <div>
-                <div data-i18n="ratio_16_9_title" style="font-weight: 600; font-size: 13px; color: #fff;">💻 16:9 Widescreen HD (1920x1080)</div>
-                <div data-i18n="ratio_16_9_desc" style="font-size: 11px; color: #8b949e;">Ideal for YouTube, Bilibili &amp; PC displays</div>
-              </div>
-            </label>
+            </div>
           </div>
         </div>
 
@@ -287,11 +344,11 @@
           </div>
         </div>
 
-        <!-- 5. 渲染范围与起止时间选取 (替换原 20s 快速预览) -->
-        <div style="padding: 12px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+        <!-- 5. 渲染范围、智能高光片段推荐与整句边界调整 -->
+        <div style="padding: 12px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span data-i18n="modal_step5_label" style="font-size: 13px; font-weight: 600; color: #fff;">5. Export Clip Range</span>
+              <span data-i18n="modal_step5_label" style="font-size: 13px; font-weight: 600; color: #fff;">5. Export Clip Range &amp; Smart Excerpts</span>
               <span id="export-segment-dur-badge" data-i18n="preset_full_badge" style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 600;">Full Song Export</span>
             </div>
             <!-- 乐段速选预设药丸按钮 -->
@@ -300,6 +357,44 @@
               <button type="button" class="btn-sec-preset" data-preset="chorus" data-i18n="preset_chorus" style="padding: 3px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #2d3342; background: transparent; color: #8b949e; cursor: pointer;">🔥 Chorus Peak</button>
               <button type="button" class="btn-sec-preset" data-preset="verse1" data-i18n="preset_verse1" style="padding: 3px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #2d3342; background: transparent; color: #8b949e; cursor: pointer;">🎧 Verse 1</button>
               <button type="button" class="btn-sec-preset" data-preset="custom" data-i18n="preset_custom" style="padding: 3px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #2d3342; background: transparent; color: #8b949e; cursor: pointer;">⏱️ Custom</button>
+            </div>
+          </div>
+
+          <!-- 智能推荐宣发高光片段卡片 -->
+          <div id="excerpt-candidates-list" class="excerpt-candidates-list"></div>
+
+          <!-- 完整歌词句子边界微调控件 (Start Sentence / End Sentence) -->
+          <div class="sentence-boundary-box">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
+              <span style="font-size: 11px; font-weight: 600; color: #cbd5e1;">Complete Sentence Boundaries (No Mid-Sentence Cuts)</span>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <label style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                  <input id="export-snap-sentence" type="checkbox" style="accent-color: #10b981;"> Snap export to sentence bounds
+                </label>
+                <button id="btn-audition-excerpt" type="button" style="padding: 2px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #3b82f6; background: rgba(59, 130, 246, 0.15); color: #60a5fa; cursor: pointer;">▶ Audition Clip</button>
+              </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                  <label style="font-size: 10px; color: #94a3b8;">Start Sentence</label>
+                  <div style="display: flex; gap: 4px;">
+                    <button id="btn-start-line-prev" type="button" class="btn-sentence-step" title="Include previous sentence">-1 Sent</button>
+                    <button id="btn-start-line-next" type="button" class="btn-sentence-step" title="Start one sentence later">+1 Sent</button>
+                  </div>
+                </div>
+                <select id="export-start-line-select" style="width: 100%; height: 30px; padding: 0 8px; background: #161b22; border: 1px solid #30363d; border-radius: 5px; color: #e2e8f0; font-size: 11px;"></select>
+              </div>
+              <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
+                  <label style="font-size: 10px; color: #94a3b8;">End Sentence</label>
+                  <div style="display: flex; gap: 4px;">
+                    <button id="btn-end-line-prev" type="button" class="btn-sentence-step" title="End one sentence earlier">-1 Sent</button>
+                    <button id="btn-end-line-next" type="button" class="btn-sentence-step" title="Include next sentence">+1 Sent</button>
+                  </div>
+                </div>
+                <select id="export-end-line-select" style="width: 100%; height: 30px; padding: 0 8px; background: #161b22; border: 1px solid #30363d; border-radius: 5px; color: #e2e8f0; font-size: 11px;"></select>
+              </div>
             </div>
           </div>
 

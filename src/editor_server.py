@@ -106,6 +106,26 @@ async def song_info(task_id: str, user: User = Depends(get_current_user_flexible
 # 获取 / 保存对齐 JSON
 # ======================================================================
 
+async def _hydrate_source_sections(storage, task: Task, payload: dict) -> dict:
+    """Bind source_suno.json sections into alignment payload when missing."""
+    if not isinstance(payload, dict) or payload.get("sections") or not task.input_mp3_key:
+        return payload
+    from src.song_assets import source_keys
+    from src.song_sections import bind_source_sections
+    metadata_key, _ = source_keys(task.input_mp3_key)
+    if metadata_key and await storage.exists(metadata_key):
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            meta_path = Path(tmp.name)
+        try:
+            await storage.load(metadata_key, meta_path)
+            bind_source_sections(payload, json.loads(meta_path.read_text(encoding="utf-8")))
+        except Exception as exc:
+            log.debug("绑定源歌曲段落跳过: task=%s (%s)", task.id, type(exc).__name__)
+        finally:
+            meta_path.unlink(missing_ok=True)
+    return payload
+
+
 @router.get("/tasks/{task_id}/align")
 async def get_alignment(
     task_id: str,
@@ -124,7 +144,8 @@ async def get_alignment(
 
     storage = get_storage()
     try:
-        return await _load_alignment(storage, task.alignment_json_key)
+        payload = await _load_alignment(storage, task.alignment_json_key)
+        return await _hydrate_source_sections(storage, task, payload)
     except FileNotFoundError as exc:
         log.warning("对齐文件缺失: task=%s key=%s", task.id, task.alignment_json_key)
         raise HTTPException(404, "Alignment file is missing from storage. Please import and align this song again.") from exc
@@ -133,6 +154,38 @@ async def get_alignment(
     except Exception as exc:
         log.warning("读取任务对齐数据失败: %s (%s)", task.id, type(exc).__name__)
         raise HTTPException(503, "Unable to load alignment from storage. Please retry later.") from exc
+
+
+@router.get("/tasks/{task_id}/review")
+async def get_task_review(
+    task_id: str,
+    user: User = Depends(get_current_user_flexible),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取对齐时间异常审查结果与智能高光切片推荐（纯只读分析，不篡改原时间戳）"""
+    from src.editing_review import (
+        PORTRAIT_SAFE_AREA,
+        inspect_timing_anomalies,
+        recommend_excerpt_candidates,
+    )
+
+    task = await _get_user_task(db, user.id, task_id)
+    if not task.alignment_json_key:
+        raise HTTPException(404, "该任务没有对齐数据")
+
+    storage = get_storage()
+    try:
+        payload = await _load_alignment(storage, task.alignment_json_key)
+        payload = await _hydrate_source_sections(storage, task, payload)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "Alignment file is missing from storage.") from exc
+
+    return {
+        "task_id": task_id,
+        "timing_review": inspect_timing_anomalies(payload),
+        "excerpt_candidates": recommend_excerpt_candidates(payload),
+        "safe_area": PORTRAIT_SAFE_AREA,
+    }
 
 
 @router.put("/tasks/{task_id}/align")
@@ -183,8 +236,11 @@ async def save_alignment(
     await db.commit()
     version = str(int(task.updated_at.timestamp()))
 
+    from src.editing_review import inspect_timing_anomalies
+    timing_review = inspect_timing_anomalies(data)
+
     log.info("对齐 JSON 已保存: task=%s, version=%s", task_id, version)
-    return {"status": "ok", "task_id": task_id, "version": version}
+    return {"status": "ok", "task_id": task_id, "version": version, "timing_review": timing_review}
 
 
 # ======================================================================

@@ -30,12 +30,14 @@ class VideoOptions(BaseModel):
     accepted_cost: int | None = Field(default=None, ge=0)
     section_name: Literal['', 'chorus', 'verse1', 'intro'] = ''
     aspect_ratio: Literal["9:16", "16:9"] = "9:16"
+    resolution: Literal["720p", "1080p"] = "1080p"
     template: Literal["apple", "center_bounce", "tv"] = "apple"
     theme: str = "apple_white"
     background_mode: Literal["full_bleed", "ken_burns", "blurred_ambient", "vinyl", "solid_black"] = "full_bleed"
     duration_limit: float | None = Field(default=None, gt=0)
     start_time: float = Field(default=0, ge=0)
     end_time: float | None = Field(default=None, gt=0)
+    snap_to_sentence: bool = False
 
     @model_validator(mode="after")
     def ordered_times(self):
@@ -58,6 +60,10 @@ def video_options(payload: dict, options: dict) -> dict:
     result = dict(options)
     result.pop('request_id', None)
     result.pop('accepted_cost', None)
+    snap_to_sentence = bool(result.pop('snap_to_sentence', False))
+    resolution = result.pop('resolution', '1080p')
+    if resolution and resolution != '1080p':
+        result['resolution'] = resolution
     section = result.pop('section_name', '')
     if section:
         import re
@@ -67,6 +73,17 @@ def video_options(payload: dict, options: dict) -> dict:
         if match is None:
             raise ValueError('所选乐段不存在，请选择完整歌曲或在编辑器指定片段')
         result['start_time'] = match['start']
+    if snap_to_sentence:
+        from src.editing_review import snap_excerpt_to_sentence_bounds
+        snapped = snap_excerpt_to_sentence_bounds(
+            payload,
+            start_time=float(result.get('start_time') or 0.0),
+            end_time=result.get('end_time'),
+            duration_limit=result.get('duration_limit'),
+        )
+        result['start_time'] = snapped['start_time']
+        result['end_time'] = snapped['end_time']
+        result['duration_limit'] = snapped['duration']
     return result
 
 

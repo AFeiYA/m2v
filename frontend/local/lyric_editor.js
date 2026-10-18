@@ -2,74 +2,670 @@
 // M2V Local Editor — Lyric & Subtitle Editor Module (for index.html)
 // ===========================================================================
 
-document.addEventListener("DOMContentLoaded", () => {
-  // DOM element cache
-  dom.songSelect          = $("#song-select");
-  dom.btnSave             = $("#btn-save");
-  dom.btnUndo             = $("#btn-undo");
-  dom.btnRedo             = $("#btn-redo");
-  dom.btnRegenAss         = $("#btn-regen-ass");
-  dom.sunoUrlInput        = $("#suno-url-input");
-  dom.btnStartSunoImport  = $("#btn-start-suno-import");
-  dom.sunoProgress        = $("#suno-import-progress");
-  dom.sunoProgressText    = $("#suno-progress-text");
-  dom.statusMsg           = $("#status-msg");
-  dom.waveformVocals      = $("#waveform-vocals");
-  dom.waveformInst        = $("#waveform-instrumental");
-  dom.btnPlayPause        = $("#btn-play-pause");
-  dom.btnPlayLine         = $("#btn-play-line");
-  dom.timeDisplay         = $("#time-display");
-  dom.zoomSlider          = $("#zoom-slider");
-  dom.lyricsList          = $("#lyrics-list");
-  dom.wordTitle           = $("#word-panel-title");
-  dom.wordTimeline        = $("#word-timeline");
-  dom.btnShiftLeft        = $("#btn-shift-left");
-  dom.btnNudgeLeft        = $("#btn-nudge-left");
-  dom.btnNudgeRight       = $("#btn-nudge-right");
-  dom.btnShiftRight       = $("#btn-shift-right");
-  dom.btnEvenSplit        = $("#btn-even-split");
-  dom.btnPlayWord         = $("#btn-play-word");
-  dom.lineEditControls    = $("#line-edit-controls");
-  dom.btnLineNudgeLeftBig  = $("#btn-line-nudge-left-big");
-  dom.btnLineNudgeLeft     = $("#btn-line-nudge-left");
-  dom.btnLineNudgeRight    = $("#btn-line-nudge-right");
-  dom.btnLineNudgeRightBig = $("#btn-line-nudge-right-big");
-  dom.btnLineExpand       = $("#btn-line-expand");
-  dom.btnLineShrink       = $("#btn-line-shrink");
-  dom.btnMuteVocals       = $("#btn-mute-vocals");
-  dom.btnMuteInst         = $("#btn-mute-instrumental");
-  dom.trackVocals         = $("#track-vocals");
-  dom.trackInst           = $("#track-instrumental");
+const PORTRAIT_SAFE_AREA = {
+  aspect_ratio: "9:16",
+  top_pct: 0.14,
+  bottom_pct: 0.76,
+  left_pct: 0.08,
+  right_pct: 0.86,
+  unsafe_zones: {
+    top: "Top 14%: status bar, creator handle, and live/search chrome",
+    bottom: "Bottom 24% (76%–100%): caption copy, sound marquee, and playback scrub bar",
+    right: "Right 14% (86%–100%): like, comment, share, and bookmark action rail",
+    left: "Left 8% (0%–8%): screen edge breathing margin",
+  },
+};
 
-  try {
-    initWaveSurfer();
-  } catch (err) {
-    console.warn("WaveSurfer 初始化异常:", err);
+const CURATED_EXPORT_THEMES = [
+  {
+    id: "apple_white_ambient",
+    name: "Apple White Ambient",
+    subtitle: "Blurred cover glow + Apple Music scroll focus",
+    template: "apple",
+    theme: "apple_white",
+    background_mode: "blurred_ambient",
+    accent: "#ffffff",
+    secondary: "#94a3b8",
+    bg_preview: "linear-gradient(180deg, #182234 0%, #0d121c 100%)",
+  },
+  {
+    id: "cyber_neon_bounce",
+    name: "Cyber Neon Bounce",
+    subtitle: "High energy center bounce + electric cyan & pink",
+    template: "center_bounce",
+    theme: "cyber_neon",
+    background_mode: "full_bleed",
+    accent: "#00f0ff",
+    secondary: "#ff007f",
+    bg_preview: "linear-gradient(135deg, #091026 0%, #1f0b2e 100%)",
+  },
+  {
+    id: "amber_vinyl_classic",
+    name: "Amber Vinyl Classic",
+    subtitle: "Spinning vinyl platter + warm gold scroll",
+    template: "apple",
+    theme: "amber_gold",
+    background_mode: "vinyl",
+    accent: "#ffd700",
+    secondary: "#d2691e",
+    bg_preview: "linear-gradient(145deg, #1c1917 0%, #292524 60%, #451a03 100%)",
+  },
+  {
+    id: "midnight_ktv_duet",
+    name: "Midnight KTV Dual",
+    subtitle: "Ken Burns motion + classic two-line sweep",
+    template: "tv",
+    theme: "midnight_purple",
+    background_mode: "ken_burns",
+    accent: "#e0b0ff",
+    secondary: "#8a2be2",
+    bg_preview: "linear-gradient(145deg, #0f0720 0%, #2e1065 100%)",
+  },
+  {
+    id: "emerald_minimal_black",
+    name: "Emerald Minimalist",
+    subtitle: "Pure black studio + high-contrast mint bounce",
+    template: "center_bounce",
+    theme: "emerald_mint",
+    background_mode: "solid_black",
+    accent: "#00ff7f",
+    secondary: "#008040",
+    bg_preview: "linear-gradient(145deg, #050505 0%, #064e3b 100%)",
+  },
+];
+
+function countVocalUnits(text) {
+  const cleaned = String(text || "").replace(/\\N/g, " ").trim();
+  if (!cleaned) return 0;
+  const cjkChars = cleaned.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g) || [];
+  const nonCjk = cleaned.replace(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g, " ");
+  const latinWords = nonCjk.match(/[A-Za-z0-9']+/g) || [];
+  let latinUnits = 0;
+  for (const word of latinWords) {
+    const vowels = word.match(/[aeiouyAEIOUY]+/g) || [];
+    latinUnits += Math.max(1, Math.min(4, vowels.length));
+  }
+  return cjkChars.length + latinUnits;
+}
+
+function inspectAlignmentTiming(alignment) {
+  const counts_by_kind = {
+    overlap: 0,
+    compressed_duration: 0,
+    excessive_gap: 0,
+    low_confidence: 0,
+  };
+  if (!alignment || !Array.isArray(alignment.lines)) {
+    return { total_warnings: 0, flagged_line_indices: [], counts_by_kind, warnings: [] };
+  }
+  const warnings = [];
+  const flaggedLines = new Set();
+
+  function addWarning({ kind, severity, line_index, word_index, start, end, title, message, evidence }) {
+    counts_by_kind[kind] = (counts_by_kind[kind] || 0) + 1;
+    flaggedLines.add(line_index);
+    const wSuffix = word_index != null ? `w${word_index}` : "line";
+    warnings.push({
+      id: `L${line_index}_${wSuffix}_${kind}_${warnings.length}`,
+      kind,
+      severity,
+      line_index,
+      word_index,
+      start: Math.round(Number(start || 0) * 1000) / 1000,
+      end: Math.round(Number(end || 0) * 1000) / 1000,
+      title,
+      message,
+      evidence: evidence || {},
+    });
   }
 
-  bindLyricEvents();
-  loadFileList();
-});
+  let prevLineEnd = null;
+  let prevLineIdx = null;
+
+  alignment.lines.forEach((line, lineIdx) => {
+    if (!line || typeof line !== "object") return;
+    const lStart = Number(line.start != null ? line.start : 0);
+    const lEnd = Number(line.end != null ? line.end : lStart);
+    const lText = String(line.text || "").replace(/\\N/g, " ").trim();
+    const lDur = lEnd - lStart;
+
+    if (lEnd <= lStart) {
+      addWarning({
+        kind: "overlap",
+        severity: "error",
+        line_index: lineIdx,
+        word_index: null,
+        start: lStart,
+        end: lEnd,
+        title: "Inverted line duration",
+        message: `Line ${lineIdx + 1} has non-positive duration (${lStart.toFixed(2)}s -> ${lEnd.toFixed(2)}s).`,
+        evidence: { start: lStart, end: lEnd, duration_ms: Math.round(lDur * 1000) },
+      });
+    }
+
+    if (prevLineEnd != null && lStart < prevLineEnd - 0.02) {
+      const overlapSec = prevLineEnd - lStart;
+      addWarning({
+        kind: "overlap",
+        severity: "warning",
+        line_index: lineIdx,
+        word_index: null,
+        start: lStart,
+        end: Math.min(prevLineEnd, lEnd),
+        title: "Line timestamp overlap",
+        message: `Line ${lineIdx + 1} starts at ${lStart.toFixed(2)}s before previous line ended at ${prevLineEnd.toFixed(2)}s (overlap: ${Math.round(overlapSec * 1000)}ms).`,
+        evidence: {
+          overlap_ms: Math.round(overlapSec * 1000),
+          prev_line_index: prevLineIdx,
+          prev_line_end: prevLineEnd,
+          current_line_start: lStart,
+        },
+      });
+    }
+
+    const units = countVocalUnits(lText);
+    if (lDur > 0 && lDur < 0.045) {
+      addWarning({
+        kind: "compressed_duration",
+        severity: "warning",
+        line_index: lineIdx,
+        word_index: null,
+        start: lStart,
+        end: lEnd,
+        title: "Compressed line duration",
+        message: `Line ${lineIdx + 1} duration (${Math.round(lDur * 1000)}ms) is below 45ms.`,
+        evidence: { duration_ms: Math.round(lDur * 1000), units },
+      });
+    } else if (units >= 3 && lDur > 0 && (lDur / units) < 0.035) {
+      addWarning({
+        kind: "compressed_duration",
+        severity: "warning",
+        line_index: lineIdx,
+        word_index: null,
+        start: lStart,
+        end: lEnd,
+        title: "Fast singing / compressed syllables",
+        message: `Line ${lineIdx + 1} syllable duration (${Math.round((lDur / units) * 1000)}ms/unit) is implausibly fast.`,
+        evidence: { units, sec_per_unit: lDur / units, duration_ms: Math.round(lDur * 1000) },
+      });
+    }
+
+    if (line.needs_review) {
+      addWarning({
+        kind: "low_confidence",
+        severity: "info",
+        line_index: lineIdx,
+        word_index: null,
+        start: lStart,
+        end: lEnd,
+        title: "Aligner flagged line for review",
+        message: `Line ${lineIdx + 1} was marked as needs_review by the aligner.`,
+        evidence: { needs_review: true },
+      });
+    }
+
+    const words = Array.isArray(line.words) ? line.words : [];
+    let prevWordEnd = null;
+    let prevWordIdx = null;
+    let prevWordText = null;
+
+    words.forEach((w, wIdx) => {
+      if (!w || typeof w !== "object") return;
+      const wStart = Number(w.start != null ? w.start : lStart);
+      const wEnd = Number(w.end != null ? w.end : wStart);
+      const wText = String(w.word || "").trim();
+      const wDur = wEnd - wStart;
+
+      if (wEnd <= wStart) {
+        addWarning({
+          kind: "overlap",
+          severity: "error",
+          line_index: lineIdx,
+          word_index: wIdx,
+          start: wStart,
+          end: wEnd,
+          title: "Inverted word duration",
+          message: `Word "${wText}" (idx ${wIdx}) in Line ${lineIdx + 1} has non-positive duration.`,
+          evidence: { word: wText, start: wStart, end: wEnd },
+        });
+      }
+
+      if (wStart < lStart - 0.02) {
+        addWarning({
+          kind: "overlap",
+          severity: "warning",
+          line_index: lineIdx,
+          word_index: wIdx,
+          start: wStart,
+          end: wEnd,
+          title: "Word starts before line",
+          message: `Word "${wText}" starts at ${wStart.toFixed(2)}s before line start ${lStart.toFixed(2)}s.`,
+          evidence: { word: wText, word_start: wStart, line_start: lStart },
+        });
+      }
+
+      if (wEnd > lEnd + 0.02) {
+        addWarning({
+          kind: "overlap",
+          severity: "warning",
+          line_index: lineIdx,
+          word_index: wIdx,
+          start: wStart,
+          end: wEnd,
+          title: "Word ends after line",
+          message: `Word "${wText}" ends at ${wEnd.toFixed(2)}s after line end ${lEnd.toFixed(2)}s.`,
+          evidence: { word: wText, word_end: wEnd, line_end: lEnd },
+        });
+      }
+
+      if (prevWordEnd != null && wStart < prevWordEnd - 0.01) {
+        const overlapSec = prevWordEnd - wStart;
+        addWarning({
+          kind: "overlap",
+          severity: "warning",
+          line_index: lineIdx,
+          word_index: wIdx,
+          start: wStart,
+          end: Math.min(prevWordEnd, wEnd),
+          title: "Word timestamp overlap",
+          message: `Word "${wText}" overlaps with previous word "${prevWordText}" by ${Math.round(overlapSec * 1000)}ms.`,
+          evidence: {
+            word: wText,
+            prev_word: prevWordText,
+            overlap_ms: Math.round(overlapSec * 1000),
+          },
+        });
+      }
+
+      if (prevWordEnd != null && (wStart - prevWordEnd) > 1.2) {
+        const gapSec = wStart - prevWordEnd;
+        addWarning({
+          kind: "excessive_gap",
+          severity: "info",
+          line_index: lineIdx,
+          word_index: wIdx,
+          start: prevWordEnd,
+          end: wStart,
+          title: "Excessive intra-line gap",
+          message: `Gap of ${gapSec.toFixed(2)}s between "${prevWordText}" and "${wText}".`,
+          evidence: { gap_seconds: gapSec, prev_word: prevWordText, next_word: wText },
+        });
+      }
+
+      if (wDur > 0 && wDur < 0.045 && !wText.match(/^[，。！？、,.!?]+$/)) {
+        addWarning({
+          kind: "compressed_duration",
+          severity: "warning",
+          line_index: lineIdx,
+          word_index: wIdx,
+          start: wStart,
+          end: wEnd,
+          title: "Compressed word duration",
+          message: `Word "${wText}" duration (${Math.round(wDur * 1000)}ms) is below 45ms.`,
+          evidence: { word: wText, duration_ms: Math.round(wDur * 1000) },
+        });
+      }
+
+      if (wIdx === words.length - 1 && wDur > 3.5 && lDur > 0 && (wDur / lDur) > 0.72) {
+        addWarning({
+          kind: "excessive_gap",
+          severity: "info",
+          line_index: lineIdx,
+          word_index: wIdx,
+          start: wStart,
+          end: wEnd,
+          title: "Stretched tail word",
+          message: `Final word "${wText}" lasts ${wDur.toFixed(2)}s (${Math.round((wDur / lDur) * 100)}% of line).`,
+          evidence: { word: wText, duration: wDur, line_ratio: wDur / lDur },
+        });
+      }
+
+      if (w.needs_review) {
+        addWarning({
+          kind: "low_confidence",
+          severity: "info",
+          line_index: lineIdx,
+          word_index: wIdx,
+          start: wStart,
+          end: wEnd,
+          title: "Low confidence word alignment",
+          message: `Word "${wText}" flagged for manual review.`,
+          evidence: { word: wText, needs_review: true },
+        });
+      }
+      if (w.unresolved_compound) {
+        addWarning({
+          kind: "low_confidence",
+          severity: "info",
+          line_index: lineIdx,
+          word_index: wIdx,
+          start: wStart,
+          end: wEnd,
+          title: "Unresolved compound token",
+          message: `Word "${wText}" is an unresolved compound token.`,
+          evidence: { word: wText, unresolved_compound: true },
+        });
+      }
+
+      prevWordEnd = prevWordEnd != null ? Math.max(prevWordEnd, wEnd) : wEnd;
+      prevWordIdx = wIdx;
+      prevWordText = wText;
+    });
+
+    prevLineEnd = prevLineEnd != null ? Math.max(prevLineEnd, lEnd) : lEnd;
+    prevLineIdx = lineIdx;
+  });
+
+  return {
+    total_warnings: warnings.length,
+    flagged_line_indices: Array.from(flaggedLines).sort((a, b) => a - b),
+    counts_by_kind,
+    warnings,
+  };
+}
+
+function snapExcerptToSentenceBounds(alignment, startTime = 0.0, endTime = null, durationLimit = null) {
+  const rawLines = (alignment && Array.isArray(alignment.lines)) ? alignment.lines : [];
+  const validLines = [];
+  rawLines.forEach((l, idx) => {
+    if (!l || typeof l !== "object") return;
+    const s = Number(l.start != null ? l.start : 0);
+    const e = Number(l.end != null ? l.end : s);
+    const text = String(l.text || "").replace(/\\N/g, " ").trim();
+    if (e > s) validLines.push({ idx, start: s, end: e, text });
+  });
+
+  const reqStart = Math.max(0, Number(startTime || 0));
+  let reqEnd;
+  if (endTime != null && Number(endTime) > reqStart) {
+    reqEnd = Number(endTime);
+  } else if (durationLimit != null && Number(durationLimit) > 0) {
+    reqEnd = reqStart + Number(durationLimit);
+  } else {
+    reqEnd = reqStart + 25.0;
+  }
+
+  if (!validLines.length) {
+    const dur = Math.max(1.0, reqEnd - reqStart);
+    return {
+      start_time: Math.round(reqStart * 1000) / 1000,
+      end_time: Math.round((reqStart + dur) * 1000) / 1000,
+      duration: Math.round(dur * 1000) / 1000,
+      start_line_index: 0,
+      end_line_index: 0,
+      line_count: 0,
+      preview_text: "",
+    };
+  }
+
+  let startPos = 0;
+  let bestStartDist = Infinity;
+  for (let i = 0; i < validLines.length; i++) {
+    const { start: ls, end: le } = validLines[i];
+    if (ls <= reqStart && reqStart < le - 0.15) {
+      startPos = i;
+      break;
+    }
+    const dist = Math.abs(ls - reqStart);
+    if (dist < bestStartDist) {
+      bestStartDist = dist;
+      startPos = i;
+    }
+  }
+
+  let endPos = startPos;
+  let bestEndDist = Infinity;
+  for (let i = startPos; i < validLines.length; i++) {
+    const { end: le } = validLines[i];
+    const dist = Math.abs(le - reqEnd);
+    if (dist < bestEndDist) {
+      bestEndDist = dist;
+      endPos = i;
+    }
+    if (le >= reqEnd && i > startPos) break;
+  }
+
+  const snappedStart = validLines[startPos].start;
+  const snappedEnd = validLines[endPos].end;
+  const previewLines = [];
+  for (let p = startPos; p <= endPos; p++) {
+    if (validLines[p].text) previewLines.push(validLines[p].text);
+  }
+  let previewText = previewLines.slice(0, 3).join(" / ");
+  if (previewLines.length > 3) previewText += " …";
+
+  return {
+    start_time: Math.round(snappedStart * 1000) / 1000,
+    end_time: Math.round(snappedEnd * 1000) / 1000,
+    duration: Math.round(Math.max(0.1, snappedEnd - snappedStart) * 1000) / 1000,
+    start_line_index: validLines[startPos].idx,
+    end_line_index: validLines[endPos].idx,
+    line_count: endPos - startPos + 1,
+    preview_text: previewText,
+  };
+}
+
+function recommendExcerptCandidates(alignment, options = {}) {
+  const targetDuration = options.target_duration || 25.0;
+  const minDuration = options.min_duration || 12.0;
+  const maxDuration = options.max_duration || 45.0;
+  const maxCandidates = options.max_candidates || 4;
+
+  if (!alignment || !Array.isArray(alignment.lines) || !alignment.lines.length) {
+    return [];
+  }
+
+  const lines = [];
+  alignment.lines.forEach((l, idx) => {
+    if (!l || typeof l !== "object") return;
+    const s = Number(l.start != null ? l.start : 0);
+    const e = Number(l.end != null ? l.end : s);
+    const text = String(l.text || "").replace(/\\N/g, " ").trim();
+    if (e > s && text) {
+      lines.push({ index: idx, start: s, end: e, duration: e - s, text, units: countVocalUnits(text) });
+    }
+  });
+  if (!lines.length) return [];
+
+  const sections = Array.isArray(alignment.sections) ? alignment.sections : [];
+  const candidates = [];
+
+  function windowEndForStart(startPos, preferredEndTime = null) {
+    const sTime = lines[startPos].start;
+    let bestPos = startPos;
+    let bestDiff = Infinity;
+    let goalEnd = (preferredEndTime && preferredEndTime > sTime + minDuration)
+      ? preferredEndTime
+      : (sTime + targetDuration);
+    goalEnd = Math.min(sTime + maxDuration, Math.max(sTime + minDuration, goalEnd));
+
+    for (let pos = startPos; pos < lines.length; pos++) {
+      const eTime = lines[pos].end;
+      const dur = eTime - sTime;
+      if (dur > maxDuration && pos > startPos) break;
+      const diff = Math.abs(eTime - goalEnd);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        bestPos = pos;
+      }
+    }
+    return bestPos;
+  }
+
+  // 1. From Sections
+  sections.forEach((sec, sIdx) => {
+    if (!sec || typeof sec !== "object") return;
+    const sName = String(sec.name || "").toLowerCase();
+    const sLabel = String(sec.label || "");
+    const secStart = Number(sec.start != null ? sec.start : 0);
+    const secEnd = Number(sec.end != null ? sec.end : secStart);
+
+    let startLinePos = null;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].start >= secStart - 0.25) {
+        startLinePos = i;
+        break;
+      }
+    }
+    if (startLinePos == null) return;
+    const endLinePos = windowEndForStart(startLinePos, secEnd);
+    const startTime = lines[startLinePos].start;
+    const endTime = lines[endLinePos].end;
+    const dur = endTime - startTime;
+    if (dur < minDuration) return;
+
+    let kind = "section";
+    let score = 50.0;
+    let title = sLabel || sec.name || `Section ${sIdx + 1}`;
+
+    if (sName.includes("chorus") || sLabel.includes("副歌") || sLabel.includes("高潮")) {
+      kind = "chorus";
+      score += 40.0;
+      title = sLabel || (sName.includes("2") ? "🔥 Chorus 2" : "🔥 Main Chorus");
+    } else if (sName.includes("verse") || sLabel.includes("主歌")) {
+      kind = "verse";
+      score += 15.0;
+    } else if (sName.includes("bridge") || sLabel.includes("过渡")) {
+      kind = "bridge";
+      score += 25.0;
+    }
+
+    const previewTexts = [];
+    for (let p = startLinePos; p <= endLinePos; p++) previewTexts.push(lines[p].text);
+    let preview = previewTexts.slice(0, 3).join(" / ");
+    if (previewTexts.length > 3) preview += " …";
+
+    candidates.push({
+      id: `cand_sec_${sIdx}`,
+      kind,
+      title,
+      start_time: Math.round(startTime * 1000) / 1000,
+      end_time: Math.round(endTime * 1000) / 1000,
+      duration: Math.round(dur * 1000) / 1000,
+      start_line_index: lines[startLinePos].index,
+      end_line_index: lines[endLinePos].index,
+      line_count: endLinePos - startLinePos + 1,
+      preview_text: preview,
+      score,
+    });
+  });
+
+  // 2. Fallback heuristic windows if candidates < 2
+  if (candidates.length < 2) {
+    const totalLines = lines.length;
+    const hookStartPos = Math.floor(totalLines * 0.35);
+    const endPos = windowEndForStart(hookStartPos);
+    const st = lines[hookStartPos].start;
+    const et = lines[endPos].end;
+    candidates.push({
+      id: "cand_hook_heuristic",
+      kind: "hook",
+      title: "🔥 Vocal Hook Highlight",
+      start_time: Math.round(st * 1000) / 1000,
+      end_time: Math.round(et * 1000) / 1000,
+      duration: Math.round((et - st) * 1000) / 1000,
+      start_line_index: lines[hookStartPos].index,
+      end_line_index: lines[endPos].index,
+      line_count: endPos - hookStartPos + 1,
+      preview_text: lines.slice(hookStartPos, endPos + 1).map(l => l.text).slice(0, 3).join(" / "),
+      score: 75.0,
+    });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  const deduped = [];
+  for (const c of candidates) {
+    const isDup = deduped.some(d => Math.abs(d.start_time - c.start_time) < 3.0 && Math.abs(d.end_time - c.end_time) < 3.0);
+    if (!isDup) deduped.push(c);
+    if (deduped.length >= maxCandidates) break;
+  }
+  return deduped;
+}
+
+let currentTimingReview = null;
+let flaggedLinesOnlyFilter = false;
+
+if (typeof document !== "undefined") {
+  document.addEventListener("DOMContentLoaded", () => {
+    // DOM element cache
+    dom.songSelect          = $("#song-select");
+    dom.btnSave             = $("#btn-save");
+    dom.btnUndo             = $("#btn-undo");
+    dom.btnRedo             = $("#btn-redo");
+    dom.btnRegenAss         = $("#btn-regen-ass");
+    dom.sunoUrlInput        = $("#suno-url-input");
+    dom.btnStartSunoImport  = $("#btn-start-suno-import");
+    dom.sunoProgress        = $("#suno-import-progress");
+    dom.sunoProgressText    = $("#suno-progress-text");
+    dom.statusMsg           = $("#status-msg");
+    dom.waveformVocals      = $("#waveform-vocals");
+    dom.waveformInst        = $("#waveform-instrumental");
+    dom.btnPlayPause        = $("#btn-play-pause");
+    dom.btnPlayLine         = $("#btn-play-line");
+    dom.timeDisplay         = $("#time-display");
+    dom.zoomSlider          = $("#zoom-slider");
+    dom.lyricsList          = $("#lyrics-list");
+    dom.wordTitle           = $("#word-panel-title");
+    dom.wordTimeline        = $("#word-timeline");
+    dom.btnShiftLeft        = $("#btn-shift-left");
+    dom.btnNudgeLeft        = $("#btn-nudge-left");
+    dom.btnNudgeRight       = $("#btn-nudge-right");
+    dom.btnShiftRight       = $("#btn-shift-right");
+    dom.btnEvenSplit        = $("#btn-even-split");
+    dom.btnPlayWord         = $("#btn-play-word");
+    dom.lineEditControls    = $("#line-edit-controls");
+    dom.btnLineNudgeLeftBig  = $("#btn-line-nudge-left-big");
+    dom.btnLineNudgeLeft     = $("#btn-line-nudge-left");
+    dom.btnLineNudgeRight    = $("#btn-line-nudge-right");
+    dom.btnLineNudgeRightBig = $("#btn-line-nudge-right-big");
+    dom.btnLineExpand       = $("#btn-line-expand");
+    dom.btnLineShrink       = $("#btn-line-shrink");
+    dom.btnMuteVocals       = $("#btn-mute-vocals");
+    dom.btnMuteInst         = $("#btn-mute-instrumental");
+    dom.trackVocals         = $("#track-vocals");
+    dom.trackInst           = $("#track-instrumental");
+
+    // Phase 2B review elements
+    dom.timingReviewBar     = $("#timing-review-bar");
+    dom.timingReviewBadge   = $("#timing-review-badge");
+    dom.timingReviewCounts  = $("#timing-review-counts");
+    dom.btnPrevAnomaly      = $("#btn-prev-anomaly");
+    dom.btnNextAnomaly      = $("#btn-next-anomaly");
+    dom.btnFilterAnomalies  = $("#btn-filter-anomalies");
+    dom.lineTimingWarnings  = $("#line-timing-warnings");
+
+    try {
+      initWaveSurfer();
+    } catch (err) {
+      console.warn("WaveSurfer 初始化异常:", err);
+    }
+
+    bindLyricEvents();
+    loadFileList();
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Lifecycle Hooks
 // ---------------------------------------------------------------------------
-window.onSongLoaded = () => {
-  renderLyrics();
-  clearWordPanel();
-};
+if (typeof window !== "undefined") {
+  window.onSongLoaded = () => {
+    renderLyrics();
+    clearWordPanel();
+  };
 
-window.onAlignmentChanged = () => {
-  renderLyrics();
-  if (state.selectedLine >= 0) {
-    renderWords(state.selectedLine);
-    selectLine(state.selectedLine, { seek: false });
-  }
-};
+  window.onAlignmentChanged = () => {
+    renderLyrics();
+    if (state.selectedLine >= 0) {
+      renderWords(state.selectedLine);
+      selectLine(state.selectedLine, { seek: false });
+    }
+  };
 
-window.onPlaybackTick = () => {
-  highlightPlayingLine();
-};
+  window.onPlaybackTick = () => {
+    highlightPlayingLine();
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Event Listeners
@@ -167,6 +763,21 @@ function bindLyricEvents() {
   if (dom.btnMuteVocals) dom.btnMuteVocals.addEventListener("click", () => toggleMuteTrack("vocals"));
   if (dom.btnMuteInst) dom.btnMuteInst.addEventListener("click", () => toggleMuteTrack("instrumental"));
 
+  if (dom.btnPrevAnomaly) dom.btnPrevAnomaly.addEventListener("click", () => jumpAnomaly(-1));
+  if (dom.btnNextAnomaly) dom.btnNextAnomaly.addEventListener("click", () => jumpAnomaly(1));
+  if (dom.btnFilterAnomalies) {
+    dom.btnFilterAnomalies.addEventListener("click", () => {
+      flaggedLinesOnlyFilter = !flaggedLinesOnlyFilter;
+      if (dom.btnFilterAnomalies?.classList) {
+        dom.btnFilterAnomalies.classList.toggle("active", flaggedLinesOnlyFilter);
+      }
+      const allText = window.t ? t("btn_filter_anomalies_all") : "显示全部歌词";
+      const filterText = window.t ? t("btn_filter_anomalies") : "仅看提示行";
+      dom.btnFilterAnomalies.textContent = flaggedLinesOnlyFilter ? allText : filterText;
+      renderLyrics();
+    });
+  }
+
   initLyricExportModal();
 
   document.addEventListener("keydown", handleLyricKey);
@@ -245,6 +856,158 @@ function initLyricExportModal() {
     if (resultVideo) { resultVideo.pause(); resultVideo.removeAttribute?.("src"); resultVideo.load(); }
   };
 
+  let activeCuratedTheme = CURATED_EXPORT_THEMES[0];
+  let auditionInterval = null;
+
+  function populateCuratedThemes() {
+    const container = $("#curated-theme-cards");
+    if (!container || typeof container.appendChild !== "function") return;
+    container.innerHTML = "";
+    CURATED_EXPORT_THEMES.forEach((ct) => {
+      const card = document.createElement("div");
+      card.className = "curated-theme-card" + (activeCuratedTheme?.id === ct.id ? " active" : "");
+      card.dataset.themeId = ct.id;
+      card.innerHTML = `
+        <div class="curated-theme-title">
+          <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${ct.accent};"></span>
+          ${escHtml(ct.name)}
+        </div>
+        <div class="curated-theme-subtitle">${escHtml(ct.subtitle)}</div>
+        <div class="curated-theme-swatch" style="background:${ct.accent};"></div>
+      `;
+      card.addEventListener("click", () => {
+        activeCuratedTheme = ct;
+        $$(".curated-theme-card").forEach((c) => {
+          if (c.classList) c.classList.toggle("active", c.dataset.themeId === ct.id);
+        });
+        const tplSelect = $("#export-template-select");
+        if (tplSelect) tplSelect.value = ct.template;
+        const themeSelect = $("#export-theme-select");
+        if (themeSelect) themeSelect.value = ct.theme;
+        const bgRadio = document.querySelector(`input[name="export-bg"][value="${ct.background_mode}"]`);
+        if (bgRadio) {
+          bgRadio.checked = true;
+          $$(".bg-option").forEach((opt) => {
+            const r = opt.querySelector('input[type="radio"]');
+            if (r && opt.classList) {
+              opt.classList.toggle("active", r.value === ct.background_mode);
+              opt.style.borderColor = r.value === ct.background_mode ? "#10b981" : "#2d3342";
+            }
+          });
+        }
+        updateLivePreview();
+      });
+      container.appendChild(card);
+    });
+  }
+
+  function updateLivePreview() {
+    const stage = $("#theme-safe-area-preview");
+    if (!stage) return;
+    const ratio = document.querySelector('input[name="export-ratio"]:checked')?.value || "9:16";
+    if (stage.classList) {
+      stage.classList.toggle("landscape", ratio === "16:9");
+      stage.classList.toggle("portrait", ratio !== "16:9");
+    }
+    const ct = activeCuratedTheme || CURATED_EXPORT_THEMES[0];
+    if (ct && stage.style) {
+      stage.style.background = ct.bg_preview || "#0d1117";
+    }
+    const coverChip = $("#preview-cover-chip");
+    if (coverChip && state.currentFile?.cover_path) {
+      coverChip.style.backgroundImage = `url('${state.currentFile.cover_path}')`;
+    }
+    const activeHook = $("#preview-lyric-active");
+    if (activeHook) {
+      if (ct?.accent) activeHook.style.color = ct.accent;
+      const lines = state.alignment?.lines || [];
+      if (lines.length > 0) {
+        const previewLine = lines[Math.min(lines.length - 1, Math.floor(lines.length * 0.35))];
+        activeHook.textContent = previewLine?.text || "Active singing hook";
+      }
+    }
+  }
+
+  function populateExcerptCandidates() {
+    const container = $("#excerpt-candidates-list");
+    if (!container || typeof container.appendChild !== "function") return;
+    container.innerHTML = "";
+    const candidates = recommendExcerptCandidates(state.alignment);
+    if (!candidates.length) return;
+    candidates.forEach((cand, idx) => {
+      const card = document.createElement("div");
+      card.className = "excerpt-card" + (idx === 0 ? " active" : "");
+      card.dataset.id = cand.id;
+      card.innerHTML = `
+        <div class="excerpt-card-header">
+          <span class="excerpt-card-title">${escHtml(cand.title)}</span>
+          <span class="excerpt-card-dur">${cand.duration.toFixed(1)}s</span>
+        </div>
+        <div class="excerpt-card-preview" title="${escHtml(cand.preview_text)}">${escHtml(cand.preview_text)}</div>
+      `;
+      card.addEventListener("click", () => {
+        $$(".excerpt-card").forEach((c) => {
+          if (c.classList) c.classList.toggle("active", c.dataset.id === cand.id);
+        });
+        const startInp = $("#export-start-time");
+        const endInp = $("#export-end-time");
+        if (startInp) startInp.value = formatTimeSec(cand.start_time);
+        if (endInp) endInp.value = formatTimeSec(cand.end_time);
+        syncSentenceSelectorsFromTimes(cand.start_time, cand.end_time);
+        updateTimeRangeBadge();
+      });
+      container.appendChild(card);
+    });
+  }
+
+  function populateSentenceSelectors() {
+    const startSel = $("#export-start-line-select");
+    const endSel = $("#export-end-line-select");
+    if (!startSel || typeof startSel.appendChild !== "function") return;
+    startSel.innerHTML = "";
+    if (endSel) endSel.innerHTML = "";
+    const lines = state.alignment?.lines || [];
+    lines.forEach((l, idx) => {
+      const textSnippet = String(l.text || "").replace(/\\N/g, " ").trim().slice(0, 18);
+      const label = `L${idx + 1} (${fmtTimeShort(l.start)}): ${textSnippet}`;
+      const opt1 = document.createElement("option");
+      opt1.value = String(idx);
+      opt1.textContent = label;
+      startSel.appendChild(opt1);
+      if (endSel) {
+        const opt2 = document.createElement("option");
+        opt2.value = String(idx);
+        opt2.textContent = label;
+        endSel.appendChild(opt2);
+      }
+    });
+  }
+
+  function syncSentenceSelectorsFromTimes(st, et) {
+    const lines = state.alignment?.lines || [];
+    if (!lines.length) return;
+    const startSel = $("#export-start-line-select");
+    const endSel = $("#export-end-line-select");
+    if (startSel) {
+      let bestIdx = 0;
+      let minDiff = Infinity;
+      lines.forEach((l, i) => {
+        const diff = Math.abs(l.start - st);
+        if (diff < minDiff) { minDiff = diff; bestIdx = i; }
+      });
+      startSel.value = String(bestIdx);
+    }
+    if (endSel && et != null) {
+      let bestIdx = lines.length - 1;
+      let minDiff = Infinity;
+      lines.forEach((l, i) => {
+        const diff = Math.abs(l.end - et);
+        if (diff < minDiff) { minDiff = diff; bestIdx = i; }
+      });
+      endSel.value = String(bestIdx);
+    }
+  }
+
   const openModal = async () => {
     previewSequence++;
     if (!state.currentFile) {
@@ -253,6 +1016,10 @@ function initLyricExportModal() {
     }
     modal.style.display = "flex";
     creditQuote = null;
+    populateCuratedThemes();
+    populateExcerptCandidates();
+    populateSentenceSelectors();
+    updateLivePreview();
     if (state.currentFile.is_saas || state.currentFile.task_id) {
       btnStart.disabled = true;
       try { await loadCreditQuote(); btnStart.disabled = false; }
@@ -282,6 +1049,7 @@ function initLyricExportModal() {
       opt.style.borderColor = "#10b981";
       const radio = opt.querySelector('input[type="radio"]');
       if (radio) radio.checked = true;
+      updateLivePreview();
     });
   });
 
@@ -296,7 +1064,127 @@ function initLyricExportModal() {
       opt.style.borderColor = "#10b981";
       const radio = opt.querySelector('input[type="radio"]');
       if (radio) radio.checked = true;
+      updateLivePreview();
     });
+  });
+
+  $("#export-template-select")?.addEventListener("change", updateLivePreview);
+  $("#export-theme-select")?.addEventListener("change", updateLivePreview);
+
+  $("#export-start-line-select")?.addEventListener("change", (e) => {
+    const idx = Number(e.target.value);
+    const l = state.alignment?.lines?.[idx];
+    if (l) {
+      const startInp = $("#export-start-time");
+      if (startInp) startInp.value = formatTimeSec(l.start);
+      updateTimeRangeBadge();
+    }
+  });
+
+  $("#export-end-line-select")?.addEventListener("change", (e) => {
+    const idx = Number(e.target.value);
+    const l = state.alignment?.lines?.[idx];
+    if (l) {
+      const endInp = $("#export-end-time");
+      if (endInp) endInp.value = formatTimeSec(l.end);
+      updateTimeRangeBadge();
+    }
+  });
+
+  $("#btn-start-line-prev")?.addEventListener("click", () => {
+    const sel = $("#export-start-line-select");
+    if (!sel) return;
+    const cur = Math.max(0, Number(sel.value || 0) - 1);
+    sel.value = String(cur);
+    const l = state.alignment?.lines?.[cur];
+    if (l) {
+      const startInp = $("#export-start-time");
+      if (startInp) startInp.value = formatTimeSec(l.start);
+      updateTimeRangeBadge();
+    }
+  });
+
+  $("#btn-start-line-next")?.addEventListener("click", () => {
+    const sel = $("#export-start-line-select");
+    const maxIdx = (state.alignment?.lines?.length || 1) - 1;
+    if (!sel) return;
+    const cur = Math.min(maxIdx, Number(sel.value || 0) + 1);
+    sel.value = String(cur);
+    const l = state.alignment?.lines?.[cur];
+    if (l) {
+      const startInp = $("#export-start-time");
+      if (startInp) startInp.value = formatTimeSec(l.start);
+      updateTimeRangeBadge();
+    }
+  });
+
+  $("#btn-end-line-prev")?.addEventListener("click", () => {
+    const sel = $("#export-end-line-select");
+    if (!sel) return;
+    const cur = Math.max(0, Number(sel.value || 0) - 1);
+    sel.value = String(cur);
+    const l = state.alignment?.lines?.[cur];
+    if (l) {
+      const endInp = $("#export-end-time");
+      if (endInp) endInp.value = formatTimeSec(l.end);
+      updateTimeRangeBadge();
+    }
+  });
+
+  $("#btn-end-line-next")?.addEventListener("click", () => {
+    const sel = $("#export-end-line-select");
+    const maxIdx = (state.alignment?.lines?.length || 1) - 1;
+    if (!sel) return;
+    const cur = Math.min(maxIdx, Number(sel.value || 0) + 1);
+    sel.value = String(cur);
+    const l = state.alignment?.lines?.[cur];
+    if (l) {
+      const endInp = $("#export-end-time");
+      if (endInp) endInp.value = formatTimeSec(l.end);
+      updateTimeRangeBadge();
+    }
+  });
+
+  $("#export-snap-sentence")?.addEventListener("change", () => {
+    const chk = $("#export-snap-sentence");
+    if (chk?.checked) {
+      const st = parseTimeString($("#export-start-time")?.value) || 0.0;
+      const et = parseTimeString($("#export-end-time")?.value);
+      const snapped = snapExcerptToSentenceBounds(state.alignment, st, et);
+      const startInp = $("#export-start-time");
+      const endInp = $("#export-end-time");
+      if (startInp) startInp.value = formatTimeSec(snapped.start_time);
+      if (endInp) endInp.value = formatTimeSec(snapped.end_time);
+      syncSentenceSelectorsFromTimes(snapped.start_time, snapped.end_time);
+      updateTimeRangeBadge();
+    }
+  });
+
+  $("#btn-audition-excerpt")?.addEventListener("click", () => {
+    const st = parseTimeString($("#export-start-time")?.value) || 0.0;
+    const et = parseTimeString($("#export-end-time")?.value);
+    const stopAt = (et && et > st) ? et : (st + 25.0);
+    if (ws) {
+      ws.setTime(st);
+      ws.play();
+      if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(true);
+      if (wsInst && instReady) { wsInst.setTime(st); wsInst.play(); }
+      if (auditionInterval) clearInterval(auditionInterval);
+      auditionInterval = setInterval(() => {
+        if (!ws.isPlaying() || ws.getCurrentTime() >= stopAt) {
+          ws.pause();
+          if (wsInst && instReady) wsInst.pause();
+          if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(false);
+          clearInterval(auditionInterval);
+          auditionInterval = null;
+        }
+      }, 50);
+    }
+  });
+
+  $("#toggle-safe-area-guides")?.addEventListener("change", (e) => {
+    const stage = $("#theme-safe-area-preview");
+    if (stage?.classList) stage.classList.toggle("guides-hidden", !e.target.checked);
   });
 
   function parseTimeString(str) {
@@ -505,12 +1393,20 @@ function initLyricExportModal() {
           throw new Error("歌词修改保存失败，未提交导出任务");
         }
         if (cloud && creditQuote?.taskId !== state.currentFile.task_id) await loadCreditQuote();
+        const resPreset = $("#export-resolution-select")?.value || "1080p";
+        const snapSentence = Boolean($("#export-snap-sentence")?.checked);
         const songTaskId = state.currentFile.task_id;
         const payload = {
           ...(cloud ? {accepted_cost:creditQuote.cost} : {json_path: state.currentFile.json_path}),
           aspect_ratio: ratio, template, theme, background_mode: bg,
           duration_limit: durLimit, start_time: st, end_time: et,
         };
+        if (resPreset && resPreset !== "1080p") {
+          payload.resolution = resPreset;
+        }
+        if (snapSentence) {
+          payload.snap_to_sentence = true;
+        }
         const requestId = cloud ? await pendingRequest(songTaskId, payload) : null;
         if (cloud) payload.request_id = requestId;
         const res = await fetchFn(cloud ? `/api/editor/tasks/${state.currentFile.task_id}/lyric-video` : "/api/lyric_video/export", {
@@ -655,11 +1551,103 @@ function handleLyricKey(e) {
 // ---------------------------------------------------------------------------
 // Lyrics Panel
 // ---------------------------------------------------------------------------
+function jumpAnomaly(delta) {
+  if (!currentTimingReview || !currentTimingReview.flagged_line_indices?.length) return;
+  const list = currentTimingReview.flagged_line_indices;
+  const curIdx = state.selectedLine;
+  let target = list[0];
+  if (delta > 0) {
+    const next = list.find(idx => idx > curIdx);
+    target = next !== undefined ? next : list[0];
+  } else {
+    const prev = [...list].reverse().find(idx => idx < curIdx);
+    target = prev !== undefined ? prev : list[list.length - 1];
+  }
+  selectLine(target, { seek: true, scroll: true });
+}
+
+function updateTimingReviewBar() {
+  if (!dom.timingReviewBar) return;
+  const lines = state.alignment?.lines || [];
+  if (!lines.length) {
+    dom.timingReviewBar.style.display = "none";
+    return;
+  }
+  dom.timingReviewBar.style.display = "flex";
+  const review = currentTimingReview || inspectAlignmentTiming(state.alignment);
+  const badge = dom.timingReviewBadge;
+  const counts = dom.timingReviewCounts;
+
+  if (review.total_warnings === 0) {
+    if (badge) {
+      badge.textContent = window.t ? t("timing_review_none") : "未检测到时间冲突与异常";
+      if (badge.classList) badge.classList.add("clean");
+    }
+    if (counts) counts.textContent = "";
+    if (dom.btnPrevAnomaly) dom.btnPrevAnomaly.disabled = true;
+    if (dom.btnNextAnomaly) dom.btnNextAnomaly.disabled = true;
+    if (dom.btnFilterAnomalies) dom.btnFilterAnomalies.disabled = true;
+  } else {
+    if (badge) {
+      const badgeTpl = window.t ? t("timing_review_badge", null, { count: review.total_warnings }) : `${review.total_warnings} warnings`;
+      badge.textContent = badgeTpl;
+      if (badge.classList) badge.classList.remove("clean");
+    }
+    if (counts) {
+      const c = review.counts_by_kind || {};
+      const fmt = window.t ? t("timing_counts_fmt", null, {
+        overlap: c.overlap || 0,
+        compressed: c.compressed_duration || 0,
+        gap: c.excessive_gap || 0,
+        confidence: c.low_confidence || 0,
+      }) : `${c.overlap || 0} overlap · ${c.compressed_duration || 0} compressed · ${c.excessive_gap || 0} gap · ${c.low_confidence || 0} low confidence`;
+      counts.textContent = fmt;
+    }
+    if (dom.btnPrevAnomaly) dom.btnPrevAnomaly.disabled = false;
+    if (dom.btnNextAnomaly) dom.btnNextAnomaly.disabled = false;
+    if (dom.btnFilterAnomalies) dom.btnFilterAnomalies.disabled = false;
+  }
+}
+
+function updateLineTimingWarnings(lineIdx) {
+  if (!dom.lineTimingWarnings) return;
+  if (lineIdx < 0 || !currentTimingReview) {
+    dom.lineTimingWarnings.style.display = "none";
+    dom.lineTimingWarnings.innerHTML = "";
+    return;
+  }
+  const lineWarns = currentTimingReview.warnings.filter(w => w.line_index === lineIdx);
+  if (!lineWarns.length) {
+    dom.lineTimingWarnings.style.display = "none";
+    dom.lineTimingWarnings.innerHTML = "";
+    return;
+  }
+  dom.lineTimingWarnings.style.display = "flex";
+  dom.lineTimingWarnings.innerHTML = "";
+  lineWarns.forEach((w) => {
+    const pill = document.createElement("div");
+    pill.className = "timing-warning-pill";
+    pill.title = w.message;
+    pill.innerHTML = `<strong>⚠️ ${escHtml(w.title)}:</strong> <span>${escHtml(w.message)}</span>`;
+    pill.addEventListener("click", () => {
+      if (w.word_index != null) {
+        selectWord(w.word_index);
+      }
+    });
+    dom.lineTimingWarnings.appendChild(pill);
+  });
+}
+
 function renderLyrics() {
   if (!dom.lyricsList) return;
   const lines = state.alignment?.lines || [];
   const sections = state.alignment?.sections || [];
   dom.lyricsList.innerHTML = "";
+
+  currentTimingReview = inspectAlignmentTiming(state.alignment);
+  updateTimingReviewBar();
+
+  const flaggedSet = new Set(currentTimingReview?.flagged_line_indices || []);
 
   // 1. 如果有前奏 (Intro) 且不包含歌词行，先在顶部渲染前奏卡片
   const introSec = sections.find(s => s.name && s.name.toLowerCase().includes("intro") && (!s.line_indices || s.line_indices.length === 0));
@@ -686,6 +1674,10 @@ function renderLyrics() {
   let lastSectionName = "";
 
   lines.forEach((line, i) => {
+    if (flaggedLinesOnlyFilter && !flaggedSet.has(i) && state.selectedLine !== i) {
+      return;
+    }
+
     // 检查是否有新乐段开始
     const matchedSec = sections.find(s => s.line_indices && s.line_indices[0] === i);
     const lineSecName = line.section || (matchedSec ? matchedSec.name : "");
@@ -717,8 +1709,18 @@ function renderLyrics() {
       dom.lyricsList.appendChild(secDiv);
     }
 
+    const isFlagged = flaggedSet.has(i);
+    let anomalyBadgeHtml = "";
+    if (isFlagged && currentTimingReview?.warnings) {
+      const lineWarns = currentTimingReview.warnings.filter(w => w.line_index === i);
+      const primaryKind = lineWarns[0]?.kind || "overlap";
+      const kindCls = primaryKind === "compressed_duration" ? "compressed" : (primaryKind === "excessive_gap" ? "gap" : (primaryKind === "low_confidence" ? "confidence" : "overlap"));
+      const kindLabel = primaryKind === "compressed_duration" ? "Compressed" : (primaryKind === "excessive_gap" ? "Gap" : (primaryKind === "low_confidence" ? "Review" : "Overlap"));
+      anomalyBadgeHtml = `<span class="line-anomaly-badge ${kindCls}" title="${escHtml(lineWarns[0]?.message || '')}">⚠ ${kindLabel}</span>`;
+    }
+
     const row = document.createElement("div");
-    row.className = "lyric-row";
+    row.className = "lyric-row" + (isFlagged ? " has-anomaly" : "");
     row.dataset.idx = i;
     const charSpans = renderLineCharSpans(line, i);
     const dur = (line.end - line.start).toFixed(1);
@@ -728,7 +1730,7 @@ function renderLyrics() {
     const nudgeRTitle = window.t ? t("line_nudge_right_title") : "整行后移100ms";
     row.innerHTML = `
       <span class="lyric-num">${i + 1}</span>
-      <span class="lyric-text">${charSpans}</span>
+      <span class="lyric-text">${charSpans}${anomalyBadgeHtml}</span>
       <span class="lyric-time-edit">
         <input type="text" class="time-input line-start-input" value="${fmtTimeShort(line.start)}" data-field="start" data-idx="${i}" title="${startTitle}">
         <span class="time-arrow">→</span>
@@ -778,6 +1780,7 @@ function selectLine(idx, options = {}) {
   }
   if (dom.lineEditControls) dom.lineEditControls.style.display = idx >= 0 ? "flex" : "none";
   renderWords(idx);
+  updateLineTimingWarnings(idx);
 }
 
 function selectAdjacentLine(delta) {
@@ -1490,11 +2493,31 @@ function handleLineTimeInput(e) {
   }
 }
 
-window.addEventListener("languagechange", () => {
-  renderLyrics();
-  if (state.selectedLine >= 0) {
-    renderWords(state.selectedLine);
-  } else {
-    clearWordPanel();
-  }
-});
+if (typeof window !== "undefined") {
+  window.addEventListener("languagechange", () => {
+    renderLyrics();
+    if (state.selectedLine >= 0) {
+      renderWords(state.selectedLine);
+    } else {
+      clearWordPanel();
+    }
+  });
+
+  window.PORTRAIT_SAFE_AREA = PORTRAIT_SAFE_AREA;
+  window.CURATED_EXPORT_THEMES = CURATED_EXPORT_THEMES;
+  window.countVocalUnits = countVocalUnits;
+  window.inspectAlignmentTiming = inspectAlignmentTiming;
+  window.snapExcerptToSentenceBounds = snapExcerptToSentenceBounds;
+  window.recommendExcerptCandidates = recommendExcerptCandidates;
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    PORTRAIT_SAFE_AREA,
+    CURATED_EXPORT_THEMES,
+    countVocalUnits,
+    inspectAlignmentTiming,
+    snapExcerptToSentenceBounds,
+    recommendExcerptCandidates,
+  };
+}
