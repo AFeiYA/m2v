@@ -71,7 +71,12 @@ def verify_signature(secret: str, payload_bytes: bytes, signature: str | None) -
 @router.get("/packages")
 async def list_packages():
     """List available top-up credit packages with pricing details."""
-    return {"packages": list(PACKAGES.values())}
+    return {
+        "packages": list(PACKAGES.values()),
+        "pricing_live": False,
+        "billing_status": "beta_preview",
+        "notice": "Billing is currently in beta preview; video exports do not incur live credit charges.",
+    }
 
 
 @router.post("/checkout")
@@ -215,14 +220,27 @@ async def payment_webhook(
 
 
 @router.post("/mock-complete/{order_id}")
-async def mock_complete_order(order_id: str, db=Depends(get_db)):
-    """Sandbox/Testing endpoint: mark order paid and grant credits."""
+async def mock_complete_order(
+    order_id: str,
+    user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Sandbox/Testing endpoint: mark order paid and grant credits.
+    Strictly disabled in production; requires M2V_ALLOW_MOCK_PAYMENTS=true and user ownership.
+    """
+    import os
+    if os.getenv("M2V_ALLOW_MOCK_PAYMENTS", "").strip().lower() not in ("1", "true", "yes"):
+        raise HTTPException(404, "Mock payment completion is disabled in this environment")
+
     order = (await db.execute(select(PaymentOrder).where(
         PaymentOrder.id == order_id
     ).with_for_update())).scalar_one_or_none()
 
     if not order:
         raise HTTPException(404, "Order not found")
+
+    if order.user_id != user.id:
+        raise HTTPException(403, "Cannot complete order belonging to another user")
 
     if order.status == OrderStatus.PAID.value:
         return {"status": "already_paid", "order_id": order.id, "credits": order.credits}

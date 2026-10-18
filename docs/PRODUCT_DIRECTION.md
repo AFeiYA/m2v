@@ -88,36 +88,41 @@ and indexed database search behind the same API.
      - **Empirical speedup**: 720p draft renders ~1.34× faster with 33.0% smaller storage payload, making it ideal for rapid mobile drafts before final 1080p publishing.
      - Export dialog provides a Resolution Profile selector (`1080p` vs `720p`) properly scaling typography, ASS coordinates, and FFmpeg output.
 
-## Phase 3 — paid beta gates (Completed)
+## Phase 3 — paid beta gates (Draft / In Progress)
 
-All Paid Beta requirements are fully implemented and verified with automated test suites:
+Phase 3 implements foundational gates for account lifecycle, queue admission, storage policy, and entitlement enforcement. **Commercial billing is currently deferred (pricing remains 0)** while focusing on core continuous creation and export experiences.
 
-1. **Real-Account Lifecycle & Payment Checkout**:
-   - Implemented `src/payments.py` supporting credit top-up packages (`starter`: 20 credits/$4.99, `creator`: 60 credits/$12.99, `studio`: 200 credits/$39.99).
-   - Checkout endpoints with client-provided `idempotency_key` preventing duplicate order creation or accidental double charges.
-   - Verified, idempotent webhook callbacks (`/api/payments/webhook/{provider}`) validating HMAC-SHA256 signatures or secrets; duplicate webhook deliveries return `already_paid` and never double-grant credits.
-   - Atomic grants (`credits.grant`) and negative adjustments on refunds (`/api/payments/orders/{order_id}/refund`) recorded in immutable ledger entries.
-   - User order history API (`/api/payments/orders`) with strict owner isolation.
+1. **Payment Model & Mock Sandbox Hardening (Draft / Pre-Gateway)**:
+   - Implemented `src/payments.py` with top-up packages (`starter`: 20 credits/$4.99, `creator`: 60 credits/$12.99, `studio`: 200 credits/$39.99).
+   - Checkout endpoints with client-provided `idempotency_key` prevent duplicate order records.
+   - Verified, idempotent webhook callback structure (`/api/payments/webhook/{provider}`) with HMAC-SHA256 signature checking.
+   - **Hardened**: `/api/payments/mock-complete/{order_id}` is gated behind explicit `M2V_ALLOW_MOCK_PAYMENTS="true"`, authentication, and strict order ownership checks (preventing arbitrary credit minting in production).
+   - Packages API reports `pricing_live: False` and `billing_status: beta_preview`.
+   - *Pending before live sales*: Production webhook credentials and hosted checkout flows for Stripe / Alipay / WeChat.
 
-2. **Unified Entitlement & Credit Reservation Across All Export Routes**:
-   - Unified credit reservations across both lyric video export (`src/export_jobs.py`) and motion cloud export (`src/motion_cloud.py`, `src/motion_api.py`).
-   - Every public export route checks available balance, holds reservation (`credits.reserve`), settles upon publication (`credits.finish(..., success=True)`), and releases/refunds once on failure or cancellation (`credits.finish(..., success=False)`).
-   - Nonzero export pricing settings (`LYRIC_EXPORT_CREDITS` and `MOTION_EXPORT_CREDITS`) supported and reported in `/api/credits` pricing dictionary.
+2. **Unified Entitlements & Export Resilience**:
+   - Unified credit reservations across lyric video export (`src/export_jobs.py`) and motion cloud export (`src/motion_cloud.py`, `src/motion_api.py`).
+   - Export pricing settings default to 0 during beta (`LYRIC_EXPORT_CREDITS = 0`, `MOTION_EXPORT_CREDITS = 0`) to keep all exports free.
+   - **Hardened**: Motion export error handling cleans up reservations and queued job slots upon failure, preventing render queue deadlock.
+   - **Hardened**: ASS subtitle coordinate rendering adaptively scales for 720p, 1080p, and 4K, preventing subtitles from rendering out of canvas.
 
 3. **Strict Owner Isolation**:
-   - Zero cross-account data leakage across songs, versions, exports, order histories, storage accounting, and scoped download tickets.
-   - Other users receive 403/404 on foreign assets.
+   - Zero cross-account data leakage across songs, versions, exports, order histories, storage accounting, and scoped download tickets. Foreign requests receive 403/404.
 
-4. **Storage Accounting & Visible Retention Policy**:
-   - `src/storage_accounting.py` exposes `/api/storage/accounting` reporting breakdown of video, audio, trash, and metadata bytes, quota usage, and counts.
-   - Explicit retention policy guaranteeing that source songs, stems, and version histories are permanently retained while accounts are active, and no songs or versions are ever silently deleted (`silent_deletion_forbidden: True`).
+4. **Storage Accounting & Deduplicated Retention**:
+   - `src/storage_accounting.py` exposes `/api/storage/accounting` reporting breakdown of video, deduplicated audio, trash, and metadata bytes, quota usage, and counts.
+   - Versions of the same song sharing audio stems are deduplicated rather than inflated.
+   - `check_storage_quota` protects the server against storage exhaustion upon new imports.
+   - Visible retention policy guarantees permanent retention for active songs, stems, and version histories (`silent_deletion_forbidden: True`).
 
-5. **Queue Admission, Concurrency Limits & Database Backups**:
-   - `src/queue_limiter.py` enforces per-user concurrency (`MAX_CONCURRENT_RENDERS_PER_USER = 2`, returning HTTP 429 Too Many Requests) and global capacity protection (`MAX_GLOBAL_CONCURRENT_RENDERS = 4`, returning HTTP 503).
-   - `src/backup.py` implements point-in-time database snapshotting (`create_database_backup`) with SHA-256 checksums, manifest generation, and `PRAGMA integrity_check` verification.
+5. **Queue Admission & Database Backups**:
+   - `src/queue_limiter.py` enforces synchronized per-user concurrency (`MAX_CONCURRENT_RENDERS_PER_USER = 2`, returning HTTP 429) and global capacity protection (`MAX_GLOBAL_CONCURRENT_RENDERS = 4`, returning HTTP 503).
+   - Concurrency limits unified across both lyric video rendering and active Motion Studio rendering.
+   - `src/backup.py` implements point-in-time SQLite database snapshotting with SHA-256 checksums and `PRAGMA integrity_check` verification.
+   - **Hardened**: `/api/admin/backup` strictly requires verified administrator authorization (`M2V_ADMIN_USERS`). PostgreSQL backups require the system `pg_dump` CLI and do not emit misleading mock manifests.
 
-6. **Regression Verification**:
-   - End-to-end integration test suite `tests/test_phase3_paid_beta.py` passes 100% alongside all existing frontend and backend tests (179 passing tests across Python, TypeScript, and Node.js).
+6. **Automated Verification**:
+   - Verified across end-to-end integration test suites (`test_phase3_paid_beta.py`, `test_phase2b_editing.py`, `test_credits.py`, frontend node tests, and motion test suites).
 
 
 ## Evidence and release metrics

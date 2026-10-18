@@ -202,11 +202,11 @@ def test_payment_checkout_idempotency_and_webhook_grant(phase3_env):
 # 2. Refund Flow & Ledger Deduction
 # ==============================================================================
 
-def test_order_refund_flow_and_ledger_entry(phase3_env):
+def test_order_refund_flow_and_ledger_entry(phase3_env, monkeypatch):
     client = phase3_env.client
     headers = auth_header("carol")
 
-    # Create & mock-complete an order
+    # Create an order
     checkout = client.post(
         "/api/payments/checkout",
         json={"package_id": "starter", "provider": "mock"},
@@ -214,7 +214,25 @@ def test_order_refund_flow_and_ledger_entry(phase3_env):
     ).json()
     order_id = checkout["order_id"]
 
-    client.post(f"/api/payments/mock-complete/{order_id}")
+    # 1. By default without M2V_ALLOW_MOCK_PAYMENTS, mock-complete is disabled (404)
+    blocked_resp = client.post(f"/api/payments/mock-complete/{order_id}", headers=headers)
+    assert blocked_resp.status_code == 404
+
+    # 2. Enable mock payments via environment variable
+    monkeypatch.setenv("M2V_ALLOW_MOCK_PAYMENTS", "true")
+
+    # 3. Unauthenticated request rejected with 401
+    unauth_resp = client.post(f"/api/payments/mock-complete/{order_id}")
+    assert unauth_resp.status_code == 401
+
+    # 4. Another user cannot complete Carol's order (403 Forbidden)
+    dave_mock = client.post(f"/api/payments/mock-complete/{order_id}", headers=auth_header("dave"))
+    assert dave_mock.status_code == 403
+
+    # 5. Order owner completes successfully
+    ok_resp = client.post(f"/api/payments/mock-complete/{order_id}", headers=headers)
+    assert ok_resp.status_code == 200
+    assert ok_resp.json()["status"] == "paid"
 
     # Balance before refund: 5 (initial) + 20 (starter) = 25
     assert client.get("/api/credits", headers=headers).json()["available"] == 25
@@ -347,6 +365,16 @@ def test_storage_accounting_and_retention_policy(phase3_env):
                 status=TaskStatus.COMPLETED,
                 current_step=TaskStep.DONE,
             )
+            task2 = Task(
+                id="task_carol_storage_v2",
+                user_id="carol",
+                title="Storage Test Song v2",
+                song_title="Storage Test Song",
+                input_mp3_key="uploads/carol/song.mp3",
+                input_lyrics_key="uploads/carol/song_v2.txt",
+                status=TaskStatus.COMPLETED,
+                current_step=TaskStep.DONE,
+            )
             export = VideoExport(
                 id="exp_carol_storage_vid",
                 user_id="carol",
@@ -356,7 +384,7 @@ def test_storage_accounting_and_retention_policy(phase3_env):
                 storage_key="exports/test.mp4",
                 details={"size_bytes": 5242880},  # 5 MB
             )
-            db.add_all([task, export])
+            db.add_all([task, task2, export])
             await db.commit()
 
     asyncio.run(seed())
@@ -368,8 +396,10 @@ def test_storage_accounting_and_retention_policy(phase3_env):
     assert data["user_id"] == "carol"
     assert data["plan"] == "free"
     assert data["usage"]["video_bytes"] == 5242880
+    # Two versions share the same audio file; audio bytes are deduplicated to 5MB instead of 10MB
+    assert data["usage"]["audio_bytes"] == 5 * 1024 * 1024
     assert data["usage"]["quota_bytes"] == 5 * 1024 * 1024 * 1024
-    assert data["counts"]["active_versions"] >= 1
+    assert data["counts"]["active_versions"] == 2
     assert data["counts"]["exports"] >= 1
 
     # Verify visible retention policy guarantees: no silent deletion
@@ -421,13 +451,42 @@ def test_queue_admission_concurrency_limits(phase3_env, monkeypatch):
 
     asyncio.run(test_admission())
 
+    # Verify active Motion renders also count towards concurrency limit and trigger 429
+    from src.queue_limiter import register_motion_job, unregister_motion_job
+    async def test_motion_concurrency():
+        async with phase3_env.sessions() as db:
+            register_motion_job("dave", "motion_job_1")
+            register_motion_job("dave", "motion_job_2")
+            try:
+                with pytest.raises(Exception) as exc_info:
+                    await check_render_admission(db, "dave")
+                assert "429" in str(exc_info.value) or exc_info.value.status_code == 429
+            finally:
+                unregister_motion_job("dave", "motion_job_1")
+                unregister_motion_job("dave", "motion_job_2")
+
+    asyncio.run(test_motion_concurrency())
+
 
 # ==============================================================================
 # 6. Database Backup & PRAGMA Integrity Verification
 # ==============================================================================
 
-def test_database_backup_and_integrity_check(phase3_env, tmp_path):
+def test_database_backup_and_integrity_check(phase3_env, tmp_path, monkeypatch):
+    client = phase3_env.client
     backup_dir = tmp_path / "backups_test"
+
+    # 1. Calling /api/admin/backup without admin privileges returns 403 Forbidden
+    unauth_resp = client.post("/api/admin/backup", headers=auth_header("carol"))
+    assert unauth_resp.status_code == 403
+
+    # 2. Configure carol as administrator
+    monkeypatch.setenv("M2V_ADMIN_USERS", "carol")
+    auth_resp = client.post("/api/admin/backup", headers=auth_header("carol"))
+    assert auth_resp.status_code == 200
+    assert auth_resp.json()["status"] == "success"
+
+    # 3. Direct backup creates valid SQLite snapshot with integrity check
     manifest = create_database_backup(db_url=f"sqlite:///{phase3_env.db_file}", output_dir=backup_dir)
 
     assert manifest["engine"] == "sqlite"
@@ -445,3 +504,7 @@ def test_database_backup_and_integrity_check(phase3_env, tmp_path):
     assert "users" in verify_result["tables"]
     assert "credit_entries" in verify_result["tables"]
     assert "payment_orders" in verify_result["tables"]
+
+    # 4. PostgreSQL backup without pg_dump utility raises NotImplementedError truthfully
+    with pytest.raises(NotImplementedError):
+        create_database_backup(db_url="postgresql://user:pass@localhost:5432/db", output_dir=backup_dir)

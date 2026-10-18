@@ -56,9 +56,12 @@ async def get_storage_accounting(user: User = Depends(get_current_user_flexible)
     active_tasks = [t for t in tasks if t.id not in trashed_ids]
     trashed_tasks = [t for t in tasks if t.id in trashed_ids]
 
-    # Calculate estimated/measured audio bytes (average ~5MB per input mp3) + metadata (~200KB)
-    audio_bytes = len(active_tasks) * (5 * 1024 * 1024)
-    trash_bytes = len(trashed_tasks) * (5 * 1024 * 1024)
+    active_mp3_keys = set(t.input_mp3_key for t in active_tasks if getattr(t, "input_mp3_key", None))
+    trashed_mp3_keys = set(t.input_mp3_key for t in trashed_tasks if getattr(t, "input_mp3_key", None)) - active_mp3_keys
+
+    # Calculate deduplicated audio bytes (~5MB per distinct mp3 stem) + metadata (~200KB per task)
+    audio_bytes = len(active_mp3_keys) * (5 * 1024 * 1024)
+    trash_bytes = len(trashed_mp3_keys) * (5 * 1024 * 1024)
     metadata_bytes = len(tasks) * (200 * 1024)
 
     total_bytes = video_bytes + audio_bytes + trash_bytes + metadata_bytes
@@ -68,7 +71,6 @@ async def get_storage_accounting(user: User = Depends(get_current_user_flexible)
     # 3. Song groupings
     unique_song_ids = set(identity(t) for t in active_tasks)
     song_count = len(unique_song_ids)
-
 
     return {
         "user_id": user.id,
@@ -81,6 +83,7 @@ async def get_storage_accounting(user: User = Depends(get_current_user_flexible)
             "metadata_bytes": metadata_bytes,
             "quota_bytes": quota_bytes,
             "usage_percent": min(usage_pct, 100.0),
+            "accounting_mode": "deduplicated_audio_stems",
         },
         "counts": {
             "songs": song_count,
@@ -90,3 +93,33 @@ async def get_storage_accounting(user: User = Depends(get_current_user_flexible)
         },
         "retention_policy": RETENTION_POLICY,
     }
+
+
+async def check_storage_quota(db, user: User):
+    """Enforce quota limits: block new uploads if account storage has exceeded plan quota."""
+    from fastapi import HTTPException
+    quota_bytes = PLAN_QUOTAS_BYTES.get(user.plan, PLAN_QUOTAS_BYTES[UserPlan.FREE])
+    if quota_bytes <= 0:
+        return
+
+    tasks = (await db.execute(select(Task).where(Task.user_id == user.id))).scalars().all()
+    trashed_ids = set((await db.execute(select(VersionTrash.task_id).where(
+        VersionTrash.user_id == user.id
+    ))).scalars().all())
+    active_tasks = [t for t in tasks if t.id not in trashed_ids]
+    active_mp3_keys = set(t.input_mp3_key for t in active_tasks if getattr(t, "input_mp3_key", None))
+
+    exports = (await db.execute(select(VideoExport).where(
+        VideoExport.user_id == user.id,
+        VideoExport.deleted_at.is_(None),
+    ))).scalars().all()
+    video_bytes = sum(int((exp.details or {}).get("size_bytes") or 0) for exp in exports)
+    audio_bytes = len(active_mp3_keys) * (5 * 1024 * 1024)
+    total_bytes = video_bytes + audio_bytes + (len(tasks) * 200 * 1024)
+
+    if total_bytes >= quota_bytes:
+        raise HTTPException(
+            413,
+            f"Storage quota exceeded ({total_bytes // (1024 * 1024)}MB / {quota_bytes // (1024 * 1024)}MB). "
+            "Please clear exported videos or upgrade your plan before uploading new songs.",
+        )

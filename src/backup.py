@@ -93,16 +93,39 @@ def create_database_backup(db_url: str | None = None, output_dir: Path | str | N
         manifest["manifest_file"] = str(manifest_file.resolve())
         return manifest
     else:
-        # PostgreSQL metadata snapshot
-        backup_file = out_dir / f"pg_backup_{timestamp}.meta.json"
+        # PostgreSQL managed database backup
+        import shutil
+        import subprocess
+
+        pg_dump = shutil.which("pg_dump")
+        if not pg_dump:
+            raise NotImplementedError(
+                "PostgreSQL backup requires 'pg_dump' utility installed on the system environment, "
+                "or provider-managed automated snapshots."
+            )
+
+        backup_file = out_dir / f"pg_backup_{timestamp}.sql"
+        clean_url = url.replace("+asyncpg", "")
+        proc = subprocess.run(
+            [pg_dump, "--dbname", clean_url, "-f", str(backup_file)],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"pg_dump execution failed: {proc.stderr}")
+
+        checksum = compute_sha256(backup_file)
         manifest = {
             "backup_file": str(backup_file.resolve()),
             "timestamp": timestamp,
             "created_at": now().isoformat(),
             "engine": "postgresql",
-            "message": "PostgreSQL managed database backup triggered",
+            "checksum_sha256": checksum,
+            "size_bytes": backup_file.stat().st_size,
         }
-        backup_file.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        manifest_file = out_dir / f"pg_backup_{timestamp}.manifest.json"
+        manifest_file.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        manifest["manifest_file"] = str(manifest_file.resolve())
         return manifest
 
 
@@ -133,9 +156,19 @@ def verify_database_backup(backup_file: Path | str) -> dict:
     }
 
 
+def require_admin_user(user: User = Depends(get_current_user_flexible)) -> User:
+    """Enforce administrator-only access based on M2V_ADMIN_USERS configuration."""
+    raw_admins = os.getenv("M2V_ADMIN_USERS", "")
+    admin_list = [u.strip() for u in raw_admins.split(",") if u.strip()]
+    if not admin_list:
+        raise HTTPException(403, "Administrator access required: no admin users configured")
+    if user.id not in admin_list and getattr(user, "email", None) not in admin_list:
+        raise HTTPException(403, "Administrator access required: user is not an administrator")
+    return user
+
+
 @router.post("/backup")
-async def trigger_database_backup(user: User = Depends(get_current_user_flexible)):
-    """Admin endpoint to trigger a database backup."""
-    # In production, check for admin privileges or internal service token
+async def trigger_database_backup(admin: User = Depends(require_admin_user)):
+    """Admin-only endpoint to trigger a database backup."""
     manifest = create_database_backup()
     return {"status": "success", "manifest": manifest}

@@ -368,6 +368,8 @@ async def upload_and_create_task(
     """上传音频 + 歌词，创建处理任务"""
     from src.alignment_execution import reconcile
     await reconcile(db, user.id)
+    from src.storage_accounting import check_storage_quota
+    await check_storage_quota(db, user)
     # 配额检查
     if not ass_only and settings.LYRIC_EXPORT_CREDITS:
         raise HTTPException(409, "Import alignment only, then export from Lyric Editor to review the video credit price.")
@@ -435,6 +437,8 @@ async def create_task_from_suno(
     """从 Suno 链接自动拉取歌名、歌词、音频并创建生成任务"""
     from src.alignment_execution import reconcile
     await reconcile(db, user.id)
+    from src.storage_accounting import check_storage_quota
+    await check_storage_quota(db, user)
     clean_url = req.suno_url.strip()
     if not req.ass_only and settings.LYRIC_EXPORT_CREDITS:
         raise HTTPException(409, "Import alignment only, then export from Lyric Editor to review the video credit price.")

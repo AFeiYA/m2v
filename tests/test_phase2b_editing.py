@@ -282,3 +282,44 @@ def test_portrait_ass_subtitles_adhere_to_safe_area(tmp_path):
         y = int(y_str)
         # Verify vertical coordinates stay within [14% * 1920, 76% * 1920] = [268, 1460]
         assert 260 <= y <= 1470, f"Y coordinate {y} violates 9:16 portrait safe area bounds [268, 1460]"
+
+
+def test_landscape_720p_ktv_subtitles_within_screen_bounds(tmp_path):
+    from src.aligner import AlignedLine, AlignmentResult, WordTimestamp
+    from src.subtitle import _generate_tv_events
+
+    alignment = AlignmentResult(
+        lines=[
+            AlignedLine(
+                start=1.0,
+                end=3.0,
+                text="第一句歌词测试",
+                words=[WordTimestamp(word="第一句歌词测试", start=1.0, end=3.0)],
+            ),
+            AlignedLine(
+                start=3.5,
+                end=5.0,
+                text="第二句歌词测试",
+                words=[WordTimestamp(word="第二句歌词测试", start=3.5, end=5.0)],
+            ),
+        ]
+    )
+
+    # 720p Landscape (1280x720)
+    cfg = SubtitleConfig(
+        play_res_x=1280,
+        play_res_y=720,
+        render_mode="ktv",
+    )
+    events = _generate_tv_events(alignment, config=cfg, beat_times=[])
+
+    assert len(events) >= 2
+    import re
+    for ev in events:
+        pos_matches = re.findall(r"\\pos\((\d+),(\d+)\)", ev)
+        for x_str, y_str in pos_matches:
+            x, y = int(x_str), int(y_str)
+            assert 0 <= x <= 1280, f"X coordinate {x} exceeds 720p width 1280"
+            assert 0 <= y <= 720, f"Y coordinate {y} exceeds 720p height 720 (out of screen)"
+
+

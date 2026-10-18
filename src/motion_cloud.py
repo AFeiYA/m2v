@@ -112,28 +112,37 @@ class Workspace:
 
     def before_render(self, project_id, job_id):
         from src.settings import get_settings
+        from src.queue_limiter import check_render_admission, register_motion_job
         cost = get_settings().MOTION_EXPORT_CREDITS
-        if cost > 0:
-            from src.credits import reserve
-            from src.export_jobs import sessions
-            async def do_reserve():
-                async with sessions() as db:
+        from src.export_jobs import sessions
+
+        async def do_check_and_reserve():
+            async with sessions() as db:
+                await check_render_admission(db, self.uid)
+                if cost > 0:
+                    from src.credits import reserve
                     await reserve(db, self.uid, job_id, "motion_export", cost)
                     await db.commit()
-            def run_sync():
-                asyncio.run(do_reserve())
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-            if loop and loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                    pool.submit(run_sync).result()
-            else:
-                run_sync()
+
+        def run_sync():
+            asyncio.run(do_check_and_reserve())
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                pool.submit(run_sync).result()
+        else:
+            run_sync()
+
+        register_motion_job(self.uid, job_id)
 
     def on_render_finish(self, job_id, success):
+        from src.queue_limiter import unregister_motion_job
+        unregister_motion_job(self.uid, job_id)
         from src.settings import get_settings
         cost = get_settings().MOTION_EXPORT_CREDITS
         if cost > 0:
