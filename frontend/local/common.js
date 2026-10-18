@@ -41,8 +41,9 @@ function updateAuthUi() {
   } catch (_) {}
 
   if (token) {
-    if (info) info.textContent = user?.displayName || user?.email || "👤 Signed in";
-    if (!user || !user.displayName) {
+    const credText = typeof user?.credits === "number" ? ` (${user.credits}🪙)` : "";
+    if (info) info.textContent = (user?.displayName || user?.email || "👤 Signed in") + credText;
+    if (!user || !user.displayName || user.credits === undefined) {
       apiFetch("/api/auth/me")
         .then(r => r.ok ? r.json() : null)
         .then(u => {
@@ -51,13 +52,16 @@ function updateAuthUi() {
               id: u.id,
               displayName: u.display_name || u.username,
               email: u.email,
+              credits: u.credits,
             };
             localStorage.setItem("m2v_user", JSON.stringify(userData));
-            if (info) info.textContent = userData.displayName || "👤 Signed in";
+            const cred = typeof u.credits === "number" ? ` (${u.credits}🪙)` : "";
+            if (info) info.textContent = (userData.displayName || "👤 Signed in") + cred;
           }
         })
         .catch(() => {});
     }
+
     btn.textContent = window.currentLocale === "en" ? "Sign Out" : "登出";
     btn.onclick = async () => {
       if (window.m2vCache) {

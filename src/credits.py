@@ -80,7 +80,7 @@ async def reserve(db, uid, operation_id, kind, amount):
         reservation = CreditReservation(id=reservation_id, user_id=uid, operation_id=operation_id,
                                          kind=kind, amount=cost, state="held", attempt=1)
         db.add(reservation)
-    label = "Lyric video export" if kind == "lyric_export" else "Lyrics alignment"
+    label = "Lyric video export" if kind == "lyric_export" else ("Motion video export" if kind == "motion_export" else "Lyrics alignment")
     entry(db, reservation, "reserve", -cost, balance, label+" · credits reserved")
     await db.flush()
     return reservation
@@ -97,11 +97,12 @@ async def finish(db, uid, operation_id, kind, success):
         balance += reservation.amount
         await db.execute(update(User).where(User.id == uid).values(credits=balance))
     reservation.state = "settled" if success else "released"
-    label = "Lyric video export" if kind == "lyric_export" else "Lyrics alignment"
+    label = "Lyric video export" if kind == "lyric_export" else ("Motion video export" if kind == "motion_export" else "Lyrics alignment")
     entry(db, reservation, event, 0 if success else reservation.amount, balance,
           label+(" · completed" if success else " · reserved credits returned"))
     await db.flush()
     return True
+
 
 
 async def legacy_refund(db, uid, task_id, amount):
@@ -163,4 +164,5 @@ async def history(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, l
                         "description": row.description, "created_at": date.isoformat()})
     return {"available": balance, "reserved": reserved, "entries": entries,
             "total": total, "page": page, "page_size": page_size,
-            "pricing": {"alignment": 1, "lyric_export": get_settings().LYRIC_EXPORT_CREDITS}}
+            "pricing": {"alignment": 1, "lyric_export": get_settings().LYRIC_EXPORT_CREDITS, "motion_export": get_settings().MOTION_EXPORT_CREDITS}}
+

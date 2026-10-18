@@ -94,6 +94,8 @@ async def create(task, user, options, background, db):
         await db.commit()
         return {"task_id": job_id, "status": existing.status}
     uid, tid = user.id, task.id
+    from src.queue_limiter import check_render_admission
+    await check_render_admission(db, uid)
     from src.settings import get_settings
     price = get_settings().LYRIC_EXPORT_CREDITS
     if price and not request_id:
@@ -130,9 +132,12 @@ async def retry(db, job_id, uid, background, accepted_cost=None):
         return {"task_id": job_id, "status": row.status}
     if row.status not in RETRYABLE:
         raise HTTPException(409, "Only failed or interrupted exports can be retried")
+    from src.queue_limiter import check_render_admission
+    await check_render_admission(db, uid)
     from src.credits import key
     from src.models import CreditReservation
     from src.settings import get_settings
+
     previous = await db.get(CreditReservation, key(uid, "lyric_export", job_id))
     price = previous.amount if previous else get_settings().LYRIC_EXPORT_CREDITS
     if price and accepted_cost != price:

@@ -96,8 +96,10 @@ class RenderRequest(ProjectRequest):
 
 def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/api/motion',
                          resolve_project=None, list_projects=None, audio_url=None,
-                         on_write=None, on_delete=None, input_root=None, public_exports=True):
+                         on_write=None, on_delete=None, input_root=None, public_exports=True,
+                         before_render=None, on_render_finish=None):
     router = APIRouter(prefix=prefix)
+
     inputs = input_root if input_root is not None else ROOT / 'input'
     jobs, processes = {}, {}
     lock = threading.Lock()
@@ -557,8 +559,13 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                 atomic_write(outdir / f'{job_id}_status.json', {key: value for key, value in jobs[job_id].items() if key != 'output'})
                 processes.pop(job_id, None)
                 if jobs[job_id]['status'] != 'done': out.unlink(missing_ok=True)
+                if on_render_finish is not None:
+                    on_render_finish(job_id, jobs[job_id]['status'] == 'done')
+        if before_render is not None:
+            before_render(req.project_id, job_id)
         threading.Thread(target=run, daemon=True).start()
         return {'id': job_id}
+
 
     @router.get('/exports')
     def exports(project_id: str, sid: str = Depends(resolve_session_id)):

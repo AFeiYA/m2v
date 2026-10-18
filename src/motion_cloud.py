@@ -65,7 +65,9 @@ class Workspace:
             audio_url=lambda task_id: f"/api/editor/tasks/{task_id}/audio",
             on_write=self.persist, on_delete=self.remove,
             input_root=self.root, public_exports=False,
+            before_render=self.before_render, on_render_finish=self.on_render_finish,
         ))
+
 
     def validate(self, path):
         path = Path(path).resolve()
@@ -108,8 +110,55 @@ class Workspace:
                             details={'resolution': [data.get('width'), data.get('height')],
                                      'duration': data.get('total', 0)/30, 'size_bytes': video.stat().st_size}))
 
+    def before_render(self, project_id, job_id):
+        from src.settings import get_settings
+        cost = get_settings().MOTION_EXPORT_CREDITS
+        if cost > 0:
+            from src.credits import reserve
+            from src.export_jobs import sessions
+            async def do_reserve():
+                async with sessions() as db:
+                    await reserve(db, self.uid, job_id, "motion_export", cost)
+                    await db.commit()
+            def run_sync():
+                asyncio.run(do_reserve())
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop and loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    pool.submit(run_sync).result()
+            else:
+                run_sync()
+
+    def on_render_finish(self, job_id, success):
+        from src.settings import get_settings
+        cost = get_settings().MOTION_EXPORT_CREDITS
+        if cost > 0:
+            from src.credits import finish
+            from src.export_jobs import sessions
+            async def do_finish():
+                async with sessions() as db:
+                    await finish(db, self.uid, job_id, "motion_export", success=success)
+                    await db.commit()
+            def run_sync():
+                asyncio.run(do_finish())
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop and loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    pool.submit(run_sync).result()
+            else:
+                run_sync()
+
     def remove(self, path):
         asyncio.run(self.storage.delete(self.object_key(path)))
+
         if Path(path).name == 'source_motion_cover.jpg':
             from src.song_library import design_changed
             task_id = self.validate(path).relative_to(self.root.resolve()).parts[0]

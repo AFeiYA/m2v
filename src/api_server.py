@@ -818,7 +818,14 @@ from src.credits import router as credits_router
 api_router.include_router(credits_router)
 from src.song_library import router as song_library_router
 api_router.include_router(song_library_router)
+from src.payments import router as payments_router
+api_router.include_router(payments_router)
+from src.storage_accounting import router as storage_accounting_router
+api_router.include_router(storage_accounting_router)
+from src.backup import router as backup_router
+api_router.include_router(backup_router)
 app.include_router(api_router)
+
 app.include_router(editor_router)
 from src.motion_cloud import router as cloud_motion_router
 app.include_router(cloud_motion_router)
