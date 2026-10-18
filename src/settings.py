@@ -50,6 +50,17 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./m2v.db"
     # PostgreSQL 示例: "postgresql+asyncpg://m2v:password@localhost:5432/m2v"
 
+    # Billing is opt-in; test mode must use an isolated deployment/database.
+    BILLING_ENABLED: bool = False
+    BILLING_ALLOW_TEST_TRANSACTIONS: bool = False
+    LEMONSQUEEZY_API_KEY: str = ""
+    LEMONSQUEEZY_WEBHOOK_SECRET: str = ""
+    LEMONSQUEEZY_STORE_ID: str = ""
+    LEMONSQUEEZY_TEST_MODE: bool = True
+    LEMONSQUEEZY_ALLOWED_HOSTS: str = ""
+    BILLING_SITE_URL: str = "https://mv.fovea.si"
+    BILLING_PRODUCTS_JSON: str = "[]"
+
     # ── Redis ─────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
 

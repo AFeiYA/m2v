@@ -270,6 +270,7 @@ async function logout() {
   token = null;
   refreshToken = null;
   currentUser = null;
+  window.m2vBilling?.reset();
   exportSequence++;
   songSequence++; songPage=1; librarySongs.clear(); songPresentations.clear(); loadTasks.hasActive=false;
   if ($("#tasks-list")) $("#tasks-list").innerHTML="";
@@ -339,6 +340,7 @@ function showApp() {
   loadExports();
   loadRenderJobs();
   loadCredits();
+  window.m2vBilling?.refresh();
   startPolling();
 }
 

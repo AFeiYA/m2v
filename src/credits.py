@@ -187,5 +187,4 @@ async def history(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, l
                 "motion_export": getattr(settings, "MOTION_EXPORT_CREDITS", 0),
                 "draft_export": getattr(settings, "DRAFT_EXPORT_CREDITS", 0),
                 "clip_export": getattr(settings, "CLIP_EXPORT_CREDITS", 0),
-                "currency_scale": "3000 credits = $10 USD ($0.0033/credit)",
             }}

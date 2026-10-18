@@ -17,6 +17,7 @@
         if (link.getAttribute('href') === '#' + active) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
       });
+      if (active === 'credits-section') window.m2vBilling?.refresh();
       if (active === 'trash-section') document.getElementById('version-trash').open = true;
       if (active !== 'exports-section') document.getElementById('btn-close-export-preview')?.click();
       if (focus) {

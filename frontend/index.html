@@ -76,7 +76,7 @@
         <a href="#exports-section" data-workspace-link><span aria-hidden="true">▻</span> Exports</a>
         <a href="#trash-section" data-workspace-link><span aria-hidden="true">♲</span> Trash</a>
       </nav>
-      <div class="workspace-sidebar-bottom"><a href="#credits-section" data-workspace-link><span aria-hidden="true">◷</span> Credit history</a><p>Import. Create. Share.</p></div>
+      <div class="workspace-sidebar-bottom"><a href="#credits-section" data-workspace-link><span aria-hidden="true">◷</span> Credits &amp; billing</a><p>Import. Create. Share.</p></div>
     </aside>
     <main id="workspace-content" class="workspace-content">
     <!-- 创作区 (Suno 链接解析 / 本地文件上传) -->
@@ -233,7 +233,17 @@
       <details id="version-trash"><summary>Version Trash · finished videos are kept</summary><div id="version-trash-list"></div></details>
     </section>
     <section id="credits-section" class="workspace-page" tabindex="-1" hidden>
-      <div class="section-header"><h2>Credit history</h2><button id="btn-refresh-credits" class="btn btn-sm">Refresh</button></div>
+      <div class="section-header"><h2>Credits &amp; billing</h2><button id="btn-refresh-credits" class="btn btn-sm">Refresh</button></div>
+      <div id="billing-panel" class="billing-panel">
+        <p id="billing-notice" role="status">Loading billing options…</p>
+        <div id="billing-products" class="billing-products"></div>
+        <div id="billing-subscriptions"></div>
+        <p id="billing-return-status" role="status"></p>
+        <div class="task-actions"><button id="billing-refresh" class="btn btn-sm btn-outline" hidden>Refresh billing</button><button id="billing-reconcile" class="btn btn-sm btn-outline" hidden>Check recent payments</button></div>
+        <div id="billing-orders"></div>
+        <div id="billing-pagination" class="song-pagination" hidden><button id="billing-prev" class="btn btn-sm">Previous</button><span id="billing-page"></span><button id="billing-next" class="btn btn-sm">Next</button></div>
+      </div>
+      <h3>Credit activity</h3>
       <p id="credit-summary" role="status"></p>
       <p id="credit-pricing"></p>
       <div id="credit-history"></div>
@@ -253,5 +263,6 @@
   <script src="/firebase-config.js?v=20261015_english"></script>
   <script src="/workspace.js?v=20261019_workspace"></script>
   <script src="/dashboard.js?v=20261019_workspace"></script>
+  <script src="/billing.js?v=20261019_billing"></script>
 </body>
 </html>

@@ -134,3 +134,32 @@ another owner's records. No library operation downloads audio or consumes credit
 
 See [render admission and storage](RENDER_ADMISSION_AND_STORAGE.md) for rollout
 requirements, test coverage and limitations.
+
+## Whole-product completion priorities — 2026-10-19
+
+Keep the promise focused on a creator's song → editable lyrics → publishable video.
+The YouTube-inspired Library/Exports/Trash shell is on main. Avoid adding a social
+feed, publishing matrix, 3D features or more AI models before the core paid flow
+has passed real-account acceptance.
+
+1. **Payment correctness** — `feat/lemon-squeezy-billing` implements the real provider
+   adapter, owner-scoped hosted checkout, monthly invoice grants, additive credits,
+   refund reversals, receipts/portal, durable inbox and replay command. Merchant
+   configuration, staging/live acceptance and a production replay scheduler are
+   deployment gates; billing stays disabled until then. See LEMON_SQUEEZY_BILLING.md.
+2. **Usage price consistency** — finish quote/reserve/settle/release across Motion
+   and every export profile before introducing their nonzero prices. Do not treat
+   configurable price labels as evidence an endpoint actually charges correctly.
+3. **Asset/storage truth** — replace per-song byte estimates with object sizes and
+   in-flight reservations; show retention and space reclamation before selling
+   additional storage. Trash does not reclaim physical space today.
+4. **Recovery and visibility** — production queue/lease interruption drill, billing
+   inbox alerts, durable off-host backups and a restore exercise. Show actionable
+   failure/retry guidance without silently rerunning paid work.
+5. **Creator acceptance** — listen to at least 20 varied songs and have 10 creators
+   complete import/edit/save/export/re-login/download. Record manual timing fixes,
+   first-video time and failure rates; automated tests do not establish singing
+   accuracy, conversion, production readiness or a release percentage.
+6. **Polish after stability** — reduce secondary card actions into menus, add clear
+   first-project and no-results guidance, verify portrait-safe text and accessible
+   keyboard behavior using real project data. Keep English as the default.

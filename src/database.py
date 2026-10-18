@@ -67,6 +67,7 @@ async def create_tables() -> None:
 async def init_db() -> None:
     """初始化数据库：确保模型注册，创建表，并平滑增加缺失字段"""
     import src.models  # noqa: F401
+    import src.billing_models  # noqa: F401
     from sqlalchemy import inspect, text
 
     async with engine.begin() as conn:
