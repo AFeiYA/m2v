@@ -1084,8 +1084,20 @@ async function trackImportedVideo(jobId) {
     if (currentUser?.id === uid) showStatus(error.message, true);
   }
 }
+let currentPreviewExportId = null;
+let lastLoadedExports = new Map();
+
+function formatDuration(sec) {
+  if (!sec || isNaN(sec)) return "";
+  const s = Math.round(sec);
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${m}:${rem < 10 ? '0' : ''}${rem}`;
+}
+
 function closeExportPreview() {
   exportPreviewSequence++;
+  currentPreviewExportId = null;
   const video = $("#export-preview-video");
   video?.pause?.(); video?.removeAttribute?.("src"); video?.load?.();
   if ($("#exports-preview")) $("#exports-preview").hidden = true;
@@ -1102,12 +1114,45 @@ async function loadExports(page = exportPage) {
     if (sequence !== exportSequence || currentUser?.id !== uid) return;
     exportPage = page;
     const rows = data.exports || [];
+    lastLoadedExports = new Map(rows.map(r => [r.id, r]));
     $("#exports-list").innerHTML = rows.map(item => {
       const detail = item.details || {}, size = detail.size_bytes ? (detail.size_bytes < 1048576 ? Math.max(1, Math.round(detail.size_bytes / 1024)) + " KB" : (detail.size_bytes / 1048576).toFixed(1) + " MB") : "";
       const resolution = detail.resolution?.every(Boolean) ? detail.resolution.join(" × ") : "";
-      const duration = detail.duration ? Number(detail.duration).toFixed(1) + "s" : "";
-      const meta = [detail.recovered ? "Recovered" : "", ({lyric:"Lyric Video",poster:"Motion Studio",rhythm:"Rhythm Studio"})[item.kind] || "Video", resolution, duration, size, new Date(item.created_at).toLocaleString()].filter(Boolean).join(" · ");
-      return `<article class="task-card"><strong>${escapeHtml(item.title || "Untitled")}</strong><p>${escapeHtml(meta)}</p><span class="badge">Ready</span><div class="export-actions"><button class="btn btn-sm" data-export="${escapeHtml(item.id)}" data-export-action="preview">Preview</button><button class="btn btn-sm" data-export="${escapeHtml(item.id)}" data-export-action="download">Download MP4</button><button class="btn btn-sm btn-outline" data-export="${escapeHtml(item.id)}" data-export-action="delete">Delete video</button></div></article>`;
+      const resPill = detail.resolution ? (detail.resolution[1] >= 1080 || detail.resolution[0] >= 1080 ? "1080p HD" : "720p") : "HD";
+      const durationSec = Number(detail.duration) || 0;
+      const durationFormatted = durationSec ? formatDuration(durationSec) : "";
+      const kindLabel = ({lyric:"Lyric Video",poster:"Motion Studio",rhythm:"Rhythm Studio"})[item.kind] || "Video";
+      const meta = [detail.recovered ? "Recovered" : "", kindLabel, resolution, durationSec ? durationSec.toFixed(1) + "s" : "", size, new Date(item.created_at).toLocaleString()].filter(Boolean).join(" · ");
+      const safeTitle = escapeHtml(item.title || "Untitled");
+      const gradientClass = item.kind === 'poster' ? 'gradient-poster' : item.kind === 'rhythm' ? 'gradient-rhythm' : 'gradient-lyric';
+
+      return `<article class="task-card yt-video-card" data-export-id="${escapeHtml(item.id)}">
+        <div class="yt-thumb-box" data-export="${escapeHtml(item.id)}" data-export-action="preview" role="button" tabindex="0" title="Click to preview video">
+          <div class="yt-thumb-gradient ${gradientClass}">
+            <div class="yt-thumb-art">
+              <svg viewBox="0 0 48 48" class="yt-vinyl-svg" fill="none" stroke="currentColor">
+                <circle cx="24" cy="24" r="21" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>
+                <circle cx="24" cy="24" r="14" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+                <circle cx="24" cy="24" r="7" stroke="rgba(255,255,255,0.4)" fill="rgba(255,255,255,0.1)"/>
+                <circle cx="24" cy="24" r="2.5" fill="currentColor"/>
+              </svg>
+            </div>
+            <div class="yt-play-hover-btn" aria-hidden="true">▶</div>
+          </div>
+          <span class="yt-badge-res">${resPill}</span>
+          <span class="yt-badge-kind">${kindLabel}</span>
+          ${durationFormatted ? `<span class="yt-badge-duration">${durationFormatted}</span>` : ""}
+        </div>
+        <div class="yt-card-info">
+          <strong class="yt-card-title" title="${safeTitle}">${safeTitle}</strong>
+          <p class="yt-card-meta">${escapeHtml(meta)}</p>
+          <div class="export-actions yt-card-actions">
+            <button class="btn btn-sm btn-yt-preview" data-export="${escapeHtml(item.id)}" data-export-action="preview">Preview</button>
+            <button class="btn btn-sm btn-yt-download" data-export="${escapeHtml(item.id)}" data-export-action="download">Download MP4</button>
+            <button class="btn btn-sm btn-outline btn-yt-delete" data-export="${escapeHtml(item.id)}" data-export-action="delete" title="Delete video">Delete video</button>
+          </div>
+        </div>
+      </article>`;
     }).join("");
     if ($("#exports-clear-filter")) $("#exports-clear-filter").hidden = !exportSongFilter;
     $("#exports-status").textContent = data.total ? `${data.total} exports · Preview loads only when requested.` : "No exports yet. Export from Lyric Editor or Motion Studio, or find earlier exports.";
@@ -1139,10 +1184,26 @@ async function handleExportAction(button) {
     const url = data.url.startsWith("/") ? API + data.url : data.url;
     if (action === "preview") {
       if (previewSequence !== exportPreviewSequence) return;
-      closeExportPreview();
-      $("#exports-preview").hidden = false;
-      const video = $("#export-preview-video"); video.src = url;
-      video.play().catch(() => {});
+      currentPreviewExportId = id;
+      const item = lastLoadedExports.get(id);
+      if ($("#export-preview-title")) $("#export-preview-title").textContent = item?.title || "Video Preview";
+      if ($("#export-preview-meta") && item) {
+        const detail = item.details || {};
+        const size = detail.size_bytes ? (detail.size_bytes < 1048576 ? Math.max(1, Math.round(detail.size_bytes / 1024)) + " KB" : (detail.size_bytes / 1048576).toFixed(1) + " MB") : "";
+        const resolution = detail.resolution?.every(Boolean) ? detail.resolution.join(" × ") : "";
+        const duration = detail.duration ? Number(detail.duration).toFixed(1) + "s" : "";
+        $("#export-preview-meta").textContent = [({lyric:"Lyric Video",poster:"Motion Studio",rhythm:"Rhythm Studio"})[item.kind] || "Video", resolution, duration, size].filter(Boolean).join(" · ");
+      }
+      const dlBtn = $("#btn-preview-download");
+      if (dlBtn) {
+        if (!dlBtn.dataset) dlBtn.dataset = {};
+        dlBtn.dataset.export = id;
+        dlBtn.setAttribute?.("data-export", id);
+      }
+      if ($("#exports-preview")) $("#exports-preview").hidden = false;
+      const video = $("#export-preview-video");
+      if (video) video.src = url;
+      video?.play?.()?.catch?.(() => {});
     } else {
       const link = document.createElement("a"); link.href = url; link.download = data.filename;
       document.body.appendChild(link); link.click(); link.remove();
@@ -1161,8 +1222,18 @@ function initExportLibrary() {
   $("#exports-prev")?.addEventListener("click", () => loadExports(exportPage - 1));
   $("#exports-next")?.addEventListener("click", () => loadExports(exportPage + 1));
   $("#btn-close-export-preview")?.addEventListener("click", closeExportPreview);
+  $("#exports-preview")?.addEventListener("click", event => {
+    if (event.target === $("#exports-preview")) closeExportPreview();
+  });
+  window.addEventListener?.("keydown", event => {
+    if (event.key === "Escape" && !$("#exports-preview")?.hidden) closeExportPreview();
+  });
+  $("#btn-preview-download")?.addEventListener("click", () => {
+    const id = $("#btn-preview-download")?.dataset.export || currentPreviewExportId;
+    if (id) void handleExportAction({dataset: {export: id, exportAction: "download"}});
+  });
   $("#exports-list")?.addEventListener("click", event => {
-    const button = event.target.closest("button[data-export-action]");
+    const button = event.target.closest("button[data-export-action]") || event.target.closest(".yt-thumb-box[data-export-action]");
     if (button) void handleExportAction(button);
   });
   $("#btn-discover-exports")?.addEventListener("click", async event => {

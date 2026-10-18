@@ -173,19 +173,45 @@
 
     <section id="exports-section">
       <div class="section-header">
-        <h2>🎬 My Exports</h2>
-        <div><button id="btn-discover-exports" class="btn btn-sm btn-outline">Find earlier exports</button>
-          <button id="btn-refresh-exports" class="btn btn-sm">Refresh</button></div>
+        <div class="exports-header-left">
+          <h2>🎬 My Exports</h2>
+          <span class="exports-subhead">Manage, preview, and download your generated music videos</span>
+        </div>
+        <div class="exports-header-actions">
+          <button id="btn-discover-exports" class="btn btn-sm btn-outline">Find earlier exports</button>
+          <button id="btn-refresh-exports" class="btn btn-sm">Refresh</button>
+        </div>
       </div>
       <button id="exports-clear-filter" class="btn btn-sm btn-outline" hidden>Show all videos</button>
       <p id="exports-status" role="status">Completed videos stay here after you close the editor.</p>
       <div id="render-jobs-list" aria-live="polite"></div>
-      <div id="exports-list"></div>
-      <div id="exports-preview" hidden>
-        <button id="btn-close-export-preview" class="btn btn-sm">Close preview</button>
-        <video id="export-preview-video" controls playsinline preload="none" style="display:block;max-width:100%;max-height:480px;margin:12px auto"></video>
+      
+      <!-- YouTube Style Video Grid -->
+      <div id="exports-list" class="yt-video-grid"></div>
+
+      <!-- YouTube Style Theater Modal Player -->
+      <div id="exports-preview" class="yt-preview-modal-backdrop" hidden>
+        <div class="yt-preview-modal" role="dialog" aria-modal="true" aria-labelledby="export-preview-title">
+          <div class="yt-preview-header">
+            <div class="yt-preview-title-box">
+              <span class="yt-badge-live">PREVIEW</span>
+              <h3 id="export-preview-title">Video Preview</h3>
+            </div>
+            <button id="btn-close-export-preview" class="btn-yt-close" title="Close preview (Esc)">✕</button>
+          </div>
+          <div class="yt-preview-player-wrap">
+            <video id="export-preview-video" controls playsinline preload="none"></video>
+          </div>
+          <div class="yt-preview-footer">
+            <div id="export-preview-meta" class="yt-preview-meta"></div>
+            <div class="yt-preview-actions">
+              <button id="btn-preview-download" class="btn btn-sm btn-primary" title="Download video file">⬇ Download MP4</button>
+            </div>
+          </div>
+        </div>
       </div>
-      <div style="display:flex;gap:12px;align-items:center;margin:12px 0">
+
+      <div class="exports-pagination" style="display:flex;gap:12px;align-items:center;margin:20px 0;justify-content:center">
         <button id="exports-prev" class="btn btn-sm" disabled>Previous</button>
         <span id="exports-page"></span><button id="exports-next" class="btn btn-sm" disabled>Next</button>
       </div>

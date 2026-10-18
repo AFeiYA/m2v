@@ -120,10 +120,14 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
 
-    # ── 用户配额 ──────────────────────────────────────────
+    # ── 用户配额与积分定价 ──────────────────────────────────
     FREE_MONTHLY_QUOTA: int = 5         # 免费用户每月可生成次数
-    # Zero keeps lyric exports free until pricing is explicitly enabled.
+    # Default to 0 in development/beta to keep exports free unless configured
+    SEPARATION_CREDITS: int = Field(default=0, ge=0)
     LYRIC_EXPORT_CREDITS: int = Field(default=0, ge=0)
+    MOTION_EXPORT_CREDITS: int = Field(default=0, ge=0)
+    DRAFT_EXPORT_CREDITS: int = Field(default=0, ge=0)
+    CLIP_EXPORT_CREDITS: int = Field(default=0, ge=0)
     MAX_CONCURRENT_RENDERS_PER_USER: int = Field(default=2, ge=1)
     MAX_GLOBAL_CONCURRENT_RENDERS: int = Field(default=4, ge=1)
     PRO_MONTHLY_QUOTA: int = 100
