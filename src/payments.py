@@ -147,16 +147,15 @@ async def payment_webhook(
     settings = get_settings()
     body_bytes = await request.body()
 
-    # Signature/secret verification
-    authorized = False
-    if x_webhook_secret:
-        authorized = (x_webhook_secret == settings.PAYMENT_WEBHOOK_SECRET)
-    elif x_webhook_signature:
-        authorized = verify_signature(settings.PAYMENT_WEBHOOK_SECRET, body_bytes, x_webhook_signature)
-    elif provider == "mock" and settings.PAYMENT_WEBHOOK_SECRET == "payment-dev-webhook-secret":
-        # In dev/test mode with default secret and no signature headers passed, allow mock provider callback
-        authorized = True
-
+    # Legacy sandbox callbacks are never a live payment provider. Real billing
+    # must use the provider-specific integration on this feature branch.
+    import os
+    sandbox_enabled = os.getenv("M2V_ALLOW_MOCK_PAYMENTS", "").strip().lower() in ("1", "true", "yes")
+    if provider != "mock" or not sandbox_enabled:
+        raise HTTPException(404, "Sandbox payment callbacks are disabled")
+    authorized = bool(x_webhook_signature) and verify_signature(
+        settings.PAYMENT_WEBHOOK_SECRET, body_bytes, x_webhook_signature
+    )
 
     if not authorized:
         raise HTTPException(401, "Invalid webhook signature or secret")
@@ -178,6 +177,11 @@ async def payment_webhook(
 
     if not order:
         raise HTTPException(404, f"Order '{order_id}' not found")
+
+    if order.provider != "mock":
+        raise HTTPException(409, "Sandbox callback cannot complete a live-provider order")
+    if order.status in (OrderStatus.REFUNDED.value, OrderStatus.CANCELLED.value):
+        raise HTTPException(409, "This order cannot be paid again")
 
     # Idempotent handling: already paid
     if order.status == OrderStatus.PAID.value:
@@ -245,6 +249,8 @@ async def mock_complete_order(
     if order.status == OrderStatus.PAID.value:
         return {"status": "already_paid", "order_id": order.id, "credits": order.credits}
 
+    if order.provider != "mock" or order.status in (OrderStatus.REFUNDED.value, OrderStatus.CANCELLED.value):
+        raise HTTPException(409, "This order cannot be completed in the sandbox")
     order.status = OrderStatus.PAID.value
     order.paid_at = now()
     from src.credits import grant

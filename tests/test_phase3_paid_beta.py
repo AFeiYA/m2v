@@ -114,7 +114,8 @@ def auth_header(uid: str) -> dict:
 # 1. Real-Account Lifecycle: Checkout, Idempotent Webhook, Grant & History
 # ==============================================================================
 
-def test_payment_checkout_idempotency_and_webhook_grant(phase3_env):
+def test_payment_checkout_idempotency_and_webhook_grant(phase3_env, monkeypatch):
+    monkeypatch.setenv("M2V_ALLOW_MOCK_PAYMENTS", "true")
     client = phase3_env.client
     headers = auth_header("carol")
 
@@ -508,3 +509,12 @@ def test_database_backup_and_integrity_check(phase3_env, tmp_path, monkeypatch):
     # 4. PostgreSQL backup without pg_dump utility raises NotImplementedError truthfully
     with pytest.raises(NotImplementedError):
         create_database_backup(db_url="postgresql://user:pass@localhost:5432/db", output_dir=backup_dir)
+
+
+def test_unsigned_mock_webhook_is_disabled_even_with_default_secret(phase3_env, monkeypatch):
+    monkeypatch.delenv("M2V_ALLOW_MOCK_PAYMENTS", raising=False)
+    result = phase3_env.client.post("/api/payments/webhook/mock", json={"order_id":"unused"})
+    assert result.status_code == 404
+    monkeypatch.setenv("M2V_ALLOW_MOCK_PAYMENTS", "true")
+    assert phase3_env.client.post("/api/payments/webhook/mock", json={"order_id":"unused"}).status_code == 401
+    assert phase3_env.client.post("/api/payments/webhook/stripe", json={"order_id":"unused"}).status_code == 404
