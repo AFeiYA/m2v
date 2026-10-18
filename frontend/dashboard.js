@@ -575,6 +575,7 @@ async function handleSongAction(button) {
     closeExportPreview();
     exportSongFilter = song.export_task_ids || song.versions.map(v=>v.id);
     await loadExports(1);
+    window.location.hash = "exports-section";
     $("#exports-section").scrollIntoView?.({behavior:"smooth"});
     return;
   }

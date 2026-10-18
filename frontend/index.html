@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>M2V — Lyric Video Studio</title>
-  <link rel="stylesheet" href="/dashboard.css?v=20261016_library2">
+  <link rel="stylesheet" href="/dashboard.css?v=20261019_workspace">
   <script>
     window.M2V_API_BASE = "https://lucazhou-suno2mv-api.hf.space";
   </script>
@@ -48,14 +48,14 @@
   <!-- ========== 主界面 ========== -->
   <div id="app" style="display:none">
     <!-- 顶部导航 -->
-    <header>
+    <header class="workspace-header">
       <div class="header-left">
-        <h1>🎤 M2V</h1>
-        <span class="subtitle">Lyric Video Studio</span>
+        <button id="workspace-menu" class="workspace-menu" aria-label="Toggle navigation" aria-expanded="true" aria-controls="workspace-sidebar">☰</button><a class="workspace-brand" href="#tasks-section">M2V <span>Studio</span></a>
+
       </div>
+      <div class="workspace-search"><input id="song-search" type="search" placeholder="Search song titles or artists…" aria-label="Search song titles"></div>
       <div class="header-right">
-        <a href="#tasks-section" class="btn btn-sm">My songs</a>
-        <a href="#exports-section" class="btn btn-sm">My Exports</a>
+        <a href="#upload-section" class="btn btn-primary btn-sm">＋ Create video</a>
         <span id="user-credits" class="badge"></span>
         <details class="account-menu"><summary>Account &amp; tools</summary><div>
           <span id="user-info"></span>
@@ -69,8 +69,18 @@
       </div>
     </header>
 
+    <aside id="workspace-sidebar" class="workspace-sidebar" aria-label="Studio navigation">
+      <p class="workspace-label">YOUR WORKSPACE</p>
+      <nav>
+        <a href="#tasks-section" data-workspace-link><span aria-hidden="true">▦</span> My Library</a>
+        <a href="#exports-section" data-workspace-link><span aria-hidden="true">▻</span> Exports</a>
+        <a href="#trash-section" data-workspace-link><span aria-hidden="true">♲</span> Trash</a>
+      </nav>
+      <div class="workspace-sidebar-bottom"><a href="#credits-section" data-workspace-link><span aria-hidden="true">◷</span> Credit history</a><p>Import. Create. Share.</p></div>
+    </aside>
+    <main id="workspace-content" class="workspace-content">
     <!-- 创作区 (Suno 链接解析 / 本地文件上传) -->
-    <section id="upload-section">
+    <section id="upload-section" class="workspace-page" tabindex="-1" hidden>
       <div class="upload-card">
         <h2>Turn your song into a lyric video</h2>
         <p class="creation-guide">Import your song <span>→</span> Check the lyrics <span>→</span> Design &amp; export</p>
@@ -151,27 +161,27 @@
     </section>
 
     <!-- 任务列表 -->
-    <section id="tasks-section">
+    <section id="tasks-section" class="workspace-page" tabindex="-1">
       <div class="section-header">
-        <h2>My songs</h2>
+        <h2>My Library</h2>
         <button id="btn-refresh" class="btn btn-sm">🔄 Refresh</button>
       </div>
       <p class="section-intro">Your songs, lyric versions and finished videos — together in one library.</p>
       <div class="song-toolbar">
-        <input id="song-search" type="search" placeholder="Search song titles or artists…" aria-label="Search song titles">
+
         <select id="song-view" aria-label="Song view"><option value="active">My songs</option><option value="starred">Favorites</option><option value="archived">Archived</option><option value="all">All songs</option></select>
         <select id="song-sort" aria-label="Sort songs"><option value="recent">Recently updated</option><option value="title">Title A–Z</option></select>
       </div>
       <p id="songs-status" role="status"></p>
       <div id="tasks-list" class="song-grid"></div>
       <div class="song-pagination"><button id="songs-prev" class="btn btn-sm" disabled>Previous</button><span id="songs-page"></span><button id="songs-next" class="btn btn-sm" disabled>Next</button></div>
-      <details id="version-trash"><summary>Version Trash · finished videos are kept</summary><div id="version-trash-list"></div></details>
+
       <div id="tasks-empty" class="empty-state" style="display:none">
-        <p>No songs in this view. Import a song, change your search, or check Archived.</p>
+        <p>No songs in this view. Try another search or filter, or <a href="#upload-section">import your first song</a>.</p>
       </div>
     </section>
 
-    <section id="exports-section">
+    <section id="exports-section" class="workspace-page" tabindex="-1" hidden>
       <div class="section-header">
         <div class="exports-header-left">
           <h2>🎬 My Exports</h2>
@@ -217,7 +227,12 @@
       </div>
     </section>
 
-    <section id="credits-section">
+    <section id="trash-section" class="workspace-page" tabindex="-1" hidden>
+      <div class="section-header"><h2>Trash</h2></div>
+      <p class="section-intro">Restore lyric versions you moved to Trash. Finished videos stay in Exports.</p>
+      <details id="version-trash"><summary>Version Trash · finished videos are kept</summary><div id="version-trash-list"></div></details>
+    </section>
+    <section id="credits-section" class="workspace-page" tabindex="-1" hidden>
       <div class="section-header"><h2>Credit history</h2><button id="btn-refresh-credits" class="btn btn-sm">Refresh</button></div>
       <p id="credit-summary" role="status"></p>
       <p id="credit-pricing"></p>
@@ -228,7 +243,7 @@
       </div>
     </section>
 
-
+    </main>
   </div>
 
   <!-- Firebase SDK & Cache -->
@@ -236,6 +251,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="/static/cache.js?v=20261013_cache"></script>
   <script src="/firebase-config.js?v=20261015_english"></script>
-  <script src="/dashboard.js?v=20261016_library2"></script>
+  <script src="/workspace.js?v=20261019_workspace"></script>
+  <script src="/dashboard.js?v=20261019_workspace"></script>
 </body>
 </html>
