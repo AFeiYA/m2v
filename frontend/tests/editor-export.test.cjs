@@ -150,3 +150,32 @@ test('matrix export works with a browser NodeList that lacks Array.prototype.fil
  assert.equal(jobs[0].body.aspect_ratio,'9:16');
 });
 
+test('matrix export gracefully waits for render slots on HTTP 429 instead of crashing',async()=>{
+ const s=setup();
+ const rows=[];
+ s.context.document.createElement=()=>({appendChild(){},set textContent(t){rows.push(t);},get textContent(){return rows.at(-1);}});
+ s.elements.get('#lyric-batch-results').appendChild=()=>{};
+ let callCount=0, original=s.context.window.apiFetch;
+ s.context.window.apiFetch=async(url,options)=>{
+   if(url.endsWith('/lyric-video')){
+     callCount++;
+     s.calls.push({url,body:options.body&&JSON.parse(options.body)});
+     if(callCount>2){
+       return {ok:false,status:429,json:async()=>({detail:'Your render slots are full. Wait for an existing video to finish.'})};
+     }
+     return {ok:true,status:200,json:async()=>({task_id:`job-${callCount}`})};
+   }
+   return original(url,options);
+ };
+ s.context.$$=selector=>selector==='.export-clip-check'?[
+   {checked:true,dataset:{clipId:'full',ratio:'9:16'}},
+   {checked:true,dataset:{clipId:'full',ratio:'16:9'}},
+   {checked:true,dataset:{clipId:'chorus',ratio:'9:16'}}
+ ]:[];
+ s.context.state.alignment={sections:[{name:'Chorus',start:20,end:35}],lines:[{text:'hook',start:21,end:34}]};
+ await s.start();
+ const jobs=s.calls.filter(c=>c.url?.endsWith('/lyric-video'));
+ assert.equal(jobs.length,3);
+ assert.ok(rows.some(r=>r.includes('Waiting for available render slot')));
+});
+

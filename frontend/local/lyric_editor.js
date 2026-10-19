@@ -1390,46 +1390,157 @@ function initLyricExportModal() {
         const clips = buildExportClips(state.alignment);
         const selectedClips = selected.map(c => ({...clips.find(x => x.id === c.dataset.clipId),aspect_ratio:c.dataset.ratio || ratio}));
         if (selectedClips.length > 1) {
-          let submitted = 0;
-          for (const clip of selectedClips) {
-            const item = {...payload,aspect_ratio:clip.aspect_ratio,template:exportTemplateForRatio(clip.aspect_ratio),start_time:clip.start_time,end_time:clip.end_time,duration_limit:clip.end_time == null ? null : clip.end_time-clip.start_time};
-            if (cloud) item.request_id = await pendingRequest(songTaskId,item);
-            const response = await fetchFn(cloud ? `/api/editor/tasks/${songTaskId}/lyric-video` : "/api/lyric_video/export",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(item)});
-            const data = await response.json();
-            if (!response.ok) throw Error(`${submitted} exports submitted. ${data.detail || "Unable to submit next clip"}. Check My Exports before retrying.`);
-            submitted++;
-            {
-              const row = document.createElement("p"); row.textContent = `${clip.title}: Rendering…`;
-              (batchResults || resultBox).appendChild(row);
-              let busy = false, failures = 0;
-              const timer = setInterval(async () => {
-                if (busy) return; busy = true;
-                try {
-                  const res = await fetchFn(cloud ? `/api/editor/jobs/${data.task_id}` : `/api/lyric_video/task_status?task_id=${data.task_id}`);
-                  if (!res.ok) throw Error(`HTTP ${res.status}`);
-                  const job = await res.json(); failures = 0;
-                  if (job.status === "completed") {
-                    clearInterval(timer); if (cloud) clearRequest(songTaskId,item.request_id); row.textContent = `${clip.title} ${clip.aspect_ratio}: `;
-                    const link = document.createElement("a"); link.textContent = "Download MP4";
-                    link.href = cloud ? "/#exports-section" : job.result.video_url;
-                    if (cloud) {link.textContent = "View in My Exports";link.target = "_blank";} else link.download = `${clip.id}.mp4`;
-                    row.appendChild(link);
-                  } else if (["failed", "interrupted"].includes(job.status)) {
-                    clearInterval(timer); if (cloud) clearRequest(songTaskId,item.request_id); row.textContent = `${clip.title}: ${job.error || "Export failed"}`;
-                  }
-                } catch (error) { if (++failures >= 3) {clearInterval(timer);row.textContent = `${clip.title}: ${error.message}`;} }
-                finally { busy = false; }
-              }, 1000);
-            }
-          }
-          progressBox.style.display = "none"; resultBox.style.display = "flex";
-          if ($("#lyric-result-heading")) $("#lyric-result-heading").textContent = "Exports queued";
-          resultMeta.textContent = `${submitted} exports submitted. ${cloud ? "Follow progress and download each video in My Exports." : "Keep this dialog open for download links."}`;
+          progressBox.style.display = "none";
+          resultBox.style.display = "flex";
+          if ($("#lyric-result-heading")) $("#lyric-result-heading").textContent = "Exports in progress";
           if ($("#lyric-my-exports")) $("#lyric-my-exports").hidden = !cloud;
           if (resultVideo) { resultVideo.pause(); resultVideo.hidden = true; }
           if (btnPreview) btnPreview.hidden = true;
           if (btnDownload) btnDownload.hidden = true;
-          btnStart.disabled = false; btnStart.textContent = "Export videos"; btnStart.style.opacity = "1";
+          btnStart.disabled = false;
+          btnStart.textContent = "Export videos";
+          btnStart.style.opacity = "1";
+
+          let submitted = 0;
+          const targetBox = batchResults || resultBox;
+          const updateSummary = () => {
+            const completedCount = queue.filter(q => q.done).length;
+            const renderingCount = queue.filter(q => q.running).length;
+            const waitingCount = queue.filter(q => !q.started && !q.done).length;
+            resultMeta.textContent = `${submitted}/${selectedClips.length} submitted · ${completedCount} completed` +
+              (renderingCount ? ` · ${renderingCount} rendering` : "") +
+              (waitingCount ? ` · ${waitingCount} queued` : "") +
+              `. ${cloud ? "Follow progress and download in My Exports." : "Keep this dialog open for download links."}`;
+          };
+
+          const queue = selectedClips.map((clip) => {
+            const row = document.createElement("p");
+            row.textContent = `${clip.title} (${clip.aspect_ratio}): In queue…`;
+            targetBox.appendChild(row);
+            return {
+              clip,
+              row,
+              started: false,
+              running: false,
+              done: false
+            };
+          });
+          updateSummary();
+
+          let queueRunning = false;
+          async function processQueue() {
+            if (queueRunning) return;
+            queueRunning = true;
+            try {
+              for (const item of queue) {
+                if (item.started || item.done) continue;
+                const clip = item.clip;
+                const payloadItem = {
+                  ...payload,
+                  aspect_ratio: clip.aspect_ratio,
+                  template: exportTemplateForRatio(clip.aspect_ratio),
+                  start_time: clip.start_time,
+                  end_time: clip.end_time,
+                  duration_limit: clip.end_time == null ? null : clip.end_time - clip.start_time
+                };
+                if (cloud) payloadItem.request_id = await pendingRequest(songTaskId, payloadItem);
+
+                try {
+                  const response = await fetchFn(
+                    cloud ? `/api/editor/tasks/${songTaskId}/lyric-video` : "/api/lyric_video/export",
+                    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payloadItem) }
+                  );
+                  const data = await response.json();
+
+                  if (response.status === 429 || response.status === 503 || (data.detail && /slots are full|capacity is full/i.test(data.detail))) {
+                    item.row.textContent = `${clip.title} (${clip.aspect_ratio}): Waiting for available render slot…`;
+                    updateSummary();
+                    break;
+                  }
+
+                  if (!response.ok) {
+                    item.started = true;
+                    item.done = true;
+                    item.row.textContent = `${clip.title} (${clip.aspect_ratio}): ${data.detail || "Submission failed"}`;
+                    updateSummary();
+                    continue;
+                  }
+
+                  item.started = true;
+                  item.running = true;
+                  submitted++;
+                  item.row.textContent = `${clip.title} (${clip.aspect_ratio}): Rendering… 0%`;
+                  updateSummary();
+
+                  let busy = false, failures = 0;
+                  const timer = setInterval(async () => {
+                    if (busy) return;
+                    busy = true;
+                    try {
+                      const res = await fetchFn(cloud ? `/api/editor/jobs/${data.task_id}` : `/api/lyric_video/task_status?task_id=${data.task_id}`);
+                      if (!res.ok) throw Error(`HTTP ${res.status}`);
+                      const job = await res.json();
+                      failures = 0;
+                      const prog = Math.round(job.progress || 0);
+                      if (job.status === "completed") {
+                        clearInterval(timer);
+                        if (cloud) clearRequest(songTaskId, payloadItem.request_id);
+                        item.running = false;
+                        item.done = true;
+                        item.row.textContent = `${clip.title} ${clip.aspect_ratio}: `;
+                        const link = document.createElement("a");
+                        link.textContent = cloud ? "View in My Exports" : "Download MP4";
+                        link.href = cloud ? "/#exports-section" : job.result.video_url;
+                        if (cloud) { link.target = "_blank"; } else link.download = `${clip.id}.mp4`;
+                        item.row.appendChild(link);
+                        updateSummary();
+                        void processQueue();
+                      } else if (["failed", "interrupted"].includes(job.status)) {
+                        clearInterval(timer);
+                        if (cloud) clearRequest(songTaskId, payloadItem.request_id);
+                        item.running = false;
+                        item.done = true;
+                        item.row.textContent = `${clip.title} (${clip.aspect_ratio}): ${job.error || "Export failed"}`;
+                        updateSummary();
+                        void processQueue();
+                      } else {
+                        item.row.textContent = `${clip.title} (${clip.aspect_ratio}): Rendering… ${prog}%`;
+                      }
+                    } catch (error) {
+                      if (++failures >= 3) {
+                        clearInterval(timer);
+                        item.running = false;
+                        item.done = true;
+                        item.row.textContent = `${clip.title} (${clip.aspect_ratio}): ${error.message}`;
+                        updateSummary();
+                        void processQueue();
+                      }
+                    } finally {
+                      busy = false;
+                    }
+                  }, 1000);
+                } catch (submitErr) {
+                  item.started = true;
+                  item.done = true;
+                  item.row.textContent = `${clip.title} (${clip.aspect_ratio}): ${submitErr.message}`;
+                  updateSummary();
+                }
+              }
+            } finally {
+              queueRunning = false;
+            }
+          }
+
+          const queueTicker = setInterval(() => {
+            const hasWaiting = queue.some(q => !q.started && !q.done);
+            if (!hasWaiting) {
+              clearInterval(queueTicker);
+              return;
+            }
+            void processQueue();
+          }, 3000);
+
+          await processQueue();
           return;
         }
         if (selectedClips.length === 1) {
