@@ -66,6 +66,7 @@ class Workspace:
             on_write=self.persist, on_delete=self.remove,
             input_root=self.root, public_exports=False,
             before_render=self.before_render, on_render_finish=self.on_render_finish,
+            prepare_render=self.prepare_render, render_record=self.render_record, cancel_render=self.cancel_render,
             on_render_heartbeat=self.on_render_heartbeat,
         ))
 
@@ -105,12 +106,55 @@ class Workspace:
                     if data.get('status') == 'done' and video.is_file():
                         if not self.on_render_heartbeat(data['id']):
                             raise RuntimeError('Render lease expired before publication')
-                        from src.export_library import record_export
                         task_id = self.validate(path).relative_to(self.root.resolve()).parts[0]
-                        asyncio.run(record_export(data['id'], self.uid, task_id, self.object_key(video),
-                            kind='rhythm' if data.get('scene') == 'rhythm' else 'poster',
-                            details={'resolution': [data.get('width'), data.get('height')],
-                                     'duration': data.get('total', 0)/30, 'size_bytes': video.stat().st_size}))
+                        async def publish():
+                            from src.export_jobs import sessions
+                            from src.motion_billing import publish as publish_credits
+                            video_key=self.object_key(video)
+                            if not await self.storage.exists(video_key) or await self.storage.get_size(video_key) != video.stat().st_size:
+                                raise RuntimeError('Uploaded video verification failed')
+                            async with sessions() as db:
+                                await publish_credits(db,self.uid,data['id'],task_id,video_key,
+                                    'rhythm' if data.get('scene') == 'rhythm' else 'poster',
+                                    {'resolution':[data.get('width'),data.get('height')],
+                                     'duration':data.get('total',0)/30,'size_bytes':video.stat().st_size})
+                                await db.commit()
+                        asyncio.run(publish())
+
+    def prepare_render(self, request, job_id, *, busy=False):
+        # Keep Rhythm and old zero-price clients backward compatible.
+        if request.scene == 'rhythm' or (not request.request_id and not get_settings().MOTION_EXPORT_CREDITS):
+            if busy: raise HTTPException(409,'已有视频正在导出，请等待完成或取消')
+            self.before_render(request.project_id,job_id)
+            return {'id':job_id,'replay':False}
+        from src.export_jobs import sessions
+        from src.motion_billing import admit
+        async def reserve():
+            async with sessions() as db:
+                result=await admit(db,self.uid,request.project_id,job_id,request,busy=busy)
+                await db.commit()
+                return result
+        return asyncio.run(reserve())
+
+    def render_record(self, job_id):
+        from src.export_jobs import sessions
+        from src.motion_billing import status
+        async def read():
+            async with sessions() as db:
+                result=await status(db,self.uid,job_id)
+                await db.commit()
+                return result
+        return asyncio.run(read())
+
+    def cancel_render(self, job_id):
+        from src.export_jobs import sessions
+        from src.motion_billing import finish
+        async def cancel():
+            async with sessions() as db:
+                result=await finish(db,self.uid,job_id,cancelled=True)
+                await db.commit()
+                return result
+        return asyncio.run(cancel())
 
     def before_render(self, project_id, job_id):
         from src.export_jobs import sessions
@@ -124,19 +168,22 @@ class Workspace:
     def on_render_heartbeat(self, job_id):
         from src.export_jobs import sessions
         from src.queue_limiter import heartbeat_motion
-        async def heartbeat():
+        from src.motion_billing import heartbeat
+        async def renew():
             async with sessions() as db:
-                alive = await heartbeat_motion(db, self.uid, job_id)
+                result=await heartbeat(db,self.uid,job_id)
+                if result is None:
+                    result=await heartbeat_motion(db,self.uid,job_id)
                 await db.commit()
-                return alive
-        return asyncio.run(heartbeat())
+                return result
+        return asyncio.run(renew())
 
     def on_render_finish(self, job_id, success):
         from src.export_jobs import sessions
-        from src.queue_limiter import release_motion
+        from src.motion_billing import finish
         async def release():
             async with sessions() as db:
-                await release_motion(db, self.uid, job_id)
+                await finish(db,self.uid,job_id,success)
                 await db.commit()
         asyncio.run(release())
 

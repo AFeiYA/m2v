@@ -75,6 +75,7 @@ async function saveSettings(){
  if(selected===id&&sequence===loadSequence&&JSON.stringify(settingsSnapshot())===snapshot)settingsDirty=false;
 }
 async function saveAll(){
+ if(exportQueueRunning)throw Error('Finish or cancel the export queue before saving a new design.');
  if(!selected||saving)return;
  const id=selected;saving=true;updateSaveState();
  try{
@@ -86,6 +87,7 @@ async function saveAll(){
 }
 function requireSaved(){if(dirty||identityDirty||settingsDirty)throw new Error('Save your current preview using the top Save button before continuing.');}
 async function load(id:string){
+ if(exportQueueRunning&&id!==selected){$<HTMLSelectElement>('project-select').value=selected;status('Cancel or finish the export queue before switching songs.');return;}
  if((dirty||identityDirty||settingsDirty)&&id!==selected&&!window.confirm('Switch songs and discard unsaved preview changes?')){$<HTMLSelectElement>('project-select').value=selected;return;}
  if(!id){loadSequence++;return;}
  const sequence=++loadSequence;
@@ -94,6 +96,7 @@ async function load(id:string){
   audio.pause();playing=false;$('play').textContent='▶';status('Loading song and audio…');
   const result=await api('project?project_id='+encodeURIComponent(id));
   if(sequence!==loadSequence)return;
+  if(exportQueueRunning&&id!==selected){$<HTMLSelectElement>('project-select').value=selected;return;}
   project=normalizeProject(result.project);plan=result.plan;ruleSeed=result.rule_seed||null;selected=id;dirty=false;identityDirty=false;settingsDirty=false;
   {const v=result.settings||initialSettings;Object.assign(options,{aspect:v.aspect,height:v.height,post:v.post,bloom:v.bloom,shake:v.shake});
    for(const key of ['aspect','resolution','post','bloom','shake']){const node=$<HTMLInputElement>(key);if(key==='post')node.checked=options.post;else node.value=String(key==='resolution'?options.height:options[key as 'aspect'|'bloom'|'shake']);}
@@ -119,6 +122,8 @@ async function load(id:string){
   $<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';
   $('analysis-status').textContent=project.analysis.energy_curve.length?`Audio analysis ready · ${project.analysis.beats.length} beats · Estimated ${project.analysis.bpm} BPM`:'No audio analysis yet. Run it in Lyric Editor.';
   refresh();listCues();populateExportMatrix();await loadExports();
+  motionQuote=null;
+  if(cloudService())await refreshMotionPrice().catch(error=>{if($('motion-credit-price'))$('motion-credit-price').textContent=error.message;});
   if(sequence===loadSequence)status(result.plan_error||((plan?'Saved director plan loaded':'Choose a style and generate a director plan')+(audioCached?' · Audio loaded from local cache':'')));
  }catch(error){if(sequence===loadSequence)throw error;}
 }
@@ -147,6 +152,33 @@ function previewHighlight(single=false){
 }
 $('highlight-mode').onchange=action(()=>previewHighlight());$('cue-highlight').onchange=action(()=>previewHighlight(true));
 let cancelExportQueue = false;
+let exportQueueRunning = false;
+let motionQuote:{projectId:string;cost:number}|null=null;
+const motionRequestIds=new Map<string,string>();
+
+async function refreshMotionPrice(checkChange=false){
+ if(!cloudService())return 0;
+ const id=selected,previous=motionQuote;
+ const data=await serviceJson('/api/credits?page_size=1');
+ const cost=data.pricing?.motion_export;
+ if(id!==selected)throw Error('Song changed. Please review the export selection.');
+ if(!Number.isInteger(cost)||cost<0)throw Error('Unable to check Motion export price. Please retry.');
+ motionQuote={projectId:id,cost};updateMatrixCount();
+ if(checkChange&&(!previous||previous.projectId!==id||previous.cost!==cost))throw Error('Export price updated. Review the total and click Export again.');
+ return cost;
+}
+
+async function motionRequestId(projectId:string,body:object,revision:string){
+ const bytes=new TextEncoder().encode(JSON.stringify([projectId,revision,body]));
+ const digest=await window.crypto.subtle.digest('SHA-256',bytes);
+ const signature=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
+ const key='m2v_motion_export:'+projectId+':'+signature;
+ let id=motionRequestIds.get(key);
+ try{id=localStorage.getItem(key)||id;}catch{}
+ if(!id){id=window.crypto.randomUUID();motionRequestIds.set(key,id);try{localStorage.setItem(key,id);}catch{}}
+ return {id,key};
+}
+function clearMotionRequest(key:string){motionRequestIds.delete(key);try{localStorage.removeItem(key);}catch{}}
 
 function populateExportMatrix() {
   const container = $('matrix-candidates-list');
@@ -198,12 +230,7 @@ function populateExportMatrix() {
       check.setAttribute?.('aria-label', `${clip.title} ${ratio}`);
       check.addEventListener('change', () => {
         updateMatrixCount();
-        if (check.checked) {
-          options.aspect = ratio;
-          $<HTMLSelectElement>('aspect').value = ratio;
-          settingsDirty = true;
-          refresh();
-        }
+
       });
       card.append(check);
       container.append(card);
@@ -218,6 +245,8 @@ function updateMatrixCount() {
   const isZh = (window as any).currentLocale === 'zh';
   const badge = $('matrix-selected-count');
   if (badge) badge.textContent = `${count} ${isZh ? '已选' : 'selected'}`;
+  const price=$('motion-credit-price');
+  if(price)price.textContent=!cloudService()?'Local export · no cloud credits':motionQuote?.projectId===selected?`${count} videos · ${motionQuote.cost} credits each · ${count*motionQuote.cost} credits total. Failed or cancelled exports return unexpired reserved credits.`:'Export price unavailable. Please retry before rendering.';
   const btn = $<HTMLButtonElement>('export');
   if (btn && !btn.disabled) {
     btn.textContent = custom ? (isZh ? '导出自定义片段' : 'Export Custom Clip') : (isZh ? `导出所选视频 (${count})` : `Export Selected (${count})`);
@@ -225,9 +254,18 @@ function updateMatrixCount() {
 }
 
 async function exportVideo() {
+  if(exportQueueRunning)return;
+  exportQueueRunning=true;
+  try {await runExportVideo();} finally {exportQueueRunning=false;}
+}
+
+async function runExportVideo() {
   if (!selected || !plan) throw new Error('Generate a director plan first.');
   requireSaved();
   if (coverPending) await coverPending;
+  requireSaved();
+  const sourceProject=selected,sourceOptions={...options},sourceRevision=JSON.stringify([project,plan]);
+  const acceptedCost=await refreshMotionPrice(true);
 
   const customRange = Boolean($<HTMLInputElement>('export-custom-range')?.checked);
   const selectedBoxes = customRange ? [] : (typeof document.querySelectorAll === 'function' ? Array.from(document.querySelectorAll<HTMLInputElement>('.matrix-clip-check')).filter(c => c.checked && !c.disabled) : []);
@@ -243,7 +281,7 @@ async function exportVideo() {
   };
   const tasks: QueueTask[] = customRange ? [{
     title: isZh ? '自定义片段' : 'Custom clip',
-    aspect: options.aspect,
+    aspect: sourceOptions.aspect,
     start: Math.max(0, Number($<HTMLInputElement>('clip-start').value || 0)),
     length: Math.max(0.1, Number($<HTMLInputElement>('clip-length').value || 8))
   }] : selectedBoxes.map(box => {
@@ -280,6 +318,7 @@ async function exportVideo() {
   });
 
   let completedCount = 0;
+  const completedRequestKeys:string[]=[];
   const updateSummary = (runningMsg = '') => {
     queueSummary.textContent = `${completedCount}/${tasks.length} ${isZh ? '完成' : 'completed'}${runningMsg ? ' · ' + runningMsg : ''}`;
   };
@@ -298,24 +337,19 @@ async function exportVideo() {
       updateSummary(`${task.title} (${task.aspect})`);
 
       let submittedJobId = '';
+      const renderBody={project_id:sourceProject,aspect:task.aspect,height:sourceOptions.height,
+        bloom:sourceOptions.bloom,shake:sourceOptions.shake,post:sourceOptions.post,start:task.start,length:task.length,
+        ...(cloudService()?{accepted_cost:acceptedCost}:{})};
+      const requestIdentity=cloudService()?await motionRequestId(sourceProject,renderBody,sourceRevision):null;
       while (!cancelExportQueue) {
         try {
-          const res = await api('render', 'POST', {
-            project_id: selected,
-            aspect: task.aspect,
-            height: options.height,
-            bloom: options.bloom,
-            shake: options.shake,
-            post: options.post,
-            start: task.start,
-            length: task.length
-          });
+          const res = await api('render','POST',{...renderBody,...(requestIdentity?{request_id:requestIdentity.id}:{})});
           submittedJobId = res.id;
           jobId = res.id;
           break;
         } catch (err: any) {
           const msg = err?.message || String(err);
-          if (/已有视频正在导出|slots are full|409/i.test(msg)) {
+          if (/已有视频正在导出|slots are full|Render capacity is full/i.test(msg)) {
             text.textContent = `${task.title} (${task.aspect}): ${isZh ? '等待通道空闲…' : 'Waiting for render slot…'}`;
             await new Promise(r => setTimeout(r, 1500));
             continue;
@@ -324,13 +358,20 @@ async function exportVideo() {
         }
       }
 
-      if (cancelExportQueue) break;
+      if (cancelExportQueue) {
+        const outcome=submittedJobId?await api('render/'+submittedJobId+'/cancel','POST').catch(()=>null):null;
+        if(requestIdentity&&['cancelled','failed'].includes(outcome?.status))clearMotionRequest(requestIdentity.key);
+        if(outcome?.status!=='done'){text.textContent=`${task.title} (${task.aspect}): Cancel requested`;break;}
+      }
 
       for (;;) {
         if (cancelExportQueue) {
-          await api('render/' + submittedJobId + '/cancel', 'POST').catch(() => {});
-          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '已取消' : 'Cancelled'}`;
-          break;
+          const outcome=await api('render/' + submittedJobId + '/cancel', 'POST').catch(() => null);
+          if(requestIdentity&&['cancelled','failed'].includes(outcome?.status))clearMotionRequest(requestIdentity.key);
+          if(outcome?.status!=='done'){
+            text.textContent = `${task.title} (${task.aspect}): ${isZh ? '取消已请求' : 'Cancel requested'}`;
+            break;
+          }
         }
         const job = await api('render/' + submittedJobId);
         const statusText = job.status === 'running'
@@ -348,6 +389,7 @@ async function exportVideo() {
 
         if (job.status === 'done') {
           completedCount++;
+          if(requestIdentity)completedRequestKeys.push(requestIdentity.key);
           const dlUrl = motionUrl('render/' + submittedJobId + '/download');
           const dlLink = document.createElement('a');
           dlLink.className = 'dl-link';
@@ -364,21 +406,24 @@ async function exportVideo() {
             downloadLink.onclick = dlLink.onclick;
             downloadLink.hidden = false;
           }
-          await loadExports();
+          await loadExports().catch(error=>console.error(error));
           updateSummary();
           break;
         }
         if (['failed', 'cancelled'].includes(job.status)) {
+          if(requestIdentity)clearMotionRequest(requestIdentity.key);
           updateSummary();
           break;
         }
         await new Promise(r => setTimeout(r, 1000));
       }
     }
+    if(!cancelExportQueue)for(const key of completedRequestKeys)clearMotionRequest(key);
     updateSummary(isZh ? '所有任务已结束' : 'All jobs finished');
     $('export-status').textContent = `${completedCount}/${tasks.length} ${isZh ? '视频导出完成。' : 'videos completed.'} ${cloudService() ? (isZh ? '可在「我的导出」中集中管理。' : 'Manage them in My Exports.') : ''}`;
     if (cloudService()) $('my-exports').hidden = false;
   } finally {
+    jobId='';
     exportBtn.disabled = false;
     cancelBtn.hidden = true;
     updateMatrixCount();

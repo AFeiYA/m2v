@@ -50,115 +50,265 @@
     <!-- 顶部导航 -->
     <header class="workspace-header">
       <div class="header-left">
-        <button id="workspace-menu" class="workspace-menu" aria-label="Toggle navigation" aria-expanded="true" aria-controls="workspace-sidebar">☰</button><a class="workspace-brand" href="#tasks-section">M2V <span>Studio</span></a>
-
+        <button id="workspace-menu" class="workspace-menu" aria-label="Toggle navigation" aria-expanded="true" aria-controls="workspace-sidebar">☰</button>
+        <a class="workspace-brand" href="#tasks-section">
+          <div class="brand-badge-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/>
+              <circle cx="19" cy="19" r="2"/>
+            </svg>
+          </div>
+          <span class="brand-name">sonicflow <span class="brand-tag">STUDIO</span></span>
+        </a>
+        <div class="workspace-breadcrumb">
+          <span class="bc-root">Studio</span>
+          <span class="bc-sep">›</span>
+          <span id="bc-current" class="bc-active">My Library</span>
+        </div>
       </div>
-      <div class="workspace-search"><input id="song-search" type="search" placeholder="Search song titles or artists…" aria-label="Search song titles"></div>
+      <div class="workspace-search">
+        <svg class="search-svg-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="song-search" type="search" placeholder="Search song titles or artists…" aria-label="Search song titles">
+      </div>
       <div class="header-right">
-        <a href="#upload-section" class="btn btn-primary btn-sm">＋ Create video</a>
+        <a href="#upload-section" class="btn btn-primary btn-sm btn-nav-create">＋ New Project</a>
         <span id="user-credits" class="badge"></span>
-        <details class="account-menu"><summary>Account &amp; tools</summary><div>
-          <span id="user-info"></span>
-          <button id="btn-edit-nickname" class="btn btn-sm btn-outline" title="Edit display name">Edit name</button>
-          <a href="#credits-section" class="btn btn-sm">Credit history</a>
-          <a href="/lyric-editor" class="btn btn-sm">Lyric Editor</a>
-          <button id="btn-copy-plugin-token" class="btn btn-sm btn-outline" title="Copy extension sign-in token">Extension token</button>
-          <button id="btn-config-api-app" style="display:none" class="btn btn-sm btn-outline" title="Set backend API address">API settings</button>
-          <button id="btn-logout" class="btn btn-sm btn-outline">Sign out</button>
-        </div></details>
+        <details class="account-menu">
+          <summary>
+            <div class="user-avatar-pill">
+              <div class="avatar-circle">L</div>
+              <span id="header-username-label" class="header-user-text">Account</span>
+              <svg class="user-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
+          </summary>
+          <div>
+            <span id="user-info"></span>
+            <button id="btn-edit-nickname" class="btn btn-sm btn-outline" title="Edit display name">Edit name</button>
+            <a href="#credits-section" class="btn btn-sm">Credit history</a>
+            <a href="/lyric-editor" class="btn btn-sm">Lyric Editor</a>
+            <a href="/motion-studio" class="btn btn-sm">Motion Studio</a>
+            <button id="btn-copy-plugin-token" class="btn btn-sm btn-outline" title="Copy extension sign-in token">Extension token</button>
+            <button id="btn-config-api-app" style="display:none" class="btn btn-sm btn-outline" title="Set backend API address">API settings</button>
+            <button id="btn-logout" class="btn btn-sm btn-outline">Sign out</button>
+          </div>
+        </details>
       </div>
     </header>
 
     <aside id="workspace-sidebar" class="workspace-sidebar" aria-label="Studio navigation">
-      <p class="workspace-label">YOUR WORKSPACE</p>
-      <nav>
-        <a href="#tasks-section" data-workspace-link><span aria-hidden="true">▦</span> My Library</a>
-        <a href="#exports-section" data-workspace-link><span aria-hidden="true">▻</span> Exports</a>
-        <a href="#trash-section" data-workspace-link><span aria-hidden="true">♲</span> Trash</a>
-      </nav>
-      <div class="workspace-sidebar-bottom"><a href="#credits-section" data-workspace-link><span aria-hidden="true">◷</span> Credits &amp; billing</a><p>Import. Create. Share.</p></div>
+      <div class="sidebar-top-section">
+        <p class="workspace-label">WORKSPACE</p>
+        <nav class="sidebar-nav">
+          <a href="#upload-section" data-workspace-link class="sidebar-link">
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+            <span>New Project</span>
+          </a>
+          <a href="#tasks-section" data-workspace-link class="sidebar-link">
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>
+            <span>My Library</span>
+          </a>
+          <a href="#exports-section" data-workspace-link class="sidebar-link">
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg>
+            <span>My Exports</span>
+          </a>
+          <a href="#trash-section" data-workspace-link class="sidebar-link">
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            <span>Trash</span>
+          </a>
+        </nav>
+
+        <p class="workspace-label" style="margin-top: 24px;">STUDIOS</p>
+        <nav class="sidebar-nav">
+          <a href="/lyric-editor" class="sidebar-link external-link" target="_blank" rel="noopener">
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            <span>Lyric Editor</span>
+            <svg class="sidebar-ext-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+          </a>
+          <a href="/motion-studio" class="sidebar-link external-link" target="_blank" rel="noopener">
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span>Motion Studio</span>
+            <svg class="sidebar-ext-arrow" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
+          </a>
+        </nav>
+      </div>
+
+      <div class="workspace-sidebar-bottom">
+        <div class="sidebar-quota-card">
+          <div class="quota-header">
+            <span>Monthly quota</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>
+          </div>
+          <div class="quota-val-row">
+            <span id="sidebar-credits-num">3,000</span> <span class="quota-total">/ 3,000 credits</span>
+          </div>
+          <div class="quota-bar-track">
+            <div id="sidebar-credits-fill" class="quota-bar-fill" style="width: 100%"></div>
+          </div>
+          <a href="#credits-section" data-workspace-link class="quota-upgrade-link">
+            Upgrade / Top up <svg class="inline-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </a>
+        </div>
+        <p class="sidebar-tagline">Import. Create. Share.</p>
+      </div>
     </aside>
     <main id="workspace-content" class="workspace-content">
     <!-- 创作区 (Suno 链接解析 / 本地文件上传) -->
     <section id="upload-section" class="workspace-page" tabindex="-1" hidden>
-      <div class="upload-card">
-        <h2>Turn your song into a lyric video</h2>
-        <p class="creation-guide">Import your song <span>→</span> Check the lyrics <span>→</span> Design &amp; export</p>
+      <div class="upload-hero-wrap">
+        <div class="upload-hero-text">
+          <p class="hero-eyebrow">QUICK START</p>
+          <h1 class="hero-title">Turn music into content<span class="hero-dot">.</span></h1>
+          <p class="hero-subtitle">Paste a Suno song to automatically align lyrics, generate motion posters, and export full-platform videos.</p>
+        </div>
+        <a href="/lyric-editor" class="hero-guide-btn" target="_blank" rel="noopener">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+          Guide &amp; Tips
+        </a>
+      </div>
 
-        <div class="mode-tabs">
-          <button type="button" class="tab-btn active" id="tab-suno">🔗 Suno link</button>
-          <button type="button" class="tab-btn" id="tab-local">📁 Upload files</button>
+      <div class="upload-grid-layout">
+        <div class="upload-card main-import-card">
+          <div class="import-card-header">
+            <div class="import-title-group">
+              <div class="import-icon-box">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></svg>
+              </div>
+              <div>
+                <h2>Import Suno Song</h2>
+                <p class="import-subtitle">Start your video project from a single link</p>
+              </div>
+            </div>
+            <span class="step-badge">STEP 01</span>
+          </div>
+
+          <div class="mode-tabs">
+            <button type="button" class="tab-btn active" id="tab-suno">🔗 Suno link</button>
+            <button type="button" class="tab-btn" id="tab-local">📁 Upload files</button>
+          </div>
+
+          <!-- Mode 1: Suno 链接表单 -->
+          <form id="suno-form">
+            <div class="suno-input-box">
+              <svg class="suno-link-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              <input type="url" id="input-suno-url" placeholder="Paste Suno song link, e.g. https://suno.com/song/..." required>
+              <button type="button" id="btn-paste-suno" class="btn-paste-clip" title="Paste from clipboard">Paste</button>
+            </div>
+            <div class="suno-input-hint">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+              <span>Supports public Suno song URLs</span>
+            </div>
+
+            <details class="import-options"><summary>Advanced import settings</summary>
+            <div class="upload-field" style="margin-bottom: 1rem;">
+              <label for="input-suno-title">Song title (optional; fetched from Suno if blank)</label>
+              <input type="text" id="input-suno-title" placeholder="Song title">
+            </div>
+            <div class="upload-options">
+              <label><input type="checkbox" id="suno-opt-skip-sep"> Skip vocal separation</label>
+              <label><input type="checkbox" id="suno-opt-render-video"> Render video immediately (skip lyric editing)</label>
+              <label><input type="checkbox" id="suno-opt-beat" checked> Analyze rhythm features</label>
+              <select id="suno-opt-lang">
+                <option value="auto" selected>Auto-detect</option>
+                <option value="zh">Chinese</option>
+                <option value="en">English</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+              </select>
+            </div>
+            </details>
+            <button type="submit" id="btn-suno-submit" class="btn btn-hero-primary" style="width:100%;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/></svg>
+              Identify &amp; Align Lyrics ➔
+            </button>
+          </form>
+
+          <!-- Mode 2: 本地上传表单 -->
+          <form id="upload-form" style="display:none">
+            <div class="upload-row">
+              <div class="upload-field">
+                <label for="file-mp3">Audio file (MP3/WAV/FLAC)</label>
+                <input type="file" id="file-mp3" accept=".mp3,.wav,.flac" required>
+              </div>
+              <div class="upload-field">
+                <label for="file-lyrics">Lyrics file (TXT/LRC)</label>
+                <input type="file" id="file-lyrics" accept=".txt,.lrc" required>
+              </div>
+            </div>
+            <div class="upload-row">
+              <div class="upload-field">
+                <label for="local-song-title">Song title (optional; defaults to filename)</label>
+                <input type="text" id="local-song-title" placeholder="Song title">
+              </div>
+              <div class="upload-field">
+                <label for="local-suno-url">Original Suno link (optional)</label>
+                <input type="url" id="local-suno-url" placeholder="https://suno.com/song/...">
+              </div>
+            </div>
+            <div class="upload-options">
+              <label><input type="checkbox" id="opt-skip-sep"> Skip vocal separation (audio is already vocals only)</label>
+              <label><input type="checkbox" id="opt-ass-only"> Generate ASS subtitles only</label>
+              <label><input type="checkbox" id="opt-beat"> Beat effects</label>
+              <select id="opt-lang">
+                <option value="auto" selected>Auto-detect</option>
+                <option value="zh">Chinese</option>
+                <option value="en">English</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+              </select>
+            </div>
+            <button type="submit" id="btn-upload" class="btn btn-hero-primary" style="width:100%;">
+              🚀 Upload &amp; generate
+            </button>
+          </form>
         </div>
 
-        <!-- Mode 1: Suno 链接表单 -->
-        <form id="suno-form">
-          <div class="upload-field" style="margin-bottom: 1rem;">
-            <label for="input-suno-url">Suno song link (required)</label>
-            <input type="url" id="input-suno-url" placeholder="https://suno.com/song/xxx or https://suno.com/s/xxx" required style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
+        <!-- Right: Formats Preview Card -->
+        <div class="content-formats-card">
+          <div class="formats-card-header">
+            <h3>Content Formats</h3>
+            <span class="formats-badge">Auto</span>
           </div>
-          <details class="import-options"><summary>Import settings</summary>
-          <div class="upload-field" style="margin-bottom: 1rem;">
-            <label for="input-suno-title">Song title (optional; fetched from Suno if blank)</label>
-            <input type="text" id="input-suno-title" placeholder="Song title" style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
-          </div>
-          <div class="upload-options">
-            <label><input type="checkbox" id="suno-opt-skip-sep"> Skip vocal separation</label>
-            <label><input type="checkbox" id="suno-opt-render-video"> Render video immediately (skip lyric editing)</label>
-            <label><input type="checkbox" id="suno-opt-beat" checked> Analyze rhythm features</label>
-            <select id="suno-opt-lang">
-              <option value="auto" selected>Auto-detect</option>
-              <option value="zh">Chinese</option>
-              <option value="en">English</option>
-              <option value="ja">Japanese</option>
-              <option value="ko">Korean</option>
-            </select>
-          </div>
-          </details>
-          <button type="submit" id="btn-suno-submit" class="btn btn-primary" style="width:100%;">
-            ⚡ Import & align lyrics
-          </button>
-        </form>
-
-        <!-- Mode 2: 本地上传表单 -->
-        <form id="upload-form" style="display:none">
-          <div class="upload-row">
-            <div class="upload-field">
-              <label for="file-mp3">Audio file (MP3/WAV/FLAC)</label>
-              <input type="file" id="file-mp3" accept=".mp3,.wav,.flac" required>
+          <div class="formats-list">
+            <div class="format-item">
+              <div class="format-icon-wrap icon-landscape">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="12" x="3" y="6" rx="2"/><path d="M7 6v12"/><path d="M17 6v12"/></svg>
+              </div>
+              <div class="format-info">
+                <div class="format-title">Landscape Video</div>
+                <div class="format-sub">16:9 · 1080p YouTube MV</div>
+              </div>
+              <span class="format-check">✓</span>
             </div>
-            <div class="upload-field">
-              <label for="file-lyrics">Lyrics file (TXT/LRC)</label>
-              <input type="file" id="file-lyrics" accept=".txt,.lrc" required>
+            <div class="format-item">
+              <div class="format-icon-wrap icon-portrait">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="12" height="18" x="6" y="3" rx="2"/><path d="M6 7h12"/><path d="M6 17h12"/></svg>
+              </div>
+              <div class="format-info">
+                <div class="format-title">Portrait Video</div>
+                <div class="format-sub">9:16 · TikTok / Shorts</div>
+              </div>
+              <span class="format-check">✓</span>
+            </div>
+            <div class="format-item">
+              <div class="format-icon-wrap icon-matrix">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="m20 4-8.12 8.12"/><path d="M8.12 8.12 12 12"/><path d="m20 20-5.2-5.2"/></svg>
+              </div>
+              <div class="format-info">
+                <div class="format-title">Smart Matrix Clips</div>
+                <div class="format-sub">Verse, Chorus &amp; Highlight</div>
+              </div>
+              <span class="format-check">✓</span>
             </div>
           </div>
-          <div class="upload-row">
-            <div class="upload-field">
-              <label for="local-song-title">Song title (optional; defaults to filename)</label>
-              <input type="text" id="local-song-title" placeholder="Song title" style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
-            </div>
-            <div class="upload-field">
-              <label for="local-suno-url">Original Suno link (optional)</label>
-              <input type="url" id="local-suno-url" placeholder="https://suno.com/song/..." style="width:100%; padding:0.75rem 1rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.95rem;">
-            </div>
+          <div class="formats-perks">
+            <div class="perk-row"><span class="perk-dot"></span> Word-level timestamp alignment</div>
+            <div class="perk-row"><span class="perk-dot"></span> Interlude vocal safety protection</div>
+            <div class="perk-row"><span class="perk-dot"></span> Cloud 1080p rendering &amp; R2 delivery</div>
           </div>
-          <div class="upload-options">
-            <label><input type="checkbox" id="opt-skip-sep"> Skip vocal separation (audio is already vocals only)</label>
-            <label><input type="checkbox" id="opt-ass-only"> Generate ASS subtitles only</label>
-            <label><input type="checkbox" id="opt-beat"> Beat effects</label>
-            <select id="opt-lang">
-              <option value="auto" selected>Auto-detect</option>
-              <option value="zh">Chinese</option>
-              <option value="en">English</option>
-              <option value="ja">Japanese</option>
-              <option value="ko">Korean</option>
-            </select>
-          </div>
-          <button type="submit" id="btn-upload" class="btn btn-primary" style="width:100%;">
-            🚀 Upload & generate
-          </button>
-        </form>
+        </div>
       </div>
     </section>
+
 
     <!-- 任务列表 -->
     <section id="tasks-section" class="workspace-page" tabindex="-1">

@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
 const esbuild=require('../motion/node_modules/esbuild');
-const source=fs.readFileSync(path.join(__dirname,'../motion/src/studio.ts'),'utf8')+'\nexport {load,refreshSourceInfo,rules,previewPalette,saveAll,editIdentity,exportVideo}; export const getDraft=()=>plan;';
+const source=fs.readFileSync(path.join(__dirname,'../motion/src/studio.ts'),'utf8')+'\nexport {load,refreshSourceInfo,rules,previewPalette,saveAll,editIdentity,exportVideo,refreshMotionPrice}; export const getDraft=()=>plan;';
 const code=esbuild.transformSync(source,{loader:'ts',format:'cjs',target:'es2022'}).code;
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};}
 function setup(){
@@ -139,4 +139,62 @@ test('Motion Studio exportVideo supports custom range override', async () => {
  assert.equal(s.renders.length, 1);
  assert.equal(s.renders[0].start, 5);
  assert.equal(s.renders[0].length, 12);
+});
+
+async function savedMotion(){
+ const s=await loaded();s.api.rules();const save=s.api.saveAll();s.saves.forEach((d,i)=>d.resolve(s.writes[i].body.plan||{}));await save;return s;
+}
+function selectFull(s){s.context.document.querySelectorAll=()=>[{checked:true,disabled:false,dataset:{clipId:'full',ratio:'9:16'}}];}
+function paidService(s,cost=2){
+ const service=s.context.require('./service-api');service.cloudService=()=>true;
+ service.serviceJson=async()=>({pricing:{motion_export:cost}});
+ s.context.window.crypto=require('node:crypto').webcrypto;s.context.TextEncoder=TextEncoder;
+ const values=new Map();s.context.localStorage={getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
+ return service;
+}
+test('paid matrix sends accepted price and preserves request id after ambiguous submission',async()=>{
+ const s=await savedMotion();selectFull(s);const service=paidService(s);await s.api.refreshMotionPrice();
+ const original=service.motionJson,bodies=[];
+ service.motionJson=async(name,method,body)=>{if(name==='render'&&method==='POST'){bodies.push(body);throw Error('Network lost after acceptance');}return original(name,method,body);};
+ await assert.rejects(s.api.exportVideo(),/Network/);await assert.rejects(s.api.exportVideo(),/Network/);
+ assert.equal(bodies[0].accepted_cost,2);assert.equal(bodies[0].request_id,bodies[1].request_id);
+ assert.match(bodies[0].request_id,/^[0-9a-f-]{36}$/);
+ assert.match(s.nodes.get('motion-credit-price').textContent,/2 credits total/);
+});
+test('price changes require renewed confirmation before any paid render',async()=>{
+ const s=await savedMotion();selectFull(s);const service=paidService(s);await s.api.refreshMotionPrice();
+ service.serviceJson=async()=>({pricing:{motion_export:3}});
+ await assert.rejects(s.api.exportVideo(),/price updated/);assert.equal(s.renders.length,0);
+ await s.api.exportVideo();assert.equal(s.renders[0].accepted_cost,3);
+});
+test('matrix selections do not dirty the saved design',async()=>{
+ const s=await savedMotion();const grid=s.nodes.get('matrix-candidates-list');
+ const checkbox=grid.children[4].children[0];checkbox.checked=true;checkbox.change();selectFull(s);
+ await s.api.exportVideo();assert.equal(s.renders.length,1);
+ assert.equal(s.nodes.get('save-state').dataset.dirty,'false');
+});
+test('export queue keeps its source song and cannot switch projects mid-submit',async()=>{
+ const s=await savedMotion();selectFull(s);const service=s.context.require('./service-api'),original=service.motionJson;
+ service.motionJson=async(name,method,body)=>{if(name==='render'&&method==='POST')await s.api.load('other');return original(name,method,body);};
+ await s.api.exportVideo();assert.equal(s.renders[0].project_id,'song');
+ assert.equal(s.nodes.get('project-select').value,'song');
+});
+test('cancel during submission also cancels the newly accepted render',async()=>{
+ const s=await savedMotion();selectFull(s);const service=s.context.require('./service-api'),original=service.motionJson,accepted=deferred(),calls=[];
+ service.motionJson=async(name,method,body)=>{calls.push(name);return name==='render'&&method==='POST'?accepted.promise:original(name,method,body);};
+ const exporting=s.api.exportVideo();await Promise.resolve();await Promise.resolve();
+ await s.nodes.get('cancel').onclick();accepted.resolve({id:'job-accepted'});await exporting;
+ assert.ok(calls.includes('render/job-accepted/cancel'));
+});
+test('retrying a partially submitted batch reuses completed item identities',async()=>{
+ const s=await savedMotion();
+ s.context.document.querySelectorAll=()=>[{checked:true,dataset:{clipId:'full',ratio:'9:16'}},{checked:true,dataset:{clipId:'chorus',ratio:'16:9'}}];
+ const service=paidService(s);await s.api.refreshMotionPrice();const original=service.motionJson,bodies=[];let fails=true;
+ service.motionJson=async(name,method,body)=>{
+  if(name==='render'&&method==='POST'){bodies.push(body);if(body.start===20&&fails){fails=false;throw Error('Network interrupted during batch');}}
+  return original(name,method,body);
+ };
+ await assert.rejects(s.api.exportVideo(),/Network/);await s.api.exportVideo();
+ assert.equal(bodies[0].request_id,bodies[2].request_id);
+ assert.equal(bodies[1].request_id,bodies[3].request_id);
 });

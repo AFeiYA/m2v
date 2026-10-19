@@ -17,6 +17,9 @@
         if (link.getAttribute('href') === '#' + active) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
       });
+      const titles = {'tasks-section':'My Library','exports-section':'My Exports','upload-section':'New Project','trash-section':'Trash','credits-section':'Credits & Billing'};
+      const bc = document.getElementById('bc-current');
+      if (bc) bc.textContent = titles[active] || 'My Library';
       if (active === 'credits-section') window.m2vBilling?.refresh();
       if (active === 'trash-section') document.getElementById('version-trash').open = true;
       if (active !== 'exports-section') document.getElementById('btn-close-export-preview')?.click();
@@ -37,6 +40,15 @@
     });
     search.addEventListener('input', () => {
       if (location.hash !== '#tasks-section') location.hash = 'tasks-section';
+    });
+    document.getElementById('btn-paste-suno')?.addEventListener('click', async () => {
+      try {
+        const text = await navigator.clipboard?.readText?.();
+        if (text) {
+          const input = document.getElementById('input-suno-url');
+          if (input) { input.value = text.trim(); input.dispatchEvent(new Event('input')); }
+        }
+      } catch (_) {}
     });
     navigate();
   });

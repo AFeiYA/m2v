@@ -8,36 +8,40 @@ import tempfile
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from jose import JWTError, jwt
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth import get_current_user_flexible
 from src.database import get_db
-from src.models import Task, User, VideoExport, VersionTrash
+from src.models import Task, User, VideoExport, VersionTrash, SongPreference, TaskStatus
 from src.settings import get_settings
 from src.storage import LocalStorage, S3Storage, get_storage
 
 router = APIRouter(prefix="/api/exports", tags=["My Exports"])
 
 
-async def record_export(export_id, uid, task_id, key, kind="lyric", details=None):
-    # Rendering threads can run on separate loops. The API factory uses NullPool.
-    from src.api_server import async_session
-    async with async_session() as db:
-        task = await db.get(Task, task_id)
-        if not task or task.user_id != uid or await db.get(VersionTrash, task_id):
-            return
-        existing = await db.get(VideoExport, export_id)
-        # Keep deletion tombstones: reloading status files must not resurrect files.
-        if existing:
-            return
-        db.add(VideoExport(id=export_id, user_id=uid, task_id=task_id,
-                           title=task.song_title or task.title, kind=kind,
-                           storage_key=key, details=details or {}))
-        await db.commit()
+async def record_export(export_id, uid, task_id, key, kind="lyric", details=None, *, db=None):
+    if db is None:
+        # Rendering threads use independent event loops and NullPool sessions.
+        from src.api_server import async_session
+        async with async_session() as session:
+            result = await record_export(export_id,uid,task_id,key,kind,details,db=session)
+            await session.commit()
+            return result
+    task = await db.get(Task, task_id)
+    if not task or task.user_id != uid or await db.get(VersionTrash, task_id):
+        return False
+    existing = await db.get(VideoExport, export_id)
+    if existing:
+        return existing.user_id == uid and existing.task_id == task_id and existing.deleted_at is None
+    db.add(VideoExport(id=export_id,user_id=uid,task_id=task_id,
+        title=task.song_title or task.title,kind=kind,storage_key=key,details=details or {}))
+    await db.flush()
+    return True
 
 
 async def owned_export(export_id, uid, db):
@@ -59,13 +63,70 @@ def describe(record):
             "details": {k: v for k, v in (record.details or {}).items() if k != "request_fingerprint"}}
 
 
+def utc_time(value):
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
+async def grouped_exports(db, uid, filters, page, page_size, search='', song_id=''):
+    from src.song_library import identity
+    tasks=(await db.execute(select(Task).where(Task.user_id==uid))).scalars().all()
+    task_map={t.id:t for t in tasks}
+    preferences={p.id:p for p in (await db.execute(select(SongPreference).where(SongPreference.user_id==uid))).scalars()}
+    trashed=set((await db.execute(select(VersionTrash.task_id).where(VersionTrash.user_id==uid))).scalars())
+    versions={}
+    for task in tasks: versions.setdefault(identity(task),[]).append(task)
+    aggregates=(await db.execute(select(VideoExport.task_id,func.count(),func.max(VideoExport.created_at))
+        .where(*filters).group_by(VideoExport.task_id))).all()
+    groups={}
+    for task_id,count,latest in aggregates:
+        task=task_map.get(task_id)
+        key=identity(task) if task else hashlib.sha256(f'{uid}:missing:{task_id}'.encode()).hexdigest()
+        if song_id and key!=song_id: continue
+        group=groups.setdefault(key,{'id':key,'task_ids':[],'count':0,'latest':utc_time(latest)})
+        group['task_ids'].append(task_id);group['count']+=count
+        group['latest']=max(group['latest'],utc_time(latest))
+    for key,group in groups.items():
+        candidates=sorted(versions.get(key,[]),key=lambda t:(utc_time(t.created_at),t.id),reverse=True)
+        editable=[t for t in candidates if t.id not in trashed and t.status==TaskStatus.COMPLETED and t.alignment_json_key]
+        pref=preferences.get(key)
+        current=next((t for t in editable if pref and t.id==pref.preferred_task_id),None) or (editable[0] if editable else None)
+        title_task=current or (candidates[0] if candidates else None)
+        group.update(title=(title_task.song_title or title_task.title or 'Untitled') if title_task else 'Earlier exports',
+            artist=((title_task.config_snapshot or {}).get('library_artist','')) if title_task else '',
+            current_task_id=current.id if current else None,version_count=len(group['task_ids']),exports=[])
+    query=search.strip().casefold()
+    ordered=sorted((g for g in groups.values() if not query or query in (g['title']+' '+g['artist']).casefold()),
+        key=lambda g:(g['latest'],g['id']),reverse=True)
+    total=len(ordered); total_exports=sum(g['count'] for g in ordered)
+    # Clamp after deletion so the last song on a page cannot leave a blank page.
+    page=min(page,max(1,(total+page_size-1)//page_size))
+    selected=ordered[(page-1)*page_size:page*page_size]
+    if selected:
+        mapping={tid:g for g in selected for tid in g['task_ids']}
+        partition=case(*[(VideoExport.task_id.in_(g['task_ids']),g['id']) for g in selected],else_=None)
+        ranked=select(VideoExport.id.label('id'),func.row_number().over(partition_by=partition,
+            order_by=(VideoExport.created_at.desc(),VideoExport.id.desc())).label('position')).where(
+                *filters,VideoExport.task_id.in_(mapping)).subquery()
+        records=(await db.execute(select(VideoExport).join(ranked,VideoExport.id==ranked.c.id)
+            .where(ranked.c.position<=3).order_by(VideoExport.created_at.desc(),VideoExport.id.desc()))).scalars()
+        for record in records: mapping[record.task_id]['exports'].append(describe(record))
+    for group in selected:
+        group['latest_at']=group.pop('latest').isoformat()
+    return {'groups':selected,'total':total,'total_exports':total_exports,'page':page,'page_size':page_size}
+
+
 @router.get("")
 async def list_exports(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=50),
                        task_ids: str = Query('', max_length=20000),
+                       group_by: Literal['none','song'] = 'none',
+                       q: str = Query('',max_length=120),
+                       song_id: str = Query('',max_length=64),
                        user: User = Depends(get_current_user_flexible), db: AsyncSession = Depends(get_db)):
     filters = [VideoExport.user_id == user.id, VideoExport.deleted_at.is_(None)]
     if task_ids:
         filters.append(VideoExport.task_id.in_(task_ids.split(',')))
+    if group_by=='song':
+        return await grouped_exports(db,user.id,filters,page,page_size,q,song_id)
     total = (await db.execute(select(func.count()).select_from(VideoExport).where(*filters))).scalar_one()
     records = (await db.execute(select(VideoExport).where(*filters).order_by(
         VideoExport.created_at.desc(), VideoExport.id.desc()).offset((page-1)*page_size).limit(page_size))).scalars()

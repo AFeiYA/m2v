@@ -60,11 +60,12 @@ Hosted checkout URLs are short-lived and stored in the owner-scoped checkout row
   in the provider portal; use it for cancel/resume, payment details and invoices.
 
 Current product usage pricing remains separate: alignment uses its existing
-credit price; standard lyric exports support quoted reservations/refunds. Motion,
-resolution-specific, excerpt-specific and separation charging are not complete
-across all routes. Keep `MOTION_EXPORT_CREDITS`, `DRAFT_EXPORT_CREDITS`,
-`CLIP_EXPORT_CREDITS` and `SEPARATION_CREDITS` at zero and do not advertise them as
-paid benefits. Before changing prices, verify the charge shown to the user matches
+credit price; standard lyric exports and authenticated Motion Design exports
+support quoted reservations/refunds. Motion uses `MOTION_EXPORT_CREDITS` per
+video, including each matrix cell, independent of aspect/resolution/duration.
+Rhythm Studio remains free. Resolution-specific, excerpt-specific and separation
+surcharges are not complete; keep `DRAFT_EXPORT_CREDITS`, `CLIP_EXPORT_CREDITS`
+and `SEPARATION_CREDITS` at zero. Before changing prices, verify the charge shown to the user matches
 all public rendering paths. Existing downloads and unchanged import reuse are free.
 
 ## Provider setup

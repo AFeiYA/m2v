@@ -101,3 +101,31 @@ billing-period reset behavior.
 - Deploy backend **and** Celery workers together. Old queued tasks without managed
   leases remain compatible. An old worker must not consume new leased tasks during
   rollout, since it lacks the token guard and independent heartbeat.
+
+
+## Motion Design exports
+
+`MOTION_EXPORT_CREDITS` is the fixed cost per authenticated Motion Design video.
+The default stays zero; setting a positive integer enables credit charging after
+matching frontend/backend deployment. There are no additional resolution or clip
+surcharges. Rhythm Studio and local-only renders remain free.
+
+The matrix displays per-video cost and the selected total. Every cell has an
+independent UUID; ambiguous submission retries retain it. A changed price must
+be reviewed again. Paid API requests lacking a UUID or matching `accepted_cost`
+are rejected before starting work. `motion_export_requests` is an additive table
+created at startup. It stores owner, source task, canonical request fingerprint,
+frozen cost, state and a 120-second lease, without storing account credentials.
+
+Admission atomically reserves the render slot and credits. Private video upload
+and size verification precede publication; VideoExport and credit settlement
+commit together. Failures/cancellation release once using the existing monthly
+expiry rules. Successful cancellation cannot revoke an already published video
+or refund delivered work. Worker leases refresh every 10 seconds; stale requests
+are fenced and refunded when credit history, Motion status or another Motion
+admission is read. This is lazy recovery, not a newly provisioned scheduler.
+
+Replaying an accepted UUID returns the same job, including across container
+restarts, without rendering or charging again. A failed/cancelled terminal job
+needs a new UUID for a new attempt. New jobs use current prices; old jobs keep
+their accepted price. Downloads and changing themes locally remain free.

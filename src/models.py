@@ -276,3 +276,16 @@ class MotionRenderLease(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
     lease_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class MotionExportRequest(Base):
+    """Durable owner-scoped request identity and frozen Motion export price."""
+    __tablename__ = "motion_export_requests"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey("users.id"), index=True)
+    task_id: Mapped[str] = mapped_column(String(64), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    cost: Mapped[int] = mapped_column(Integer)
+    state: Mapped[str] = mapped_column(String(16), default="active", index=True)
+    lease_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

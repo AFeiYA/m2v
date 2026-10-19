@@ -349,7 +349,7 @@ def test_provider_transport_prices_api_and_error_redaction(billing,monkeypatch):
 def test_large_webhooks_and_unimplemented_prices_fail_closed(billing,monkeypatch):
     response=billing.client.post('/api/payments/webhook/lemonsqueezy',content=b'x'*65537)
     assert response.status_code==413
-    monkeypatch.setattr(billing.settings,'MOTION_EXPORT_CREDITS',10)
+    monkeypatch.setattr(billing.settings,'DRAFT_EXPORT_CREDITS',10)
     assert billing.client.get('/api/payments/packages',headers=headers()).status_code==503
 
 

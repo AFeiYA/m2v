@@ -355,6 +355,13 @@ async function loadUser() {
       const displayName = currentUser.display_name || currentUser.username;
       $("#user-info").textContent = `👤 ${displayName}`;
       $("#user-credits").textContent = `${currentUser.credits} credits remaining`;
+      if ($("#header-username-label")) $("#header-username-label").textContent = displayName;
+      if ($(".avatar-circle")) $(".avatar-circle").textContent = (displayName || "U").charAt(0).toUpperCase();
+      if ($("#sidebar-credits-num")) $("#sidebar-credits-num").textContent = Number(currentUser.credits || 0).toLocaleString();
+      if ($("#sidebar-credits-fill")) {
+        const pct = Math.min(100, Math.max(0, Math.round(((currentUser.credits || 0) / 3000) * 100)));
+        $("#sidebar-credits-fill").style.width = pct + "%";
+      }
       localStorage.setItem("m2v_user", JSON.stringify({
         id: currentUser.id,
         displayName: displayName,
@@ -1271,6 +1278,11 @@ async function loadCredits(page = creditPage) {
     const available = Number(data.available) || 0, reserved = Number(data.reserved) || 0;
     $("#credit-summary").textContent = `${available} available · ${reserved} reserved. Failed tasks return unused, unexpired credits.`;
     $("#user-credits").textContent = `${available} credits available`;
+    if ($("#sidebar-credits-num")) $("#sidebar-credits-num").textContent = available.toLocaleString();
+    if ($("#sidebar-credits-fill")) {
+      const pct = Math.min(100, Math.max(0, Math.round((available / 3000) * 100)));
+      $("#sidebar-credits-fill").style.width = pct + "%";
+    }
     if (creditExpiryTimer) clearTimeout(creditExpiryTimer);
     creditExpiryTimer = null;
     if (data.wallet) {

@@ -85,6 +85,8 @@ class RhythmSettingsRequest(BaseModel):
     settings: RhythmSettings
 
 class RenderRequest(ProjectRequest):
+    request_id: uuid.UUID | None = None
+    accepted_cost: int | None = Field(default=None, ge=0)
     scene: Literal['poster', 'rhythm'] = 'poster'
     aspect: Literal['16:9', '9:16'] = '16:9'
     height: Literal[360, 720] = 720
@@ -98,7 +100,8 @@ class RenderRequest(ProjectRequest):
 def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/api/motion',
                          resolve_project=None, list_projects=None, audio_url=None,
                          on_write=None, on_delete=None, input_root=None, public_exports=True,
-                         before_render=None, on_render_finish=None, on_render_heartbeat=None):
+                         before_render=None, on_render_finish=None, on_render_heartbeat=None,
+                         prepare_render=None, render_record=None, cancel_render=None):
     router = APIRouter(prefix=prefix)
 
     inputs = input_root if input_root is not None else ROOT / 'input'
@@ -503,13 +506,17 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
         if not node: raise HTTPException(503, '渲染环境缺少 Node.js')
         if not (ROOT / 'frontend/local/remotion/index.html').exists():
             raise HTTPException(503, '请先构建动效前端')
-        with lock:
-            if any(job['status'] in ('running', 'queued') for job in jobs.values()):
-                raise HTTPException(409, '已有视频正在导出，请等待完成或取消')
-
         job_id = uuid.uuid4().hex
-        if before_render is not None:
-            before_render(req.project_id, job_id)
+        with lock:
+            busy = any(job['status'] in ('running','queued') for job in jobs.values())
+        if prepare_render is not None:
+            admission = prepare_render(req,job_id,busy=busy)
+            job_id = admission['id']
+            if admission.get('replay'):
+                return {'id':job_id}
+        elif before_render is not None:
+            if busy: raise HTTPException(409,'已有视频正在导出，请等待完成或取消')
+            before_render(req.project_id,job_id)
 
         outdir = path.parent / 'motion_exports'
         out = outdir / f'{job_id}.mp4'
@@ -727,6 +734,10 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
 
     @router.get('/render/{job_id}')
     def status(job_id: str, sid: str = Depends(resolve_session_id)):
+        durable = render_record(job_id) if render_record is not None else None
+        if durable and (durable['status'] != 'queued' or job_id not in jobs):
+            return durable
+
         if job_id not in jobs:
             candidates = list(get_scan_dir().glob(f'*/motion_exports/{job_id}_status.json'))
             if not candidates:
@@ -737,12 +748,20 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
             return {key: value for key, value in data.items() if key not in ('output', 'session_id')}
         
         job_data = jobs[job_id]
+        if durable and durable['status'] == 'queued' and job_data['status'] == 'done':
+            return {**{key:value for key,value in job_data.items() if key not in ('output','session_id')},
+                    'status':'running','message':'Publishing video and settling credits'}
         if sid != "default" and job_data.get('session_id') and job_data.get('session_id') != sid:
             raise HTTPException(404, '导出任务不存在或无权访问')
         return {key: value for key, value in job_data.items() if key not in ('output', 'session_id')}
 
     @router.post('/render/{job_id}/cancel')
     def cancel(job_id: str, sid: str = Depends(resolve_session_id)):
+        durable_state = cancel_render(job_id) if cancel_render is not None else None
+        if durable_state == 'done':
+            return {'status':'done'}
+        if job_id not in jobs and durable_state is not None:
+            return {'status':durable_state}
         import signal
         with lock:
             if job_id not in jobs: raise HTTPException(404, '导出任务不存在')
@@ -758,6 +777,9 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
 
     @router.get('/render/{job_id}/stream')
     def stream_video(job_id: str, sid: str = Depends(resolve_session_id)):
+        durable = render_record(job_id) if render_record is not None else None
+        if durable and durable['status'] != 'done':
+            raise HTTPException(404,'Video is not published')
         """流式播放视频，若存在 R2 CDN 直链则重定向，否则本地回退"""
         if job_id in jobs:
             if sid != "default" and jobs[job_id].get('session_id') and jobs[job_id].get('session_id') != sid:
@@ -780,6 +802,9 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
 
     @router.get('/render/{job_id}/download')
     def download(job_id: str, sid: str = Depends(resolve_session_id)):
+        durable = render_record(job_id) if render_record is not None else None
+        if durable and durable['status'] != 'done':
+            raise HTTPException(404,'Video is not published')
         if job_id in jobs and jobs[job_id]['status'] == 'done':
             if sid != "default" and jobs[job_id].get('session_id') and jobs[job_id].get('session_id') != sid:
                 raise HTTPException(404, '成片不存在或无权访问')

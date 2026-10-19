@@ -24,7 +24,7 @@ def configured():
         raise HTTPException(404, 'Billing is not enabled')
     if settings.LEMONSQUEEZY_TEST_MODE and not settings.BILLING_ALLOW_TEST_TRANSACTIONS:
         raise HTTPException(503, 'Test billing requires an explicitly isolated test deployment')
-    unsupported=('MOTION_EXPORT_CREDITS','DRAFT_EXPORT_CREDITS','CLIP_EXPORT_CREDITS','SEPARATION_CREDITS')
+    unsupported=('DRAFT_EXPORT_CREDITS','CLIP_EXPORT_CREDITS','SEPARATION_CREDITS')
     if any(getattr(settings,name,0) for name in unsupported):
         raise HTTPException(503, 'Unsupported export pricing must remain zero until route-wide accounting is implemented')
     if not all([settings.LEMONSQUEEZY_API_KEY, settings.LEMONSQUEEZY_WEBHOOK_SECRET,

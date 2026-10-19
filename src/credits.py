@@ -169,6 +169,8 @@ async def history(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, l
                   user: User = Depends(get_current_user), db=Depends(get_db)):
     from src.export_jobs import reconcile
     from src.alignment_execution import reconcile as reconcile_alignment
+    from src.motion_billing import reconcile as reconcile_motion
+    await reconcile_motion(db,user.id)
     await reconcile_alignment(db, user.id)
     await reconcile(db, user.id)
     balance = await lock_balance(db, user.id)
