@@ -7,6 +7,8 @@ const {
   inspectAlignmentTiming,
   snapExcerptToSentenceBounds,
   recommendExcerptCandidates,
+  toggleTimingWarningsVisibility,
+  getTimingWarningsVisible,
 } = require('../local/lyric_editor.js');
 
 test('portrait safe area defines correct bounds and margins', () => {
@@ -211,4 +213,18 @@ test('recommendExcerptCandidates generates scored promotional candidates aligned
   // Candidate start and end must match line boundaries exactly
   assert.equal(chorusCand.start_time, 35.5);
   assert.ok(chorusCand.duration >= 12.0 && chorusCand.duration <= 45.0);
+});
+
+test('toggleTimingWarningsVisibility toggles warnings display across the whole song', () => {
+  assert.equal(typeof toggleTimingWarningsVisibility, 'function');
+  const initial = getTimingWarningsVisible();
+
+  toggleTimingWarningsVisibility(false);
+  assert.equal(getTimingWarningsVisible(), false);
+
+  toggleTimingWarningsVisibility(true);
+  assert.equal(getTimingWarningsVisible(), true);
+
+  // Restore initial state
+  toggleTimingWarningsVisibility(initial);
 });

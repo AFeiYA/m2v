@@ -153,13 +153,14 @@
         <!-- 时间异常审查导航栏（只读诊断，绝不静默篡改有效演唱时间戳） -->
         <div id="timing-review-bar" class="timing-review-bar" style="display: none;">
           <div class="timing-review-summary">
-            <span id="timing-review-badge" class="timing-badge">0 warnings</span>
+            <span id="timing-review-badge" class="timing-badge" title="Click to show or hide warnings">0 warnings</span>
             <span id="timing-review-counts" class="timing-counts"></span>
           </div>
           <div class="timing-review-actions">
-            <button id="btn-prev-anomaly" type="button" title="Jump to previous flagged lyric line">◀ Prev</button>
-            <button id="btn-next-anomaly" type="button" title="Jump to next flagged lyric line">Next ▶</button>
-            <button id="btn-filter-anomalies" type="button" title="Show only lines with timing warnings">Flagged Only</button>
+            <button id="btn-prev-anomaly" class="timing-review-nav-btn" type="button" title="Jump to previous flagged lyric line">◀ Prev</button>
+            <button id="btn-next-anomaly" class="timing-review-nav-btn" type="button" title="Jump to next flagged lyric line">Next ▶</button>
+            <button id="btn-filter-anomalies" class="timing-review-nav-btn" type="button" title="Show only lines with timing warnings">Flagged Only</button>
+            <button id="btn-toggle-warnings" class="btn-toggle-warnings" type="button" title="Show or hide timing warnings across the whole song" data-i18n-title="btn_toggle_warnings_title">👁️ Hide Warnings</button>
           </div>
         </div>
         <div id="lyrics-list"></div>

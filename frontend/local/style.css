@@ -821,12 +821,17 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  padding: 6px 12px;
   margin: 6px 8px 4px 8px;
   background: rgba(234, 88, 12, 0.12);
   border: 1px solid rgba(234, 88, 12, 0.35);
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 11px;
+  transition: all 0.2s ease;
+}
+.timing-review-bar.collapsed-warnings {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 .timing-review-summary {
   display: flex;
@@ -846,38 +851,81 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   font-weight: 700;
   font-size: 10px;
   letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
 }
 .timing-badge.clean {
   background: #10b981;
+}
+.timing-badge.muted {
+  background: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+  font-weight: 600;
+}
+.timing-badge.muted:hover {
+  background: rgba(183, 243, 74, 0.2);
+  color: #b7f34a;
 }
 .timing-counts {
   color: #fdba74;
   font-size: 11px;
 }
+.timing-counts.muted {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+}
 .timing-review-actions {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   flex-shrink: 0;
 }
 .timing-review-actions button {
-  background: #1f2937;
-  border: 1px solid #374151;
-  color: #e5e7eb;
-  padding: 2px 8px;
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: #cbd5e1;
+  padding: 3px 8px;
+  border-radius: 6px;
   font-size: 11px;
   cursor: pointer;
   transition: all 0.15s;
 }
 .timing-review-actions button:hover {
-  background: #374151;
+  background: rgba(255, 255, 255, 0.12);
   color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
 }
 .timing-review-actions button.active {
   background: rgba(234, 88, 12, 0.3);
   border-color: #ea580c;
   color: #ffedd5;
+}
+.timing-review-actions button.btn-toggle-warnings {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
+  font-weight: 500;
+}
+.timing-review-actions button.btn-toggle-warnings:hover {
+  background: rgba(183, 243, 74, 0.15);
+  border-color: rgba(183, 243, 74, 0.4);
+  color: #b7f34a;
+}
+.timing-review-actions button.btn-toggle-warnings.muted-state {
+  background: rgba(183, 243, 74, 0.12);
+  border-color: rgba(183, 243, 74, 0.4);
+  color: #b7f34a;
+  font-weight: 600;
+}
+.timing-review-bar.collapsed-warnings .timing-review-nav-btn {
+  display: none !important;
+}
+#lyrics-panel.timing-warnings-hidden .line-anomaly-badge {
+  display: none !important;
+}
+#lyrics-panel.timing-warnings-hidden #line-timing-warnings {
+  display: none !important;
 }
 
 .line-anomaly-badge {

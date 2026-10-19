@@ -621,6 +621,13 @@ function recommendExcerptCandidates(alignment, options = {}) {
 
 let currentTimingReview = null;
 let flaggedLinesOnlyFilter = false;
+let timingWarningsVisible = (() => {
+  try {
+    return localStorage.getItem("m2v_show_timing_warnings") !== "0";
+  } catch (_) {
+    return true;
+  }
+})();
 
 if (typeof document !== "undefined") {
   document.addEventListener("DOMContentLoaded", () => {
@@ -663,12 +670,14 @@ if (typeof document !== "undefined") {
     dom.trackInst           = $("#track-instrumental");
 
     // Phase 2B review elements
+    dom.lyricsPanel         = $("#lyrics-panel");
     dom.timingReviewBar     = $("#timing-review-bar");
     dom.timingReviewBadge   = $("#timing-review-badge");
     dom.timingReviewCounts  = $("#timing-review-counts");
     dom.btnPrevAnomaly      = $("#btn-prev-anomaly");
     dom.btnNextAnomaly      = $("#btn-next-anomaly");
     dom.btnFilterAnomalies  = $("#btn-filter-anomalies");
+    dom.btnToggleWarnings   = $("#btn-toggle-warnings");
     dom.lineTimingWarnings  = $("#line-timing-warnings");
 
     try {
@@ -812,6 +821,19 @@ function bindLyricEvents() {
       const filterText = window.t ? t("btn_filter_anomalies") : "仅看提示行";
       dom.btnFilterAnomalies.textContent = flaggedLinesOnlyFilter ? allText : filterText;
       renderLyrics();
+    });
+  }
+
+  if (dom.btnToggleWarnings) {
+    dom.btnToggleWarnings.addEventListener("click", () => {
+      toggleTimingWarningsVisibility();
+    });
+  }
+  if (dom.timingReviewBadge) {
+    dom.timingReviewBadge.addEventListener("click", () => {
+      if (!timingWarningsVisible) {
+        toggleTimingWarningsVisibility(true);
+      }
     });
   }
 
@@ -1711,52 +1733,119 @@ function jumpAnomaly(delta) {
   selectLine(target, { seek: true, scroll: true });
 }
 
+function toggleTimingWarningsVisibility(forceState) {
+  timingWarningsVisible = (typeof forceState === "boolean") ? forceState : !timingWarningsVisible;
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("m2v_show_timing_warnings", timingWarningsVisible ? "1" : "0");
+    }
+  } catch (_) {}
+  if (!timingWarningsVisible && flaggedLinesOnlyFilter) {
+    flaggedLinesOnlyFilter = false;
+    if (typeof dom !== "undefined" && dom.btnFilterAnomalies) {
+      dom.btnFilterAnomalies.classList.remove("active");
+      dom.btnFilterAnomalies.textContent = (typeof window !== "undefined" && window.t) ? t("btn_filter_anomalies") : "仅看提示行";
+    }
+  }
+  applyTimingWarningsVisibility();
+  if (typeof updateTimingReviewBar === "function") updateTimingReviewBar();
+  if (typeof renderLyrics === "function") renderLyrics();
+}
+
+function applyTimingWarningsVisibility() {
+  if (typeof dom !== "undefined") {
+    if (dom.lyricsPanel) {
+      dom.lyricsPanel.classList.toggle("timing-warnings-hidden", !timingWarningsVisible);
+    }
+    if (dom.timingReviewBar) {
+      dom.timingReviewBar.classList.toggle("collapsed-warnings", !timingWarningsVisible);
+    }
+  }
+}
+
 function updateTimingReviewBar() {
-  if (!dom.timingReviewBar) return;
+  if (typeof dom === "undefined" || !dom.timingReviewBar) return;
   const lines = state.alignment?.lines || [];
   if (!lines.length) {
     dom.timingReviewBar.style.display = "none";
     return;
   }
-  dom.timingReviewBar.style.display = "flex";
   const review = currentTimingReview || inspectAlignmentTiming(state.alignment);
   const badge = dom.timingReviewBadge;
   const counts = dom.timingReviewCounts;
 
   if (review.total_warnings === 0) {
+    dom.timingReviewBar.style.display = "flex";
+    dom.timingReviewBar.classList.remove("collapsed-warnings");
     if (badge) {
       badge.textContent = window.t ? t("timing_review_none") : "未检测到时间冲突与异常";
-      if (badge.classList) badge.classList.add("clean");
+      badge.className = "timing-badge clean";
+      badge.title = "";
     }
-    if (counts) counts.textContent = "";
+    if (counts) {
+      counts.textContent = "";
+      counts.className = "timing-counts";
+    }
     if (dom.btnPrevAnomaly) dom.btnPrevAnomaly.disabled = true;
     if (dom.btnNextAnomaly) dom.btnNextAnomaly.disabled = true;
     if (dom.btnFilterAnomalies) dom.btnFilterAnomalies.disabled = true;
+    if (dom.btnToggleWarnings) dom.btnToggleWarnings.style.display = "none";
   } else {
-    if (badge) {
-      const badgeTpl = window.t ? t("timing_review_badge", null, { count: review.total_warnings }) : `${review.total_warnings} warnings`;
-      badge.textContent = badgeTpl;
-      if (badge.classList) badge.classList.remove("clean");
+    dom.timingReviewBar.style.display = "flex";
+    if (dom.btnToggleWarnings) dom.btnToggleWarnings.style.display = "inline-flex";
+
+    if (!timingWarningsVisible) {
+      dom.timingReviewBar.classList.add("collapsed-warnings");
+      if (badge) {
+        const badgeTpl = window.t ? t("timing_review_muted_badge", null, { count: review.total_warnings }) : `${review.total_warnings} warnings hidden`;
+        badge.textContent = `⚠ ${badgeTpl}`;
+        badge.className = "timing-badge muted";
+        badge.title = window.t ? t("timing_review_click_to_unmute") : "点击恢复显示全曲时间提示";
+      }
+      if (counts) {
+        counts.textContent = window.t ? t("timing_review_muted_hint") : "已关闭全曲标记 (部分歌词正常无需修复)";
+        counts.className = "timing-counts muted";
+      }
+      if (dom.btnPrevAnomaly) dom.btnPrevAnomaly.disabled = true;
+      if (dom.btnNextAnomaly) dom.btnNextAnomaly.disabled = true;
+      if (dom.btnFilterAnomalies) dom.btnFilterAnomalies.disabled = true;
+      if (dom.btnToggleWarnings) {
+        dom.btnToggleWarnings.textContent = window.t ? t("btn_show_timing_warnings") : "👁️ 显示提示";
+        dom.btnToggleWarnings.classList.add("muted-state");
+      }
+    } else {
+      dom.timingReviewBar.classList.remove("collapsed-warnings");
+      if (badge) {
+        const badgeTpl = window.t ? t("timing_review_badge", null, { count: review.total_warnings }) : `${review.total_warnings} warnings`;
+        badge.textContent = badgeTpl;
+        badge.className = "timing-badge";
+        badge.title = "";
+      }
+      if (counts) {
+        const c = review.counts_by_kind || {};
+        const fmt = window.t ? t("timing_counts_fmt", null, {
+          overlap: c.overlap || 0,
+          compressed: c.compressed_duration || 0,
+          gap: c.excessive_gap || 0,
+          confidence: c.low_confidence || 0,
+        }) : `${c.overlap || 0} overlap · ${c.compressed_duration || 0} compressed · ${c.excessive_gap || 0} gap · ${c.low_confidence || 0} low confidence`;
+        counts.textContent = fmt;
+        counts.className = "timing-counts";
+      }
+      if (dom.btnPrevAnomaly) dom.btnPrevAnomaly.disabled = false;
+      if (dom.btnNextAnomaly) dom.btnNextAnomaly.disabled = false;
+      if (dom.btnFilterAnomalies) dom.btnFilterAnomalies.disabled = false;
+      if (dom.btnToggleWarnings) {
+        dom.btnToggleWarnings.textContent = window.t ? t("btn_hide_timing_warnings") : "👁️ 隐藏提示";
+        dom.btnToggleWarnings.classList.remove("muted-state");
+      }
     }
-    if (counts) {
-      const c = review.counts_by_kind || {};
-      const fmt = window.t ? t("timing_counts_fmt", null, {
-        overlap: c.overlap || 0,
-        compressed: c.compressed_duration || 0,
-        gap: c.excessive_gap || 0,
-        confidence: c.low_confidence || 0,
-      }) : `${c.overlap || 0} overlap · ${c.compressed_duration || 0} compressed · ${c.excessive_gap || 0} gap · ${c.low_confidence || 0} low confidence`;
-      counts.textContent = fmt;
-    }
-    if (dom.btnPrevAnomaly) dom.btnPrevAnomaly.disabled = false;
-    if (dom.btnNextAnomaly) dom.btnNextAnomaly.disabled = false;
-    if (dom.btnFilterAnomalies) dom.btnFilterAnomalies.disabled = false;
   }
 }
 
 function updateLineTimingWarnings(lineIdx) {
-  if (!dom.lineTimingWarnings) return;
-  if (lineIdx < 0 || !currentTimingReview) {
+  if (typeof dom === "undefined" || !dom.lineTimingWarnings) return;
+  if (!timingWarningsVisible || lineIdx < 0 || !currentTimingReview) {
     dom.lineTimingWarnings.style.display = "none";
     dom.lineTimingWarnings.innerHTML = "";
     return;
@@ -1784,12 +1873,13 @@ function updateLineTimingWarnings(lineIdx) {
 }
 
 function renderLyrics() {
-  if (!dom.lyricsList) return;
+  if (typeof dom === "undefined" || !dom.lyricsList) return;
   const lines = state.alignment?.lines || [];
   const sections = state.alignment?.sections || [];
   dom.lyricsList.innerHTML = "";
 
   currentTimingReview = inspectAlignmentTiming(state.alignment);
+  applyTimingWarningsVisibility();
   updateTimingReviewBar();
 
   const flaggedSet = new Set(currentTimingReview?.flagged_line_indices || []);
@@ -1854,7 +1944,7 @@ function renderLyrics() {
       dom.lyricsList.appendChild(secDiv);
     }
 
-    const isFlagged = flaggedSet.has(i);
+    const isFlagged = timingWarningsVisible && flaggedSet.has(i);
     let anomalyBadgeHtml = "";
     if (isFlagged && currentTimingReview?.warnings) {
       const lineWarns = currentTimingReview.warnings.filter(w => w.line_index === i);
@@ -2654,6 +2744,8 @@ if (typeof window !== "undefined") {
   window.inspectAlignmentTiming = inspectAlignmentTiming;
   window.snapExcerptToSentenceBounds = snapExcerptToSentenceBounds;
   window.recommendExcerptCandidates = recommendExcerptCandidates;
+  window.toggleTimingWarningsVisibility = toggleTimingWarningsVisibility;
+  window.getTimingWarningsVisible = () => timingWarningsVisible;
 }
 
 if (typeof module !== "undefined" && module.exports) {
@@ -2664,5 +2756,7 @@ if (typeof module !== "undefined" && module.exports) {
     inspectAlignmentTiming,
     snapExcerptToSentenceBounds,
     recommendExcerptCandidates,
+    toggleTimingWarningsVisibility,
+    getTimingWarningsVisible: () => timingWarningsVisible,
   };
 }
