@@ -406,6 +406,24 @@
           } catch (_) {}
         }
       });
+
+      document.addEventListener("play", (event) => {
+        if (event.target && (event.target.tagName === "AUDIO" || event.target.tagName === "VIDEO")) {
+          const targetOrigin = (window.location.origin && window.location.origin !== "null") ? window.location.origin : "*";
+          try {
+            window.parent?.postMessage({ type: "M2V_MEDIA_PLAY", source: "motion" }, targetOrigin);
+          } catch (_) {}
+        }
+      }, true);
+
+      document.addEventListener("pause", (event) => {
+        if (event.target && (event.target.tagName === "AUDIO" || event.target.tagName === "VIDEO")) {
+          const targetOrigin = (window.location.origin && window.location.origin !== "null") ? window.location.origin : "*";
+          try {
+            window.parent?.postMessage({ type: "M2V_MEDIA_PAUSE", source: "motion" }, targetOrigin);
+          } catch (_) {}
+        }
+      }, true);
     }
     document.addEventListener("click", (e) => {
       const link = e.target.closest("a");

@@ -266,6 +266,16 @@ let trackBlobUrls = [];
 async function loadEditorAudio(player, path, taskId, trackType, version) {
   if (!isCloudMode() && !taskId) return player.load(formatAudioEndpoint(path));
 
+  // 0. 优先从父级 MediaArbiter 共享内存缓存获取
+  try {
+    const sharedMedia = window.parent?.m2vMediaArbiter?.getCachedMedia(taskId, trackType);
+    if (sharedMedia?.url) {
+      console.log(`[m2vMediaArbiter] 共享内存缓存命中音轨: ${trackType} (task=${taskId})`);
+      trackBlobUrls.push(sharedMedia.url);
+      return player.load(sharedMedia.url);
+    }
+  } catch (_) {}
+
   const uid = window.m2vCache ? window.m2vCache.getCurrentUid() : null;
 
   // 1. 优先尝试从本地 IndexedDB 缓存加载 (秒开，0 流量)
@@ -276,6 +286,9 @@ async function loadEditorAudio(player, path, taskId, trackType, version) {
         console.log(`[m2vCache] 本地缓存命中音轨: ${trackType} (task=${taskId})`);
         const url = URL.createObjectURL(cachedBlob);
         trackBlobUrls.push(url);
+        try {
+          window.parent?.m2vMediaArbiter?.cacheMedia(taskId, trackType, { url, blob: cachedBlob });
+        } catch (_) {}
         return player.load(url);
       }
     } catch (e) {
@@ -297,6 +310,9 @@ async function loadEditorAudio(player, path, taskId, trackType, version) {
 
   const url = URL.createObjectURL(blob);
   trackBlobUrls.push(url);
+  try {
+    window.parent?.m2vMediaArbiter?.cacheMedia(taskId, trackType, { url, blob });
+  } catch (_) {}
   return player.load(url);
 }
 
@@ -383,6 +399,20 @@ function initWaveSurfer() {
   ws.on("seeking", () => {
     syncInstToVocals();
     updateTimeDisplay();
+  });
+
+  ws.on("play", () => {
+    try {
+      const origin = (typeof window !== "undefined" && window.location?.origin) ? window.location.origin : "*";
+      window.parent?.postMessage({ type: "M2V_MEDIA_PLAY", source: "lyric" }, origin);
+    } catch (_) {}
+  });
+
+  ws.on("pause", () => {
+    try {
+      const origin = (typeof window !== "undefined" && window.location?.origin) ? window.location.origin : "*";
+      window.parent?.postMessage({ type: "M2V_MEDIA_PAUSE", source: "lyric" }, origin);
+    } catch (_) {}
   });
 
   ws.on("finish", () => {

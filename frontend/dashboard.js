@@ -314,6 +314,11 @@ async function logout() {
       window.m2vStudios.motion?.destroy();
     } catch (_) {}
   }
+  if (window.m2vMediaArbiter) {
+    try {
+      window.m2vMediaArbiter.clearAll();
+    } catch (_) {}
+  }
   window.m2vActiveSong = null;
   if (window.m2vStore) window.m2vStore.clearUser();
   try {

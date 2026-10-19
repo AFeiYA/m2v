@@ -121,11 +121,15 @@
         if (bcSepSong && bcSepSong.style) bcSepSong.style.display = 'none';
       }
 
-      // Studio adapter lifecycle pause for inactive studios
+      // Studio adapter lifecycle pause for inactive studios and media arbiter
       if (currentActiveSection === 'lyric-editor-section' && active !== 'lyric-editor-section') {
         window.m2vStudios?.lyric?.pause();
+        window.m2vMediaArbiter?.pauseAll();
       } else if (currentActiveSection === 'motion-studio-section' && active !== 'motion-studio-section') {
         window.m2vStudios?.motion?.pause();
+        window.m2vMediaArbiter?.pauseAll();
+      } else if (active !== 'lyric-editor-section' && active !== 'motion-studio-section') {
+        window.m2vMediaArbiter?.pauseAll();
       }
       currentActiveSection = active;
 
@@ -202,6 +206,8 @@
       } else if (event.data.type === 'M2V_SONG_CHANGED') {
         const { songId, title } = event.data;
         if (songId) {
+          window.m2vMediaArbiter?.pauseAll();
+          window.m2vMediaArbiter?.revokeMedia();
           setActiveSong({ id: songId, title: title || songId });
           const bcSong = document.getElementById('bc-song-name');
           const bcSep = document.getElementById('bc-sep-song');
