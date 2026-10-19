@@ -1135,13 +1135,37 @@ html {scroll-padding-top:calc(var(--header-height) + 24px)}
   height: 14px;
   flex-shrink: 0;
 }
-.workspace-breadcrumb .bc-song {
+.header-song-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(183, 243, 74, 0.12);
+  border: 1px solid rgba(183, 243, 74, 0.3);
   color: #b7f34a;
+  font-size: 12px;
   font-weight: 600;
-  max-width: 180px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  max-width: 220px;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  margin-left: 8px;
+}
+.workspace-breadcrumb {
+  display: none !important;
+}
+.workspace-menu {
+  display: none !important;
+}
+.workspace-sidebar {
+  display: none !important;
+}
+.workspace-content {
+  margin-left: 0 !important;
+}
+.studio-viewport-bar {
+  display: none !important;
 }
 .workspace-content>.workspace-page.studio-viewport-page {
   max-width: 100% !important;
