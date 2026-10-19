@@ -3,7 +3,7 @@ name = "auto-karaoke-mv"
 version = "0.1.0"
 description = "Auto-Karaoke MV Generator — Suno MP3 + 歌词 → 卡拉OK变色视频"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 
 dependencies = [
