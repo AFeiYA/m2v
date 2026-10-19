@@ -21,23 +21,14 @@ test('portrait safe area defines correct bounds and margins', () => {
   assert.ok(PORTRAIT_SAFE_AREA.unsafe_zones.left);
 });
 
-test('curated themes contain all 5 distinct complete styles with colors and templates', () => {
-  assert.equal(CURATED_EXPORT_THEMES.length, 5);
-  const ids = CURATED_EXPORT_THEMES.map(t => t.id);
-  assert.deepEqual(ids, [
-    'apple_white_ambient',
-    'cyber_neon_bounce',
-    'amber_vinyl_classic',
-    'midnight_ktv_duet',
-    'emerald_minimal_black',
-  ]);
-  CURATED_EXPORT_THEMES.forEach(t => {
-    assert.ok(t.template);
-    assert.ok(t.theme);
-    assert.ok(t.background_mode);
-    assert.match(t.accent, /^#[0-9a-fA-F]{6}$/);
-    assert.ok(t.bg_preview);
-  });
+test('export colors match Motion Design without coupling palette to layout', () => {
+  const palettes = JSON.parse(require("node:fs").readFileSync(require('node:path').join(__dirname,'../motion/src/theme-palettes.json'),'utf8'));
+  assert.deepEqual(CURATED_EXPORT_THEMES.map(t=>t.id),Object.keys(palettes));
+  for (const theme of CURATED_EXPORT_THEMES) {
+    assert.equal(theme.accent,palettes[theme.id].accentDark);
+    assert.equal(theme.bg_preview,palettes[theme.id].backgroundDark);
+    assert.equal(theme.template,undefined);
+  }
 });
 
 test('countVocalUnits counts CJK characters and Latin vowel groups accurately', () => {

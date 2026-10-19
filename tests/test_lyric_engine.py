@@ -96,3 +96,32 @@ def test_api_lyric_video_endpoints(monkeypatch):
             pytest.fail(f"任务执行失败: {state.get('error')}")
 
     assert completed is True
+
+
+def test_motion_palette_matches_ass_and_background(tmp_path):
+    import json
+    from src.subtitle import COLOR_PALETTES
+    from src.lyric_engine import _ass_color_to_hex, build_lyric_video_ffmpeg_cmd
+    palettes = json.loads(Path('frontend/motion/src/theme-palettes.json').read_text())
+    for key, palette in palettes.items():
+        assert _ass_color_to_hex(COLOR_PALETTES[key]['primary']).lower() == palette['accentDark']
+        assert _ass_color_to_hex(COLOR_PALETTES[key]['secondary']).lower() == palette['mutedDark']
+    cmd = build_lyric_video_ffmpeg_cmd(tmp_path/'audio.wav',tmp_path/'lyrics.ass',tmp_path/'video.mp4',tmp_path/'cover.png',1280,720,'solid_black',background_color=palettes['impact']['backgroundDark'])
+    assert any('color=c=#0d120a:s=1280x720' in arg for arg in cmd)
+
+
+def test_landscape_karaoke_fits_one_line_per_slot_without_changing_source(tmp_path):
+    from src.storyboard_schema import AlignmentResult, AlignedLine, WordTimestamp
+    from src.subtitle import generate_ass
+    from src.config import SubtitleConfig
+    words = [WordTimestamp(word='horizon',start=i*.2,end=(i+1)*.2) for i in range(24)]
+    alignment = AlignmentResult(lines=[AlignedLine(text=' '.join(w.word for w in words),start=0,end=4.8,words=words)])
+    before = alignment.model_dump()
+    out = generate_ass(alignment,tmp_path/'fit.ass',config=SubtitleConfig(render_mode='tv',theme='neon',font_size=72,play_res_x=1920,play_res_y=1080))
+    text=out.read_text()
+    events=[line for line in text.splitlines() if line.startswith('Dialogue:')]
+    assert events
+    assert all(r'\N' not in event and r'\q2' in event for event in events)
+    import re
+    assert all(int(size)<72 for size in re.findall(r'\\fs(\d+)', '\n'.join(events)))
+    assert alignment.model_dump() == before

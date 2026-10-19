@@ -454,6 +454,7 @@ def build_lyric_video_ffmpeg_cmd(
     temp_dir: Path | None = None,
     duration_limit: float | None = None,
     start_time: float = 0.0,
+    background_color: str = "#000000",
 ) -> list[str]:
     """构建优化的纯 CPU FFmpeg 动效视频合成命令"""
     ffmpeg_bin = get_ffmpeg_binary()
@@ -469,7 +470,7 @@ def build_lyric_video_ffmpeg_cmd(
 
     if bg_mode == "solid_black":
         # 纯黑极简工作室
-        inputs.extend(["-f", "lavfi", "-i", f"color=c=black:s={width}x{height}:r={fps}"])
+        inputs.extend(["-f", "lavfi", "-i", f"color=c={background_color}:s={width}x{height}:r={fps}"])
         inputs.extend(audio_args)
         filters.append(f"[0:v]subtitles='{escaped_sub}'[v_out]")
 
@@ -759,6 +760,7 @@ def export_lyric_video(
         width=width,
         height=height,
         bg_mode=background_mode,
+        background_color=COLOR_PALETTES.get(theme, {}).get("background", "#000000"),
         temp_dir=song_dir,
         duration_limit=effective_dur,
         start_time=effective_st,

@@ -226,20 +226,20 @@
         <!-- 视频画幅比例与清晰度规格 -->
         <div style="display: grid; grid-template-columns: 1.35fr 1fr; gap: 12px;">
           <div>
-            <label data-i18n="modal_step1_label" style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">1. Video Aspect Ratio</label>
+            <label style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">Preview format</label>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
               <label class="ratio-option active" style="display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #0f1218; border: 1px solid #10b981; border-radius: 8px; cursor: pointer;">
                 <input type="radio" name="export-ratio" value="9:16" checked style="accent-color: #10b981;">
                 <div>
                   <div data-i18n="ratio_9_16_title" style="font-weight: 600; font-size: 12px; color: #fff;">📱 9:16 Vertical</div>
-                  <div data-i18n="ratio_9_16_desc" style="font-size: 10px; color: #8b949e;">TikTok / Reels / Shorts</div>
+                  <div style="font-size: 10px; color: #8b949e;">Apple scroll · automatic layout</div>
                 </div>
               </label>
               <label class="ratio-option" style="display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; cursor: pointer;">
                 <input type="radio" name="export-ratio" value="16:9" style="accent-color: #10b981;">
                 <div>
                   <div data-i18n="ratio_16_9_title" style="font-weight: 600; font-size: 12px; color: #fff;">💻 16:9 Widescreen</div>
-                  <div data-i18n="ratio_16_9_desc" style="font-size: 10px; color: #8b949e;">YouTube / Bilibili</div>
+                  <div style="font-size: 10px; color: #8b949e;">Karaoke dual-line · automatic layout</div>
                 </div>
               </label>
             </div>
@@ -248,18 +248,18 @@
           <div>
             <label style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">Resolution Profile</label>
             <select id="export-resolution-select" style="width: 100%; height: 48px; padding: 0 10px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; color: #fff; font-size: 12px; outline: none;">
-              <option value="1080p">1080p Full HD (1080×1920 — Crisp Typography)</option>
-              <option value="720p">720p Fast Draft (720×1280 — ~2.1× Faster Render)</option>
+              <option value="1080p">1080p · Full HD</option>
+              <option value="720p">720p · Fast draft</option>
             </select>
           </div>
         </div>
 
         <!-- 精选完整主题 + 9:16 竖屏安全区实时预览 -->
-        <div style="display: grid; grid-template-columns: 1fr 190px; gap: 14px; align-items: stretch; padding: 12px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px;">
+        <div id="export-palette-preview" style="display: grid; grid-template-columns: 1fr 190px; gap: 14px; align-items: stretch; padding: 12px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px;">
           <div style="display: flex; flex-direction: column; gap: 10px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
-              <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">Curated Complete Themes (One-Click Preset)</label>
-              <span style="font-size: 11px; color: #64748b;">Sets background + template + palette</span>
+              <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">Motion Design Colors</label>
+              <span style="font-size: 11px; color: #64748b;">Color only · layout follows format</span>
             </div>
             <div id="curated-theme-cards" class="curated-theme-cards"></div>
           </div>
@@ -267,7 +267,7 @@
           <!-- 9:16 竖屏安全区与主题实时预览画布 -->
           <div class="safe-area-preview-wrap">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-              <span style="font-size: 11px; font-weight: 600; color: #cbd5e1;">Theme &amp; Safe Area</span>
+              <span style="font-size: 11px; font-weight: 600; color: #cbd5e1;">Layout guide</span>
               <label style="font-size: 10px; color: #94a3b8; display: flex; align-items: center; gap: 4px; cursor: pointer;">
                 <input id="toggle-safe-area-guides" type="checkbox" checked style="accent-color: #10b981;"> Guides
               </label>
@@ -286,61 +286,16 @@
           </div>
         </div>
 
-        <!-- 视觉背景动效 -->
-        <div>
-          <label data-i18n="modal_step2_label" style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">2. Dynamic Background Style</label>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-            <label class="bg-option active" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0f1218; border: 1px solid #10b981; border-radius: 8px; cursor: pointer;">
-              <input type="radio" name="export-bg" value="full_bleed" checked style="accent-color: #10b981;">
-              <div>
-                <div data-i18n="bg_full_bleed_title" style="font-weight: 600; font-size: 13px; color: #fff;">🖼️ Full-Bleed Immersive Cover (Recommended)</div>
-                <div data-i18n="bg_full_bleed_desc" style="font-size: 11px; color: #8b949e;">Full-screen borderless cover art, highly immersive</div>
-              </div>
-            </label>
-            <label class="bg-option" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; cursor: pointer;">
-              <input type="radio" name="export-bg" value="ken_burns" style="accent-color: #10b981;">
-              <div>
-                <div data-i18n="bg_ken_burns_title" style="font-weight: 600; font-size: 13px; color: #fff;">📷 Gentle Breathing Zoom (Ken Burns)</div>
-                <div data-i18n="bg_ken_burns_desc" style="font-size: 11px; color: #8b949e;">Subtle slow zoom &amp; pan across cover art</div>
-              </div>
-            </label>
-            <label class="bg-option" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; cursor: pointer;">
-              <input type="radio" name="export-bg" value="blurred_ambient" style="accent-color: #10b981;">
-              <div>
-                <div data-i18n="bg_blurred_title" style="font-weight: 600; font-size: 13px; color: #fff;">✨ Frosted Glass Ambient + Floating Cover</div>
-                <div data-i18n="bg_blurred_desc" style="font-size: 11px; color: #8b949e;">Classic frosted glass glow, best for 16:9 landscape</div>
-              </div>
-            </label>
-            <label class="bg-option" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; cursor: pointer;">
-              <input type="radio" name="export-bg" value="vinyl" style="accent-color: #10b981;">
-              <div>
-                <div data-i18n="bg_vinyl_title" style="font-weight: 600; font-size: 13px; color: #fff;">💿 Rotating Vinyl Record</div>
-                <div data-i18n="bg_vinyl_desc" style="font-size: 11px; color: #8b949e;">Retro turntable aesthetic with spinning vinyl disc</div>
-              </div>
-            </label>
-          </div>
-        </div>
-
-        <!-- 歌词排版动效与配色 -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <input type="radio" name="export-bg" value="solid_black" checked hidden>
+        <div hidden>
           <div>
             <label data-i18n="modal_step3_label" style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">3. Lyric Animation Template</label>
-            <select id="export-template-select" style="width: 100%; height: 36px; padding: 0 10px; background: #0f1218; border: 1px solid #2d3342; border-radius: 6px; color: #fff; font-size: 13px; outline: none;">
-              <option value="apple" data-i18n="tpl_apple">🍎 Apple Music Scrolling Focus (Enlarge &amp; Blur)</option>
-              <option value="center_bounce" data-i18n="tpl_center_bounce">⚡ Center Elastic Bounce (Single line with faint next preview)</option>
-              <option value="tv" data-i18n="tpl_tv">🎤 Classic Karaoke Dual-Line (Traditional KTV)</option>
-            </select>
+            <select id="export-template-select" disabled><option value="apple">Portrait · Apple scroll (automatic)</option><option value="tv">Landscape · Karaoke dual-line (automatic)</option></select>
           </div>
 
           <div>
             <label data-i18n="modal_step4_label" style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">4. Color Palette</label>
-            <select id="export-theme-select" style="width: 100%; height: 36px; padding: 0 10px; background: #0f1218; border: 1px solid #2d3342; border-radius: 6px; color: #fff; font-size: 13px; outline: none;">
-              <option value="apple_white" data-i18n="theme_apple_white">⚪ Minimal Pearl White (Cool white &amp; translucent gray)</option>
-              <option value="cyber_neon" data-i18n="theme_cyber_neon">🔷 Cyber Neon (Electric cyan &amp; hot pink)</option>
-              <option value="amber_gold" data-i18n="theme_amber_gold">🟡 Retro Vinyl Gold (Amber gold &amp; caramel brown)</option>
-              <option value="midnight_purple" data-i18n="theme_midnight_purple">🟣 Aurora Purple (Lavender glow &amp; deep purple)</option>
-              <option value="emerald_mint" data-i18n="theme_emerald_mint">🟢 Emerald Mint (Mint green &amp; forest teal)</option>
-            </select>
+            <select id="export-theme-select"><option value="impact">Impact Lime</option><option value="neon">Neon Cyan</option><option value="sunset">Sunset</option><option value="amber">Amber</option><option value="violet">Violet</option><option value="sakura">Sakura</option><option value="monochrome">Monochrome</option></select>
           </div>
         </div>
 
@@ -348,21 +303,17 @@
         <div style="padding: 12px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; display: flex; flex-direction: column; gap: 10px;">
           <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span data-i18n="modal_step5_label" style="font-size: 13px; font-weight: 600; color: #fff;">5. Export Clip Range &amp; Smart Excerpts</span>
-              <span id="export-segment-dur-badge" data-i18n="preset_full_badge" style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 600;">Full Song Export</span>
+              <span style="font-size: 13px; font-weight: 600; color: #fff;">Export matrix · select clips and formats</span>
+              <span hidden id="export-segment-dur-badge" data-i18n="preset_full_badge" style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 600;">Full Song Export</span>
             </div>
             <!-- 乐段速选预设药丸按钮 -->
-            <div id="section-preset-pills" style="display: flex; gap: 6px; flex-wrap: wrap;">
-              <button type="button" class="btn-sec-preset active" data-preset="full" data-i18n="preset_full" style="padding: 3px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #10b981; background: rgba(16, 185, 129, 0.2); color: #10b981; cursor: pointer;">Full Song</button>
-              <button type="button" class="btn-sec-preset" data-preset="chorus" data-i18n="preset_chorus" style="padding: 3px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #2d3342; background: transparent; color: #8b949e; cursor: pointer;">🔥 Chorus Peak</button>
-              <button type="button" class="btn-sec-preset" data-preset="verse1" data-i18n="preset_verse1" style="padding: 3px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #2d3342; background: transparent; color: #8b949e; cursor: pointer;">🎧 Verse 1</button>
-              <button type="button" class="btn-sec-preset" data-preset="custom" data-i18n="preset_custom" style="padding: 3px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #2d3342; background: transparent; color: #8b949e; cursor: pointer;">⏱️ Custom</button>
-            </div>
+
           </div>
 
           <!-- 智能推荐宣发高光片段卡片 -->
-          <div id="excerpt-candidates-list" class="excerpt-candidates-list"></div>
+          <div id="excerpt-candidates-list" class="excerpt-candidates-list"></div><p>Each selection creates a separate video. Highlights are suggestions; adjust the range if needed.</p>
 
+          <details><summary>Custom range</summary><label><input id="export-custom-range" type="checkbox"> Use custom range instead of selected clips</label>
           <!-- 完整歌词句子边界微调控件 (Start Sentence / End Sentence) -->
           <div class="sentence-boundary-box">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
@@ -420,6 +371,7 @@
               <button id="btn-reset-time-range" type="button" data-i18n="btn_reset_range" style="height: 32px; padding: 0 10px; background: #1e293b; border: 1px solid #334155; border-radius: 6px; color: #cbd5e1; font-size: 12px; cursor: pointer;">Reset Full</button>
             </div>
           </div>
+          </details>
         </div>
 
         <p id="lyric-credit-price" role="status" style="font-size:12px;color:#94a3b8"></p>
@@ -437,9 +389,10 @@
         <!-- 成片预览与下载区 -->
         <div id="lyric-result-box" style="display: none; padding: 14px; background: #0f1218; border: 1px solid #10b981; border-radius: 8px; flex-direction: column; align-items: center; gap: 12px;">
           <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
-            <span data-i18n="render_success" style="color: #10b981; font-weight: 600; font-size: 13px;">🎉 Motion video rendered successfully!</span>
+            <span id="lyric-result-heading" style="color: #10b981; font-weight: 600; font-size: 13px;">🎉 Motion video rendered successfully!</span>
             <span id="lyric-result-meta" style="color: #94a3b8; font-size: 11px;"></span>
           </div>
+          <div id="lyric-batch-results" role="status"></div>
           <video id="lyric-modal-video" preload="none" controls playsinline style="max-height: 280px; max-width: 100%; border-radius: 6px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></video>
           <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; width: 100%;">
             <button id="btn-preview-lyric-mp4" type="button" data-i18n="btn_preview_export">Preview video</button>
@@ -462,7 +415,7 @@
 
   <script src="/static/cache.js?v=20261013_cache"></script>
   <script src="/static/common.js?v=20261016_library2"></script>
-  <script src="/static/lyric_editor.js?v=20261016_download"></script>
+  <script src="/static/lyric_editor.js?v=20261019_formats"></script>
 </body>
 
 </html>

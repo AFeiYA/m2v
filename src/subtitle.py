@@ -53,6 +53,20 @@ COLOR_PALETTES: dict[str, dict[str, str]] = {
 }
 
 
+# Shared with Motion Design; legacy ASS themes remain compatible.
+import json as _json
+_MOTION_PALETTES = _json.loads((Path(__file__).resolve().parents[1] / "frontend/motion/src/theme-palettes.json").read_text())
+def _motion_ass(hex_color: str) -> str:
+    color = hex_color.lstrip("#")
+    return "&H00" + color[4:6] + color[2:4] + color[0:2]
+for _key, _palette in _MOTION_PALETTES.items():
+    COLOR_PALETTES[_key] = {
+        "name": _key.title(), "primary": _motion_ass(_palette["accentDark"]),
+        "secondary": _motion_ass(_palette["mutedDark"]), "outline": "&H20000000",
+        "background": _palette["backgroundDark"],
+    }
+
+
 def apply_theme_palette(config: SubtitleConfig) -> SubtitleConfig:
     """如果配置了主题调色板，自动应用颜色"""
     theme = getattr(config, "theme", "apple_white")
@@ -83,6 +97,7 @@ def generate_ass(
         config = SubtitleConfig()
 
     apply_theme_palette(config)
+    alignment = alignment.model_copy(deep=True)  # Render layout must not rewrite saved lyrics.
 
     play_res_x = getattr(config, "play_res_x", 1920)
     play_res_y = getattr(config, "play_res_y", 1080)
@@ -106,7 +121,10 @@ def generate_ass(
     header = _load_template_header(config)
 
     # 自动换行处理 (根据实际视频分辨率自适应边距与最大宽度)
-    alignment = _wrap_lines(alignment, max_width, config.font_size, config.font_name)
+    single_row = config.render_mode == "tv" and not is_portrait
+    if single_row:
+        max_width = int(play_res_x * 0.64)
+    alignment = _wrap_lines(alignment, max_width, config.font_size, config.font_name, single_row=single_row)
     log.info("自动换行后: %d 行 (最大宽度限制: %dpx)", len(alignment.lines), max_width)
 
     # 可选: 检测节奏点
@@ -229,7 +247,7 @@ def resolve_word_spacings(line_text: str, words: list[WordTimestamp]) -> list[st
     return tokens
 
 
-def _wrap_lines(alignment: AlignmentResult, max_width: int, font_size: int, font_name: str) -> AlignmentResult:
+def _wrap_lines(alignment: AlignmentResult, max_width: int, font_size: int, font_name: str, *, single_row: bool = False) -> AlignmentResult:
     """使用 Pillow 计算文本宽度并在单行内插入 \\N 实现自动换行，避免产生新的物理行导致滚动抖动"""
     import platform
     from PIL import ImageFont
@@ -274,6 +292,14 @@ def _wrap_lines(alignment: AlignmentResult, max_width: int, font_size: int, font
             
     for line in alignment.lines:
         tokens = resolve_word_spacings(line.text, line.words)
+        if single_row:
+            text = "".join(tokens).replace("\\N", " ") if tokens else line.text.replace("\\N", " ")
+            measured = float(font.getlength(text))
+            # Fit each lyric into one of the two fixed karaoke rows.
+            line.style_overrides["_render_font_size"] = max(12, int(font_size * min(1, max_width / max(1, measured))))
+            if not line.words:
+                line.text = text
+                continue
         current_width = 0.0
         for i, word in enumerate(line.words):
             token = tokens[i] if i < len(tokens) else word.word
@@ -287,7 +313,7 @@ def _wrap_lines(alignment: AlignmentResult, max_width: int, font_size: int, font
                 except:
                     w_len = len(token_clean) * font_size
             
-            if current_width + w_len > max_width and current_width > 0:
+            if not single_row and current_width + w_len > max_width and current_width > 0:
                 # 换行前去除上一词末尾的多余空格，保持排版优雅
                 if i > 0:
                     line.words[i - 1].word = line.words[i - 1].word.rstrip(" ")
@@ -637,6 +663,7 @@ def _generate_tv_events(
         # 上行靠左(\an4), 下行靠右(\an6)
         an = "\\an4" if is_upper else "\\an6"
         x_pos = x_left if is_upper else x_right
+        font_tag = f"\\fs{line.style_overrides.get('_render_font_size', config.font_size)}\\q2"
 
         # ── 预览阶段 (暗色白字) ──
         if i > 0:
@@ -649,7 +676,7 @@ def _generate_tv_events(
         if preview_end > preview_start + 0.05:
             ass_ps = seconds_to_ass_time(preview_start)
             ass_pe = seconds_to_ass_time(preview_end)
-            dim_tags = f"{an}\\pos({x_pos},{y_pos})\\1c{color_dim}\\1a&H00&"
+            dim_tags = f"{font_tag}{an}\\pos({x_pos},{y_pos})\\1c{color_dim}\\1a&H00&"
             events.append(
                 f"Dialogue: 0,{ass_ps},{ass_pe},{config.style_name},,0,0,0,,"
                 f"{{{dim_tags}}}{line.text}"
@@ -666,9 +693,9 @@ def _generate_tv_events(
         ass_as = seconds_to_ass_time(active_start)
         ass_ae = seconds_to_ass_time(active_end)
 
-        karaoke_text = _build_karaoke(line, active_start)
+        karaoke_text = _build_karaoke(line, active_start) if line.words else line.text
         # \1c = 过光后颜色(已唱=青色), \2c = 过光前颜色(未唱=白色), \1a\2a = 强制不透明
-        active_tags = f"{an}\\pos({x_pos},{y_pos})\\1c{color_sung}\\2c{color_unsunng}\\1a&H00&\\2a&H00&"
+        active_tags = f"{font_tag}{an}\\pos({x_pos},{y_pos})\\1c{color_sung}\\2c{color_unsunng}\\1a&H00&\\2a&H00&"
         events.append(
             f"Dialogue: 0,{ass_as},{ass_ae},{config.style_name},,0,0,0,,"
             f"{{{active_tags}}}{karaoke_text}"

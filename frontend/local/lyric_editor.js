@@ -18,61 +18,98 @@ const PORTRAIT_SAFE_AREA = {
 
 const CURATED_EXPORT_THEMES = [
   {
-    id: "apple_white_ambient",
-    name: "Apple White Ambient",
-    subtitle: "Blurred cover glow + Apple Music scroll focus",
-    template: "apple",
-    theme: "apple_white",
-    background_mode: "blurred_ambient",
-    accent: "#ffffff",
-    secondary: "#94a3b8",
-    bg_preview: "linear-gradient(180deg, #182234 0%, #0d121c 100%)",
+    "id": "impact",
+    "name": "Impact Lime",
+    "subtitle": "Motion Design palette",
+    "theme": "impact",
+    "accent": "#c8ff00",
+    "secondary": "#f4f9ed",
+    "bg_preview": "#0d120a"
   },
   {
-    id: "cyber_neon_bounce",
-    name: "Cyber Neon Bounce",
-    subtitle: "High energy center bounce + electric cyan & pink",
-    template: "center_bounce",
-    theme: "cyber_neon",
-    background_mode: "full_bleed",
-    accent: "#00f0ff",
-    secondary: "#ff007f",
-    bg_preview: "linear-gradient(135deg, #091026 0%, #1f0b2e 100%)",
+    "id": "neon",
+    "name": "Neon Cyan",
+    "subtitle": "Motion Design palette",
+    "theme": "neon",
+    "accent": "#00f0ff",
+    "secondary": "#eef8fc",
+    "bg_preview": "#070e17"
   },
   {
-    id: "amber_vinyl_classic",
-    name: "Amber Vinyl Classic",
-    subtitle: "Spinning vinyl platter + warm gold scroll",
-    template: "apple",
-    theme: "amber_gold",
-    background_mode: "vinyl",
-    accent: "#ffd700",
-    secondary: "#d2691e",
-    bg_preview: "linear-gradient(145deg, #1c1917 0%, #292524 60%, #451a03 100%)",
+    "id": "sunset",
+    "name": "Sunset",
+    "subtitle": "Motion Design palette",
+    "theme": "sunset",
+    "accent": "#ff5028",
+    "secondary": "#fdf2f0",
+    "bg_preview": "#140907"
   },
   {
-    id: "midnight_ktv_duet",
-    name: "Midnight KTV Dual",
-    subtitle: "Ken Burns motion + classic two-line sweep",
-    template: "tv",
-    theme: "midnight_purple",
-    background_mode: "ken_burns",
-    accent: "#e0b0ff",
-    secondary: "#8a2be2",
-    bg_preview: "linear-gradient(145deg, #0f0720 0%, #2e1065 100%)",
+    "id": "amber",
+    "name": "Amber",
+    "subtitle": "Motion Design palette",
+    "theme": "amber",
+    "accent": "#ffbe1a",
+    "secondary": "#faf7ed",
+    "bg_preview": "#141108"
   },
   {
-    id: "emerald_minimal_black",
-    name: "Emerald Minimalist",
-    subtitle: "Pure black studio + high-contrast mint bounce",
-    template: "center_bounce",
-    theme: "emerald_mint",
-    background_mode: "solid_black",
-    accent: "#00ff7f",
-    secondary: "#008040",
-    bg_preview: "linear-gradient(145deg, #050505 0%, #064e3b 100%)",
+    "id": "violet",
+    "name": "Violet",
+    "subtitle": "Motion Design palette",
+    "theme": "violet",
+    "accent": "#c084fc",
+    "secondary": "#f7f1fc",
+    "bg_preview": "#100818"
   },
+  {
+    "id": "sakura",
+    "name": "Sakura",
+    "subtitle": "Motion Design palette",
+    "theme": "sakura",
+    "accent": "#ff5c8a",
+    "secondary": "#fef1f5",
+    "bg_preview": "#160810"
+  },
+  {
+    "id": "monochrome",
+    "name": "Monochrome",
+    "subtitle": "Motion Design palette",
+    "theme": "monochrome",
+    "accent": "#ffffff",
+    "secondary": "#dcdcdc",
+    "bg_preview": "#0d0d0d"
+  }
 ];
+
+function exportTemplateForRatio(ratio) { return ratio === "16:9" ? "tv" : "apple"; }
+
+function buildExportClips(alignment) {
+  const lines = (alignment?.lines || []).filter(l => l.end > l.start);
+  const sections = alignment?.sections || [];
+  const findSection = (pattern) => {
+    const section = sections.find(s => pattern.test(String(s.name || s.label || "").trim().replace(/^\[|\]$/g, "")));
+    if (section) {
+      const index = sections.indexOf(section);
+      const end = Number(section.end ?? sections[index+1]?.start ?? alignment.duration ?? lines.at(-1)?.end);
+      const members = lines.filter(l => l.start >= section.start - .05 && l.start < end);
+      if (members.length) return {start_time:members[0].start,end_time:members.at(-1).end};
+    }
+    const first = lines.findIndex(l => pattern.test(String(l.section || "").trim().replace(/^\[|\]$/g, "")));
+    if (first < 0) return null;
+    let last = first; while (last+1 < lines.length && lines[last+1].section === lines[first].section) last++;
+    return {start_time:lines[first].start,end_time:lines[last].end};
+  };
+  const verse = findSection(/^(?:verse(?:\s*\d+)?|主歌.*)$/i);
+  const chorus = findSection(/^(?:(?:final\s+)?chorus(?:\s*\d+)?|副歌.*)$/i);
+  const best = recommendExcerptCandidates(alignment)[0];
+  return [
+    {id:"full",title:"Full song",available:true,start_time:0,end_time:null},
+    {id:"verse",title:"Verse",available:!!verse,...verse},
+    {id:"chorus",title:"Chorus",available:!!chorus,...chorus},
+    {id:"highlight",title:"Highlight (suggested)",available:!!best,start_time:best?.start_time,end_time:best?.end_time},
+  ];
+}
 
 function countVocalUnits(text) {
   const cleaned = String(text || "").replace(/\\N/g, " ").trim();
@@ -802,6 +839,7 @@ function initLyricExportModal() {
   const resultVideo = $("#lyric-modal-video");
   const btnDownload = $("#btn-download-lyric-mp4");
   const btnPreview = $("#btn-preview-lyric-mp4");
+  const batchResults = $("#lyric-batch-results");
 
   if (!btnOpen || !modal) return;
 
@@ -810,7 +848,8 @@ function initLyricExportModal() {
   let previewSequence = 0;
   const requestCache = new Map();
   const pendingRequest = async (taskId, payload) => {
-    const key = `m2v_export_request:${taskId}`;
+    const optionKey = JSON.stringify(payload);
+    const key = `m2v_export_request:${taskId}:${optionKey}`;
     const source = JSON.stringify(state.alignment || null);
     let revision;
     if (window.crypto?.subtle && typeof TextEncoder !== "undefined") {
@@ -833,9 +872,11 @@ function initLyricExportModal() {
     return previous.id;
   };
   const clearRequest = (taskId, requestId) => {
-    const key = `m2v_export_request:${taskId}`;
-    if (requestCache.get(key)?.id === requestId) requestCache.delete(key);
-    try { if (JSON.parse(localStorage.getItem(key))?.id === requestId) localStorage.removeItem(key); } catch (_) {}
+    for (const [key, item] of requestCache) {
+      if (key.startsWith(`m2v_export_request:${taskId}:`) && item.id === requestId) {
+        requestCache.delete(key); try { localStorage.removeItem(key); } catch (_) {}
+      }
+    }
   };
   const loadCreditQuote = async () => {
     if (!(state.currentFile?.is_saas || state.currentFile?.task_id)) return null;
@@ -847,6 +888,7 @@ function initLyricExportModal() {
     creditQuote = {taskId, cost:data.pricing.lyric_export};
     const label = $("#lyric-credit-price");
     if (label) label.textContent = window.currentLocale === "zh" ? `导出：${creditQuote.cost ? creditQuote.cost+" 积分" : "当前免费"}。失败自动退回预留积分。` : `Export: ${creditQuote.cost ? creditQuote.cost+" credits" : "currently free"}. Failed exports return reserved credits.`;
+    updateBatchPrice();
     return creditQuote;
   };
 
@@ -864,7 +906,8 @@ function initLyricExportModal() {
     if (!container || typeof container.appendChild !== "function") return;
     container.innerHTML = "";
     CURATED_EXPORT_THEMES.forEach((ct) => {
-      const card = document.createElement("div");
+      const card = document.createElement("button");
+      card.type = "button";
       card.className = "curated-theme-card" + (activeCuratedTheme?.id === ct.id ? " active" : "");
       card.dataset.themeId = ct.id;
       card.innerHTML = `
@@ -881,7 +924,7 @@ function initLyricExportModal() {
           if (c.classList) c.classList.toggle("active", c.dataset.themeId === ct.id);
         });
         const tplSelect = $("#export-template-select");
-        if (tplSelect) tplSelect.value = ct.template;
+        if (tplSelect) tplSelect.value = exportTemplateForRatio(document.querySelector('input[name="export-ratio"]:checked')?.value || "9:16");
         const themeSelect = $("#export-theme-select");
         if (themeSelect) themeSelect.value = ct.theme;
         const bgRadio = document.querySelector(`input[name="export-bg"][value="${ct.background_mode}"]`);
@@ -909,11 +952,15 @@ function initLyricExportModal() {
       stage.classList.toggle("landscape", ratio === "16:9");
       stage.classList.toggle("portrait", ratio !== "16:9");
     }
+    const template = $("#export-template-select");
+    if (template) template.value = exportTemplateForRatio(ratio);
     const ct = activeCuratedTheme || CURATED_EXPORT_THEMES[0];
     if (ct && stage.style) {
       stage.style.background = ct.bg_preview || "#0d1117";
     }
+    if ($("#preview-lyric-prev")) $("#preview-lyric-prev").hidden = ratio === "16:9";
     const coverChip = $("#preview-cover-chip");
+    if (coverChip) coverChip.hidden = true;
     if (coverChip && state.currentFile?.cover_path) {
       coverChip.style.backgroundImage = `url('${state.currentFile.cover_path}')`;
     }
@@ -928,35 +975,39 @@ function initLyricExportModal() {
     }
   }
 
+  function updateBatchPrice() {
+    if (!creditQuote) return;
+    const count = $("#export-custom-range")?.checked ? 1 : $$(".export-clip-check").filter(c => c.checked && !c.disabled).length;
+    if ($("#lyric-credit-price")) $("#lyric-credit-price").textContent = `${count} video${count === 1 ? "" : "s"} · ${creditQuote.cost} credits each · ${count * creditQuote.cost} credits total. Failed exports return unexpired reserved credits.`;
+  }
+  $("#export-custom-range")?.addEventListener("change", updateBatchPrice);
   function populateExcerptCandidates() {
     const container = $("#excerpt-candidates-list");
     if (!container || typeof container.appendChild !== "function") return;
     container.innerHTML = "";
-    const candidates = recommendExcerptCandidates(state.alignment);
-    if (!candidates.length) return;
-    candidates.forEach((cand, idx) => {
-      const card = document.createElement("div");
-      card.className = "excerpt-card" + (idx === 0 ? " active" : "");
-      card.dataset.id = cand.id;
-      card.innerHTML = `
-        <div class="excerpt-card-header">
-          <span class="excerpt-card-title">${escHtml(cand.title)}</span>
-          <span class="excerpt-card-dur">${cand.duration.toFixed(1)}s</span>
-        </div>
-        <div class="excerpt-card-preview" title="${escHtml(cand.preview_text)}">${escHtml(cand.preview_text)}</div>
-      `;
-      card.addEventListener("click", () => {
-        $$(".excerpt-card").forEach((c) => {
-          if (c.classList) c.classList.toggle("active", c.dataset.id === cand.id);
+    const clips = buildExportClips(state.alignment);
+    for (const title of ["Clip", "Portrait · Apple", "Landscape · Karaoke"]) {
+      const heading = document.createElement("strong"); heading.textContent = title; container.appendChild(heading);
+    }
+    clips.forEach(clip => {
+      const title = document.createElement("span");
+      title.textContent = `${clip.title} · ${clip.available ? (clip.end_time == null ? "Complete track" : (clip.end_time-clip.start_time).toFixed(1)+"s") : "Not found"}`;
+      container.appendChild(title);
+      for (const ratio of ["9:16", "16:9"]) {
+        const card = document.createElement("label"); card.className = "excerpt-card";
+        const check = document.createElement("input");
+        check.type = "checkbox"; check.className = "export-clip-check";
+        check.dataset.clipId = clip.id; check.dataset.ratio = ratio;
+        check.checked = clip.id === "full" && ratio === "9:16";
+        check.disabled = !clip.available;
+        check.setAttribute("aria-label", `${clip.title} ${ratio}`);
+        check.addEventListener("change", () => {
+          updateBatchPrice();
+          const radio = document.querySelector(`input[name="export-ratio"][value="${ratio}"]`);
+          if (radio) {radio.checked = true;updateLivePreview();}
         });
-        const startInp = $("#export-start-time");
-        const endInp = $("#export-end-time");
-        if (startInp) startInp.value = formatTimeSec(cand.start_time);
-        if (endInp) endInp.value = formatTimeSec(cand.end_time);
-        syncSentenceSelectorsFromTimes(cand.start_time, cand.end_time);
-        updateTimeRangeBadge();
-      });
-      container.appendChild(card);
+        card.appendChild(check); container.appendChild(card);
+      }
     });
   }
 
@@ -1010,6 +1061,8 @@ function initLyricExportModal() {
 
   const openModal = async () => {
     previewSequence++;
+    if (btnPreview) btnPreview.hidden = false;
+    if (btnDownload) btnDownload.hidden = false;
     if (!state.currentFile) {
       alert(window.t ? t("msg_select_song_first") : "请先选择或加载一首歌曲");
       return;
@@ -1069,7 +1122,10 @@ function initLyricExportModal() {
   });
 
   $("#export-template-select")?.addEventListener("change", updateLivePreview);
-  $("#export-theme-select")?.addEventListener("change", updateLivePreview);
+  $("#export-theme-select")?.addEventListener("change", () => {
+    activeCuratedTheme = CURATED_EXPORT_THEMES.find(c => c.id === $("#export-theme-select").value) || CURATED_EXPORT_THEMES[0];
+    populateCuratedThemes(); updateLivePreview();
+  });
 
   $("#export-start-line-select")?.addEventListener("change", (e) => {
     const idx = Number(e.target.value);
@@ -1240,82 +1296,6 @@ function initLyricExportModal() {
     }
   }
 
-  // 乐段预设按钮绑定
-  $$(".btn-sec-preset").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      $$(".btn-sec-preset").forEach((b) => {
-        b.classList.remove("active");
-        b.style.borderColor = "#2d3342";
-        b.style.background = "transparent";
-        b.style.color = "#8b949e";
-      });
-      btn.classList.add("active");
-      btn.style.borderColor = "#10b981";
-      btn.style.background = "rgba(16, 185, 129, 0.2)";
-      btn.style.color = "#10b981";
-
-      const preset = btn.dataset.preset;
-      const startInp = $("#export-start-time");
-      const endInp = $("#export-end-time");
-
-      // 优先从已加载的对齐数据 state.alignment 中读取 sections 与 lines
-      const sections = (state.alignment?.sections && state.alignment.sections.length > 0)
-        ? state.alignment.sections
-        : (state.currentFile?.sections || []);
-      const lines = state.alignment?.lines || [];
-
-      if (preset === "full") {
-        if (startInp) startInp.value = "00:00";
-        if (endInp) endInp.value = "";
-      } else if (preset === "chorus") {
-        let chStart = null;
-        const ch = sections.find((s) => (s.name && s.name.toLowerCase().includes("chorus")) || (s.label && s.label.includes("副歌")));
-        if (ch && typeof ch.start === "number") {
-          chStart = ch.start;
-        } else {
-          const lCh = lines.find((l) => (l.section || "").toLowerCase().includes("chorus") || (l.section || "").includes("副歌"));
-          if (lCh && typeof lCh.start === "number") {
-            chStart = lCh.start;
-          }
-        }
-
-        if (chStart !== null) {
-          const st = chStart;
-          const et = chStart + 30.0;
-          if (startInp) startInp.value = formatTimeSec(st);
-          if (endInp) endInp.value = formatTimeSec(et);
-        } else {
-          const totalD = state.alignment?.duration || state.duration || 60;
-          const st = totalD * 0.35;
-          if (startInp) startInp.value = formatTimeSec(st);
-          if (endInp) endInp.value = formatTimeSec(st + 30.0);
-        }
-      } else if (preset === "verse1") {
-        let v1Start = null;
-        const v1 = sections.find((s) => (s.name && (s.name.toLowerCase().includes("verse") || s.name.toLowerCase().includes("v1"))) || (s.label && s.label.includes("主歌")));
-        if (v1 && typeof v1.start === "number") {
-          v1Start = v1.start;
-        } else {
-          const lV1 = lines.find((l) => (l.section || "").toLowerCase().includes("verse") || (l.section || "").includes("主歌"));
-          if (lV1 && typeof lV1.start === "number") {
-            v1Start = lV1.start;
-          }
-        }
-
-        if (v1Start !== null) {
-          const st = v1Start;
-          const et = v1Start + 30.0;
-          if (startInp) startInp.value = formatTimeSec(st);
-          if (endInp) endInp.value = formatTimeSec(et);
-        } else {
-          if (startInp) startInp.value = "00:00";
-          if (endInp) endInp.value = "00:30";
-        }
-      }
-      updateTimeRangeBadge();
-    });
-  });
-
   $("#export-start-time")?.addEventListener("input", updateTimeRangeBadge);
   $("#export-end-time")?.addEventListener("input", updateTimeRangeBadge);
 
@@ -1344,12 +1324,6 @@ function initLyricExportModal() {
     const endInp = $("#export-end-time");
     if (startInp) startInp.value = "00:00";
     if (endInp) endInp.value = "";
-    $$(".btn-sec-preset").forEach((b) => {
-      b.classList.toggle("active", b.dataset.preset === "full");
-      b.style.borderColor = b.dataset.preset === "full" ? "#10b981" : "#2d3342";
-      b.style.background = b.dataset.preset === "full" ? "rgba(16, 185, 129, 0.2)" : "transparent";
-      b.style.color = b.dataset.preset === "full" ? "#10b981" : "#8b949e";
-    });
     updateTimeRangeBadge();
   });
 
@@ -1366,11 +1340,13 @@ function initLyricExportModal() {
     btnStart.addEventListener("click", async () => {
       if (!state.currentFile) return;
       previewSequence++;
+      if (batchResults) batchResults.innerHTML = "";
+      const sourceFile = state.currentFile;
 
       const ratio = document.querySelector('input[name="export-ratio"]:checked')?.value || "9:16";
       const bg = document.querySelector('input[name="export-bg"]:checked')?.value || "full_bleed";
-      const template = $("#export-template-select")?.value || "apple";
-      const theme = $("#export-theme-select")?.value || "apple_white";
+      const template = exportTemplateForRatio(ratio);
+      const theme = $("#export-theme-select")?.value || "impact";
 
       const st = parseTimeString($("#export-start-time")?.value) || 0.0;
       const et = parseTimeString($("#export-end-time")?.value);
@@ -1395,7 +1371,8 @@ function initLyricExportModal() {
         if (cloud && creditQuote?.taskId !== state.currentFile.task_id) await loadCreditQuote();
         const resPreset = $("#export-resolution-select")?.value || "1080p";
         const snapSentence = Boolean($("#export-snap-sentence")?.checked);
-        const songTaskId = state.currentFile.task_id;
+        if (state.currentFile !== sourceFile) throw Error("Song changed. Reopen the export dialog.");
+        const songTaskId = sourceFile.task_id;
         const payload = {
           ...(cloud ? {accepted_cost:creditQuote.cost} : {json_path: state.currentFile.json_path}),
           aspect_ratio: ratio, template, theme, background_mode: bg,
@@ -1406,6 +1383,60 @@ function initLyricExportModal() {
         }
         if (snapSentence) {
           payload.snap_to_sentence = true;
+        }
+        const customRange = Boolean($("#export-custom-range")?.checked);
+        const selected = customRange ? [] : $$(".export-clip-check").filter(c => c.checked && !c.disabled);
+        if (!customRange && $$(".export-clip-check").length && !selected.length) throw Error("Select at least one clip.");
+        const clips = buildExportClips(state.alignment);
+        const selectedClips = selected.map(c => ({...clips.find(x => x.id === c.dataset.clipId),aspect_ratio:c.dataset.ratio || ratio}));
+        if (selectedClips.length > 1) {
+          let submitted = 0;
+          for (const clip of selectedClips) {
+            const item = {...payload,aspect_ratio:clip.aspect_ratio,template:exportTemplateForRatio(clip.aspect_ratio),start_time:clip.start_time,end_time:clip.end_time,duration_limit:clip.end_time == null ? null : clip.end_time-clip.start_time};
+            if (cloud) item.request_id = await pendingRequest(songTaskId,item);
+            const response = await fetchFn(cloud ? `/api/editor/tasks/${songTaskId}/lyric-video` : "/api/lyric_video/export",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(item)});
+            const data = await response.json();
+            if (!response.ok) throw Error(`${submitted} exports submitted. ${data.detail || "Unable to submit next clip"}. Check My Exports before retrying.`);
+            submitted++;
+            {
+              const row = document.createElement("p"); row.textContent = `${clip.title}: Rendering…`;
+              (batchResults || resultBox).appendChild(row);
+              let busy = false, failures = 0;
+              const timer = setInterval(async () => {
+                if (busy) return; busy = true;
+                try {
+                  const res = await fetchFn(cloud ? `/api/editor/jobs/${data.task_id}` : `/api/lyric_video/task_status?task_id=${data.task_id}`);
+                  if (!res.ok) throw Error(`HTTP ${res.status}`);
+                  const job = await res.json(); failures = 0;
+                  if (job.status === "completed") {
+                    clearInterval(timer); if (cloud) clearRequest(songTaskId,item.request_id); row.textContent = `${clip.title} ${clip.aspect_ratio}: `;
+                    const link = document.createElement("a"); link.textContent = "Download MP4";
+                    link.href = cloud ? "/#exports-section" : job.result.video_url;
+                    if (cloud) {link.textContent = "View in My Exports";link.target = "_blank";} else link.download = `${clip.id}.mp4`;
+                    row.appendChild(link);
+                  } else if (["failed", "interrupted"].includes(job.status)) {
+                    clearInterval(timer); if (cloud) clearRequest(songTaskId,item.request_id); row.textContent = `${clip.title}: ${job.error || "Export failed"}`;
+                  }
+                } catch (error) { if (++failures >= 3) {clearInterval(timer);row.textContent = `${clip.title}: ${error.message}`;} }
+                finally { busy = false; }
+              }, 1000);
+            }
+          }
+          progressBox.style.display = "none"; resultBox.style.display = "flex";
+          if ($("#lyric-result-heading")) $("#lyric-result-heading").textContent = "Exports queued";
+          resultMeta.textContent = `${submitted} exports submitted. ${cloud ? "Follow progress and download each video in My Exports." : "Keep this dialog open for download links."}`;
+          if ($("#lyric-my-exports")) $("#lyric-my-exports").hidden = !cloud;
+          if (resultVideo) { resultVideo.pause(); resultVideo.hidden = true; }
+          if (btnPreview) btnPreview.hidden = true;
+          if (btnDownload) btnDownload.hidden = true;
+          btnStart.disabled = false; btnStart.textContent = "Export videos"; btnStart.style.opacity = "1";
+          return;
+        }
+        if (selectedClips.length === 1) {
+          const clip = selectedClips[0];
+          payload.aspect_ratio = clip.aspect_ratio; payload.template = exportTemplateForRatio(clip.aspect_ratio);
+          payload.start_time = clip.start_time; payload.end_time = clip.end_time;
+          payload.duration_limit = clip.end_time == null ? null : clip.end_time-clip.start_time;
         }
         const requestId = cloud ? await pendingRequest(songTaskId, payload) : null;
         if (cloud) payload.request_id = requestId;
@@ -1449,6 +1480,9 @@ function initLyricExportModal() {
               const result = task.result || {};
               // Rendering completion does not wait for video transfer.
               pollErrors = 3;
+              if ($("#lyric-result-heading")) $("#lyric-result-heading").textContent = "Video ready";
+              if (btnPreview) btnPreview.hidden = false;
+              if (btnDownload) btnDownload.hidden = false;
               resultBox.style.display = "flex";
               const libraryLink = $("#lyric-my-exports");
               if (libraryLink) libraryLink.hidden = !cloud;

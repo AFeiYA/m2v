@@ -923,3 +923,14 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   color: #fff;
 }
 
+
+/* Export format and clip matrix */
+#excerpt-candidates-list {display:grid;grid-template-columns:minmax(0,1.4fr) repeat(2,minmax(0,1fr));gap:8px;align-items:center;}
+#excerpt-candidates-list .excerpt-card {display:flex;align-items:center;gap:10px;padding:14px;justify-content:center;cursor:pointer;}
+#excerpt-candidates-list .excerpt-card:has(input:checked) {border-color:#10b981;background:#12312b;}
+#excerpt-candidates-list .excerpt-card:has(input:disabled) {opacity:.5;cursor:default;}
+#export-template-select, #export-theme-select {width:100%;padding:10px;background:#161b22;color:#e2e8f0;border:1px solid #30363d;border-radius:6px;}
+#lyric-export-modal [hidden] {display:none!important;}
+@media(max-width:540px) {#excerpt-candidates-list {font-size:11px;gap:5px;} #excerpt-candidates-list .excerpt-card {padding:12px 5px;}}
+
+@media(max-width:540px) {#export-palette-preview {grid-template-columns:1fr!important;} #export-palette-preview .safe-area-preview-wrap {display:none;}}

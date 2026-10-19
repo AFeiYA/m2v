@@ -91,3 +91,30 @@ loop. The database makes state durable; it is not an external job queue and does
 not resume a killed FFmpeg process mid-frame. No new credit charges are added.
 Old unfinished TaskStore-only exports cannot be reconstructed into new jobs when
 their settings have already been lost; submit a new export from the saved song.
+
+## Lyric Editor export matrix
+
+The editor offers two automatic layouts: portrait (9:16) uses Apple scrolling
+lyrics; landscape (16:9) uses two alternating karaoke rows. Long landscape lines
+shrink to fit their row rather than creating additional rows. Rendering works on
+a copy of the alignment and does not change the saved text or timings.
+
+Color selection is independent of layout. Motion Design's seven dark palettes
+come from `frontend/motion/src/theme-palettes.json`; ASS rendering uses the same
+accent, muted text and background colors. The classic editor's palette cards are
+checked against that shared definition by frontend tests. Legacy API templates
+and colors remain supported for existing clients.
+
+The matrix has clip rows (full song, first verse, first chorus and a suggested
+highlight) and portrait/landscape columns. Each checked cell submits one normal
+render job, with its own credit reservation and retry identity. The displayed
+price is per video and the total follows the selection. Cloud results use My
+Exports; local batches provide individual download links in the dialog. Partial
+submission failures keep already accepted jobs and tell the user to check My
+Exports before retrying.
+
+Verse/chorus boundaries come from section tags and complete lyric lines.
+Pre-Chorus is not a chorus. Missing sections are disabled; the highlight remains
+a heuristic suggestion, not a verified musical peak. Custom range overrides the
+matrix selections and exports one video in the preview format. Export still
+uses saved audio and alignment; it performs no separation or alignment inference.

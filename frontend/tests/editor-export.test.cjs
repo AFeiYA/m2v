@@ -89,3 +89,46 @@ test('closing the export dialog during preview lookup keeps media stopped',async
  assert.equal(s.elements.get('#lyric-modal-video').src,undefined);
  assert.equal(s.elements.get('#lyric-export-modal').style.display,'none');
 });
+
+test('formats select only Apple portrait and dual-line karaoke landscape', async()=>{
+ const s=setup();
+ s.context.document.querySelector=selector=>selector.includes('export-ratio')?{value:'16:9'}:null;
+ await s.start();
+ assert.equal(s.calls.find(c=>c.url?.endsWith('/lyric-video')).body.template,'tv');
+});
+
+test('clip matrix uses section boundaries and never treats pre-chorus as chorus',()=>{
+ const s=setup();
+ const clips=s.context.buildExportClips({duration:100,sections:[{name:'Pre-Chorus',start:0,end:10},{name:'Verse 1',start:10,end:20},{name:'Chorus',start:20,end:35}],lines:[{text:'pre',start:0,end:8},{text:'verse',start:11,end:19},{text:'chorus',start:21,end:34}]});
+ assert.equal(clips.find(c=>c.id==='verse').start_time,11);
+ assert.equal(clips.find(c=>c.id==='chorus').start_time,21);
+ assert.equal(clips.find(c=>c.id==='chorus').end_time,34);
+ assert.equal(s.context.buildExportClips({lines:[{text:'x',start:0,end:4}]}).find(c=>c.id==='verse').available,false);
+});
+
+test('multiple selected clips submit separate jobs with independent retry ids',async()=>{
+ const s=setup();
+ s.context.document.createElement=()=>({appendChild(){},textContent:''});
+ s.elements.get('#lyric-batch-results').appendChild=()=>{};
+ s.context.$$=selector=>selector==='.export-clip-check'?[{checked:true,dataset:{clipId:'full'}},{checked:true,dataset:{clipId:'chorus'}}]:[];
+ s.context.state.alignment={sections:[{name:'Chorus',start:20,end:35}],lines:[{text:'hook',start:21,end:34}]};
+ await s.start();
+ let jobs=s.calls.filter(c=>c.url?.endsWith('/lyric-video'));
+ assert.equal(jobs.length,2);assert.equal(jobs[0].body.start_time,0);assert.equal(jobs[0].body.end_time,null);
+ assert.equal(jobs[1].body.start_time,21);assert.equal(jobs[1].body.end_time,34);
+ assert.notEqual(jobs[0].body.request_id,jobs[1].body.request_id);
+ await s.start();jobs=s.calls.filter(c=>c.url?.endsWith('/lyric-video'));
+ assert.equal(jobs[0].body.request_id,jobs[2].body.request_id);
+ assert.equal(jobs[1].body.request_id,jobs[3].body.request_id);
+});
+
+test('same clip in both formats becomes Apple portrait and Karaoke landscape',async()=>{
+ const s=setup();
+ // Batch progress rows use DOM elements in the browser.
+ s.context.document.createElement=()=>({appendChild(){},textContent:''});
+ s.elements.get('#lyric-batch-results').appendChild=()=>{};
+ s.context.$$=selector=>selector==='.export-clip-check'?[{checked:true,dataset:{clipId:'full',ratio:'9:16'}},{checked:true,dataset:{clipId:'full',ratio:'16:9'}}]:[];
+ await s.start();const jobs=s.calls.filter(c=>c.url?.endsWith('/lyric-video'));
+ assert.equal(jobs.length,2);assert.equal(jobs[0].body.template,'apple');assert.equal(jobs[0].body.aspect_ratio,'9:16');
+ assert.equal(jobs[1].body.template,'tv');assert.equal(jobs[1].body.aspect_ratio,'16:9');
+});
