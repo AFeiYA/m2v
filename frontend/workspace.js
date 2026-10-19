@@ -63,9 +63,19 @@
 
       const isStudio = (active === 'lyric-editor-section' || active === 'motion-studio-section');
       if (isStudio) {
-        if (typeof app.classList?.add === 'function') app.classList.add('in-studio-mode');
+        if (typeof app.classList?.add === 'function') {
+          app.classList.add('in-studio-mode');
+          app.classList.add('navigation-collapsed');
+        }
+        if (menu?.setAttribute) menu.setAttribute('aria-expanded', 'false');
       } else {
-        if (typeof app.classList?.remove === 'function') app.classList.remove('in-studio-mode');
+        if (typeof app.classList?.remove === 'function') {
+          app.classList.remove('in-studio-mode');
+          if (typeof window !== 'undefined' && !window.matchMedia?.('(max-width: 700px)').matches) {
+            app.classList.remove('navigation-collapsed');
+            if (menu?.setAttribute) menu.setAttribute('aria-expanded', 'true');
+          }
+        }
       }
 
       // Toggle page visibility
@@ -245,6 +255,26 @@
     menu.addEventListener('click', () => {
       const collapsed = app.classList.toggle('navigation-collapsed');
       menu.setAttribute('aria-expanded', String(!collapsed));
+    });
+
+    document.getElementById('btn-sidebar-close')?.addEventListener('click', () => {
+      menu?.click();
+    });
+
+    document.getElementById('workspace-backdrop')?.addEventListener('click', () => {
+      if (typeof app.classList?.contains === 'function' && !app.classList.contains('navigation-collapsed')) {
+        menu?.click();
+      }
+    });
+
+    document.querySelectorAll('#workspace-sidebar [data-workspace-link]').forEach(link => {
+      link.addEventListener('click', () => {
+        const isMobile = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 700px)').matches;
+        const inStudio = typeof app.classList?.contains === 'function' && app.classList.contains('in-studio-mode');
+        if ((isMobile || inStudio) && typeof app.classList?.contains === 'function' && !app.classList.contains('navigation-collapsed')) {
+          menu?.click();
+        }
+      });
     });
 
     search.addEventListener('input', () => {

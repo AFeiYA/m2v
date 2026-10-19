@@ -47,10 +47,19 @@
 
   <!-- ========== 主界面 ========== -->
   <div id="app" style="display:none">
-    <!-- 顶部导航 -->
-    <header class="workspace-header">
-      <div class="header-left">
-        <button id="workspace-menu" class="workspace-menu" aria-label="Toggle navigation" aria-expanded="true" aria-controls="workspace-sidebar" style="display:none">☰</button>
+    <!-- 浮动抽屉呼出按钮 (侧边栏收起时在左上角展示，一键展开抽屉) -->
+    <button id="workspace-menu" class="workspace-drawer-toggle" aria-label="Toggle navigation drawer" aria-expanded="true" aria-controls="workspace-sidebar" title="Toggle navigation drawer">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="3" y1="12" x2="21" y2="12"></line>
+        <line x1="3" y1="6" x2="21" y2="6"></line>
+        <line x1="3" y1="18" x2="21" y2="18"></line>
+      </svg>
+    </button>
+
+    <!-- 左侧抽屉式侧边栏 (承载全部工作台导航与流水线流程，0 占用顶部纵向空间) -->
+    <aside id="workspace-sidebar" class="workspace-sidebar" aria-label="Studio navigation">
+      <!-- 侧边栏顶部：品牌 Logo 与 折叠抽屉按钮 -->
+      <div class="sidebar-header">
         <a class="workspace-brand" href="#tasks-section">
           <div class="brand-badge-icon">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -60,39 +69,73 @@
           </div>
           <span class="brand-name">sonicflow <span class="brand-tag">STUDIO</span></span>
         </a>
-        <span id="bc-song-name" class="header-song-pill" style="display:none"></span>
-        <div class="workspace-breadcrumb" style="display:none">
-          <a class="bc-root" href="#tasks-section">Studio</a>
-          <span class="bc-sep">›</span>
-          <span id="bc-sep-song" class="bc-sep" style="display:none">›</span>
-          <span id="bc-current" class="bc-active">My Library</span>
-        </div>
-        <nav class="studio-header-tabs" id="studio-header-tabs" aria-label="Studio views">
-          <a href="#tasks-section" data-workspace-link class="studio-tab-btn" id="tab-nav-library">
-            <svg class="tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
-            <span class="tab-text">Library</span>
+        <button type="button" class="sidebar-close-btn" id="btn-sidebar-close" aria-label="Collapse drawer" title="Collapse drawer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+      </div>
+
+      <!-- 激活歌曲指示胶囊 (进入工坊时展示) -->
+      <div id="bc-song-name" class="sidebar-song-pill" style="display:none"></div>
+
+      <!-- 快捷创建项目按钮 -->
+      <a href="#upload-section" data-workspace-link class="btn btn-primary btn-sm btn-sidebar-create">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+        <span>＋ New Project</span>
+      </a>
+
+      <!-- 核心流程管道 (1 歌曲库 -> 2 歌词工坊 -> 3 动效分镜 -> 4 成片导出) -->
+      <div class="sidebar-section-wrap">
+        <p class="sidebar-section-label">PIPELINE FLOW</p>
+        <nav class="sidebar-flow-nav" id="studio-header-tabs" aria-label="Creation pipeline">
+          <a href="#tasks-section" data-workspace-link class="sidebar-flow-btn studio-tab-btn" id="tab-nav-library">
+            <span class="flow-num-badge">1</span>
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+            <span class="tab-text">Song Library</span>
           </a>
-          <a href="#lyric-editor-section" data-workspace-link class="studio-tab-btn" id="tab-nav-lyric">
-            <svg class="tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          <a href="#lyric-editor-section" data-workspace-link class="sidebar-flow-btn studio-tab-btn" id="tab-nav-lyric">
+            <span class="flow-num-badge">2</span>
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             <span class="tab-text">Lyric Studio</span>
           </a>
-          <a href="#motion-studio-section" data-workspace-link class="studio-tab-btn" id="tab-nav-motion">
-            <svg class="tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <a href="#motion-studio-section" data-workspace-link class="sidebar-flow-btn studio-tab-btn" id="tab-nav-motion">
+            <span class="flow-num-badge">3</span>
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             <span class="tab-text">Motion Studio</span>
           </a>
-          <a href="#exports-section" data-workspace-link class="studio-tab-btn" id="tab-nav-exports">
-            <svg class="tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg>
-            <span class="tab-text">Exports</span>
+          <a href="#exports-section" data-workspace-link class="sidebar-flow-btn studio-tab-btn" id="tab-nav-exports">
+            <span class="flow-num-badge">4</span>
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg>
+            <span class="tab-text">My Exports</span>
           </a>
         </nav>
       </div>
-      <div class="workspace-search">
-        <svg class="search-svg-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-        <input id="song-search" type="search" placeholder="Search song titles or artists…" aria-label="Search song titles">
+
+      <!-- 搜索歌曲 -->
+      <div class="sidebar-search-box">
+        <div class="workspace-search">
+          <svg class="search-svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="song-search" type="search" placeholder="Search song titles..." aria-label="Search song titles">
+        </div>
       </div>
-      <div class="header-right">
-        <a href="#upload-section" class="btn btn-primary btn-sm btn-nav-create">＋ New Project</a>
-        <span id="user-credits" class="badge"></span>
+
+      <!-- 侧边栏底部：配额额度卡片与用户账户菜单 -->
+      <div class="workspace-sidebar-bottom">
+        <div class="sidebar-quota-card">
+          <div class="quota-header">
+            <span>Quota &amp; Credits</span>
+            <span id="user-credits" class="badge"></span>
+          </div>
+          <div class="quota-val-row">
+            <span id="sidebar-credits-num">3,000</span> <span class="quota-total">/ 3,000 credits</span>
+          </div>
+          <div class="quota-bar-track">
+            <div id="sidebar-credits-fill" class="quota-bar-fill" style="width: 100%"></div>
+          </div>
+          <a href="#credits-section" data-workspace-link class="quota-upgrade-link">
+            Upgrade / Top up <svg class="inline-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
+          </a>
+        </div>
+
         <details class="account-menu">
           <summary>
             <div class="user-avatar-pill">
@@ -105,70 +148,18 @@
             <span id="user-info"></span>
             <button id="btn-edit-nickname" class="btn btn-sm btn-outline" title="Edit display name">Edit name</button>
             <a href="#credits-section" class="btn btn-sm">Credit history</a>
-            <a href="#lyric-editor-section" class="btn btn-sm" data-workspace-link>Lyric Editor</a>
-            <a href="#motion-studio-section" class="btn btn-sm" data-workspace-link>Motion Studio</a>
+            <a href="#trash-section" class="btn btn-sm" data-workspace-link>Trash</a>
             <button id="btn-copy-plugin-token" class="btn btn-sm btn-outline" title="Copy extension sign-in token">Extension token</button>
             <button id="btn-config-api-app" style="display:none" class="btn btn-sm btn-outline" title="Set backend API address">API settings</button>
             <button id="btn-logout" class="btn btn-sm btn-outline">Sign out</button>
           </div>
         </details>
       </div>
-    </header>
-
-    <aside id="workspace-sidebar" class="workspace-sidebar" aria-label="Studio navigation">
-      <div class="sidebar-top-section">
-        <p class="workspace-label">WORKSPACE</p>
-        <nav class="sidebar-nav">
-          <a href="#upload-section" data-workspace-link class="sidebar-link">
-            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-            <span>New Project</span>
-          </a>
-          <a href="#tasks-section" data-workspace-link class="sidebar-link">
-            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>
-            <span>My Library</span>
-          </a>
-          <a href="#exports-section" data-workspace-link class="sidebar-link">
-            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg>
-            <span>My Exports</span>
-          </a>
-          <a href="#trash-section" data-workspace-link class="sidebar-link">
-            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-            <span>Trash</span>
-          </a>
-        </nav>
-
-        <p class="workspace-label" style="margin-top: 24px;">STUDIOS</p>
-        <nav class="sidebar-nav">
-          <a href="#lyric-editor-section" data-workspace-link class="sidebar-link">
-            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-            <span>Lyric Editor</span>
-          </a>
-          <a href="#motion-studio-section" data-workspace-link class="sidebar-link">
-            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            <span>Motion Studio</span>
-          </a>
-        </nav>
-      </div>
-
-      <div class="workspace-sidebar-bottom">
-        <div class="sidebar-quota-card">
-          <div class="quota-header">
-            <span>Monthly quota</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></svg>
-          </div>
-          <div class="quota-val-row">
-            <span id="sidebar-credits-num">3,000</span> <span class="quota-total">/ 3,000 credits</span>
-          </div>
-          <div class="quota-bar-track">
-            <div id="sidebar-credits-fill" class="quota-bar-fill" style="width: 100%"></div>
-          </div>
-          <a href="#credits-section" data-workspace-link class="quota-upgrade-link">
-            Upgrade / Top up <svg class="inline-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg>
-          </a>
-        </div>
-        <p class="sidebar-tagline">Import. Create. Share.</p>
-      </div>
     </aside>
+
+    <!-- 抽屉半透明遮罩背景 (仅在移动端或Studio中打开侧边栏时生效) -->
+    <div id="workspace-backdrop" class="workspace-drawer-backdrop" aria-hidden="true"></div>
+
     <main id="workspace-content" class="workspace-content">
     <!-- 创作区 (Suno 链接解析 / 本地文件上传) -->
     <section id="upload-section" class="workspace-page" tabindex="-1" hidden>
