@@ -65,16 +65,10 @@
       if (isStudio) {
         if (typeof app.classList?.add === 'function') {
           app.classList.add('in-studio-mode');
-          app.classList.add('navigation-collapsed');
         }
-        if (menu?.setAttribute) menu.setAttribute('aria-expanded', 'false');
       } else {
         if (typeof app.classList?.remove === 'function') {
           app.classList.remove('in-studio-mode');
-          if (typeof window !== 'undefined' && !window.matchMedia?.('(max-width: 700px)').matches) {
-            app.classList.remove('navigation-collapsed');
-            if (menu?.setAttribute) menu.setAttribute('aria-expanded', 'true');
-          }
         }
       }
 
@@ -270,8 +264,7 @@
     document.querySelectorAll('#workspace-sidebar [data-workspace-link]').forEach(link => {
       link.addEventListener('click', () => {
         const isMobile = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 700px)').matches;
-        const inStudio = typeof app.classList?.contains === 'function' && app.classList.contains('in-studio-mode');
-        if ((isMobile || inStudio) && typeof app.classList?.contains === 'function' && !app.classList.contains('navigation-collapsed')) {
+        if (isMobile && typeof app.classList?.contains === 'function' && !app.classList.contains('navigation-collapsed')) {
           menu?.click();
         }
       });
