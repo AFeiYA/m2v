@@ -393,7 +393,7 @@ async def plugin_direct_export_video(
     song_id: str = Form(""),
     tags: str = Form(""),
     url: str = Form(""),
-    is_public: bool = Form(True),
+    is_public: bool | str | None = Form(True),
     aspect_ratio: str = Form("9:16"),
     template: str = Form("apple"),
     theme: str = Form("apple_white"),
@@ -425,6 +425,10 @@ async def plugin_direct_export_video(
     from src.lyric_engine import export_lyric_video
 
     # 1. 严格检查公开状态 (Publish)
+    if is_public is None:
+        is_public = True
+    elif isinstance(is_public, str):
+        is_public = is_public.strip().lower() not in ("false", "0", "no", "off")
     if not is_public:
         raise HTTPException(
             status_code=400,

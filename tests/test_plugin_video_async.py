@@ -44,13 +44,14 @@ def test_submit_returns_before_fetch_and_keeps_progress(monkeypatch, tmp_path):
     monkeypatch.setattr(lyric_engine, 'export_lyric_video', render)
     client = TestClient(local_editor.app)
     try:
-        payload = {'song_id': 'fake', 'title': 'original', 'request_id': str(uuid.uuid4())}
+        payload = {'song_id': 'fake', 'title': 'original', 'request_id': str(uuid.uuid4()), 'is_public': 'true'}
         response = client.post('/api/plugin/export_video', data=payload)
-        assert response.status_code == 200
+        assert response.status_code == 200, response.text
         task_id = response.json()['task_id']
         assert entered.wait(1)
         # Retrying after a lost submission response uses the same worker.
         duplicate = client.post('/api/plugin/export_video', data=payload)
+        assert duplicate.status_code == 200, duplicate.text
         assert duplicate.json()['task_id'] == task_id
         conflict = client.post('/api/plugin/export_video', data={**payload, 'title': 'other'})
         assert conflict.status_code == 409
@@ -73,8 +74,8 @@ def test_early_pipeline_failure_is_reported_on_task(monkeypatch, tmp_path):
         raise suno_fetch.SongNotPublishedError('not published')
     monkeypatch.setattr(suno_fetch, 'fetch_song', fetch)
     client = TestClient(local_editor.app)
-    response = client.post('/api/plugin/export_video', data={'song_id': 'private'})
-    assert response.status_code == 200
+    response = client.post('/api/plugin/export_video', data={'song_id': 'private', 'is_public': 'true'})
+    assert response.status_code == 200, response.text
     task = wait_task(client, response.json()['task_id'])
     assert task['status'] == 'failed'
     assert task['error'] == 'not published'
