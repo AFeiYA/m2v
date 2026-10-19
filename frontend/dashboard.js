@@ -309,6 +309,7 @@ async function logout() {
     if (motionIframe.dataset) delete motionIframe.dataset.loadedSongId;
   }
   window.m2vActiveSong = null;
+  if (window.m2vStore) window.m2vStore.clearUser();
   try {
     if (typeof sessionStorage !== "undefined") {
       sessionStorage.removeItem("m2v_active_song");
@@ -334,6 +335,7 @@ window.openLyricStudio = function(songId, songTitle) {
   if (songId) {
     const title = songTitle || (window.librarySongs?.get(songId)?.title) || songId;
     window.m2vActiveSong = { id: songId, title: title };
+    if (window.m2vStore) window.m2vStore.setActiveSong(window.m2vActiveSong);
     try {
       if (typeof sessionStorage !== "undefined") {
         sessionStorage.setItem("m2v_active_song", JSON.stringify(window.m2vActiveSong));
@@ -370,6 +372,7 @@ window.openMotionStudio = function(songId, songTitle) {
   if (songId) {
     const title = songTitle || (window.librarySongs?.get(songId)?.title) || songId;
     window.m2vActiveSong = { id: songId, title: title };
+    if (window.m2vStore) window.m2vStore.setActiveSong(window.m2vActiveSong);
     try {
       if (typeof sessionStorage !== "undefined") {
         sessionStorage.setItem("m2v_active_song", JSON.stringify(window.m2vActiveSong));
@@ -499,6 +502,7 @@ async function loadUser() {
         displayName: displayName,
         email: currentUser.email,
       }));
+      if (window.m2vStore) window.m2vStore.setUser(currentUser, authProvider);
       return true;
     }
     userLoadError = res.status >= 500

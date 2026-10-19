@@ -21,6 +21,7 @@
     }
 
     function getActiveSong() {
+      if (window.m2vStore) return window.m2vStore.getState().song.activeSong;
       if (window.m2vActiveSong) return window.m2vActiveSong;
       try {
         if (typeof sessionStorage !== 'undefined') {
@@ -31,6 +32,7 @@
     }
 
     function setActiveSong(song) {
+      if (window.m2vStore) window.m2vStore.setActiveSong(song);
       window.m2vActiveSong = song;
       try {
         if (typeof sessionStorage !== 'undefined') {
@@ -56,6 +58,7 @@
           }
         } catch (_) {}
       }
+      if (window.m2vStore) window.m2vStore.setActiveSection(active);
 
       const isStudio = (active === 'lyric-editor-section' || active === 'motion-studio-section');
       if (isStudio) {

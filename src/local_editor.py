@@ -2326,6 +2326,7 @@ def root_workspace():
 @app.get("/dashboard.css")
 @app.get("/dashboard.js")
 @app.get("/workspace.js")
+@app.get("/workspace-store.js")
 @app.get("/billing.js")
 @app.get("/firebase-config.js")
 def serve_root_asset(request: Request):
