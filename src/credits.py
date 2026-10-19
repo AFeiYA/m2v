@@ -16,6 +16,7 @@ from src.auth import get_current_user
 from src.database import get_db
 from src.models import CreditEntry, CreditReservation, User
 from src.settings import get_settings
+from src import credit_lots as lots
 
 router = APIRouter(prefix="/api/credits", tags=["Credits"])
 
@@ -31,7 +32,7 @@ async def lock_balance(db, uid):
                                .values(credits=User.credits).returning(User.credits))).scalar_one_or_none()
     if balance is None:
         raise HTTPException(404, "Account not found")
-    return balance
+    return await lots.expire_available(db, uid, balance)
 
 
 async def opening(db, uid, balance=None):
@@ -80,6 +81,8 @@ async def reserve(db, uid, operation_id, kind, amount):
         reservation = CreditReservation(id=reservation_id, user_id=uid, operation_id=operation_id,
                                          kind=kind, amount=cost, state="held", attempt=1)
         db.add(reservation)
+    await db.flush()
+    await lots.allocate(db, reservation)
     labels = {
         "lyric_export": "Lyric video export",
         "motion_export": "Motion Studio export",
@@ -101,8 +104,9 @@ async def finish(db, uid, operation_id, kind, success):
         return False
     await opening(db, uid, balance)
     event = "settle" if success else "release"
+    returned = 0 if success else await lots.release(db, reservation)
     if not success:
-        balance += reservation.amount
+        balance += returned
         await db.execute(update(User).where(User.id == uid).values(credits=balance))
     reservation.state = "settled" if success else "released"
     labels = {
@@ -114,8 +118,9 @@ async def finish(db, uid, operation_id, kind, success):
         "clip_export": "Excerpt clip export",
     }
     label = labels.get(kind, "Lyric video export" if kind == "lyric_export" else "Lyrics alignment")
-    entry(db, reservation, event, 0 if success else reservation.amount, balance,
-          label+(" · completed" if success else " · reserved credits returned"))
+    entry(db, reservation, event, returned, balance,
+          label+(" · completed" if success else " · reserved credits returned")+
+          (f" · {reservation.amount-returned} monthly credits expired" if not success and returned<reservation.amount else ""))
     await db.flush()
     return True
 
@@ -135,7 +140,8 @@ async def legacy_refund(db, uid, task_id, amount):
     await db.flush()
 
 
-async def grant(db, uid, amount, reference, description="Credits added by administrator"):
+async def grant(db, uid, amount, reference, description="Credits added by administrator", *,
+                lot_origin=None, expires_at=None, source_group=None, period_start=None):
     """Trusted server/CLI use only; never expose this as a public top-up API."""
     if amount <= 0 or not reference or len(reference) > 128:
         raise ValueError("A positive amount and a reference (1–128 characters) are required")
@@ -149,9 +155,12 @@ async def grant(db, uid, amount, reference, description="Credits added by admini
         return False
     balance += amount
     await db.execute(update(User).where(User.id == uid).values(credits=balance))
+    if lot_origin:
+        await lots.add(db,uid,lot_origin,amount,expires_at,source_group,period_start)
     db.add(CreditEntry(id=event_id, user_id=uid, operation_id=reference, kind="account", event="grant",
                        amount=amount, balance_after=balance, description=description[:255]))
     await db.flush()
+    await lots.expire_available(db,uid,balance)
     return True
 
 
@@ -179,6 +188,7 @@ async def history(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, l
                         "description": row.description, "created_at": date.isoformat()})
     settings = get_settings()
     return {"available": balance, "reserved": reserved, "entries": entries,
+            "wallet": await lots.wallet(db,user.id,balance),
             "total": total, "page": page, "page_size": page_size,
             "pricing": {
                 "alignment": 1,

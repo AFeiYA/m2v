@@ -281,6 +281,8 @@ async function logout() {
   if($("#version-trash"))$("#version-trash").open=false;
   exportSongFilter=null;
   creditSequence++;
+  if (creditExpiryTimer) clearTimeout(creditExpiryTimer);
+  creditExpiryTimer = null;
   if ($("#credit-history")) $("#credit-history").innerHTML = "";
   if ($("#credit-summary")) $("#credit-summary").textContent = "";
   if ($("#credit-pricing")) $("#credit-pricing").textContent = "";
@@ -1256,6 +1258,7 @@ function initExportLibrary() {
 
 let creditPage = 1;
 let creditSequence = 0;
+let creditExpiryTimer = null;
 async function loadCredits(page = creditPage) {
   const uid = currentUser?.id, sequence = ++creditSequence;
   if (!uid) return;
@@ -1266,8 +1269,18 @@ async function loadCredits(page = creditPage) {
     if (currentUser?.id !== uid || sequence !== creditSequence) return;
     creditPage = page;
     const available = Number(data.available) || 0, reserved = Number(data.reserved) || 0;
-    $("#credit-summary").textContent = `${available} available · ${reserved} reserved. Failed operations return reserved credits.`;
+    $("#credit-summary").textContent = `${available} available · ${reserved} reserved. Failed tasks return unused, unexpired credits.`;
     $("#user-credits").textContent = `${available} credits available`;
+    if (creditExpiryTimer) clearTimeout(creditExpiryTimer);
+    creditExpiryTimer = null;
+    if (data.wallet) {
+      if (data.wallet.next_expiry) {
+        const delay = Math.min(86400000, Math.max(500, new Date(data.wallet.next_expiry).getTime() - Date.now() + 250));
+        creditExpiryTimer = setTimeout(() => { if (currentUser?.id === uid) void loadCredits(); }, delay);
+      }
+      const expiry = data.wallet.next_expiry ? ` · Next expiry: ${new Date(data.wallet.next_expiry).toLocaleString()}` : "";
+      $("#credit-summary").textContent += ` Monthly: ${data.wallet.subscription_available} · Permanent: ${data.wallet.permanent_available}${expiry}. Monthly credits are used first; permanent credits never expire.`;
+    }
     const exportCost = Number(data.pricing?.lyric_export) || 0;
     $("#credit-pricing").textContent = `Lyrics alignment: ${data.pricing?.alignment ?? 1} credit per task. Lyric video export: ${exportCost ? exportCost + " credits" : "currently free"}. Reusing an unchanged alignment and downloading an existing video are free.`;
     const immediate = $("#suno-opt-render-video"), assOnly = $("#opt-ass-only");

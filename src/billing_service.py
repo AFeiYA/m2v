@@ -1,9 +1,10 @@
 """Atomic provider binding, paid-credit grants and cumulative refund reversals."""
+import calendar
 import hmac
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import select, update
-from src import billing_provider as provider, credits
+from src import billing_provider as provider, credits, credit_lots
 from src.billing_models import BillingMutex, BillingCheckout, BillingSubscription, BillingPayment, BillingEvent
 from src.models import CreditEntry, User
 
@@ -87,6 +88,7 @@ async def sync_subscription(db, data, settings, custom=None):
         row.status=str(attrs.get('status','unknown'))[:24]
         row.renews_at=utc(attrs.get('renews_at')); row.ends_at=utc(attrs.get('ends_at'))
         row.provider_updated_at=updated
+    await credit_lots.cap_subscription(db,row.user_id,row.id,row.ends_at)
     intent.state='paid'
     await db.flush()
     return row,intent
@@ -98,15 +100,31 @@ async def reverse(db, payment, target):
         return
     balance=await credits.lock_balance(db,payment.user_id)
     await credits.opening(db,payment.user_id,balance)
-    balance-=delta  # Spent refunded credits become debt; never silently mint a refund.
+    debit=await credit_lots.revoke(db,payment.user_id,payment.id,payment.revoked,target)
+    balance-=debit  # Already expired credits cannot be reversed twice.
     await db.execute(update(User).where(User.id==payment.user_id).values(credits=balance))
     db.add(CreditEntry(id=credits.key(payment.id,'refund',target),user_id=payment.user_id,
-        operation_id=payment.id,kind='billing',event='reversal',amount=-delta,balance_after=balance,
+        operation_id=payment.id,kind='billing',event='reversal',amount=-debit,balance_after=balance,
         description='Payment refund · credits reversed'))
     payment.revoked=target
 
 
-async def sync_payment(db, data, intent, settings, subscription=None):
+def period_end(start,anchor,subscription):
+    """Use the current provider boundary when applicable; do not extend old invoices."""
+    if type(anchor) is not int or not 1<=anchor<=31:
+        anchor=start.day
+    year=start.year+(1 if start.month==12 else 0)
+    month=1 if start.month==12 else start.month+1
+    end=start.replace(year=year,month=month,day=min(anchor,calendar.monthrange(year,month)[1]))
+    renewal=utc(subscription.renews_at) if subscription.renews_at else None
+    if renewal and start<renewal and (renewal-start).total_seconds()<=40*86400:
+        end=renewal
+    if subscription.ends_at:
+        end=min(end,utc(subscription.ends_at))
+    return end
+
+
+async def sync_payment(db, data, intent, settings, subscription=None, period_anchor=None):
     kind=data['type']; identifier=str(data['id']); a=validate_resource(data,settings,kind,identifier)
     if a.get('currency')!=intent.currency:
         raise HTTPException(422,'Payment currency does not match checkout')
@@ -132,8 +150,14 @@ async def sync_payment(db, data, intent, settings, subscription=None):
     fully_refunded=a.get('status') in ('refunded','fraudulent') or a.get('refunded') is True
     row.refunded_cents=max(row.refunded_cents,total if fully_refunded else refund)
     if paid and total>0 and not row.granted:
+        start=utc(a.get('created_at')) if subscription else None
+        if subscription and start is None:
+            raise HTTPException(422,'Subscription invoice creation time is required')
+        expiry=period_end(start,period_anchor,subscription) if subscription else None
         await credits.grant(db,row.user_id,row.credits,'ls:'+row.id,
-            ('Monthly credits' if subscription else 'Credit pack')+' · '+intent.name)
+            ('Monthly credits' if subscription else 'Permanent credit pack')+' · '+intent.name,
+            lot_origin=row.id,expires_at=expiry,source_group=subscription.id if subscription else None,
+            period_start=start)
         row.granted=True
     target=(row.credits*row.refunded_cents+total-1)//total if total else 0
     await reverse(db,row,target)
@@ -191,7 +215,7 @@ async def apply_event(db,event_name,data,custom,settings):
         if str(a.get('customer_id'))!=subscription.customer_id:
             raise HTTPException(422,'Invoice customer does not match subscription')
         if a.get('billing_reason') in ('initial','renewal'):
-            await sync_payment(db,data,intent,settings,subscription)
+            await sync_payment(db,data,intent,settings,subscription,remote['attributes'].get('billing_anchor'))
         # Proration/update invoices do not buy a second full monthly allocation.
 
 

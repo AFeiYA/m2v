@@ -108,3 +108,20 @@ test('later preview selection wins even when the older request finishes last',as
  pending[0](response('https://media.invalid/old'));await first;
  assert.equal(s.nodes.get('#export-preview-video').src,'https://media.invalid/new');
 });
+
+test('credit summary separates monthly and permanent balances and refreshes at expiry',async()=>{
+ const s=setup(),timers=[];
+ s.context.setTimeout=(callback,delay)=>{timers.push({callback,delay});return 1;};
+ s.context.clearTimeout=()=>{};
+ let expired=false;
+ s.context.fetch=async()=>({ok:true,headers:{get:()=> 'application/json'},json:async()=>({
+  available:expired?500:1500,reserved:0,total:0,entries:[],pricing:{alignment:1,lyric_export:0},
+  wallet:{subscription_available:expired?0:1000,permanent_available:500,next_expiry:expired?null:new Date(Date.now()+5000).toISOString()}})});
+ await s.run('loadCredits()');
+ assert.match(s.nodes.get('#credit-summary').textContent,/Monthly: 1000 · Permanent: 500/);
+ assert.match(s.nodes.get('#credit-summary').textContent,/Next expiry/);
+ assert.ok(timers[0].delay>0&&timers[0].delay<10000);
+ expired=true;timers[0].callback();await new Promise(resolve=>setImmediate(resolve));
+ assert.match(s.nodes.get('#credit-summary').textContent,/500 available/);
+ assert.match(s.nodes.get('#credit-summary').textContent,/Monthly: 0 · Permanent: 500/);
+});

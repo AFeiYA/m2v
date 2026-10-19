@@ -71,7 +71,7 @@ def create_database_backup(db_url: str | None = None, output_dir: Path | str | N
         integrity = cursor.fetchone()[0]
 
         table_counts = {}
-        for table in ("users", "tasks", "credit_entries", "credit_reservations", "video_exports", "billing_checkouts", "billing_subscriptions", "billing_payments", "billing_events"):
+        for table in ("users", "tasks", "credit_entries", "credit_reservations", "video_exports", "billing_checkouts", "billing_subscriptions", "billing_payments", "billing_events", "credit_lots", "credit_allocations"):
             try:
                 cursor.execute(f"SELECT COUNT(*) FROM {table}")
                 table_counts[table] = cursor.fetchone()[0]

@@ -4,7 +4,7 @@ const source=fs.readFileSync(path.join(__dirname,'../billing.js'),'utf8');
 function setup(){
  const nodes=new Map(),calls=[],redirects=[],storage=new Map();let ready;
  const element=id=>{if(!nodes.has(id))nodes.set(id,{textContent:'',innerHTML:'',hidden:false,handlers:{},addEventListener(k,v){this.handlers[k]=v}});return nodes.get(id)};
- const catalog={test_mode:true,credit_policy:'Credits carry over.',subscription_policy:'Monthly automatic renewal until cancelled.',products:[{id:'pack',name:'<Credit pack>',credits:300,kind:'topup',price_cents:1000,currency:'USD'},{id:'monthly',name:'Creator',credits:900,kind:'subscription',price_cents:1900,currency:'USD'}]};
+ const catalog={test_mode:true,credit_policy:'Monthly credits expire each billing period. Permanent credits never expire.',subscription_policy:'Monthly automatic renewal until cancelled.',products:[{id:'pack',name:'<Credit pack>',credits:500,kind:'topup',price_cents:500,currency:'USD'},{id:'monthly',name:'Creator',credits:1000,kind:'subscription',price_cents:500,currency:'USD'},{id:'monthly_plus',name:'Creator Plus',credits:2500,kind:'subscription',price_cents:1000,currency:'USD'}]};
  const context={currentUser:{id:'alice'},document:{getElementById:element,addEventListener(k,v){ready=v}},location:{search:'',href:'https://mv.fovea.si/#credits-section'},URL,URLSearchParams,crypto:{randomUUID:()=> 'random-checkout-key-001'},sessionStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)},setTimeout:()=>1,clearTimeout(){},loadCredits:async()=>{context.creditLoads++},creditLoads:0,
   window:{location:{assign:url=>redirects.push(url)},history:{replaceState(){}}},
   api:async(url,options)=>{calls.push({url,options});let data=url.endsWith('/packages')?catalog:url.endsWith('/status')?{subscriptions:[]}:url.includes('/orders?')?{orders:[],total:0}:url.endsWith('/checkout')?{state:'open',url:'https://demo.lemonsqueezy.com/checkout/test'}:{credits_confirmed:false};return {ok:true,json:async()=>data};}};
@@ -15,6 +15,10 @@ test('billing explains recurring terms, escapes names and does not grant credits
  const s=setup();await s.context.window.m2vBilling.refresh();
  assert.match(s.element('billing-notice').textContent,/TEST MODE/);assert.match(s.element('billing-notice').textContent,/automatic renewal/);
  assert.match(s.element('billing-products').innerHTML,/&lt;Credit pack&gt;/);assert.match(s.element('billing-products').innerHTML,/Subscribe monthly/);
+ assert.match(s.element('billing-products').innerHTML,/1,000 credits per billing month/);
+ assert.match(s.element('billing-products').innerHTML,/2,500 credits per billing month/);
+ assert.match(s.element('billing-products').innerHTML,/Credits never expire/);
+ assert.match(s.element('billing-products').innerHTML,/expire at the end of each billing period/);
  assert.equal(s.context.creditLoads,0);assert.equal(s.element('billing-refresh').hidden,false);
 });
 test('checkout double click sends one server request and reuses a scoped retry key',async()=>{

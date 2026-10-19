@@ -2,6 +2,8 @@
 
 ## Scope and branch
 
+Updated pricing/expiry policy: 2026-10-19.
+
 Implemented in `feat/lemon-squeezy-billing`, based on the current main UI. The older
 `feat/subscriptions-and-topups` branch is a sandbox prototype; do not deploy its
 mock checkout or merge it into this implementation. Billing is disabled by default.
@@ -18,14 +20,29 @@ Hosted checkout URLs are short-lived and stored in the owner-scoped checkout row
 ## Commercial policy implemented
 
 - Single-quantity, fixed-price USD credit packs and monthly credit subscriptions.
-- Credits are additive and carry over. Renewal does not erase a prior balance.
+- Fixed catalogue: $5/month for 1,000 credits; $10/month for 2,500 credits;
+  one-time $5 for 500 permanent credits. All amounts are USD, excluding applicable
+  tax shown at checkout. The server rejects other price/credit combinations.
+- Subscription credits expire at the end of EACH BILLING PERIOD (anniversary,
+  not the first of the calendar month). Unused credits do not roll over. Successful
+  renewal starts a fresh allocation; failed renewal cannot retain the old one.
+- Permanent packs never expire and are kept separate. Spend subscription credits
+  with the soonest expiry first, then permanent credits. Existing unclassified
+  balances/admin grants remain permanent; no destructive historical backfill.
+- Credit lots and per-attempt reservations preserve provenance. Failed jobs restore
+  only still-valid monthly credits plus their permanent portion. Holding a job
+  past the period end cannot turn expired monthly credits into permanent credits.
+- Expiry and financial reversals are separate immutable entries. Refunding an
+  expired credit never debits it twice. Refunded credits already consumed by work
+  can still produce debt; a negative balance is not erased at the month boundary.
 - No unlimited rendering, storage increase, priority queue or UserPlan upgrade is
   promised by a subscription. It purchases the configured monthly credits only.
 - Credit amounts and variant IDs are frozen in the checkout intent; modifying the
   catalogue cannot silently reprice an existing customer's recurring grant.
   Create a NEW variant/product when changing an existing subscription's credits.
 - Cancelling a subscription stops future renewal through the provider. It does not
-  erase purchased credits. Status, renews_at and ends_at are shown to its owner.
+  erase permanent credits. Current monthly credits last until their period ends.
+  Status, renews_at and ends_at are shown to its owner.
 - Subscription order_created NEVER grants credits. Only paid initial/renewal
   subscription INVOICES grant, once per invoice. Recovered duplicates grant nothing
   extra. Proration/update invoices do not purchase a full monthly allocation.
@@ -66,16 +83,17 @@ all public rendering paths. Existing downloads and unchanged import reuse are fr
 4. BILLING_SITE_URL must be your HTTPS frontend origin (no path/query), e.g.
    https://mv.fovea.si. Checkout returns to /?checkout=<intent>#credits-section.
    Returning alone never grants credits; the UI checks the server's ledger status.
-5. Set BILLING_PRODUCTS_JSON, for example (ILLUSTRATIVE prices, not a recommendation):
+5. Set BILLING_PRODUCTS_JSON with these three fixed offers:
 
 ```json
 [
-  {"id":"starter","name":"Starter credits","variant_id":"YOUR_NUMERIC_VARIANT_ID","kind":"topup","credits":3000,"price_cents":1000,"currency":"USD"},
-  {"id":"creator_monthly","name":"Creator monthly","variant_id":"YOUR_OTHER_NUMERIC_VARIANT_ID","kind":"subscription","credits":9000,"price_cents":1900,"currency":"USD"}
+  {"id":"monthly_1000","name":"Monthly 1,000","variant_id":"FIRST_NUMERIC_VARIANT_ID","kind":"subscription","credits":1000,"price_cents":500,"currency":"USD"},
+  {"id":"monthly_2500","name":"Monthly 2,500","variant_id":"SECOND_NUMERIC_VARIANT_ID","kind":"subscription","credits":2500,"price_cents":1000,"currency":"USD"},
+  {"id":"permanent_500","name":"Permanent 500","variant_id":"THIRD_NUMERIC_VARIANT_ID","kind":"topup","credits":500,"price_cents":500,"currency":"USD"}
 ]
 ```
 
-Replace both variant placeholders with digit-only IDs. An empty catalogue or
+Replace all three variant placeholders with digit-only IDs. An empty catalogue or
 mismatched provider store/currency/current Price object fails closed. Fixed prices
 are read from the current Prices API, not deprecated variant price fields. Displayed
 prices exclude applicable tax; the hosted checkout shows the final total.
@@ -114,6 +132,18 @@ the subscription can be linked. Any failed grant transaction rolls back complete
 the inbox remains pending. Exact delivery replays skip already processed events;
 resource IDs prevent financial duplicates even if payloads/event names differ.
 
+Expiry is enforced on balance reads, reservations, grants and reversals under the
+user-row lock, so delaying a scheduler cannot spend expired credits. The UI shows
+separate monthly/permanent balances and the next expiry, and refreshes at that
+boundary. A read-only page refresh is not required for server-side enforcement.
+Current provider renews_at is used for the current invoice when valid; old invoices
+use their invoice creation month and billing anchor (including short/leap months).
+Late/out-of-order invoices cannot reopen an old period or reset a newer allocation.
+
+`python -m scripts.expire_subscription_credits` can sweep up to 1,000 accounts for
+physical DB expiry updates even while users are offline. It does not delete money
+history, songs, packs or other assets. The replay command also runs this sweep.
+
 Schedule `python -m scripts.replay_billing_events` every five minutes on the billing
 backend. It uses current environment secrets, retries up to 100 pending records and
 returns nonzero while failures remain. Multiple schedulers are safe. This command
@@ -131,6 +161,8 @@ have no automated deletion policy; decide retention/backups before broader launc
 
 - Unauthenticated/other-owner checkout status, order history, portal and receipts fail.
 - A declined/abandoned checkout grants nothing. A return URL cannot mint credits.
+- Monthly expiry, partial spend, held-job failure before/after expiry, concurrent
+  expiry reads, late old invoices and refunds after expiry preserve permanent packs.
 - Paid pack grants once; double click/delivery, network retry and concurrent callbacks
   do not double charge the application balance. Remote checkout creation errors
   never grant credits. Check merchant orders before retrying uncertain payments.

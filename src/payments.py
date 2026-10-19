@@ -54,8 +54,8 @@ def intent_view(row,settings):
 @router.get('/packages')
 async def packages(user:User=Depends(get_current_user)):
     settings,products=configured()
-    return {'test_mode':settings.LEMONSQUEEZY_TEST_MODE,'products':[p.model_dump(exclude={'variant_id'}) for p in products.values()],
-            'credit_policy':'Credits are added after confirmed payment and carry over. Monthly credits are added, not a balance reset. Refunds reverse the corresponding credits; spent refunded credits become a balance to repay.',
+    return {'test_mode':settings.LEMONSQUEEZY_TEST_MODE,'products':[{**p.model_dump(exclude={'variant_id'}),'validity':'billing_period' if p.kind=='subscription' else 'permanent'} for p in products.values()],
+            'credit_policy':'Monthly credits expire at the end of each billing period and do not roll over. Permanent credit packs never expire. Monthly credits are used first. Refunds reverse the corresponding credits without deducting expired credits twice.',
             'subscription_policy':'Monthly automatic renewal until cancelled in the billing portal. No unlimited rendering or extra storage is included.'}
 
 
@@ -70,6 +70,8 @@ async def checkout(req:CheckoutRequest,user:User=Depends(get_current_user),db=De
     if existing:
         if existing.product_id!=req.product_id or existing.test_mode is not settings.LEMONSQUEEZY_TEST_MODE or existing.store_id!=settings.LEMONSQUEEZY_STORE_ID:
             raise HTTPException(409,'Checkout key was used for a different product or environment')
+        if existing.state!='paid' and (existing.credits!=product.credits or existing.price_cents!=product.price_cents):
+            raise HTTPException(409,'Checkout pricing changed. Check your existing checkout before starting a new one.')
         return intent_view(existing,settings)
     if product.kind=='subscription':
         subscriptions=(await db.execute(select(BillingSubscription).where(BillingSubscription.user_id==user.id))).scalars()
@@ -77,9 +79,11 @@ async def checkout(req:CheckoutRequest,user:User=Depends(get_current_user),db=De
             if sub.id.startswith(service.scope(settings,'sub','')) and sub.status!='expired' and (not sub.ends_at or service.utc(sub.ends_at)>now()):
                 raise HTTPException(409,'You already have a subscription. Manage it in the billing portal.')
     pending=(await db.execute(select(BillingCheckout).where(BillingCheckout.user_id==user.id,
-        BillingCheckout.product_id==product.id,BillingCheckout.store_id==settings.LEMONSQUEEZY_STORE_ID,BillingCheckout.test_mode==settings.LEMONSQUEEZY_TEST_MODE,
+        (BillingCheckout.kind=='subscription' if product.kind=='subscription' else BillingCheckout.product_id==product.id),BillingCheckout.store_id==settings.LEMONSQUEEZY_STORE_ID,BillingCheckout.test_mode==settings.LEMONSQUEEZY_TEST_MODE,
         BillingCheckout.state.in_(['creating','open']),BillingCheckout.expires_at>now()).order_by(BillingCheckout.created_at.desc()))).scalars().first()
     if pending:
+        if pending.product_id!=product.id or pending.credits!=product.credits or pending.price_cents!=product.price_cents:
+            raise HTTPException(409,'Another subscription or earlier-price checkout is still open. Finish it or wait for it to expire before starting a new checkout.')
         return intent_view(pending,settings)
     recent=(await db.execute(select(func.count()).select_from(BillingCheckout).where(
         BillingCheckout.user_id==user.id,BillingCheckout.created_at>now()-timedelta(hours=1)))).scalar_one()
@@ -227,7 +231,7 @@ async def reconcile(user:User=Depends(get_current_user),db=Depends(get_db)):
         if sub:
             remote=await provider.request(settings,'GET','subscriptions/'+sub.provider_id)
             await service.sync_subscription(db,remote,settings)
-        await service.sync_payment(db,data,intent,settings,sub)
+        await service.sync_payment(db,data,intent,settings,sub,remote['attributes'].get('billing_anchor') if sub else None)
         await db.commit()
     return {'checked':len(rows),'notice':'Missing new purchases require webhook delivery or replay from the merchant dashboard.'}
 

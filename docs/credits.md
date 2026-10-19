@@ -64,8 +64,11 @@ This is a trusted CLI, not a public API. Do not directly edit users.credits afte
 ledger adoption: that would bypass history. No real user balances are changed by
 unit tests or by deploying this feature.
 
-Before paid public launch, add payment-order/webhook idempotency. Currency pricing,
-credit expiry policies and subscriptions are not implemented by this credit ledger.
+Payment-order/webhook idempotency and the approved three-offer pricing are
+implemented on the Lemon Squeezy billing branch. Subscription expiry uses
+`credit_lots` and per-attempt `credit_allocations`. Permanent and legacy credits
+never expire. See LEMON_SQUEEZY_BILLING.md for the fixed three-offer policy and
+billing-period reset behavior.
 
 ## Alignment preparation and interrupted workers
 

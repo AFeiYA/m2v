@@ -143,7 +143,7 @@ feed, publishing matrix, 3D features or more AI models before the core paid flow
 has passed real-account acceptance.
 
 1. **Payment correctness** — `feat/lemon-squeezy-billing` implements the real provider
-   adapter, owner-scoped hosted checkout, monthly invoice grants, additive credits,
+   adapter, owner-scoped hosted checkout, monthly invoice grants, separate expiring/permanent credits,
    refund reversals, receipts/portal, durable inbox and replay command. Merchant
    configuration, staging/live acceptance and a production replay scheduler are
    deployment gates; billing stays disabled until then. See LEMON_SQUEEZY_BILLING.md.
@@ -163,3 +163,15 @@ has passed real-account acceptance.
 6. **Polish after stability** — reduce secondary card actions into menus, add clear
    first-project and no-results guidance, verify portrait-safe text and accessible
    keyboard behavior using real project data. Keep English as the default.
+
+
+### Approved pricing — 2026-10-19
+
+- Monthly 1,000 credits: $5/month; unused period credits expire, no rollover.
+- Monthly 2,500 credits: $10/month; unused period credits expire, no rollover.
+- Permanent 500 credits: $5 one-time; never expires.
+
+Expiry follows the subscription billing anniversary, not calendar-month reset.
+Monthly credits are spent first. Renewal, cancellation, held-job failure, expiry and
+refund accounting retain source provenance; no account-wide balance reset occurs.
+Merchant variants must be updated to match these three prices before enabling sales.

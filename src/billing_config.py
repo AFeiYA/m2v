@@ -38,6 +38,9 @@ def configured():
         if not isinstance(values,list) or not 1 <= len(values) <= 10:
             raise ValueError()
         products = [Product.model_validate(row) for row in values]
+        expected={('subscription',500,1000),('subscription',1000,2500),('topup',500,500)}
+        if len(products)!=3 or {(p.kind,p.price_cents,p.credits) for p in products}!=expected:
+            raise ValueError()
         if len({p.id for p in products}) != len(products) or len({p.variant_id for p in products}) != len(products):
             raise ValueError()
     except (ValueError, TypeError, ValidationError):

@@ -190,8 +190,10 @@ async def refresh_token(req: RefreshRequest, db: AsyncSession = Depends(get_db))
 
 
 @api_router.get("/api/auth/me", response_model=UserResponse, tags=["Auth"])
-async def get_me(user: User = Depends(get_current_user)):
-    """获取当前用户信息"""
+async def get_me(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """获取当前用户信息，余额同时应用订阅到期规则。"""
+    from src.credits import lock_balance
+    current_balance = await lock_balance(db, user.id)
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -199,7 +201,7 @@ async def get_me(user: User = Depends(get_current_user)):
         display_name=getattr(user, "display_name", None) or user.username,
         avatar_url=user.avatar_url,
         plan=user.plan.value,
-        credits=user.credits,
+        credits=current_balance,
         is_verified=user.is_verified,
         created_at=user.created_at,
     )
@@ -220,6 +222,8 @@ async def update_me(
         await db.commit()
         await db.refresh(user)
 
+    from src.credits import lock_balance
+    current_balance = await lock_balance(db, user.id)
     return UserResponse(
         id=user.id,
         email=user.email,
@@ -227,7 +231,7 @@ async def update_me(
         display_name=getattr(user, "display_name", None) or user.username,
         avatar_url=user.avatar_url,
         plan=user.plan.value,
-        credits=user.credits,
+        credits=current_balance,
         is_verified=user.is_verified,
         created_at=user.created_at,
     )

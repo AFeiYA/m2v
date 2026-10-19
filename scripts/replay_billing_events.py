@@ -13,6 +13,8 @@ from src.database import async_session
 
 async def replay(limit=100):
     settings,_=configured()
+    from scripts.expire_subscription_credits import expire_due
+    await expire_due()
     prefix=f'{int(settings.LEMONSQUEEZY_TEST_MODE)}:{settings.LEMONSQUEEZY_STORE_ID}:'
     async with async_session() as db:
         ids=(await db.execute(select(BillingEvent.id).where(BillingEvent.status=='pending',
