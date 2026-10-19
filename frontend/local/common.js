@@ -363,8 +363,8 @@ function initWaveSurfer() {
 
   ws = WaveSurfer.create({
     container: dom.waveformVocals,
-    waveColor: "#4a90d9", progressColor: "#e94560",
-    cursorColor: "#fff", height: 72,
+    waveColor: "#38bdf8", progressColor: "#b7f34a",
+    cursorColor: "#b7f34a", height: 72,
     barWidth: 2, barGap: 1, barRadius: 2,
     normalize: true,
   });
@@ -372,8 +372,8 @@ function initWaveSurfer() {
   if (dom.waveformInst) {
     wsInst = WaveSurfer.create({
       container: dom.waveformInst,
-      waveColor: "#50c878", progressColor: "#ff9800",
-      cursorColor: "#fff", height: 72,
+      waveColor: "#334155", progressColor: "#64748b",
+      cursorColor: "#b7f34a", height: 72,
       barWidth: 2, barGap: 1, barRadius: 2,
       normalize: true,
     });

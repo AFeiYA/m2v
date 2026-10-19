@@ -13,13 +13,16 @@
         window.M2V_API_BASE = "";
       }
     }
-    if (window.parent && window.parent !== window && window.parent.m2vAuth) {
-      window.m2vAuth = window.parent.m2vAuth;
-      document.addEventListener("DOMContentLoaded", () => {
-        document.body.classList.add("embedded-studio");
-        if (window.updateAuthUi) window.updateAuthUi();
-        if (window.setupEditorAuth) window.setupEditorAuth();
-      });
+    if (window.parent && window.parent !== window) {
+      if (document.body) document.body.classList.add("embedded-studio");
+      else document.addEventListener("DOMContentLoaded", () => document.body.classList.add("embedded-studio"));
+      if (window.parent.m2vAuth) {
+        window.m2vAuth = window.parent.m2vAuth;
+        document.addEventListener("DOMContentLoaded", () => {
+          if (window.updateAuthUi) window.updateAuthUi();
+          if (window.setupEditorAuth) window.setupEditorAuth();
+        });
+      }
     } else {
       const s1 = document.createElement("script");
       s1.src = "https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js";
@@ -48,45 +51,41 @@
 </head>
 
 <body>
-  <header>
+  <header class="editor-header">
     <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-      <h1 data-i18n="header_title" data-i18n-title="header_title_title" style="font-size: 14px; font-weight: bold; white-space: nowrap; margin: 0; cursor: pointer;">🎤 M2V Lyrics</h1>
+      <h1 class="editor-header-title" data-i18n="header_title" data-i18n-title="header_title_title" style="cursor: pointer;">🎤 M2V Lyrics</h1>
       <!-- 快捷 Suno 导入栏 -->
-      <div id="suno-quick-bar" style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); flex-shrink: 0;">
+      <div id="suno-quick-bar" class="suno-quick-bar">
         <input id="suno-url-input" type="text" placeholder="Paste Suno / NetEase song link or iframe..." data-i18n-placeholder="url_placeholder"
-               style="width: 195px; min-width: 120px; height: 24px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; outline: none; transition: width 0.2s;"
-               onfocus="this.style.width='250px'" onblur="this.style.width='195px'"
                onkeydown="if(event.key==='Enter') handleSunoImport()" />
         <!-- 默认可见操作按钮：仅下 MP3 与 导入对齐 -->
-        <button id="btn-quick-download-mp3" onclick="downloadOriginalAudio()" title="Download original MP3 only (skip vocal separation &amp; alignment)" data-i18n="btn_quick_mp3" data-i18n-title="btn_quick_mp3_title"
-                style="background: #2a313d; color: #e2e8f0; font-weight: 500; border: 1px solid #4a5568; height: 24px; padding: 0 8px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⬇ MP3 Only</button>
-        <button id="btn-start-suno-import" onclick="handleSunoImport()" title="One-click fetch and word-level alignment" data-i18n="btn_import" data-i18n-title="btn_import_title"
-                style="background: linear-gradient(135deg, #ff416c, #ff4b2b); color: #fff; font-weight: 600; border: none; height: 24px; padding: 0 8px; border-radius: 3px; cursor: pointer; font-size: 11px; white-space: nowrap; flex-shrink: 0;">⚡ Import &amp; Align</button>
+        <button id="btn-quick-download-mp3" onclick="downloadOriginalAudio()" title="Download original MP3 only (skip vocal separation &amp; alignment)" data-i18n="btn_quick_mp3" data-i18n-title="btn_quick_mp3_title">⬇ MP3 Only</button>
+        <button id="btn-start-suno-import" onclick="handleSunoImport()" title="One-click fetch and word-level alignment" data-i18n="btn_import" data-i18n-title="btn_import_title">⚡ Import &amp; Align</button>
       </div>
     </div>
 
-    <div id="song-selector" style="flex-shrink: 0;">
-      <select id="song-select" style="min-width: 140px; max-width: 180px;">
+    <div id="song-selector">
+      <select id="song-select">
         <option value="" data-i18n="song_select_loading">Loading…</option>
       </select>
     </div>
 
     <div id="toolbar">
       <button id="btn-save" title="Save changes (Ctrl+S)" data-i18n="btn_save" data-i18n-title="btn_save_title">💾 Save</button>
-      <button id="btn-export-lyric-video" style="background: linear-gradient(135deg, #10b981, #059669); color: #fff; font-weight: 600; border: none; height: 28px; padding: 0 10px; border-radius: 4px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0;" title="One-click export 9:16 / 16:9 motion lyric video" data-i18n="btn_export_video" data-i18n-title="btn_export_video_title">📱 Export Video</button>
+      <button id="btn-export-lyric-video" title="One-click export 9:16 / 16:9 motion lyric video" data-i18n="btn_export_video" data-i18n-title="btn_export_video_title">📱 Export Video</button>
 
       <!-- 开发者调试选项 (默认隐藏；可通过三击标题/Ctrl+Shift+D/?dev=1唤出) -->
       <button id="btn-analyze-audio" style="display: none;" title="Analyze BPM, beats, energy &amp; envelopes; cached results are reused" data-i18n="btn_analyze_audio" data-i18n-title="btn_analyze_audio_title">🎵 Analyze Audio</button>
-      <a id="nav-storyboard" href="/storyboard" target="_blank" style="display: none; color: #61afef; text-decoration: none; font-size: 12px; height: 28px; line-height: 26px; padding: 0 8px; border: 1px solid #61afef44; border-radius: 4px; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0;" title="Go to storyboard creation &amp; video composition" data-i18n="nav_storyboard" data-i18n-title="nav_storyboard_title">🎬 Storyboard ↗</a>
+      <a id="nav-storyboard" href="/storyboard" target="_blank" style="display: none;" class="nav-ext-link" title="Go to storyboard creation &amp; video composition" data-i18n="nav_storyboard" data-i18n-title="nav_storyboard_title">🎬 Storyboard ↗</a>
 
-      <span class="sep">|</span>
-      <a href="/motion-studio" target="_blank" style="color: #00f0ff; text-decoration: none; font-size: 12px; height: 28px; line-height: 26px; padding: 0 8px; border: 1px solid #00f0ff44; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0; font-weight: 600;" title="Go to pure motion studio &amp; rhythm lab" data-i18n="nav_motion_studio" data-i18n-title="nav_motion_studio_title">⚡ Motion Studio ↗</a>
-      <a href="/gallery" target="_blank" style="color: #c8ff00; text-decoration: none; font-size: 12px; height: 28px; line-height: 26px; padding: 0 8px; border: 1px solid #c8ff0044; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0; font-weight: 600;" title="Go to video showcase gallery &amp; mobile player" data-i18n="nav_gallery" data-i18n-title="nav_gallery_title">🎬 Gallery ↗</a>
-      <span class="sep">|</span>
-      <button id="btn-lang-toggle" onclick="toggleLocale()" title="切换至英文界面 (Switch to English)" style="background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: #cbd5e1; padding: 0 8px; height: 28px; line-height: 26px; border-radius: 4px; font-size: 11px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">🌐 English</button>
+      <span class="sep ext-nav-sep">|</span>
+      <a id="nav-motion-studio" class="nav-ext-link" href="/motion-studio" target="_blank" title="Go to pure motion studio &amp; rhythm lab" data-i18n="nav_motion_studio" data-i18n-title="nav_motion_studio_title">⚡ Motion Studio ↗</a>
+      <a id="nav-gallery" class="nav-ext-link" href="/gallery" target="_blank" title="Go to video showcase gallery &amp; mobile player" data-i18n="nav_gallery" data-i18n-title="nav_gallery_title">🎬 Gallery ↗</a>
+      <span class="sep ext-nav-sep">|</span>
+      <button id="btn-lang-toggle" class="btn-lang-toggle" onclick="toggleLocale()" title="切换至英文界面 (Switch to English)">🌐 English</button>
       <div id="auth-pill" style="display: none; align-items: center; gap: 6px; flex-shrink: 0;">
         <span id="auth-user-info" style="font-size: 11px; color: #a0aec0; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
-        <button id="btn-auth-action" style="background: rgba(255,255,255,0.08); border: 1px solid var(--border); color: #cbd5e1; padding: 0 8px; height: 28px; line-height: 26px; border-radius: 4px; font-size: 11px; cursor: pointer; white-space: nowrap;"></button>
+        <button id="btn-auth-action"></button>
       </div>
       <span class="sep">|</span>
       <span id="status-msg"></span>
@@ -216,13 +215,13 @@
 
   <!-- 动效歌词短视频导出弹窗 -->
   <div id="lyric-export-modal" style="display: none; position: fixed; inset: 0; z-index: 10000; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(8px); justify-content: center; align-items: center;">
-    <div style="background: #181b22; border: 1px solid #2d3342; border-radius: 12px; width: 760px; max-width: 95vw; max-height: 92vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7); display: flex; flex-direction: column;">
+    <div style="background: #111216; border: 1px solid var(--border); border-radius: 14px; width: 760px; max-width: 95vw; max-height: 92vh; overflow-y: auto; box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8); display: flex; flex-direction: column;">
       
       <!-- Modal Header -->
-      <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #2d3342;">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border);">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="font-size: 20px;">🎬</span>
-          <h2 data-i18n="modal_title" style="font-size: 16px; font-weight: 700; margin: 0; color: #fff;">Generate Motion Lyric Video (Commercial / Shorts)</h2>
+          <h2 data-i18n="modal_title" style="font-size: 15px; font-weight: 700; margin: 0; color: #fff;">Generate Motion Lyric Video (Commercial / Shorts)</h2>
         </div>
         <button id="btn-close-lyric-modal" style="background: none; border: none; color: #8b949e; font-size: 20px; cursor: pointer; padding: 4px 8px; line-height: 1;">✕</button>
       </div>
@@ -235,15 +234,15 @@
           <div>
             <label style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">Preview format</label>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
-              <label class="ratio-option active" style="display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #0f1218; border: 1px solid #10b981; border-radius: 8px; cursor: pointer;">
-                <input type="radio" name="export-ratio" value="9:16" checked style="accent-color: #10b981;">
+              <label class="ratio-option active" style="display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #090a0f; border: 1px solid var(--accent); border-radius: 8px; cursor: pointer;">
+                <input type="radio" name="export-ratio" value="9:16" checked style="accent-color: var(--accent);">
                 <div>
                   <div data-i18n="ratio_9_16_title" style="font-weight: 600; font-size: 12px; color: #fff;">📱 9:16 Vertical</div>
                   <div style="font-size: 10px; color: #8b949e;">Apple scroll · automatic layout</div>
                 </div>
               </label>
-              <label class="ratio-option" style="display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; cursor: pointer;">
-                <input type="radio" name="export-ratio" value="16:9" style="accent-color: #10b981;">
+              <label class="ratio-option" style="display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #090a0f; border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">
+                <input type="radio" name="export-ratio" value="16:9" style="accent-color: var(--accent);">
                 <div>
                   <div data-i18n="ratio_16_9_title" style="font-weight: 600; font-size: 12px; color: #fff;">💻 16:9 Widescreen</div>
                   <div style="font-size: 10px; color: #8b949e;">Karaoke dual-line · automatic layout</div>
@@ -254,7 +253,7 @@
 
           <div>
             <label style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;">Resolution Profile</label>
-            <select id="export-resolution-select" style="width: 100%; height: 48px; padding: 0 10px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; color: #fff; font-size: 12px; outline: none;">
+            <select id="export-resolution-select" style="width: 100%; height: 48px; padding: 0 10px; background: #090a0f; border: 1px solid var(--border); border-radius: 8px; color: #fff; font-size: 12px; outline: none;">
               <option value="1080p">1080p · Full HD</option>
               <option value="720p">720p · Fast draft</option>
             </select>
@@ -262,7 +261,7 @@
         </div>
 
         <!-- 精选完整主题 + 9:16 竖屏安全区实时预览 -->
-        <div id="export-palette-preview" style="display: grid; grid-template-columns: 1fr 190px; gap: 14px; align-items: stretch; padding: 12px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px;">
+        <div id="export-palette-preview" style="display: grid; grid-template-columns: 1fr 190px; gap: 14px; align-items: stretch; padding: 12px 14px; background: #090a0f; border: 1px solid var(--border); border-radius: 8px;">
           <div style="display: flex; flex-direction: column; gap: 10px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <label style="font-size: 13px; font-weight: 600; color: #cbd5e1;">Motion Design Colors</label>
@@ -276,7 +275,7 @@
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
               <span style="font-size: 11px; font-weight: 600; color: #cbd5e1;">Layout guide</span>
               <label style="font-size: 10px; color: #94a3b8; display: flex; align-items: center; gap: 4px; cursor: pointer;">
-                <input id="toggle-safe-area-guides" type="checkbox" checked style="accent-color: #10b981;"> Guides
+                <input id="toggle-safe-area-guides" type="checkbox" checked style="accent-color: var(--accent);"> Guides
               </label>
             </div>
             <div id="theme-safe-area-preview" class="theme-safe-area-stage portrait">
@@ -307,11 +306,11 @@
         </div>
 
         <!-- 5. 渲染范围、智能高光片段推荐与整句边界调整 -->
-        <div style="padding: 12px 14px; background: #0f1218; border: 1px solid #2d3342; border-radius: 8px; display: flex; flex-direction: column; gap: 10px;">
+        <div style="padding: 12px 14px; background: #090a0f; border: 1px solid var(--border); border-radius: 8px; display: flex; flex-direction: column; gap: 10px;">
           <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
             <div style="display: flex; align-items: center; gap: 8px;">
               <span style="font-size: 13px; font-weight: 600; color: #fff;">Export matrix · select clips and formats</span>
-              <span hidden id="export-segment-dur-badge" data-i18n="preset_full_badge" style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); color: #10b981; font-weight: 600;">Full Song Export</span>
+              <span hidden id="export-segment-dur-badge" data-i18n="preset_full_badge" style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(183, 243, 74, 0.15); color: #b7f34a; font-weight: 600;">Full Song Export</span>
             </div>
             <!-- 乐段速选预设药丸按钮 -->
 
@@ -327,9 +326,9 @@
               <span style="font-size: 11px; font-weight: 600; color: #cbd5e1;">Complete Sentence Boundaries (No Mid-Sentence Cuts)</span>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <label style="font-size: 11px; color: #94a3b8; display: flex; align-items: center; gap: 4px; cursor: pointer;">
-                  <input id="export-snap-sentence" type="checkbox" style="accent-color: #10b981;"> Snap export to sentence bounds
+                  <input id="export-snap-sentence" type="checkbox" style="accent-color: var(--accent);"> Snap export to sentence bounds
                 </label>
-                <button id="btn-audition-excerpt" type="button" style="padding: 2px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #3b82f6; background: rgba(59, 130, 246, 0.15); color: #60a5fa; cursor: pointer;">▶ Audition Clip</button>
+                <button id="btn-audition-excerpt" type="button" style="padding: 2px 8px; border-radius: 4px; font-size: 11px; border: 1px solid rgba(183, 243, 74, 0.4); background: rgba(183, 243, 74, 0.12); color: #b7f34a; cursor: pointer;">▶ Audition Clip</button>
               </div>
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
@@ -341,7 +340,7 @@
                     <button id="btn-start-line-next" type="button" class="btn-sentence-step" title="Start one sentence later">+1 Sent</button>
                   </div>
                 </div>
-                <select id="export-start-line-select" style="width: 100%; height: 30px; padding: 0 8px; background: #161b22; border: 1px solid #30363d; border-radius: 5px; color: #e2e8f0; font-size: 11px;"></select>
+                <select id="export-start-line-select" style="width: 100%; height: 30px; padding: 0 8px; background: #090a0f; border: 1px solid var(--border); border-radius: 5px; color: #e2e8f0; font-size: 11px;"></select>
               </div>
               <div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;">
@@ -351,7 +350,7 @@
                     <button id="btn-end-line-next" type="button" class="btn-sentence-step" title="Include next sentence">+1 Sent</button>
                   </div>
                 </div>
-                <select id="export-end-line-select" style="width: 100%; height: 30px; padding: 0 8px; background: #161b22; border: 1px solid #30363d; border-radius: 5px; color: #e2e8f0; font-size: 11px;"></select>
+                <select id="export-end-line-select" style="width: 100%; height: 30px; padding: 0 8px; background: #090a0f; border: 1px solid var(--border); border-radius: 5px; color: #e2e8f0; font-size: 11px;"></select>
               </div>
             </div>
           </div>
@@ -360,22 +359,22 @@
           <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: center;">
             <div>
               <label data-i18n="start_time_label" style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">Start Time (mm:ss or seconds)</label>
-              <div style="display: flex; align-items: center; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0 8px;">
+              <div style="display: flex; align-items: center; background: #090a0f; border: 1px solid var(--border); border-radius: 6px; padding: 0 8px;">
                 <input id="export-start-time" type="text" placeholder="00:00" value="00:00" style="width: 100%; height: 32px; background: transparent; border: none; color: #fff; font-size: 13px; font-family: monospace; outline: none;">
-                <button id="btn-set-start-curr" type="button" title="Set start from current playhead position" data-i18n="btn_start_curr" data-i18n-title="btn_start_curr_title" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 11px; padding: 2px 4px; white-space: nowrap;">Current</button>
+                <button id="btn-set-start-curr" type="button" title="Set start from current playhead position" data-i18n="btn_start_curr" data-i18n-title="btn_start_curr_title" style="background: none; border: none; color: #b7f34a; cursor: pointer; font-size: 11px; padding: 2px 4px; white-space: nowrap;">Current</button>
               </div>
             </div>
 
             <div>
               <label data-i18n="end_time_label" style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 4px;">End Time (leave empty for song end)</label>
-              <div style="display: flex; align-items: center; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0 8px;">
+              <div style="display: flex; align-items: center; background: #090a0f; border: 1px solid var(--border); border-radius: 6px; padding: 0 8px;">
                 <input id="export-end-time" type="text" placeholder="Song End" value="" data-i18n-placeholder="end_time_placeholder" style="width: 100%; height: 32px; background: transparent; border: none; color: #fff; font-size: 13px; font-family: monospace; outline: none;">
-                <button id="btn-set-end-curr" type="button" title="Set end from current playhead position" data-i18n="btn_end_curr" data-i18n-title="btn_end_curr_title" style="background: none; border: none; color: #60a5fa; cursor: pointer; font-size: 11px; padding: 2px 4px; white-space: nowrap;">Current</button>
+                <button id="btn-set-end-curr" type="button" title="Set end from current playhead position" data-i18n="btn_end_curr" data-i18n-title="btn_end_curr_title" style="background: none; border: none; color: #b7f34a; cursor: pointer; font-size: 11px; padding: 2px 4px; white-space: nowrap;">Current</button>
               </div>
             </div>
 
             <div style="padding-top: 18px;">
-              <button id="btn-reset-time-range" type="button" data-i18n="btn_reset_range" style="height: 32px; padding: 0 10px; background: #1e293b; border: 1px solid #334155; border-radius: 6px; color: #cbd5e1; font-size: 12px; cursor: pointer;">Reset Full</button>
+              <button id="btn-reset-time-range" type="button" data-i18n="btn_reset_range" style="height: 32px; padding: 0 10px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); border-radius: 6px; color: #cbd5e1; font-size: 12px; cursor: pointer;">Reset Full</button>
             </div>
           </div>
           </details>
@@ -383,20 +382,20 @@
 
         <p id="lyric-credit-price" role="status" style="font-size:12px;color:#94a3b8"></p>
         <!-- 渲染进度条与状态提示 -->
-        <div id="lyric-render-progress-box" style="display: none; padding: 12px 14px; background: #0f1218; border: 1px solid #3b82f6; border-radius: 8px;">
+        <div id="lyric-render-progress-box" style="display: none; padding: 12px 14px; background: #090a0f; border: 1px solid rgba(183, 243, 74, 0.4); border-radius: 8px;">
           <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
-            <span id="lyric-progress-text" data-i18n="render_preparing" style="color: #60a5fa; font-weight: 500;">Preparing render...</span>
-            <span id="lyric-progress-pct" style="color: #60a5fa; font-weight: 700;">0%</span>
+            <span id="lyric-progress-text" data-i18n="render_preparing" style="color: #b7f34a; font-weight: 500;">Preparing render...</span>
+            <span id="lyric-progress-pct" style="color: #b7f34a; font-weight: 700;">0%</span>
           </div>
           <div style="height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden;">
-            <div id="lyric-progress-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #3b82f6, #10b981); transition: width 0.3s ease;"></div>
+            <div id="lyric-progress-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #38bdf8, #b7f34a); transition: width 0.3s ease;"></div>
           </div>
         </div>
 
         <!-- 成片预览与下载区 -->
-        <div id="lyric-result-box" style="display: none; padding: 14px; background: #0f1218; border: 1px solid #10b981; border-radius: 8px; flex-direction: column; align-items: center; gap: 12px;">
+        <div id="lyric-result-box" style="display: none; padding: 14px; background: #090a0f; border: 1px solid #b7f34a; border-radius: 8px; flex-direction: column; align-items: center; gap: 12px;">
           <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
-            <span id="lyric-result-heading" style="color: #10b981; font-weight: 600; font-size: 13px;">🎉 Motion video rendered successfully!</span>
+            <span id="lyric-result-heading" style="color: #b7f34a; font-weight: 600; font-size: 13px;">🎉 Motion video rendered successfully!</span>
             <span id="lyric-result-meta" style="color: #94a3b8; font-size: 11px;"></span>
           </div>
           <div id="lyric-batch-results" role="status"></div>
@@ -404,17 +403,17 @@
           <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; width: 100%;">
             <button id="btn-preview-lyric-mp4" type="button" data-i18n="btn_preview_export">Preview video</button>
             <a id="lyric-my-exports" hidden href="/#exports-section" target="_blank" data-i18n="nav_my_exports">My Exports ↗</a>
-            <a id="btn-download-lyric-mp4" download href="#" data-i18n="btn_download_mp4" style="flex: 1; text-align: center; text-decoration: none; background: #10b981; color: #fff; font-weight: 600; padding: 8px 12px; border-radius: 6px; font-size: 13px;">⬇️ Download MP4 Video</a>
-            <button id="btn-re-render" type="button" data-i18n="btn_re_render" style="background: #1e293b; color: #cbd5e1; border: 1px solid #334155; padding: 8px 14px; border-radius: 6px; font-size: 13px; cursor: pointer;">🔄 Re-render with new settings</button>
+            <a id="btn-download-lyric-mp4" download href="#" data-i18n="btn_download_mp4" style="flex: 1; text-align: center; text-decoration: none; background: #b7f34a; color: #10120d; font-weight: 700; padding: 8px 12px; border-radius: 6px; font-size: 13px;">⬇️ Download MP4 Video</a>
+            <button id="btn-re-render" type="button" data-i18n="btn_re_render" style="background: rgba(255, 255, 255, 0.05); color: #cbd5e1; border: 1px solid var(--border); padding: 8px 14px; border-radius: 6px; font-size: 13px; cursor: pointer;">🔄 Re-render with new settings</button>
           </div>
         </div>
 
       </div>
 
       <!-- Modal Footer -->
-      <div style="display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid #2d3342; background: #14171d; border-radius: 0 0 12px 12px;">
-        <button id="btn-cancel-lyric-modal" type="button" data-i18n="btn_modal_close" style="padding: 8px 16px; border-radius: 6px; border: 1px solid #334155; background: transparent; color: #94a3b8; font-size: 13px; cursor: pointer;">Close</button>
-        <button id="btn-start-lyric-export" type="button" data-i18n="btn_modal_start" style="padding: 8px 20px; border-radius: 6px; border: none; background: linear-gradient(135deg, #10b981, #059669); color: #fff; font-weight: 600; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">🚀 Start Video Synthesis</button>
+      <div style="display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--border); background: #0d0e11; border-radius: 0 0 14px 14px;">
+        <button id="btn-cancel-lyric-modal" type="button" data-i18n="btn_modal_close" style="padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: #94a3b8; font-size: 13px; cursor: pointer;">Close</button>
+        <button id="btn-start-lyric-export" type="button" data-i18n="btn_modal_start" style="padding: 8px 20px; border-radius: 6px; border: none; background: #b7f34a; color: #10120d; font-weight: 700; font-size: 13px; cursor: pointer; box-shadow: 0 4px 12px rgba(183, 243, 74, 0.25);">🚀 Start Video Synthesis</button>
       </div>
 
     </div>
