@@ -977,7 +977,7 @@ function initLyricExportModal() {
 
   function updateBatchPrice() {
     if (!creditQuote) return;
-    const count = $("#export-custom-range")?.checked ? 1 : $$(".export-clip-check").filter(c => c.checked && !c.disabled).length;
+    const count = $("#export-custom-range")?.checked ? 1 : Array.from($$(".export-clip-check")).filter(c => c.checked && !c.disabled).length;
     if ($("#lyric-credit-price")) $("#lyric-credit-price").textContent = `${count} video${count === 1 ? "" : "s"} · ${creditQuote.cost} credits each · ${count * creditQuote.cost} credits total. Failed exports return unexpired reserved credits.`;
   }
   $("#export-custom-range")?.addEventListener("change", updateBatchPrice);
@@ -1385,7 +1385,7 @@ function initLyricExportModal() {
           payload.snap_to_sentence = true;
         }
         const customRange = Boolean($("#export-custom-range")?.checked);
-        const selected = customRange ? [] : $$(".export-clip-check").filter(c => c.checked && !c.disabled);
+        const selected = customRange ? [] : Array.from($$(".export-clip-check")).filter(c => c.checked && !c.disabled);
         if (!customRange && $$(".export-clip-check").length && !selected.length) throw Error("Select at least one clip.");
         const clips = buildExportClips(state.alignment);
         const selectedClips = selected.map(c => ({...clips.find(x => x.id === c.dataset.clipId),aspect_ratio:c.dataset.ratio || ratio}));

@@ -71,7 +71,7 @@ if (token) {
 
 // ── DOM Helpers ──────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => document.querySelectorAll(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 // ── API 请求封装 ─────────────────────────────────────────
 

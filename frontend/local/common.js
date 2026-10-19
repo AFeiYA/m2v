@@ -238,7 +238,7 @@ let vocalsReady = false, instReady = false;
 let trackMuted = { vocals: false, instrumental: false };
 
 const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => document.querySelectorAll(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 const dom = {};
 
 // ---------------------------------------------------------------------------

@@ -132,3 +132,21 @@ test('same clip in both formats becomes Apple portrait and Karaoke landscape',as
  assert.equal(jobs.length,2);assert.equal(jobs[0].body.template,'apple');assert.equal(jobs[0].body.aspect_ratio,'9:16');
  assert.equal(jobs[1].body.template,'tv');assert.equal(jobs[1].body.aspect_ratio,'16:9');
 });
+
+test('matrix export works with a browser NodeList that lacks Array.prototype.filter',async()=>{
+ const s=setup();
+ s.context.document.createElement=()=>({appendChild(){},textContent:''});
+ s.elements.get('#lyric-batch-results').appendChild=()=>{};
+ const mockNodeList = (items) => ({
+   length: items.length,
+   forEach(fn) { items.forEach(fn); },
+   [Symbol.iterator]() { return items[Symbol.iterator](); },
+   item(i) { return items[i]; }
+ });
+ s.context.$$=selector=>selector==='.export-clip-check'?mockNodeList([{checked:true,dataset:{clipId:'full',ratio:'9:16'}}]):mockNodeList([]);
+ await s.start();
+ const jobs=s.calls.filter(c=>c.url?.endsWith('/lyric-video'));
+ assert.equal(jobs.length,1);
+ assert.equal(jobs[0].body.aspect_ratio,'9:16');
+});
+
