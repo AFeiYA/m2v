@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { beatPhase, featuresAt, normalizeProject } from './model.ts';
+import { beatPhase, featuresAt, normalizeProject, buildExportClips } from './model.ts';
 
 test('the visual beat follows detected phase rather than zero-based BPM', () => {
   const beats=[0.23,0.73,1.23,1.73];
@@ -664,16 +664,84 @@ test('portrait accommodates a complete short payoff without stranding its ending
  assert.equal(result.nodes[2].rows[0].text,'开始往前流了。');
 });
 
-test('source section intervals retain Pre-Chorus and stop at explicit ends',async()=>{
- const {compileSongLayout,songLayoutAt}=await import('./song-layout.ts');
- const p=normalizeProject({title:'Song',duration:20,song_identity:{style:'editorial',show_section:true,show_intro:false,show_outro:false},
-  lines:[{text:'one',start:2,end:4,words:[],section:'outdated style tag'},{text:'two',start:6,end:8,words:[],section:'outdated style tag'}],
-  sections:[{name:'Pre-Chorus',start:2,end:6},{name:'Chorus',start:6,end:9}]});
- const measure=(text:string,size:number)=>({width:text.length*size*.5,ascent:size*.8,descent:size*.2});
- const layout=compileSongLayout(p,720,1280,measure)!;
- assert.equal(songLayoutAt(layout,3).section,'Pre-Chorus');
- assert.equal(songLayoutAt(layout,5.9).section,'Pre-Chorus');
- assert.equal(songLayoutAt(layout,6).section,'Chorus');
- assert.equal(songLayoutAt(layout,9).section,'');
- assert.equal(songLayoutAt(layout,1).section,'');
-});
+ test('source section intervals retain Pre-Chorus and stop at explicit ends',async()=>{
+  const {compileSongLayout,songLayoutAt}=await import('./song-layout.ts');
+  const p=normalizeProject({title:'Song',duration:20,song_identity:{style:'editorial',show_section:true,show_intro:false,show_outro:false},
+   lines:[{text:'one',start:2,end:4,words:[],section:'outdated style tag'},{text:'two',start:6,end:8,words:[],section:'outdated style tag'}],
+   sections:[{name:'Pre-Chorus',start:2,end:6},{name:'Chorus',start:6,end:9}]});
+  const measure=(text:string,size:number)=>({width:text.length*size*.5,ascent:size*.8,descent:size*.2});
+  const layout=compileSongLayout(p,720,1280,measure)!;
+  assert.equal(songLayoutAt(layout,3).section,'Pre-Chorus');
+  assert.equal(songLayoutAt(layout,5.9).section,'Pre-Chorus');
+  assert.equal(songLayoutAt(layout,6).section,'Chorus');
+  assert.equal(songLayoutAt(layout,9).section,'');
+  assert.equal(songLayoutAt(layout,1).section,'');
+ });
+
+ test('buildExportClips returns full song, verse, chorus, and highlight from normalized project', () => {
+   const p = normalizeProject({
+     title: 'Test Song',
+     duration: 120,
+     sections: [
+       { name: 'Intro', start: 0, end: 10 },
+       { name: 'Verse 1', start: 10, end: 30 },
+       { name: 'Pre-Chorus', start: 30, end: 45 },
+       { name: 'Chorus', start: 45, end: 70 },
+       { name: 'Outro', start: 70, end: 120 }
+     ],
+     lines: [
+       { text: 'intro line', start: 1, end: 9, words: [] },
+       { text: 'verse line 1', start: 11, end: 20, words: [] },
+       { text: 'verse line 2', start: 21, end: 29, words: [] },
+       { text: 'pre-chorus line', start: 31, end: 44, words: [] },
+       { text: 'chorus line 1', start: 46, end: 55, words: [] },
+       { text: 'chorus line 2', start: 56, end: 68, words: [] },
+       { text: 'outro line', start: 72, end: 110, words: [] }
+     ]
+   });
+
+   const clips = buildExportClips(p, 'en');
+   assert.equal(clips.length, 4);
+
+   const full = clips.find(c => c.id === 'full')!;
+   assert.equal(full.available, true);
+   assert.equal(full.start_time, 0);
+   assert.equal(full.end_time, null);
+
+   const verse = clips.find(c => c.id === 'verse')!;
+   assert.equal(verse.available, true);
+   assert.equal(verse.start_time, 11);
+   assert.equal(verse.end_time, 29);
+
+   const chorus = clips.find(c => c.id === 'chorus')!;
+   assert.equal(chorus.available, true);
+   assert.equal(chorus.start_time, 46);
+   assert.equal(chorus.end_time, 68);
+
+   const highlight = clips.find(c => c.id === 'highlight')!;
+   assert.equal(highlight.available, true);
+   assert.ok(highlight.start_time !== null && highlight.start_time >= 45 && highlight.end_time !== null && highlight.end_time <= 70);
+
+   // Check zh locale
+   const zhClips = buildExportClips(p, 'zh');
+   assert.equal(zhClips.find(c => c.id === 'full')!.title, '完整歌曲');
+   assert.equal(zhClips.find(c => c.id === 'verse')!.title, '主歌');
+   assert.equal(zhClips.find(c => c.id === 'chorus')!.title, '副歌');
+   assert.equal(zhClips.find(c => c.id === 'highlight')!.title, '宣发高光 (建议)');
+ });
+
+ test('buildExportClips handles songs without verse or chorus gracefully', () => {
+   const p = normalizeProject({
+     title: 'Simple Song',
+     duration: 50,
+     lines: [
+       { text: 'lone line 1', start: 5, end: 20, words: [] },
+       { text: 'lone line 2', start: 25, end: 40, words: [] }
+     ]
+   });
+   const clips = buildExportClips(p, 'en');
+   assert.equal(clips.find(c => c.id === 'full')!.available, true);
+   assert.equal(clips.find(c => c.id === 'verse')!.available, false);
+   assert.equal(clips.find(c => c.id === 'chorus')!.available, false);
+   assert.equal(clips.find(c => c.id === 'highlight')!.available, true);
+ });

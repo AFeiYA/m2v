@@ -306,19 +306,45 @@
 
         <section class="panel export">
           <h2 data-i18n="ms_sec5_title">05 / Export MP4</h2>
-          <label for="export-range" data-i18n="ms_lbl_export_range">Range</label>
-          <select id="export-range">
-            <option value="full" data-i18n="ms_opt_range_full">Full Song</option>
-            <option value="clip" data-i18n="ms_opt_range_clip">Specific Clip</option>
-          </select>
-          <label for="clip-start" data-i18n="ms_lbl_clip_start">Clip Start (s)</label>
-          <input id="clip-start" type="number" min="0" step="0.1" value="0">
-          <label for="clip-length" data-i18n="ms_lbl_clip_length">Clip Duration (s)</label>
-          <input id="clip-length" type="number" min="0.1" step="0.1" value="8">
+
+          <div class="matrix-export-wrap" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <span style="font-size:12px; font-weight:600; color:#b9ff70;" data-i18n="ms_matrix_title">Export Matrix · Clips &amp; Formats</span>
+              <span id="matrix-selected-count" style="font-size:11px; color:#788f7e;">1 selected</span>
+            </div>
+            
+            <div id="matrix-candidates-list" class="matrix-candidates-list"></div>
+          </div>
+
+          <details id="custom-range-details" style="margin-bottom:12px;">
+            <summary style="font-size:11px; color:#96c8a0; cursor:pointer;" data-i18n="ms_custom_range_summary">Custom Range (Override Matrix)</summary>
+            <div style="margin-top:8px;">
+              <label class="check" style="margin-top:4px!important; margin-bottom:8px;">
+                <input id="export-custom-range" type="checkbox"> <span data-i18n="ms_use_custom_range">Use custom range instead of matrix</span>
+              </label>
+              <div id="custom-range-inputs" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <div>
+                  <label for="clip-start" data-i18n="ms_lbl_clip_start" style="font-size:11px; margin-top:0;">Start (s)</label>
+                  <input id="clip-start" type="number" min="0" step="0.1" value="0">
+                </div>
+                <div>
+                  <label for="clip-length" data-i18n="ms_lbl_clip_length" style="font-size:11px; margin-top:0;">Duration (s)</label>
+                  <input id="clip-length" type="number" min="0.1" step="0.1" value="8">
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <div id="matrix-queue-box" hidden>
+            <div id="matrix-queue-summary" style="font-weight:600; color:#b9ff70; margin-bottom:6px;">Queue status</div>
+            <div id="matrix-queue-items" style="display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto;"></div>
+          </div>
+
           <button id="export" class="primary" data-i18n="ms_btn_export">Export MP4</button>
           <button id="cancel" hidden data-i18n="ms_btn_cancel_export">Cancel Export</button>
           <p id="export-status" class="help" data-i18n="ms_help_export">Remotion · Current poster layout &amp; original audio · 30fps / H.264.</p>
           <a id="download" hidden download data-i18n="ms_btn_download_video">Download Video ↓</a>
+          <p><a id="my-exports" href="/#exports-section" hidden data-i18n="nav_my_exports">My Exports ↗</a></p>
           <div id="export-history" class="help"></div>
         </section>
       </div>

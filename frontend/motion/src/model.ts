@@ -112,3 +112,77 @@ export function groupAt(line:Line,cue:CuePlan|undefined,t:number) {
     return first&&last&&t>=first.start&&t<last.end;
   });
 }
+
+export type ExportClip = {
+  id: 'full' | 'verse' | 'chorus' | 'highlight';
+  title: string;
+  available: boolean;
+  start_time: number;
+  end_time: number | null;
+};
+
+export function buildExportClips(proj: Project | null, locale: 'zh' | 'en' = 'en'): ExportClip[] {
+  const isZh = locale === 'zh';
+  if (!proj) {
+    return [
+      { id: "full", title: isZh ? "完整歌曲" : "Full song", available: false, start_time: 0, end_time: null },
+      { id: "verse", title: isZh ? "主歌" : "Verse", available: false, start_time: 0, end_time: null },
+      { id: "chorus", title: isZh ? "副歌" : "Chorus", available: false, start_time: 0, end_time: null },
+      { id: "highlight", title: isZh ? "宣发高光 (建议)" : "Highlight (suggested)", available: false, start_time: 0, end_time: null },
+    ];
+  }
+  const lines = (proj.lines || []).filter(l => l.end > l.start);
+  const sections = proj.sections || [];
+
+  const findSection = (pattern: RegExp) => {
+    const section = sections.find(s => pattern.test(String(s.name || "").trim().replace(/^\[|\]$/g, "")));
+    if (section) {
+      const index = sections.indexOf(section);
+      const end = Number(section.end ?? sections[index + 1]?.start ?? proj.duration ?? lines.at(-1)?.end);
+      const members = lines.filter(l => l.start >= section.start - 0.05 && l.start < end);
+      if (members.length) return { start_time: members[0].start, end_time: members.at(-1)!.end };
+    }
+    const first = lines.findIndex(l => pattern.test(String(l.section || "").trim().replace(/^\[|\]$/g, "")));
+    if (first < 0) return null;
+    let last = first;
+    while (last + 1 < lines.length && lines[last + 1].section === lines[first].section) last++;
+    return { start_time: lines[first].start, end_time: lines[last].end };
+  };
+
+  const verse = findSection(/^(?:verse(?:\s*\d+)?|主歌.*)$/i);
+  const chorus = findSection(/^(?:(?:final\s+)?chorus(?:\s*\d+)?|副歌.*)$/i);
+
+  let highlight: { start_time: number; end_time: number } | null = null;
+  if (chorus) {
+    const dur = chorus.end_time - chorus.start_time;
+    if (dur <= 30) {
+      highlight = { ...chorus };
+    } else {
+      const chorusLines = lines.filter(l => l.start >= chorus.start_time - 0.05 && l.end <= chorus.end_time + 0.05);
+      const targetEnd = chorus.start_time + 25;
+      let bestEnd = chorus.end_time;
+      let minDiff = Infinity;
+      for (const cl of chorusLines) {
+        const diff = Math.abs(cl.end - targetEnd);
+        if (cl.end > chorus.start_time + 10 && diff < minDiff) {
+          minDiff = diff;
+          bestEnd = cl.end;
+        }
+      }
+      highlight = { start_time: chorus.start_time, end_time: bestEnd };
+    }
+  } else if (lines.length > 0) {
+    const targetStart = Math.max(0, proj.duration * 0.3);
+    const startLine = lines.find(l => l.start >= targetStart) || lines[0];
+    const targetEnd = startLine.start + 25;
+    let endLine = lines.find(l => l.end >= targetEnd) || lines[lines.length - 1];
+    highlight = { start_time: startLine.start, end_time: endLine.end };
+  }
+
+  return [
+    { id: "full", title: isZh ? "完整歌曲" : "Full song", available: true, start_time: 0, end_time: null },
+    { id: "verse", title: isZh ? "主歌" : "Verse", available: !!verse, ...(verse || { start_time: 0, end_time: 0 }) },
+    { id: "chorus", title: isZh ? "副歌" : "Chorus", available: !!chorus, ...(chorus || { start_time: 0, end_time: 0 }) },
+    { id: "highlight", title: isZh ? "宣发高光 (建议)" : "Highlight (suggested)", available: !!highlight, ...(highlight || { start_time: 0, end_time: 0 }) },
+  ];
+}

@@ -5,7 +5,7 @@ import {POSTER_FONT} from './poster-layout';
 import {checkImportScope} from './import-scope';
 import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,resolvePaletteColors,pickRandomStackLayout,type CompiledPoster,type DefaultLayoutPreset,type StackLayout} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
-import { defaults, normalizeProject, renderSize, type Project, type Options, type MotionPlan } from './model';
+import { defaults, normalizeProject, renderSize, buildExportClips, type Project, type Options, type MotionPlan, type ExportClip } from './model';
 import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,downloadService} from './service-api';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const audio=new Audio();
@@ -118,7 +118,7 @@ async function load(id:string){
   $('track-name').textContent=project.title||$<HTMLSelectElement>('project-select').selectedOptions[0].text;
   $<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';
   $('analysis-status').textContent=project.analysis.energy_curve.length?`Audio analysis ready · ${project.analysis.beats.length} beats · Estimated ${project.analysis.bpm} BPM`:'No audio analysis yet. Run it in Lyric Editor.';
-  refresh();listCues();await loadExports();
+  refresh();listCues();populateExportMatrix();await loadExports();
   if(sequence===loadSequence)status(result.plan_error||((plan?'Saved director plan loaded':'Choose a style and generate a director plan')+(audioCached?' · Audio loaded from local cache':'')));
  }catch(error){if(sequence===loadSequence)throw error;}
 }
@@ -146,10 +146,245 @@ function previewHighlight(single=false){
  dirty=true;if(!single)settingsDirty=true;refresh();listCues();status('Highlighting updated locally. Save when ready.');
 }
 $('highlight-mode').onchange=action(()=>previewHighlight());$('cue-highlight').onchange=action(()=>previewHighlight(true));
-async function exportVideo(){if(!selected||!plan)throw new Error('Generate a director plan first.');requireSaved();if(coverPending)await coverPending;const full=$<HTMLSelectElement>('export-range').value==='full';const result=await api('render','POST',{project_id:selected,aspect:options.aspect,height:options.height,bloom:options.bloom,shake:options.shake,post:options.post,start:full?0:Number($<HTMLInputElement>('clip-start').value),length:full?null:Number($<HTMLInputElement>('clip-length').value)});jobId=result.id;$<HTMLButtonElement>('export').disabled=true;$('download').hidden=true;$('cancel').hidden=false;
- try{for(;;){const job=await api('render/'+jobId);$('export-status').textContent=job.status==='running'?`Rendering ${job.frames}/${job.total} frames (${Math.round(job.frames/job.total*100)}%)`:job.status==='queued'?'Waiting to render…':job.status==='done'?'Video complete':job.status==='cancelled'?'Export cancelled':'Export failed: '+job.error;
- if(['done','failed','cancelled'].includes(job.status)){if(job.status==='done'){const link=$<HTMLAnchorElement>('download');link.href=motionUrl('render/'+jobId+'/download');link.onclick=event=>{event.preventDefault();void action(()=>downloadService(motionUrl('render/'+jobId+'/download')))();};link.hidden=false;}break;}await new Promise(resolve=>setTimeout(resolve,1000));}}
- finally{$<HTMLButtonElement>('export').disabled=false;$('cancel').hidden=true;}}
+let cancelExportQueue = false;
+
+function populateExportMatrix() {
+  const container = $('matrix-candidates-list');
+  if (!container) return;
+  container.replaceChildren();
+  const isZh = (window as any).currentLocale === 'zh';
+  const clips = typeof buildExportClips === 'function' ? buildExportClips(project, isZh ? 'zh' : 'en') : [];
+
+  const headings = [
+    isZh ? '片段' : 'Clip',
+    isZh ? '9:16 竖屏' : '9:16 Portrait',
+    isZh ? '16:9 横屏' : '16:9 Landscape'
+  ];
+  for (const h of headings) {
+    const el = document.createElement('strong');
+    el.textContent = h;
+    container.append(el);
+  }
+
+  clips.forEach(clip => {
+    const title = document.createElement('span');
+    title.className = 'matrix-clip-title';
+    let durationStr = '';
+    if (clip.available) {
+      if (clip.end_time == null) {
+        durationStr = project?.duration ? `${project.duration.toFixed(1)}s` : (isZh ? '全曲' : 'Full track');
+      } else {
+        durationStr = `${(clip.end_time - clip.start_time).toFixed(1)}s`;
+      }
+    } else {
+      durationStr = isZh ? '未检测到' : 'Not detected';
+    }
+    title.textContent = `${clip.title} · ${durationStr}`;
+    if (clip.available) {
+      title.title = `${clip.title} (${clip.start_time.toFixed(1)}s - ${clip.end_time == null ? 'End' : clip.end_time.toFixed(1) + 's'})`;
+    }
+    container.append(title);
+
+    for (const ratio of ['9:16', '16:9'] as const) {
+      const card = document.createElement('label');
+      card.className = 'matrix-card';
+      const check = document.createElement('input');
+      check.type = 'checkbox';
+      check.className = 'matrix-clip-check';
+      check.dataset.clipId = clip.id;
+      check.dataset.ratio = ratio;
+      check.checked = clip.id === 'full' && ratio === (options.aspect || '9:16');
+      check.disabled = !clip.available;
+      check.setAttribute?.('aria-label', `${clip.title} ${ratio}`);
+      check.addEventListener('change', () => {
+        updateMatrixCount();
+        if (check.checked) {
+          options.aspect = ratio;
+          $<HTMLSelectElement>('aspect').value = ratio;
+          settingsDirty = true;
+          refresh();
+        }
+      });
+      card.append(check);
+      container.append(card);
+    }
+  });
+  updateMatrixCount();
+}
+
+function updateMatrixCount() {
+  const custom = $<HTMLInputElement>('export-custom-range')?.checked;
+  const count = custom ? 1 : (typeof document.querySelectorAll === 'function' ? Array.from(document.querySelectorAll<HTMLInputElement>('.matrix-clip-check')).filter(c => c.checked && !c.disabled).length : 0);
+  const isZh = (window as any).currentLocale === 'zh';
+  const badge = $('matrix-selected-count');
+  if (badge) badge.textContent = `${count} ${isZh ? '已选' : 'selected'}`;
+  const btn = $<HTMLButtonElement>('export');
+  if (btn && !btn.disabled) {
+    btn.textContent = custom ? (isZh ? '导出自定义片段' : 'Export Custom Clip') : (isZh ? `导出所选视频 (${count})` : `Export Selected (${count})`);
+  }
+}
+
+async function exportVideo() {
+  if (!selected || !plan) throw new Error('Generate a director plan first.');
+  requireSaved();
+  if (coverPending) await coverPending;
+
+  const customRange = Boolean($<HTMLInputElement>('export-custom-range')?.checked);
+  const selectedBoxes = customRange ? [] : (typeof document.querySelectorAll === 'function' ? Array.from(document.querySelectorAll<HTMLInputElement>('.matrix-clip-check')).filter(c => c.checked && !c.disabled) : []);
+  if (!customRange && !selectedBoxes.length) throw new Error('Please select at least one clip or format from the matrix.');
+
+  const isZh = (window as any).currentLocale === 'zh';
+  const clips = typeof buildExportClips === 'function' ? buildExportClips(project, isZh ? 'zh' : 'en') : [];
+  type QueueTask = {
+    title: string;
+    aspect: '16:9' | '9:16';
+    start: number;
+    length: number | null;
+  };
+  const tasks: QueueTask[] = customRange ? [{
+    title: isZh ? '自定义片段' : 'Custom clip',
+    aspect: options.aspect,
+    start: Math.max(0, Number($<HTMLInputElement>('clip-start').value || 0)),
+    length: Math.max(0.1, Number($<HTMLInputElement>('clip-length').value || 8))
+  }] : selectedBoxes.map(box => {
+    const clip = clips.find(c => c.id === box.dataset.clipId)!;
+    const aspect = (box.dataset.ratio || options.aspect) as '16:9' | '9:16';
+    const start = clip.start_time;
+    const length = clip.end_time == null ? null : Math.max(0.1, clip.end_time - clip.start_time);
+    return { title: clip.title, aspect, start, length };
+  });
+
+  const exportBtn = $<HTMLButtonElement>('export');
+  const cancelBtn = $<HTMLButtonElement>('cancel');
+  const queueBox = $('matrix-queue-box');
+  const queueSummary = $('matrix-queue-summary');
+  const queueItems = $('matrix-queue-items');
+  const downloadLink = $<HTMLAnchorElement>('download');
+
+  exportBtn.disabled = true;
+  cancelBtn.hidden = false;
+  downloadLink.hidden = true;
+  cancelExportQueue = false;
+
+  queueBox.hidden = false;
+  queueItems.replaceChildren();
+
+  const itemRows = tasks.map(task => {
+    const row = document.createElement('div');
+    row.className = 'queue-row';
+    const text = document.createElement('span');
+    text.textContent = `${task.title} (${task.aspect}): ${isZh ? '排队中…' : 'Queued…'}`;
+    row.append(text);
+    queueItems.append(row);
+    return { task, row, text };
+  });
+
+  let completedCount = 0;
+  const updateSummary = (runningMsg = '') => {
+    queueSummary.textContent = `${completedCount}/${tasks.length} ${isZh ? '完成' : 'completed'}${runningMsg ? ' · ' + runningMsg : ''}`;
+  };
+  updateSummary();
+
+  try {
+    for (let i = 0; i < tasks.length; i++) {
+      if (cancelExportQueue) {
+        for (let j = i; j < tasks.length; j++) {
+          itemRows[j].text.textContent = `${tasks[j].title} (${tasks[j].aspect}): ${isZh ? '已取消' : 'Cancelled'}`;
+        }
+        break;
+      }
+      const { task, row, text } = itemRows[i];
+      text.textContent = `${task.title} (${task.aspect}): ${isZh ? '准备导出…' : 'Preparing…'}`;
+      updateSummary(`${task.title} (${task.aspect})`);
+
+      let submittedJobId = '';
+      while (!cancelExportQueue) {
+        try {
+          const res = await api('render', 'POST', {
+            project_id: selected,
+            aspect: task.aspect,
+            height: options.height,
+            bloom: options.bloom,
+            shake: options.shake,
+            post: options.post,
+            start: task.start,
+            length: task.length
+          });
+          submittedJobId = res.id;
+          jobId = res.id;
+          break;
+        } catch (err: any) {
+          const msg = err?.message || String(err);
+          if (/已有视频正在导出|slots are full|409/i.test(msg)) {
+            text.textContent = `${task.title} (${task.aspect}): ${isZh ? '等待通道空闲…' : 'Waiting for render slot…'}`;
+            await new Promise(r => setTimeout(r, 1500));
+            continue;
+          }
+          throw err;
+        }
+      }
+
+      if (cancelExportQueue) break;
+
+      for (;;) {
+        if (cancelExportQueue) {
+          await api('render/' + submittedJobId + '/cancel', 'POST').catch(() => {});
+          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '已取消' : 'Cancelled'}`;
+          break;
+        }
+        const job = await api('render/' + submittedJobId);
+        const statusText = job.status === 'running'
+          ? (isZh ? `渲染中 ${job.frames}/${job.total} 帧 (${Math.round(job.frames/job.total*100)}%)` : `Rendering ${job.frames}/${job.total} frames (${Math.round(job.frames/job.total*100)}%)`)
+          : job.status === 'queued'
+          ? (isZh ? '排队等待渲染…' : 'Waiting to render…')
+          : job.status === 'done'
+          ? (isZh ? '视频已完成' : 'Video complete')
+          : job.status === 'cancelled'
+          ? (isZh ? '已取消' : 'Cancelled')
+          : (isZh ? '渲染失败: ' + job.error : 'Failed: ' + job.error);
+
+        text.textContent = `${task.title} (${task.aspect}): ${statusText}`;
+        $('export-status').textContent = `${task.title} (${task.aspect}) · ${statusText}`;
+
+        if (job.status === 'done') {
+          completedCount++;
+          const dlUrl = motionUrl('render/' + submittedJobId + '/download');
+          const dlLink = document.createElement('a');
+          dlLink.className = 'dl-link';
+          dlLink.textContent = isZh ? '下载 ↓' : 'Download ↓';
+          dlLink.href = dlUrl;
+          dlLink.onclick = (e) => {
+            e.preventDefault();
+            void action(() => downloadService(dlUrl))();
+          };
+          row.append(dlLink);
+
+          if (tasks.length === 1) {
+            downloadLink.href = dlUrl;
+            downloadLink.onclick = dlLink.onclick;
+            downloadLink.hidden = false;
+          }
+          await loadExports();
+          updateSummary();
+          break;
+        }
+        if (['failed', 'cancelled'].includes(job.status)) {
+          updateSummary();
+          break;
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+    updateSummary(isZh ? '所有任务已结束' : 'All jobs finished');
+    $('export-status').textContent = `${completedCount}/${tasks.length} ${isZh ? '视频导出完成。' : 'videos completed.'} ${cloudService() ? (isZh ? '可在「我的导出」中集中管理。' : 'Manage them in My Exports.') : ''}`;
+    if (cloudService()) $('my-exports').hidden = false;
+  } finally {
+    exportBtn.disabled = false;
+    cancelBtn.hidden = true;
+    updateMatrixCount();
+  }
+}
+
 function action(fn:()=>unknown){return async()=>{try{await fn();}catch(error){status(error instanceof Error?error.message:String(error));console.error(error);}};}
 $('generate').onclick=action(()=>rules());$('regenerate-cue').onclick=action(()=>rules(true));$('save-plan').onclick=action(saveAll);$('save-design').onclick=action(saveAll);
 async function directorPrompt(single:boolean){
@@ -179,7 +414,7 @@ async function aiDirector(single:boolean){
 }
 $('ai-line').onclick=action(()=>aiDirector(true));$('ai-song').onclick=action(()=>aiDirector(false));
 $('ai-apply').onclick=action(async()=>{if(dirty||JSON.stringify(plan)!==aiBaseline)throw new Error('The local plan changed. Save before requesting a new Gemini plan.');const id=selected,sequence=loadSequence;const result=await api('director/jobs/'+aiJob+'/apply?preview=true','POST');if(selected!==id||sequence!==loadSequence||dirty||JSON.stringify(plan)!==aiBaseline)throw new Error('Preview changed. Apply again; your current edits are preserved.');plan=preserveHighlight(result.plan,plan,($<HTMLSelectElement>('highlight-mode').value||'none') as HighlightMode);dirty=true;$('ai-apply').hidden=true;refresh();listCues();$('ai-job-status').textContent='Gemini plan applied locally. Save to sync.';status('Local preview updated. Save when ready.');});
-new MutationObserver(updateSaveState).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
+new MutationObserver(()=>{updateSaveState();populateExportMatrix();}).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
 void loadAIConfig();
 async function returnedPlan(apply:boolean){
  if(!selected)throw new Error('Select a song first.');if(dirty)throw new Error('Save local edits before validating or applying an AI plan.');
@@ -208,7 +443,14 @@ seek.oninput=()=>{beginScrub();const t=Number(seek.value);audio.currentTime=t;en
 seek.onchange=action(finishScrub);
 window.addEventListener('pointerup',action(finishScrub));
 window.addEventListener('pointercancel',()=>{resumeAfterScrub=false;void finishScrub();});
-$('export').onclick=action(exportVideo);$('cancel').onclick=action(()=>api('render/'+jobId+'/cancel','POST'));
+$('export').onclick=action(exportVideo);
+$('cancel').onclick=action(async()=>{
+  cancelExportQueue=true;
+  if(jobId)await api('render/'+jobId+'/cancel','POST').catch(()=>{});
+});
+$('export-custom-range')?.addEventListener('change',updateMatrixCount);
+$('clip-start')?.addEventListener('input',updateMatrixCount);
+$('clip-length')?.addEventListener('input',updateMatrixCount);
 function tick(){if(engine&&playing){if(clipEnd!==null&&audio.currentTime>=clipEnd){audio.pause();audio.currentTime=clipReviewTime;clipEnd=null;playing=false;$('play').textContent='▶';status(reviewHandover?'Transition preview complete':'Line playback complete. Showing the final poster.');}engine.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';if(audio.ended){playing=false;$('play').textContent='▶';}}requestAnimationFrame(tick);}requestAnimationFrame(tick);
 audio.addEventListener('seeked',()=>{if(scrubbing)return;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';});
 window.addEventListener('beforeunload',event=>{if(dirty||identityDirty||settingsDirty){event.preventDefault();event.returnValue='';}});
