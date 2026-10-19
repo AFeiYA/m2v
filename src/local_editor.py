@@ -2306,15 +2306,40 @@ def delete_comfyui_take(req: ComfyUIDeleteTakeRequest):
 
 # ── 静态文件: 从 frontend/local/ 目录提供 HTML/CSS/JS ──
 _FRONTEND_DIR = _PROJECT_ROOT / "frontend" / "local"
+_FRONTEND_ROOT = _PROJECT_ROOT / "frontend"
 
 from fastapi.staticfiles import StaticFiles
 if _FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIR)), name="local-static")
 
 @app.get("/", response_class=HTMLResponse)
+def root_workspace():
+    ws_file = _FRONTEND_ROOT / "index.html"
+    if ws_file.exists():
+        return HTMLResponse(ws_file.read_text(encoding="utf-8"))
+    index_file = _FRONTEND_DIR / "index.html"
+    if index_file.exists():
+        return HTMLResponse(index_file.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>index.html 不存在</h1>", status_code=500)
+
+
+@app.get("/dashboard.css")
+@app.get("/dashboard.js")
+@app.get("/workspace.js")
+@app.get("/billing.js")
+@app.get("/firebase-config.js")
+def serve_root_asset(request: Request):
+    path_name = request.url.path.lstrip("/")
+    file_path = _FRONTEND_ROOT / path_name
+    if file_path.exists():
+        media_type = "text/css" if path_name.endswith(".css") else "application/javascript"
+        return FileResponse(file_path, media_type=media_type)
+    raise HTTPException(404, f"{path_name} not found")
+
+
 @app.get("/lyric-editor", response_class=HTMLResponse)
 @app.get("/lyric-editor/{task_id}", response_class=HTMLResponse)
-def index(task_id: str | None = None):
+def lyric_editor(task_id: str | None = None):
     index_file = _FRONTEND_DIR / "index.html"
     if index_file.exists():
         return HTMLResponse(index_file.read_text(encoding="utf-8"))

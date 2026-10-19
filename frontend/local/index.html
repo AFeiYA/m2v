@@ -13,7 +13,14 @@
         window.M2V_API_BASE = "";
       }
     }
-    if (location.hostname.includes("fovea.si") || location.hostname.includes("pages.dev") || location.hostname.includes("web.app") || location.hostname.includes("hf.space")) {
+    if (window.parent && window.parent !== window && window.parent.m2vAuth) {
+      window.m2vAuth = window.parent.m2vAuth;
+      document.addEventListener("DOMContentLoaded", () => {
+        document.body.classList.add("embedded-studio");
+        if (window.updateAuthUi) window.updateAuthUi();
+        if (window.setupEditorAuth) window.setupEditorAuth();
+      });
+    } else {
       const s1 = document.createElement("script");
       s1.src = "https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js";
       s1.onload = () => {

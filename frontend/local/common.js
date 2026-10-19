@@ -22,6 +22,66 @@ function isCloudMode() {
 }
 window.isCloudMode = isCloudMode;
 
+// Synchronize authentication with parent Studio Shell if embedded
+(function initParentAuthSync() {
+  if (typeof window === "undefined") return;
+  if (window.parent && window.parent !== window) {
+    try {
+      const pToken = window.parent.localStorage?.getItem("m2v_token");
+      const pUser = window.parent.localStorage?.getItem("m2v_user");
+      const pProvider = window.parent.localStorage?.getItem("m2v_auth_provider");
+      if (pToken) {
+        localStorage.setItem("m2v_token", pToken);
+        if (pUser) localStorage.setItem("m2v_user", pUser);
+        if (pProvider) localStorage.setItem("m2v_auth_provider", pProvider);
+      }
+      if (window.parent.m2vAuth) {
+        window.m2vAuth = window.parent.m2vAuth;
+      }
+    } catch (_) {}
+  }
+})();
+
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("message", (event) => {
+    if (!event.data || typeof event.data !== "object") return;
+    if (event.data.type === "M2V_SYNC_AUTH") {
+      if (event.data.token) localStorage.setItem("m2v_token", event.data.token);
+      if (event.data.user) localStorage.setItem("m2v_user", JSON.stringify(event.data.user));
+      if (window.updateAuthUi) window.updateAuthUi();
+    } else if (event.data.type === "M2V_LOAD_SONG") {
+      const songId = event.data.songId;
+      if (songId && typeof window.loadSongFile === "function") {
+        window.loadSongFile(songId);
+      }
+    }
+  });
+}
+
+// Intercept clicks on links that point to parent dashboard sections or sibling studios
+if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+  document.addEventListener("click", (e) => {
+    const link = e.target.closest("a");
+    if (!link) return;
+    const href = link.getAttribute("href");
+    if (!href) return;
+    if (window.parent && window.parent !== window) {
+      if (href === "/#exports-section" || href.includes("#exports-section") || href === "/#exports") {
+        e.preventDefault();
+        window.parent.postMessage({ type: "M2V_NAVIGATE", hash: "exports-section" }, "*");
+      } else if (href === "/" || href === "/index.html" || href.startsWith("/#")) {
+        e.preventDefault();
+        const targetHash = href.includes("#") ? href.slice(href.indexOf("#") + 1) : "tasks-section";
+        window.parent.postMessage({ type: "M2V_NAVIGATE", hash: targetHash }, "*");
+      } else if (href === "/motion-studio" || href.startsWith("/motion-studio")) {
+        e.preventDefault();
+        const currentId = window.state?.currentTaskId || window.state?.currentFile || "";
+        window.parent.postMessage({ type: "M2V_SWITCH_STUDIO", target: "motion-studio", songId: currentId }, "*");
+      }
+    }
+  });
+}
+
 function updateAuthUi() {
   const pill = document.getElementById("auth-pill");
   const info = document.getElementById("auth-user-info");

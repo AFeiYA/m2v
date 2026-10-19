@@ -1,28 +1,145 @@
 /* Navigation only: data loading, authentication and editor state stay in dashboard.js. */
 (() => {
-  const pages = new Set(['tasks-section', 'exports-section', 'upload-section', 'trash-section', 'credits-section']);
+  const pages = new Set([
+    'tasks-section',
+    'exports-section',
+    'upload-section',
+    'trash-section',
+    'credits-section',
+    'lyric-editor-section',
+    'motion-studio-section'
+  ]);
+
   document.addEventListener('DOMContentLoaded', () => {
     const app = document.getElementById('app');
     const menu = document.getElementById('workspace-menu');
     const search = document.getElementById('song-search');
+
     if (window.matchMedia('(max-width: 700px)').matches) {
       app.classList.add('navigation-collapsed');
       menu.setAttribute('aria-expanded', 'false');
     }
+
+    function getActiveSong() {
+      if (window.m2vActiveSong) return window.m2vActiveSong;
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          return JSON.parse(sessionStorage.getItem('m2v_active_song') || 'null');
+        }
+      } catch (_) {}
+      return null;
+    }
+
+    function setActiveSong(song) {
+      window.m2vActiveSong = song;
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.setItem('m2v_active_song', JSON.stringify(song));
+        }
+      } catch (_) {}
+    }
+
     function navigate(focus = false) {
-      const requested = location.hash.slice(1);
+      const rawHash = location.hash.slice(1);
+      const [pageName, queryString] = rawHash.split('?');
+      const requested = pageName;
       const active = pages.has(requested) ? requested : 'tasks-section';
-      document.querySelectorAll('.workspace-page').forEach(page => { page.hidden = page.id !== active; });
+
+      // Parse optional query params from hash like #lyric-editor-section?song=abc
+      if (queryString) {
+        try {
+          const params = new URLSearchParams(queryString);
+          const songId = params.get('song') || params.get('project');
+          if (songId) {
+            const currentSong = getActiveSong() || {};
+            setActiveSong({ ...currentSong, id: songId });
+          }
+        } catch (_) {}
+      }
+
+      const isStudio = (active === 'lyric-editor-section' || active === 'motion-studio-section');
+      if (isStudio) {
+        if (typeof app.classList?.add === 'function') app.classList.add('in-studio-mode');
+      } else {
+        if (typeof app.classList?.remove === 'function') app.classList.remove('in-studio-mode');
+      }
+
+      // Toggle page visibility
+      document.querySelectorAll('.workspace-page').forEach(page => {
+        page.hidden = page.id !== active;
+      });
+
+      // Update sidebar links
       document.querySelectorAll('[data-workspace-link]').forEach(link => {
-        if (link.getAttribute('href') === '#' + active) link.setAttribute('aria-current', 'page');
+        const href = link.getAttribute('href') || '';
+        const target = href.replace(/^#/, '');
+        if (target === active) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
       });
-      const titles = {'tasks-section':'My Library','exports-section':'My Exports','upload-section':'New Project','trash-section':'Trash','credits-section':'Credits & Billing'};
+
+      // Update header studio tabs
+      document.querySelectorAll('.studio-tab-btn').forEach(btn => {
+        const target = (btn.getAttribute('href') || '').replace(/^#/, '');
+        if (target === active) {
+          if (typeof btn.classList?.add === 'function') btn.classList.add('active');
+          btn.setAttribute('aria-current', 'page');
+        } else {
+          if (typeof btn.classList?.remove === 'function') btn.classList.remove('active');
+          btn.removeAttribute('aria-current');
+        }
+      });
+
+      const titles = {
+        'tasks-section': 'My Library',
+        'exports-section': 'My Exports',
+        'upload-section': 'New Project',
+        'trash-section': 'Trash',
+        'credits-section': 'Credits & Billing',
+        'lyric-editor-section': 'Lyric Studio',
+        'motion-studio-section': 'Motion Studio',
+      };
+
       const bc = document.getElementById('bc-current');
       if (bc) bc.textContent = titles[active] || 'My Library';
+
+      // Update active song display in breadcrumbs
+      const activeSong = getActiveSong();
+      const bcSong = document.getElementById('bc-song-name');
+      const bcSepSong = document.getElementById('bc-sep-song');
+      if (isStudio && activeSong?.title) {
+        if (bcSong) {
+          bcSong.textContent = '🎵 ' + activeSong.title;
+          if (bcSong.style) bcSong.style.display = 'inline';
+        }
+        if (bcSepSong && bcSepSong.style) bcSepSong.style.display = 'inline';
+      } else {
+        if (bcSong && bcSong.style) bcSong.style.display = 'none';
+        if (bcSepSong && bcSepSong.style) bcSepSong.style.display = 'none';
+      }
+
+      // Lazy load or initialize studio frames if blank
+      if (active === 'lyric-editor-section') {
+        const iframe = document.getElementById('iframe-lyric-editor');
+        if (iframe && (iframe.src === 'about:blank' || !iframe.src)) {
+          const songId = activeSong?.id || '';
+          iframe.src = songId ? `/lyric-editor/${encodeURIComponent(songId)}` : '/lyric-editor';
+        }
+        const barTitle = document.getElementById('lyric-bar-song-title');
+        if (barTitle && activeSong?.title) barTitle.textContent = activeSong.title;
+      } else if (active === 'motion-studio-section') {
+        const iframe = document.getElementById('iframe-motion-studio');
+        if (iframe && (iframe.src === 'about:blank' || !iframe.src)) {
+          const songId = activeSong?.id || '';
+          iframe.src = songId ? `/motion-studio?project=${encodeURIComponent(songId)}` : '/motion-studio';
+        }
+        const barTitle = document.getElementById('motion-bar-song-title');
+        if (barTitle && activeSong?.title) barTitle.textContent = activeSong.title;
+      }
+
       if (active === 'credits-section') window.m2vBilling?.refresh();
       if (active === 'trash-section') document.getElementById('version-trash').open = true;
       if (active !== 'exports-section') document.getElementById('btn-close-export-preview')?.click();
+
       if (focus) {
         if (window.matchMedia('(max-width: 700px)').matches) {
           app.classList.add('navigation-collapsed');
@@ -30,17 +147,57 @@
         }
         document.getElementById(active)?.focus({preventScroll: true});
       }
+
       // Hash anchors would otherwise scroll the section title under the sticky header.
       window.requestAnimationFrame?.(() => window.scrollTo({top: 0, left: 0, behavior: 'instant'}));
     }
+
     window.addEventListener('hashchange', () => navigate(true));
+
+    // Handle cross-frame communication with embedded studios
+    window.addEventListener('message', (event) => {
+      if (!event.data || typeof event.data !== 'object') return;
+      if (event.data.type === 'M2V_NAVIGATE') {
+        const target = (event.data.hash || '').replace(/^#/, '');
+        if (pages.has(target)) location.hash = target;
+      } else if (event.data.type === 'M2V_SWITCH_STUDIO') {
+        const target = event.data.target;
+        const songId = event.data.songId;
+        if (target === 'motion-studio' && window.openMotionStudio) {
+          window.openMotionStudio(songId);
+        } else if (target === 'lyric-editor' && window.openLyricStudio) {
+          window.openLyricStudio(songId);
+        }
+      }
+    });
+
+    // Studio toolbar button handlers
+    document.getElementById('btn-close-lyric-view')?.addEventListener('click', () => {
+      location.hash = 'tasks-section';
+    });
+    document.getElementById('btn-close-motion-view')?.addEventListener('click', () => {
+      location.hash = 'tasks-section';
+    });
+    document.getElementById('btn-lyric-to-motion')?.addEventListener('click', () => {
+      const activeSong = getActiveSong();
+      if (window.openMotionStudio) window.openMotionStudio(activeSong?.id, activeSong?.title);
+      else location.hash = 'motion-studio-section';
+    });
+    document.getElementById('btn-motion-to-lyric')?.addEventListener('click', () => {
+      const activeSong = getActiveSong();
+      if (window.openLyricStudio) window.openLyricStudio(activeSong?.id, activeSong?.title);
+      else location.hash = 'lyric-editor-section';
+    });
+
     menu.addEventListener('click', () => {
       const collapsed = app.classList.toggle('navigation-collapsed');
       menu.setAttribute('aria-expanded', String(!collapsed));
     });
+
     search.addEventListener('input', () => {
       if (location.hash !== '#tasks-section') location.hash = 'tasks-section';
     });
+
     document.getElementById('btn-paste-suno')?.addEventListener('click', async () => {
       try {
         const text = await navigator.clipboard?.readText?.();
@@ -50,6 +207,7 @@
         }
       } catch (_) {}
     });
+
     navigate();
   });
 })();

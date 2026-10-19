@@ -367,5 +367,37 @@
   </dialog>
 
   <script type="module" src="/motion/studio.js"></script>
+  <script>
+    if (window.parent && window.parent !== window) {
+      document.body.classList.add("embedded-studio");
+      try {
+        const pToken = window.parent.localStorage?.getItem("m2v_token");
+        const pUser = window.parent.localStorage?.getItem("m2v_user");
+        if (pToken) localStorage.setItem("m2v_token", pToken);
+        if (pUser) localStorage.setItem("m2v_user", pUser);
+        if (window.parent.m2vAuth) window.m2vAuth = window.parent.m2vAuth;
+      } catch (_) {}
+    }
+    document.addEventListener("click", (e) => {
+      const link = e.target.closest("a");
+      if (!link) return;
+      const href = link.getAttribute("href");
+      if (!href) return;
+      if (window.parent && window.parent !== window) {
+        if (href === "/lyric-editor" || href.startsWith("/lyric-editor")) {
+          e.preventDefault();
+          const query = new URLSearchParams(location.search);
+          const currentProject = query.get("project") || query.get("song") || "";
+          window.parent.postMessage({ type: "M2V_SWITCH_STUDIO", target: "lyric-editor", songId: currentProject }, "*");
+        } else if (href === "/#exports-section" || href.includes("#exports-section")) {
+          e.preventDefault();
+          window.parent.postMessage({ type: "M2V_NAVIGATE", hash: "exports-section" }, "*");
+        } else if (href === "/" || href.startsWith("/#")) {
+          e.preventDefault();
+          window.parent.postMessage({ type: "M2V_NAVIGATE", hash: "tasks-section" }, "*");
+        }
+      }
+    });
+  </script>
 </body>
 </html>

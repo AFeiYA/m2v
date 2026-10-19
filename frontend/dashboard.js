@@ -314,6 +314,86 @@ function showAuth() {
   if (pollTimer) clearInterval(pollTimer);
 }
 
+window.openLyricStudio = function(songId, songTitle) {
+  if (songId) {
+    const title = songTitle || (window.librarySongs?.get(songId)?.title) || songId;
+    window.m2vActiveSong = { id: songId, title: title };
+    sessionStorage.setItem("m2v_active_song", JSON.stringify(window.m2vActiveSong));
+  }
+  const activeSong = window.m2vActiveSong || JSON.parse(sessionStorage.getItem("m2v_active_song") || "null");
+  const iframe = document.getElementById("iframe-lyric-editor");
+  if (iframe) {
+    const targetUrl = activeSong?.id ? `/lyric-editor/${encodeURIComponent(activeSong.id)}` : "/lyric-editor";
+    if (!iframe.src || !iframe.src.includes(encodeURIComponent(activeSong?.id || ""))) {
+      iframe.src = targetUrl;
+    }
+    syncAuthToFrame(iframe);
+  }
+  const titleEl = document.getElementById("lyric-bar-song-title");
+  if (titleEl && activeSong?.title) titleEl.textContent = activeSong.title;
+  const bcSong = document.getElementById("bc-song-name");
+  const bcSep = document.getElementById("bc-sep-song");
+  if (bcSong && activeSong?.title) {
+    bcSong.textContent = "🎵 " + activeSong.title;
+    bcSong.style.display = "inline";
+    if (bcSep) bcSep.style.display = "inline";
+  }
+  location.hash = "lyric-editor-section";
+};
+
+window.openMotionStudio = function(songId, songTitle) {
+  if (songId) {
+    const title = songTitle || (window.librarySongs?.get(songId)?.title) || songId;
+    window.m2vActiveSong = { id: songId, title: title };
+    sessionStorage.setItem("m2v_active_song", JSON.stringify(window.m2vActiveSong));
+  }
+  const activeSong = window.m2vActiveSong || JSON.parse(sessionStorage.getItem("m2v_active_song") || "null");
+  const iframe = document.getElementById("iframe-motion-studio");
+  if (iframe) {
+    const targetUrl = activeSong?.id ? `/motion-studio?project=${encodeURIComponent(activeSong.id)}` : "/motion-studio";
+    if (!iframe.src || !iframe.src.includes(encodeURIComponent(activeSong?.id || ""))) {
+      iframe.src = targetUrl;
+    }
+    syncAuthToFrame(iframe);
+  }
+  const titleEl = document.getElementById("motion-bar-song-title");
+  if (titleEl && activeSong?.title) titleEl.textContent = activeSong.title;
+  const bcSong = document.getElementById("bc-song-name");
+  const bcSep = document.getElementById("bc-sep-song");
+  if (bcSong && activeSong?.title) {
+    bcSong.textContent = "🎵 " + activeSong.title;
+    bcSong.style.display = "inline";
+    if (bcSep) bcSep.style.display = "inline";
+  }
+  location.hash = "motion-studio-section";
+};
+
+function syncAuthToFrame(iframe) {
+  if (!iframe) return;
+  const doSync = () => {
+    try {
+      if (!iframe.contentWindow) return;
+      const t = token || localStorage.getItem("m2v_token");
+      const u = localStorage.getItem("m2v_user");
+      const p = localStorage.getItem("m2v_auth_provider");
+      if (t) {
+        iframe.contentWindow.localStorage?.setItem("m2v_token", t);
+        if (u) iframe.contentWindow.localStorage?.setItem("m2v_user", u);
+        if (p) iframe.contentWindow.localStorage?.setItem("m2v_auth_provider", p);
+      }
+      if (window.m2vAuth) {
+        iframe.contentWindow.m2vAuth = window.m2vAuth;
+      }
+      iframe.contentWindow.postMessage({ type: "M2V_SYNC_AUTH", token: t, user: u ? JSON.parse(u) : null }, "*");
+    } catch (_) {}
+  };
+  if (iframe.contentDocument?.readyState === "complete") {
+    doSync();
+  } else {
+    iframe.addEventListener("load", doSync, { once: true });
+  }
+}
+
 function checkRedirect() {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -325,6 +405,24 @@ function checkRedirect() {
       redirect !== "/" &&
       redirect !== "/index.html"
     ) {
+      if (redirect.startsWith("/lyric-editor")) {
+        const songId = redirect.replace(/^\/lyric-editor\/?/, "");
+        if (window.openLyricStudio) {
+          window.openLyricStudio(songId);
+          const cleanUrl = window.location.pathname + window.location.hash;
+          window.history.replaceState({}, "", cleanUrl);
+          return true;
+        }
+      } else if (redirect.startsWith("/motion-studio")) {
+        const u = new URL(redirect, window.location.origin);
+        const songId = u.searchParams.get("project") || u.searchParams.get("song") || "";
+        if (window.openMotionStudio) {
+          window.openMotionStudio(songId);
+          const cleanUrl = window.location.pathname + window.location.hash;
+          window.history.replaceState({}, "", cleanUrl);
+          return true;
+        }
+      }
       window.location.href = redirect;
       return true;
     }
@@ -562,7 +660,7 @@ function renderSong(song) {
     return `<div class="song-version"><div><strong>${escapeHtml(v.title)}</strong> <span class="badge">${escapeHtml(v.status)}</span>${v.id===current?' <span class="badge">Current</span>':''}</div>
       <p>${escapeHtml(new Date(v.updated_at).toLocaleString())} · ${v.export_count} videos</p>
       ${v.error?`<p class="error-text">${escapeHtml(v.error)}</p>`:''}
-      <div class="task-actions">${ready?`<a class="btn btn-sm" href="/lyric-editor/${encodeURIComponent(v.id)}">Open lyrics</a><button class="btn btn-sm btn-outline" data-song-action="current" data-song="${id}" data-version="${escapeHtml(v.id)}">Use this version</button>`:''}
+      <div class="task-actions">${ready?`<a class="btn btn-sm" href="/lyric-editor/${encodeURIComponent(v.id)}" onclick="window.openLyricStudio('${encodeURIComponent(v.id)}', '${escapeHtml(v.title || song.title)}'); return false;">Open lyrics</a><button class="btn btn-sm btn-outline" data-song-action="current" data-song="${id}" data-version="${escapeHtml(v.id)}">Use this version</button>`:''}
       ${ready?`<button class="btn btn-sm btn-outline" data-action="download" data-task="${escapeHtml(v.id)}" data-type="alignment">Download JSON</button>`:''}
       ${v.has_ass?`<button class="btn btn-sm btn-outline" data-action="download" data-task="${escapeHtml(v.id)}" data-type="ass">Download ASS</button>`:''}
       ${v.has_video?`<button class="btn btn-sm btn-outline" data-action="download" data-task="${escapeHtml(v.id)}" data-type="mp4">Download video</button>`:''}
@@ -573,7 +671,7 @@ function renderSong(song) {
     <button class="song-star" data-song-action="star" data-song="${id}" aria-label="${song.starred?'Unfavorite':'Favorite'} song" aria-pressed="${song.starred}">${song.starred?'★':'☆'}</button></div>
     <p class="song-state">${escapeHtml(song.status==='completed'&&!current?'Import finished':labels[song.status]||song.status)}${song.status==='processing'?` · ${Math.max(0,Math.min(100,Number(song.progress)||0))}%`:''}</p>
     <p class="song-updated">Updated ${escapeHtml(new Date(song.updated_at).toLocaleDateString())}</p>
-    <div class="task-actions">${current?`<a class="btn btn-primary btn-sm" href="/lyric-editor/${encodeURIComponent(current)}">Edit lyrics</a><a class="btn btn-sm btn-outline" href="/motion-studio?project=${encodeURIComponent(current)}">Design video</a>`:''}
+    <div class="task-actions">${current?`<a class="btn btn-primary btn-sm" href="/lyric-editor/${encodeURIComponent(current)}" onclick="window.openLyricStudio('${encodeURIComponent(current)}', '${escapeHtml(song.title)}'); return false;">Edit lyrics</a><a class="btn btn-sm btn-outline" href="/motion-studio?project=${encodeURIComponent(current)}" onclick="window.openMotionStudio('${encodeURIComponent(current)}', '${escapeHtml(song.title)}'); return false;">Design video</a>`:''}
     ${song.export_count?`<button class="btn btn-sm btn-outline" data-song-action="exports" data-song="${id}">View videos</button>`:''}
     <button class="btn btn-sm btn-outline" data-song-action="archive" data-song="${id}">${song.archived?'Restore':'Archive'}</button></div>
     <details class="song-versions"><summary>Versions &amp; history (${song.version_count})</summary>${versions}</details></article>`;
@@ -702,7 +800,7 @@ function renderTask(task) {
     }
     if (task.alignment_json_key) {
       actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="alignment">📊 Download JSON</button>`;
-      actions += `<a class="btn btn-sm" href="/lyric-editor/${task.id}" target="_blank">✏️ Edit lyrics</a>`;
+      actions += `<a class="btn btn-sm" href="#lyric-editor-section" onclick="window.openLyricStudio('${task.id}', '${escapeHtml(task.song_title || task.title || '')}'); return false;">✏️ Edit lyrics</a>`;
     }
   }
   if (task.status === "failed" && task.error_message) {
@@ -998,6 +1096,12 @@ document.addEventListener("DOMContentLoaded", async () => {
         prompt("Copy your token:", activeToken);
       }
     });
+  }
+
+  // If we already have a cached token, reveal app immediately and verify in background
+  if (token) {
+    $("#app").style.display = "";
+    $("#auth-overlay").style.display = "none";
   }
 
   // Firebase restores its session asynchronously; never trust an old cached ID token.
