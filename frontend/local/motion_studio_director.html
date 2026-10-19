@@ -377,6 +377,25 @@
         if (pUser) localStorage.setItem("m2v_user", pUser);
         if (window.parent.m2vAuth) window.m2vAuth = window.parent.m2vAuth;
       } catch (_) {}
+
+      window.addEventListener("message", (event) => {
+        if (event.origin !== window.location.origin) return;
+        if (event.source !== window.parent) return;
+        if (!event.data || typeof event.data !== "object") return;
+        if (event.data.type === "M2V_SYNC_AUTH") {
+          if (event.data.token) localStorage.setItem("m2v_token", event.data.token);
+          if (event.data.user) localStorage.setItem("m2v_user", JSON.stringify(event.data.user));
+        } else if (event.data.type === "M2V_LOAD_SONG") {
+          const songId = event.data.songId;
+          if (songId) {
+            const select = document.getElementById("project-select");
+            if (select && select.value !== songId) {
+              select.value = songId;
+              select.dispatchEvent(new Event("change"));
+            }
+          }
+        }
+      });
     }
     document.addEventListener("click", (e) => {
       const link = e.target.closest("a");
@@ -384,17 +403,22 @@
       const href = link.getAttribute("href");
       if (!href) return;
       if (window.parent && window.parent !== window) {
+        const targetOrigin = window.location.origin;
         if (href === "/lyric-editor" || href.startsWith("/lyric-editor")) {
           e.preventDefault();
-          const query = new URLSearchParams(location.search);
-          const currentProject = query.get("project") || query.get("song") || "";
-          window.parent.postMessage({ type: "M2V_SWITCH_STUDIO", target: "lyric-editor", songId: currentProject }, "*");
+          const select = document.getElementById("project-select");
+          const currentProject = (select && select.value) ||
+            (typeof window.getMotionProjectId === "function" ? window.getMotionProjectId() : "") ||
+            (window.state?.projectId) ||
+            new URLSearchParams(location.search).get("project") ||
+            "";
+          window.parent.postMessage({ type: "M2V_SWITCH_STUDIO", target: "lyric-editor", songId: currentProject }, targetOrigin);
         } else if (href === "/#exports-section" || href.includes("#exports-section")) {
           e.preventDefault();
-          window.parent.postMessage({ type: "M2V_NAVIGATE", hash: "exports-section" }, "*");
+          window.parent.postMessage({ type: "M2V_NAVIGATE", hash: "exports-section" }, targetOrigin);
         } else if (href === "/" || href.startsWith("/#")) {
           e.preventDefault();
-          window.parent.postMessage({ type: "M2V_NAVIGATE", hash: "tasks-section" }, "*");
+          window.parent.postMessage({ type: "M2V_NAVIGATE", hash: "tasks-section" }, targetOrigin);
         }
       }
     });

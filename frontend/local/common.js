@@ -44,6 +44,8 @@ window.isCloudMode = isCloudMode;
 
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    if (window.parent && window.parent !== window && event.source !== window.parent) return;
     if (!event.data || typeof event.data !== "object") return;
     if (event.data.type === "M2V_SYNC_AUTH") {
       if (event.data.token) localStorage.setItem("m2v_token", event.data.token);
@@ -66,17 +68,19 @@ if (typeof document !== "undefined" && typeof document.addEventListener === "fun
     const href = link.getAttribute("href");
     if (!href) return;
     if (window.parent && window.parent !== window) {
+      const targetOrigin = window.location.origin;
       if (href === "/#exports-section" || href.includes("#exports-section") || href === "/#exports") {
         e.preventDefault();
-        window.parent.postMessage({ type: "M2V_NAVIGATE", hash: "exports-section" }, "*");
+        window.parent.postMessage({ type: "M2V_NAVIGATE", hash: "exports-section" }, targetOrigin);
       } else if (href === "/" || href === "/index.html" || href.startsWith("/#")) {
         e.preventDefault();
         const targetHash = href.includes("#") ? href.slice(href.indexOf("#") + 1) : "tasks-section";
-        window.parent.postMessage({ type: "M2V_NAVIGATE", hash: targetHash }, "*");
+        window.parent.postMessage({ type: "M2V_NAVIGATE", hash: targetHash }, targetOrigin);
       } else if (href === "/motion-studio" || href.startsWith("/motion-studio")) {
         e.preventDefault();
-        const currentId = window.state?.currentTaskId || window.state?.currentFile || "";
-        window.parent.postMessage({ type: "M2V_SWITCH_STUDIO", target: "motion-studio", songId: currentId }, "*");
+        const currentFile = (typeof state !== "undefined" && state.currentFile) ? state.currentFile : null;
+        const currentId = currentFile?.task_id || currentFile?.id || (typeof window.getCurrentSongId === "function" ? window.getCurrentSongId() : "");
+        window.parent.postMessage({ type: "M2V_SWITCH_STUDIO", target: "motion-studio", songId: currentId }, targetOrigin);
       }
     }
   });
@@ -161,6 +165,24 @@ async function refreshEditorToken() {
     const provider = localStorage.getItem("m2v_auth_provider");
     const fbUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
     if (provider === "firebase" || fbUser) {
+      if (window.parent && window.parent !== window && window.parent.m2vAuth?.getIdToken) {
+        try {
+          const pToken = await window.parent.m2vAuth.getIdToken(true);
+          if (pToken) {
+            localStorage.setItem("m2v_token", pToken);
+            return pToken;
+          }
+        } catch (_) {}
+      }
+      if (window.m2vAuth?.getIdToken) {
+        try {
+          const lToken = await window.m2vAuth.getIdToken(true);
+          if (lToken) {
+            localStorage.setItem("m2v_token", lToken);
+            return lToken;
+          }
+        } catch (_) {}
+      }
       // Never switch a Google session to a retained local-account refresh token.
       if (!fbUser) return null;
       const token = await fbUser.getIdToken(true);
@@ -291,6 +313,10 @@ const state = {
   redoStack: [],
   dirty: false,
 };
+if (typeof window !== "undefined") {
+  window.state = state;
+  window.getCurrentSongId = () => state.currentFile?.task_id || state.currentFile?.id || state.currentFile?.name || "";
+}
 
 let ws = null;        // primary WaveSurfer (vocals or original fallback)
 let wsInst = null;    // secondary WaveSurfer (instrumental)
@@ -578,6 +604,15 @@ async function loadSong(idx) {
   trackLoadingStates.clear();
 
   state.currentFile = file;
+  if (window.parent && window.parent !== window) {
+    try {
+      window.parent.postMessage({
+        type: "M2V_SONG_CHANGED",
+        songId: file.task_id || file.id || file.name,
+        title: file.name
+      }, window.location.origin);
+    } catch (_) {}
+  }
   state.selectedLine = -1;
   state.selectedWord = -1;
   state.undoStack = [];
@@ -719,6 +754,17 @@ async function loadSong(idx) {
     document.title = `${file.name} — ${window.t ? t("app_title") : "M2V"}`;
   });
 }
+
+window.loadSongFile = async function(songId) {
+  if (!songId) return;
+  if (!state.allFiles || state.allFiles.length === 0) {
+    await loadFileList();
+  }
+  const idx = state.allFiles.findIndex(f => (f.task_id === songId || f.id === songId || f.name === songId));
+  if (idx >= 0 && idx !== (dom.songSelect ? Number(dom.songSelect.value) : -1)) {
+    await loadSong(idx);
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Suno One-Click Import

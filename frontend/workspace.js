@@ -117,20 +117,36 @@
         if (bcSepSong && bcSepSong.style) bcSepSong.style.display = 'none';
       }
 
-      // Lazy load or initialize studio frames if blank
+      // Lazy load or update studio frames
       if (active === 'lyric-editor-section') {
         const iframe = document.getElementById('iframe-lyric-editor');
-        if (iframe && (iframe.src === 'about:blank' || !iframe.src)) {
-          const songId = activeSong?.id || '';
-          iframe.src = songId ? `/lyric-editor/${encodeURIComponent(songId)}` : '/lyric-editor';
+        const songId = activeSong?.id || '';
+        const targetSrc = songId ? `/lyric-editor/${encodeURIComponent(songId)}` : '/lyric-editor';
+        if (iframe) {
+          if (!iframe.src || iframe.src === 'about:blank' || iframe.dataset.loadedSongId !== songId) {
+            iframe.src = targetSrc;
+            iframe.dataset.loadedSongId = songId;
+          } else {
+            try {
+              iframe.contentWindow?.postMessage({ type: 'M2V_LOAD_SONG', songId }, window.location.origin);
+            } catch (_) {}
+          }
         }
         const barTitle = document.getElementById('lyric-bar-song-title');
         if (barTitle && activeSong?.title) barTitle.textContent = activeSong.title;
       } else if (active === 'motion-studio-section') {
         const iframe = document.getElementById('iframe-motion-studio');
-        if (iframe && (iframe.src === 'about:blank' || !iframe.src)) {
-          const songId = activeSong?.id || '';
-          iframe.src = songId ? `/motion-studio?project=${encodeURIComponent(songId)}` : '/motion-studio';
+        const songId = activeSong?.id || '';
+        const targetSrc = songId ? `/motion-studio?project=${encodeURIComponent(songId)}` : '/motion-studio';
+        if (iframe) {
+          if (!iframe.src || iframe.src === 'about:blank' || iframe.dataset.loadedSongId !== songId) {
+            iframe.src = targetSrc;
+            iframe.dataset.loadedSongId = songId;
+          } else {
+            try {
+              iframe.contentWindow?.postMessage({ type: 'M2V_LOAD_SONG', songId }, window.location.origin);
+            } catch (_) {}
+          }
         }
         const barTitle = document.getElementById('motion-bar-song-title');
         if (barTitle && activeSong?.title) barTitle.textContent = activeSong.title;
@@ -156,6 +172,7 @@
 
     // Handle cross-frame communication with embedded studios
     window.addEventListener('message', (event) => {
+      if (typeof window !== 'undefined' && event.origin !== window.location.origin) return;
       if (!event.data || typeof event.data !== 'object') return;
       if (event.data.type === 'M2V_NAVIGATE') {
         const target = (event.data.hash || '').replace(/^#/, '');
@@ -167,6 +184,22 @@
           window.openMotionStudio(songId);
         } else if (target === 'lyric-editor' && window.openLyricStudio) {
           window.openLyricStudio(songId);
+        }
+      } else if (event.data.type === 'M2V_SONG_CHANGED') {
+        const { songId, title } = event.data;
+        if (songId) {
+          setActiveSong({ id: songId, title: title || songId });
+          const bcSong = document.getElementById('bc-song-name');
+          const bcSep = document.getElementById('bc-sep-song');
+          if (bcSong) {
+            bcSong.textContent = '🎵 ' + (title || songId);
+            if (bcSong.style) bcSong.style.display = 'inline';
+            if (bcSep && bcSep.style) bcSep.style.display = 'inline';
+          }
+          const lTitle = document.getElementById('lyric-bar-song-title');
+          if (lTitle) lTitle.textContent = title || songId;
+          const mTitle = document.getElementById('motion-bar-song-title');
+          if (mTitle) mTitle.textContent = title || songId;
         }
       }
     });
