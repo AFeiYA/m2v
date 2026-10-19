@@ -14,6 +14,7 @@
     const app = document.getElementById('app');
     const menu = document.getElementById('workspace-menu');
     const search = document.getElementById('song-search');
+    let currentActiveSection = null;
 
     if (window.matchMedia('(max-width: 700px)').matches) {
       app.classList.add('navigation-collapsed');
@@ -120,8 +121,17 @@
         if (bcSepSong && bcSepSong.style) bcSepSong.style.display = 'none';
       }
 
+      // Studio adapter lifecycle pause for inactive studios
+      if (currentActiveSection === 'lyric-editor-section' && active !== 'lyric-editor-section') {
+        window.m2vStudios?.lyric?.pause();
+      } else if (currentActiveSection === 'motion-studio-section' && active !== 'motion-studio-section') {
+        window.m2vStudios?.motion?.pause();
+      }
+      currentActiveSection = active;
+
       // Lazy load or update studio frames
       if (active === 'lyric-editor-section') {
+        window.m2vStudios?.lyric?.activate({ songId: activeSong?.id });
         const iframe = document.getElementById('iframe-lyric-editor');
         const songId = activeSong?.id || '';
         const targetSrc = songId ? `/lyric-editor/${encodeURIComponent(songId)}` : '/lyric-editor';
@@ -138,6 +148,7 @@
         const barTitle = document.getElementById('lyric-bar-song-title');
         if (barTitle && activeSong?.title) barTitle.textContent = activeSong.title;
       } else if (active === 'motion-studio-section') {
+        window.m2vStudios?.motion?.activate({ songId: activeSong?.id });
         const iframe = document.getElementById('iframe-motion-studio');
         const songId = activeSong?.id || '';
         const targetSrc = songId ? `/motion-studio?project=${encodeURIComponent(songId)}` : '/motion-studio';

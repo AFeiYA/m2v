@@ -394,6 +394,16 @@
               select.dispatchEvent(new Event("change"));
             }
           }
+        } else if (event.data.type === "M2V_STUDIO_PAUSE") {
+          try {
+            document.querySelectorAll("audio, video").forEach(m => m.pause());
+            const playBtn = document.getElementById("btn-play");
+            if (playBtn && playBtn.textContent.includes("Pause")) playBtn.click();
+          } catch (_) {}
+        } else if (event.data.type === "M2V_STUDIO_DESTROY") {
+          try {
+            document.querySelectorAll("audio, video").forEach(m => { m.pause(); m.src = ""; });
+          } catch (_) {}
         }
       });
     }

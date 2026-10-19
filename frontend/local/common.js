@@ -56,6 +56,18 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
       if (songId && typeof window.loadSongFile === "function") {
         window.loadSongFile(songId);
       }
+    } else if (event.data.type === "M2V_STUDIO_PAUSE") {
+      try {
+        if (ws) ws.pause();
+        if (wsInst) wsInst.pause();
+      } catch (_) {}
+    } else if (event.data.type === "M2V_STUDIO_DESTROY") {
+      try {
+        if (ws) { ws.pause(); ws.empty(); }
+        if (wsInst) { wsInst.pause(); wsInst.empty(); }
+        state.currentFile = null;
+        state.alignment = null;
+      } catch (_) {}
     }
   });
 }

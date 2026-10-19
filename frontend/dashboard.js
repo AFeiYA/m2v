@@ -308,6 +308,12 @@ async function logout() {
     motionIframe.src = "about:blank";
     if (motionIframe.dataset) delete motionIframe.dataset.loadedSongId;
   }
+  if (window.m2vStudios) {
+    try {
+      window.m2vStudios.lyric?.destroy();
+      window.m2vStudios.motion?.destroy();
+    } catch (_) {}
+  }
   window.m2vActiveSong = null;
   if (window.m2vStore) window.m2vStore.clearUser();
   try {
