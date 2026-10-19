@@ -498,11 +498,12 @@ async function loadUser() {
     const res = await api("/api/auth/me");
     if (res.ok) {
       currentUser = await res.json();
-      const displayName = currentUser.display_name || currentUser.username;
-      $("#user-info").textContent = `👤 ${displayName}`;
+      const displayName = currentUser.display_name || currentUser.username || "Account";
+      if ($("#user-info")) $("#user-info").textContent = displayName;
+      if ($("#user-email-label")) $("#user-email-label").textContent = currentUser.email || "Signed in";
       $("#user-credits").textContent = `${currentUser.credits} credits remaining`;
       if ($("#header-username-label")) $("#header-username-label").textContent = displayName;
-      if ($(".avatar-circle")) $(".avatar-circle").textContent = (displayName || "U").charAt(0).toUpperCase();
+      document.querySelectorAll?.(".avatar-circle")?.forEach?.(el => el.textContent = (displayName || "U").charAt(0).toUpperCase());
       if ($("#sidebar-credits-num")) $("#sidebar-credits-num").textContent = Number(currentUser.credits || 0).toLocaleString();
       if ($("#sidebar-credits-fill")) {
         const pct = Math.min(100, Math.max(0, Math.round(((currentUser.credits || 0) / 3000) * 100)));
@@ -1122,8 +1123,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
         if (res.ok) {
           currentUser = await res.json();
-          const displayName = currentUser.display_name || currentUser.username;
-          $("#user-info").textContent = `👤 ${displayName}`;
+          const displayName = currentUser.display_name || currentUser.username || "Account";
+          if ($("#user-info")) $("#user-info").textContent = displayName;
+          if ($("#header-username-label")) $("#header-username-label").textContent = displayName;
+          document.querySelectorAll?.(".avatar-circle")?.forEach?.(el => el.textContent = (displayName || "U").charAt(0).toUpperCase());
           localStorage.setItem("m2v_user", JSON.stringify({
             id: currentUser.id,
             displayName: displayName,

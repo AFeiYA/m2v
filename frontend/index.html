@@ -136,22 +136,50 @@
           </a>
         </div>
 
-        <details class="account-menu">
-          <summary>
+        <details class="account-menu" id="workspace-account-menu">
+          <summary class="account-menu-summary" aria-label="User account menu" title="Account menu">
             <div class="user-avatar-pill">
               <div class="avatar-circle">L</div>
               <span id="header-username-label" class="header-user-text">Account</span>
               <svg class="user-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
             </div>
           </summary>
-          <div>
-            <span id="user-info"></span>
-            <button id="btn-edit-nickname" class="btn btn-sm btn-outline" title="Edit display name">Edit name</button>
-            <a href="#credits-section" class="btn btn-sm">Credit history</a>
-            <a href="#trash-section" class="btn btn-sm" data-workspace-link>Trash</a>
-            <button id="btn-copy-plugin-token" class="btn btn-sm btn-outline" title="Copy extension sign-in token">Extension token</button>
-            <button id="btn-config-api-app" style="display:none" class="btn btn-sm btn-outline" title="Set backend API address">API settings</button>
-            <button id="btn-logout" class="btn btn-sm btn-outline">Sign out</button>
+          <div class="account-dropdown-panel" role="menu">
+            <div class="account-menu-header">
+              <div class="account-menu-user-row">
+                <div class="avatar-circle avatar-small">L</div>
+                <div class="account-menu-user-info">
+                  <span id="user-info" class="account-menu-name">Account</span>
+                  <span id="user-email-label" class="account-menu-sub">Signed in</span>
+                </div>
+              </div>
+            </div>
+            <div class="account-menu-divider" role="separator"></div>
+            <button type="button" id="btn-edit-nickname" class="account-menu-item" role="menuitem" title="Edit display name">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              <span>Edit name</span>
+            </button>
+            <a href="#credits-section" class="account-menu-item" role="menuitem" data-workspace-link>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></svg>
+              <span>Credit history</span>
+            </a>
+            <a href="#trash-section" class="account-menu-item" role="menuitem" data-workspace-link>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+              <span>Trash</span>
+            </a>
+            <button type="button" id="btn-copy-plugin-token" class="account-menu-item" role="menuitem" title="Copy extension sign-in token">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-1.5 1.5L14 9l-1.5-1.5-3 3L8 9 6.5 10.5 8 12l-5 5v5h5l5-5 1.5 1.5 1.5-1.5-1.5-1.5 3.5-3.5 1.5 1.5 2-2z"/></svg>
+              <span>Extension token</span>
+            </button>
+            <button type="button" id="btn-config-api-app" style="display:none" class="account-menu-item" role="menuitem" title="Set backend API address">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+              <span>API settings</span>
+            </button>
+            <div class="account-menu-divider" role="separator"></div>
+            <button type="button" id="btn-logout" class="account-menu-item account-menu-item-danger" role="menuitem">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+              <span>Sign out</span>
+            </button>
           </div>
         </details>
       </div>

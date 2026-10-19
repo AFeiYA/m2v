@@ -284,6 +284,16 @@
       } catch (_) {}
     });
 
+    window.addEventListener('click', (e) => {
+      const accountMenu = document.getElementById('workspace-account-menu') || document.querySelector?.('.account-menu');
+      if (!accountMenu || !accountMenu.open) return;
+      if (!accountMenu.contains?.(e.target)) {
+        accountMenu.removeAttribute('open');
+      } else if (e.target?.closest?.('.account-menu-item')) {
+        setTimeout(() => accountMenu.removeAttribute('open'), 120);
+      }
+    });
+
     navigate();
   });
 })();
