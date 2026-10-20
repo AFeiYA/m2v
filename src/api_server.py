@@ -364,7 +364,7 @@ async def upload_and_create_task(
     suno_url: str | None = Query(None, description="Suno 歌曲链接"),
     language: str = Query("auto", description="语言代码，默认自动检测"),
     skip_separation: bool = Query(False, description="跳过人声分离"),
-    ass_only: bool = Query(False, description="只生成 ASS"),
+    ass_only: bool = Query(True, description="只生成 ASS 与对齐数据"),
     beat_effects: bool = Query(False, description="节奏动画"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

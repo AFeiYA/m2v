@@ -569,13 +569,12 @@ function initUpload() {
       btn.textContent = "⏳ Importing Suno song and audio…";
 
       try {
-        const renderVideo = $("#suno-opt-render-video") ? $("#suno-opt-render-video").checked : false;
         const payload = {
           suno_url: sunoUrl,
           song_title: songTitle || undefined,
           language: $("#suno-opt-lang").value,
           skip_separation: $("#suno-opt-skip-sep").checked,
-          ass_only: !renderVideo,
+          ass_only: true,
           beat_effects: $("#suno-opt-beat") ? $("#suno-opt-beat").checked : true,
         };
 
@@ -591,7 +590,6 @@ function initUpload() {
           loadTasks();
           connectProgressWS(data.task_id);
           loadCredits();
-          if (data.video_job_id) { loadRenderJobs(); trackImportedVideo(data.video_job_id); }
         } else {
           const err = await res.json();
           showStatus(`❌ ${err.detail || "Unable to create project"}`, true);
@@ -625,9 +623,9 @@ function initUpload() {
       // Query params
       const params = new URLSearchParams();
       params.set("language", $("#opt-lang").value);
+      params.set("ass_only", "true");
       if ($("#opt-skip-sep").checked) params.set("skip_separation", "true");
-      if ($("#opt-ass-only").checked) params.set("ass_only", "true");
-      if ($("#opt-beat").checked) params.set("beat_effects", "true");
+      if ($("#opt-beat") ? $("#opt-beat").checked : true) params.set("beat_effects", "true");
 
       const localSongTitle = $("#local-song-title")?.value.trim();
       const localSunoUrl = $("#local-suno-url")?.value.trim();
@@ -645,6 +643,7 @@ function initUpload() {
           showStatus(`✅ Project created: ${data.task_id.slice(0, 8)}…`);
           uploadForm.reset();
           loadTasks();
+          loadCredits();
           // 连接 WebSocket 监听进度
           connectProgressWS(data.task_id);
         } else {
@@ -655,7 +654,7 @@ function initUpload() {
         showStatus("❌ Network error", true);
       } finally {
         btn.disabled = false;
-        btn.textContent = "🚀 Upload & generate";
+        btn.textContent = "⚡ Upload & align lyrics";
       }
     });
   }
@@ -1484,9 +1483,6 @@ async function loadCredits(page = creditPage) {
     const exportCost = Number(data.pricing?.lyric_export) || 0;
     if ($("#stat-val-export-cost")) $("#stat-val-export-cost").textContent = exportCost ? `${exportCost} credits` : "Free";
     $("#credit-pricing").textContent = `Lyrics alignment: ${data.pricing?.alignment ?? 1} credit per task. Lyric video export: ${exportCost ? exportCost + " credits" : "currently free"}. Reusing an unchanged alignment and downloading an existing video are free.`;
-    const immediate = $("#suno-opt-render-video"), assOnly = $("#opt-ass-only");
-    if (immediate) { immediate.disabled = exportCost > 0; if (exportCost > 0) immediate.checked = false; }
-    if (assOnly) { assOnly.disabled = exportCost > 0; if (exportCost > 0) assOnly.checked = true; }
     const labels = {opening:"Starting balance",reserve:"Reserved",settle:"Completed",release:"Returned",grant:"Added"};
     const entries = data.entries || [];
     $("#credit-history").innerHTML = entries.length ? `<div class="credit-table-wrap"><table class="credit-table"><thead><tr><th>Date</th><th>Activity</th><th>Credits</th><th>Available after</th></tr></thead><tbody>${entries.map(row => `<tr><td>${escapeHtml(new Date(row.created_at).toLocaleString())}</td><td><span class="credit-badge badge-${escapeHtml(row.event || 'default')}">${escapeHtml(row.description || labels[row.event] || row.event)}</span></td><td><span class="${Number(row.amount) > 0 ? 'delta-pos' : Number(row.amount) < 0 ? 'delta-neg' : 'delta-zero'}">${row.event === "settle" ? "—" : (Number(row.amount)>0 ? "+" : "")+(Number(row.amount)||0)}</span></td><td><strong>${Number(row.balance_after)||0}</strong></td></tr>`).join("")}</tbody></table></div>` : "No credit activity yet.";

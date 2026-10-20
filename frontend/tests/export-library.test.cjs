@@ -84,8 +84,6 @@ test('credit history shows available and reserved balances and escapes descripti
  assert.match(s.nodes.get('#credit-summary').textContent,/3 available · 2 reserved/);
  assert.match(s.nodes.get('#credit-pricing').textContent,/Lyric video export: 2 credits/);
  assert.match(s.nodes.get('#credit-history').innerHTML,/&lt;export>/);
- assert.equal(s.nodes.get('#suno-opt-render-video').disabled,true);
- assert.equal(s.nodes.get('#opt-ass-only').checked,true);
 });
 
 test('closing preview while its link is loading does not reopen the player',async()=>{
