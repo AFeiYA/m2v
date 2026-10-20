@@ -434,6 +434,18 @@ async function runExportVideo() {
           updateSummary();
           text.textContent = `${task.title} (${task.aspect}): ${isZh ? '导出完成，已自动下载' : 'Completed, downloaded'}`;
 
+          const webcodecsJobId = window.crypto?.randomUUID?.() ? window.crypto.randomUUID().replace(/-/g, '').slice(0, 32) : 'wc_' + Date.now();
+          // Record local export so it appears in My Exports with offline ready status
+          await api('render/record_webcodecs', 'POST', {
+            project_id: sourceProject,
+            job_id: webcodecsJobId,
+            title: `${project.title || sourceProject} · ${task.title}`,
+            aspect: task.aspect,
+            duration: Number(taskLength.toFixed(1)),
+            total_frames: Math.round(taskLength * 30),
+            file_size: blob.size,
+          }).catch(() => {});
+
           const blobUrl = URL.createObjectURL(blob);
           const safeTitle = (project.title || 'motion').trim().replace(/[/\\?%*:|"<>]/g, '_');
           const filename = `${safeTitle}-${task.title}-${task.aspect}.mp4`;

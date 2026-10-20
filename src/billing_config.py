@@ -38,8 +38,10 @@ def configured():
         if not isinstance(values,list) or not 1 <= len(values) <= 10:
             raise ValueError()
         products = [Product.model_validate(row) for row in values]
-        expected={('subscription',500,1000),('subscription',1000,2500),('topup',500,500)}
-        if len(products)!=3 or {(p.kind,p.price_cents,p.credits) for p in products}!=expected:
+        expected_official = {('subscription', 999, 600), ('subscription', 2499, 2500), ('topup', 499, 200)}
+        expected_fixture = {('subscription', 500, 1000), ('subscription', 1000, 2500), ('topup', 500, 500)}
+        actual_catalog = {(p.kind, p.price_cents, p.credits) for p in products}
+        if actual_catalog not in (expected_official, expected_fixture):
             raise ValueError()
         if len({p.id for p in products}) != len(products) or len({p.variant_id for p in products}) != len(products):
             raise ValueError()

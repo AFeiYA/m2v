@@ -96,6 +96,15 @@ class RenderRequest(ProjectRequest):
     shake: float = Field(default=.65, ge=0, le=1.5, allow_inf_nan=False)
     post: bool = True
 
+class WebCodecsRecordRequest(BaseModel):
+    project_id: str
+    job_id: str
+    title: str = ''
+    aspect: str = '9:16'
+    duration: float = 0.0
+    total_frames: int = 0
+    file_size: int = 0
+
 
 def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/api/motion',
                          resolve_project=None, list_projects=None, audio_url=None,
@@ -774,6 +783,31 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                     try: os.killpg(child.pid, signal.SIGTERM)
                     except ProcessLookupError: pass
         return status(job_id, sid=sid)
+
+    @router.post('/render/record_webcodecs')
+    def record_webcodecs(req: WebCodecsRecordRequest, sid: str = Depends(resolve_session_id)):
+        path, payload = read(req.project_id)
+        outdir = path.parent / 'motion_exports'
+        outdir.mkdir(parents=True, exist_ok=True)
+        status_file = outdir / f'{req.job_id}_status.json'
+        title = req.title or payload.get('title') or path.parent.name
+        data = {
+            'id': req.job_id,
+            'project_id': req.project_id,
+            'title': title,
+            'aspect': req.aspect,
+            'duration': req.duration,
+            'total': req.total_frames,
+            'frames': req.total_frames,
+            'status': 'done',
+            'created_at': time.time(),
+            'session_id': sid,
+            'mode': 'webcodecs',
+            'is_cloud': False,
+            'size': req.file_size
+        }
+        status_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        return {'status': 'done', 'id': req.job_id}
 
     @router.get('/render/{job_id}/stream')
     def stream_video(job_id: str, sid: str = Depends(resolve_session_id)):
