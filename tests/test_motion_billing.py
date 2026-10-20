@@ -211,6 +211,32 @@ def test_paid_http_render_publishes_charges_once_and_replays_across_restart(paid
     assert len(started)==1
 
 
+def test_paid_http_record_webcodecs_charges_and_records(paid, monkeypatch):
+    monkeypatch.setattr(get_settings(), 'MOTION_WEBCODECS_CREDITS', 2)
+    base = '/api/cloud-motion'
+    job_id = 'wc_test_' + str(uuid.uuid4())[:8]
+    req_body = {
+        'project_id': 'alice_motion',
+        'job_id': job_id,
+        'title': 'Alice WebCodecs Export',
+        'aspect': '9:16',
+        'duration': 15.0,
+        'total_frames': 450,
+        'file_size': 1024000
+    }
+    res = paid.client.post(base + '/render/record_webcodecs', headers=headers(), json=req_body)
+    assert res.status_code == 200, res.text
+    assert res.json()['status'] == 'done'
+    credits_response = paid.client.get('/api/credits', headers=headers()).json()
+    assert credits_response['available'] == 3, credits_response
+
+    # Idempotent re-post does not double charge
+    res2 = paid.client.post(base + '/render/record_webcodecs', headers=headers(), json=req_body)
+    assert res2.status_code == 200
+    credits_response2 = paid.client.get('/api/credits', headers=headers()).json()
+    assert credits_response2['available'] == 3
+
+
 def test_busy_engine_waits_without_creating_or_charging_a_request(paid):
     async def run():
         req=request()

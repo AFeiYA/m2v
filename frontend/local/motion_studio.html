@@ -19,9 +19,9 @@
     <div class="header-right">
       <button id="poster-sample" data-i18n="ms_btn_poster" data-i18n-title="ms_btn_poster_title">Current Poster</button>
       <button id="focus-preview" data-i18n="ms_btn_focus">Focus Preview</button>
-      <a href="/gallery" data-i18n="ms_nav_gallery" style="color:#c8ff00;font-weight:600">Gallery ↗</a>
-      <a href="/lyric-editor" data-i18n="ms_nav_editor">Lyric Editor ↗</a>
-      <a href="/motion-lab" data-i18n="ms_nav_lab">Lab ↗</a>
+      <a href="/gallery" style="display: none !important;" data-i18n="ms_nav_gallery">Gallery ↗</a>
+      <a href="/lyric-editor" style="display: none !important;" data-i18n="ms_nav_editor">Lyric Editor ↗</a>
+      <a href="/motion-lab" style="display: none !important;" data-i18n="ms_nav_lab">Lab ↗</a>
       <button id="btn-lang-toggle" onclick="toggleLocale()" class="nav-lang-btn" style="background: rgba(255,255,255,0.08); border: 1px solid #334155; color: #cbd5e1; padding: 0 8px; height: 28px; line-height: 26px; border-radius: 4px; font-size: 11px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">🌐 English</button>
     </div>
   </header>
@@ -321,7 +321,7 @@
             <div id="matrix-queue-items" style="display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto;"></div>
           </div>
 
-          <label id="lbl-export-fast-mode" class="check" style="margin-bottom:8px; font-size:11.5px; display:flex; align-items:center; gap:6px; color:#b9ff70; cursor:pointer;">
+          <label id="lbl-export-fast-mode" class="check" style="display: none !important;">
             <input id="export-fast-webcodecs" type="checkbox" checked>
             <span data-i18n="ms_fast_webcodecs">⚡ 优先本地极速导出 (10秒秒出 · 遇阻自动转云端)</span>
           </label>
@@ -330,7 +330,7 @@
           <button id="cancel" hidden data-i18n="ms_btn_cancel_export">Cancel Export</button>
           <p id="export-status" class="help" data-i18n="ms_help_export">Remotion · Current poster layout &amp; original audio · 30fps / H.264.</p>
           <a id="download" hidden download data-i18n="ms_btn_download_video">Download Video ↓</a>
-          <p><a id="my-exports" href="/#exports-section" hidden data-i18n="ms_nav_exports">My Exports ↗</a></p>
+          <p style="display: none !important;"><a id="my-exports-bottom" href="/#exports-section" style="display: none !important;" hidden data-i18n="ms_nav_exports">My Exports ↗</a></p>
           <div id="export-history" class="help"></div>
         </section>
       </div>

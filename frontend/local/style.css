@@ -164,14 +164,17 @@ body.embedded-studio #auth-pill { display: none !important; }
   border-color: rgba(255, 255, 255, 0.15);
 }
 #btn-save {
-  background: rgba(255, 255, 255, 0.06) !important;
-  border: 1px solid var(--border) !important;
-  color: #f3f4f6 !important;
+  background: #b7f34a !important;
+  border: 1px solid #b7f34a !important;
+  color: #10120d !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 12px rgba(183, 243, 74, 0.35) !important;
 }
 #btn-save:hover {
-  background: rgba(183, 243, 74, 0.14) !important;
-  border-color: rgba(183, 243, 74, 0.4) !important;
-  color: #b7f34a !important;
+  background: #cbf96c !important;
+  border-color: #cbf96c !important;
+  color: #10120d !important;
+  box-shadow: 0 0 16px rgba(183, 243, 74, 0.5) !important;
 }
 #btn-export-lyric-video {
   background: rgba(183, 243, 74, 0.15) !important;

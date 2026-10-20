@@ -68,6 +68,7 @@ class Workspace:
             before_render=self.before_render, on_render_finish=self.on_render_finish,
             prepare_render=self.prepare_render, render_record=self.render_record, cancel_render=self.cancel_render,
             on_render_heartbeat=self.on_render_heartbeat,
+            on_record_webcodecs=self.on_record_webcodecs,
         ))
 
     def validate(self, path):
@@ -186,6 +187,33 @@ class Workspace:
                 await finish(db,self.uid,job_id,success)
                 await db.commit()
         asyncio.run(release())
+
+    def on_record_webcodecs(self, req, data, status_file):
+        with self.io_gate:
+            if self.validate(status_file).relative_to(self.root.resolve()).parts[0] not in self.deleted:
+                asyncio.run(self.storage.save(self.object_key(status_file), Path(status_file)))
+        cost = get_settings().MOTION_WEBCODECS_CREDITS
+        task_id = self.validate(status_file).relative_to(self.root.resolve()).parts[0]
+        from src.export_jobs import sessions
+        from src import credits
+        from src.export_library import record_export
+        async def settle():
+            async with sessions() as db:
+                if cost > 0:
+                    await credits.reserve(db, self.uid, req.job_id, 'motion_webcodecs', cost)
+                    await credits.finish(db, self.uid, req.job_id, 'motion_webcodecs', True)
+                try:
+                    await record_export(req.job_id, self.uid, task_id, self.object_key(status_file),
+                                        'webcodecs', {
+                                            'resolution': [1080, 1920] if req.aspect == '9:16' else [1920, 1080],
+                                            'duration': req.duration,
+                                            'size_bytes': req.file_size,
+                                            'title': data.get('title')
+                                        }, db=db)
+                except Exception:
+                    pass
+                await db.commit()
+        asyncio.run(settle())
 
     def remove(self, path):
         asyncio.run(self.storage.delete(self.object_key(path)))

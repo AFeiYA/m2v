@@ -104,13 +104,16 @@ class WebCodecsRecordRequest(BaseModel):
     duration: float = 0.0
     total_frames: int = 0
     file_size: int = 0
+    accepted_cost: int | None = None
+    request_id: str | None = None
 
 
 def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/api/motion',
                          resolve_project=None, list_projects=None, audio_url=None,
                          on_write=None, on_delete=None, input_root=None, public_exports=True,
                          before_render=None, on_render_finish=None, on_render_heartbeat=None,
-                         prepare_render=None, render_record=None, cancel_render=None):
+                         prepare_render=None, render_record=None, cancel_render=None,
+                         on_record_webcodecs=None):
     router = APIRouter(prefix=prefix)
 
     inputs = input_root if input_root is not None else ROOT / 'input'
@@ -807,6 +810,8 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
             'size': req.file_size
         }
         status_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        if on_record_webcodecs is not None:
+            on_record_webcodecs(req, data, status_file)
         return {'status': 'done', 'id': req.job_id}
 
     @router.get('/render/{job_id}/stream')

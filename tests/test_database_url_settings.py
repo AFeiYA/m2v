@@ -31,8 +31,8 @@ def test_empty_string_env_vars_fall_back_to_defaults(monkeypatch):
     monkeypatch.setenv("FREE_MONTHLY_QUOTA", "")
     monkeypatch.setenv("NEW_USER_PERMANENT_CREDITS", "")
     s = Settings(_env_file=None, R2_ACCOUNT_ID="")
-    assert s.MOTION_WEBCODECS_CREDITS == 0
-    assert s.MOTION_EXPORT_CREDITS == 0
+    assert s.MOTION_WEBCODECS_CREDITS == 10
+    assert s.MOTION_EXPORT_CREDITS == 10
     assert s.FREE_MONTHLY_QUOTA == 20
     assert s.NEW_USER_PERMANENT_CREDITS == 100
 

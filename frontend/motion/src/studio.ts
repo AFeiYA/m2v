@@ -339,15 +339,12 @@ function updateMatrixCount() {
     if (!cloudService()) {
       price.textContent = isZh ? '本地模式 · 不消耗云端积分' : 'Local export · no cloud credits';
     } else {
-      const modeDesc = isFast
-        ? (isZh ? '⚡ 优先本地极速导出' : '⚡ Local fast export first')
-        : (isZh ? '☁️ 云端排队渲染' : '☁️ Cloud render');
       const itemDesc = custom
         ? (isZh ? '自定义片段' : '1 clip')
         : (isZh ? `${count} 个视频` : `${count} video${count === 1 ? '' : 's'}`);
       price.textContent = isZh
-        ? `${modeDesc} · ${unitCost} 积分/个 · ${itemDesc} 合计 ${totalCost} 积分。遇阻自动转云端，失败返还预留积分。`
-        : `${modeDesc} · ${count} videos · ${unitCost} credits each · ${totalCost} credits total. Auto cloud fallback; failed exports refund reserved credits.`;
+        ? `${unitCost} 积分/个 · ${itemDesc} 合计 ${totalCost} 积分。遇阻自动转云端，失败返还预留积分。`
+        : `${unitCost} credits each · ${itemDesc} · ${totalCost} credits total. Auto cloud fallback; failed exports refund reserved credits.`;
     }
   }
   const btn = $<HTMLButtonElement>('export');
@@ -396,6 +393,17 @@ async function runExportVideo() {
     const length = clip.end_time == null ? null : Math.max(0.1, clip.end_time - clip.start_time);
     return { title: clip.title, aspect, start, length };
   });
+
+  if (cloudService()) {
+    const creditsData = await serviceJson('/api/credits?page_size=1');
+    const unitCost = getMotionUnitCost();
+    const totalRequired = tasks.length * unitCost;
+    if (totalRequired > 0 && typeof creditsData?.available === 'number' && creditsData.available < totalRequired) {
+      throw new Error(isZh
+        ? `积分不足（当前剩余 ${creditsData.available} 积分，本次导出需要 ${totalRequired} 积分，请充值后重试）`
+        : `Insufficient credits (${creditsData.available} available, ${totalRequired} required. Please top up first)`);
+    }
+  }
 
   const exportBtn = $<HTMLButtonElement>('export');
   const cancelBtn = $<HTMLButtonElement>('cancel');
@@ -480,7 +488,10 @@ async function runExportVideo() {
             duration: Number(taskLength.toFixed(1)),
             total_frames: Math.round(taskLength * 30),
             file_size: blob.size,
-          }).catch(() => {});
+            ...(cloudService() ? { accepted_cost: motionPricing.webcodecs, request_id: webcodecsJobId } : {})
+          }).catch(err => {
+            console.error('Failed to record webcodecs export:', err);
+          });
 
           const blobUrl = URL.createObjectURL(blob);
           const safeTitle = (project.title || 'motion').trim().replace(/[/\\?%*:|"<>]/g, '_');
@@ -604,8 +615,7 @@ async function runExportVideo() {
     }
     if(!cancelExportQueue)for(const key of completedRequestKeys)clearMotionRequest(key);
     updateSummary(isZh ? '所有任务已结束' : 'All jobs finished');
-    $('export-status').textContent = `${completedCount}/${tasks.length} ${isZh ? '视频导出完成。' : 'videos completed.'} ${cloudService() ? (isZh ? '可在「我的导出」中集中管理。' : 'Manage them in My Exports.') : ''}`;
-    if (cloudService()) $('my-exports').hidden = false;
+    $('export-status').textContent = `${completedCount}/${tasks.length} ${isZh ? '视频导出完成。' : 'videos completed.'}`;
   } finally {
     jobId='';
     exportBtn.disabled = false;
@@ -911,4 +921,4 @@ $<HTMLInputElement>('cover-file').onchange=action(async()=>{
  $<HTMLInputElement>('cover-file').value='';
 });
 
-$('my-exports').hidden=!cloudService();
+if ($('my-exports')) $('my-exports').style.display = 'none';

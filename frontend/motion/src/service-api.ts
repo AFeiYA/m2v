@@ -38,7 +38,7 @@ export async function serviceAudio(path:string,task:string,identity?:{uid:string
 }
 
 export function cloudService(): boolean {
- return Boolean(window.M2V_API_BASE) || /(?:fovea\.si|pages\.dev|web\.app|hf\.space)$/.test(location.hostname);
+ return Boolean(window.M2V_API_BASE) || Boolean((window as any).m2vAuth) || /(?:fovea\.si|pages\.dev|web\.app|hf\.space)$/.test(location.hostname);
 }
 
 export function serviceUrl(path: string): string {
