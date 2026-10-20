@@ -152,6 +152,74 @@ function previewHighlight(single=false){
  dirty=true;if(!single)settingsDirty=true;refresh();listCues();status('Highlighting updated locally. Save when ready.');
 }
 $('highlight-mode').onchange=action(()=>previewHighlight());$('cue-highlight').onchange=action(()=>previewHighlight(true));
+
+function applyVisualTemplate() {
+  if (!project || !selected) return;
+  const tpl = $<HTMLSelectElement>('visual-template-select')?.value || 'kinetic';
+  const isZh = (window as any).currentLocale === 'zh';
+  const aspectSelect = $<HTMLSelectElement>('aspect');
+  const base = plan || ruleSeed;
+  if (!base) return;
+
+  if (tpl === 'apple') {
+    options.aspect = '9:16';
+    if (aspectSelect) aspectSelect.value = '9:16';
+    if ($('highlight-mode')) $<HTMLSelectElement>('highlight-mode').value = 'sweep';
+    if ($('default-layout-preset')) $<HTMLSelectElement>('default-layout-preset').value = 'single';
+    plan = localRulePlan(project, base, $<HTMLSelectElement>('preset')?.value || 'impact', 'single',
+      $<HTMLSelectElement>('theme-bg')?.value as any || 'auto');
+    for (const cue of plan.cues) {
+      if (!cue.locked && cue.poster) {
+        cue.poster.layout = 'center-stack';
+        cue.poster.highlight = 'sweep';
+        cue.poster.transition_out = 'fade';
+      }
+    }
+    if (project.song_identity) {
+      project.song_identity.style = 'editorial';
+    }
+    dirty = true;
+    settingsDirty = true;
+    refresh();
+    listCues();
+    populateExportMatrix();
+    status(isZh ? '已应用「灵动流式歌词」模版 (9:16 竖屏 · Apple 逐字扫光) · 享受 WebCodecs 10秒秒出' : 'Applied "Apple Scroll" template (9:16 Portrait · Smooth sweep) · WebCodecs 10s export ready');
+  } else if (tpl === 'tv') {
+    options.aspect = '16:9';
+    if (aspectSelect) aspectSelect.value = '16:9';
+    if ($('highlight-mode')) $<HTMLSelectElement>('highlight-mode').value = 'sweep';
+    if ($('default-layout-preset')) $<HTMLSelectElement>('default-layout-preset').value = 'two-stack';
+    plan = localRulePlan(project, base, $<HTMLSelectElement>('preset')?.value || 'impact', 'two-stack',
+      $<HTMLSelectElement>('theme-bg')?.value as any || 'auto');
+    for (const cue of plan.cues) {
+      if (!cue.locked && cue.poster) {
+        cue.poster.layout = 'hero-stack';
+        cue.poster.highlight = 'sweep';
+        cue.poster.transition_out = 'cut';
+      }
+    }
+    if (project.song_identity) {
+      project.song_identity.style = 'editorial';
+    }
+    dirty = true;
+    settingsDirty = true;
+    refresh();
+    listCues();
+    populateExportMatrix();
+    status(isZh ? '已应用「经典双行卡拉OK」模版 (16:9 横屏 · 双行交替扫光) · 享受 WebCodecs 10秒秒出' : 'Applied "TV Karaoke" template (16:9 Landscape · Dual-line sweep) · WebCodecs 10s export ready');
+  } else {
+    if ($('default-layout-preset')) $<HTMLSelectElement>('default-layout-preset').value = 'smart';
+    plan = localRulePlan(project, base, $<HTMLSelectElement>('preset')?.value || 'impact', 'smart',
+      $<HTMLSelectElement>('theme-bg')?.value as any || 'auto');
+    dirty = true;
+    settingsDirty = true;
+    refresh();
+    listCues();
+    populateExportMatrix();
+    status(isZh ? '已应用「动态海报分镜」模版 (多段卡点 · 视觉冲击) · 享受 WebCodecs 10秒秒出' : 'Applied "Kinetic Posters" template (Dynamic layout & punchy beats) · WebCodecs 10s export ready');
+  }
+}
+$('visual-template-select')?.addEventListener('change', action(applyVisualTemplate));
 let cancelExportQueue = false;
 let exportQueueRunning = false;
 let motionQuote:{projectId:string;cost:number}|null=null;

@@ -839,6 +839,22 @@ function bindLyricEvents() {
 
   initLyricExportModal();
 
+  const btnOpenStudio = $("#btn-open-motion-studio");
+  if (btnOpenStudio) {
+    btnOpenStudio.addEventListener("click", async () => {
+      if (state.dirty && typeof saveAlignment === "function") {
+        try {
+          await saveAlignment();
+        } catch (e) {
+          console.warn("[LyricEditor] Auto-save before jumping to Motion Studio failed:", e);
+        }
+      }
+      const targetId = state.currentFile?.name || state.currentFile?.task_id || "";
+      const url = targetId ? `/motion-studio?song=${encodeURIComponent(targetId)}` : "/motion-studio";
+      window.open(url, "_blank");
+    });
+  }
+
   document.addEventListener("keydown", handleLyricKey);
 }
 
@@ -862,6 +878,14 @@ function initLyricExportModal() {
   const btnDownload = $("#btn-download-lyric-mp4");
   const btnPreview = $("#btn-preview-lyric-mp4");
   const batchResults = $("#lyric-batch-results");
+  const btnModalGoStudio = $("#btn-modal-go-motion-studio");
+  if (btnModalGoStudio) {
+    btnModalGoStudio.addEventListener("click", () => {
+      const targetId = state.currentFile?.name || state.currentFile?.task_id || "";
+      const url = targetId ? `/motion-studio?song=${encodeURIComponent(targetId)}` : "/motion-studio";
+      window.open(url, "_blank");
+    });
+  }
 
   if (!btnOpen || !modal) return;
 
