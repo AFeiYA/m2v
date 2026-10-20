@@ -114,13 +114,19 @@ async function load(id:string){
   $('track-name').textContent=project.title;
   $<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';
   refresh();listCues();
+  status(result.plan_error||(plan?'Saved director plan loaded · Preparing audio…':'Layout ready · Preparing audio…'));
   let nextAudioUrl='';
   let audioCached=false;
   if(result.audio_url&&cloudService()){
-   const {blob,cached}=await serviceAudio(result.audio_url,id,result.project.audio_cache);
-   if(sequence!==loadSequence)return;
-   audioCached=cached;
-   nextAudioUrl=URL.createObjectURL(blob);
+   try {
+    const {blob,cached}=await serviceAudio(result.audio_url,id,result.project.audio_cache);
+    if(sequence!==loadSequence)return;
+    audioCached=cached;
+    nextAudioUrl=URL.createObjectURL(blob);
+   } catch (audioErr) {
+    console.warn('[MotionStudio] Cached audio fetch failed, falling back to direct URL:', audioErr);
+    nextAudioUrl=result.audio_url;
+   }
   }
   if(audioObjectUrl)URL.revokeObjectURL(audioObjectUrl);
   audioObjectUrl=nextAudioUrl;audio.src=audioObjectUrl||result.audio_url||'';audio.currentTime=0;audio.load();
@@ -144,11 +150,17 @@ async function load(id:string){
   $('track-name').textContent=project.title||select?.selectedOptions?.[0]?.text||'';
   $<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';
   $('analysis-status').textContent=project.analysis.energy_curve.length?`Audio analysis ready · ${project.analysis.beats.length} beats · Estimated ${project.analysis.bpm} BPM`:'No audio analysis yet. Run it in Lyric Editor.';
-  refresh();listCues();populateExportMatrix();await loadExports();
+  refresh();listCues();populateExportMatrix();
+  void loadExports().catch(err => console.warn('[MotionStudio] loadExports failed:', err));
   motionQuote=null;
-  if(cloudService())await refreshMotionPrice().catch(error=>{if($('motion-credit-price'))$('motion-credit-price').textContent=error.message;});
+  if(cloudService())void refreshMotionPrice().catch(error=>{if($('motion-credit-price'))$('motion-credit-price').textContent=error.message;});
   if(sequence===loadSequence)status(result.plan_error||((plan?'Saved director plan loaded':'Choose a style and generate a director plan')+(audioCached?' · Audio loaded from local cache':'')));
- }catch(error){if(sequence===loadSequence)throw error;}
+ }catch(error:any){
+  if(sequence===loadSequence){
+   console.error('[MotionStudio] Error loading song:', error);
+   status('Failed to load: ' + (error?.message || String(error)));
+  }
+ }
 }
 function rules(onlyCurrent=false){
  if(!project||!selected)throw new Error('Select a song first.');
