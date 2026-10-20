@@ -20,9 +20,14 @@ Hosted checkout URLs are short-lived and stored in the owner-scoped checkout row
 ## Commercial policy implemented
 
 - Single-quantity, fixed-price USD credit packs and monthly credit subscriptions.
-- Fixed catalogue: $5/month for 1,000 credits; $10/month for 2,500 credits;
-  one-time $5 for 500 permanent credits. All amounts are USD, excluding applicable
-  tax shown at checkout. The server rejects other price/credit combinations.
+- Official commercial catalogue:
+  - **One-time Credit Pack**: $4.99 for 200 permanent credits (`topup`). Credits never expire.
+  - **Creator Subscription**: $9.99/month for 600 monthly credits (`subscription`).
+  - **Pro Subscription**: $24.99/month for 2,500 monthly credits (`subscription`).
+  - (Test fixtures also permit the earlier sandbox catalog: $5/mo 1000 credits, $10/mo 2500 credits, $5 500 permanent credits).
+- Free account quota policy:
+  - New users receive **100 permanent credits** on registration (`NEW_USER_PERMANENT_CREDITS = 100`).
+  - After consuming permanent credits, free accounts receive **20 credits every calendar month** (`FREE_MONTHLY_QUOTA = 20`).
 - Subscription credits expire at the end of EACH BILLING PERIOD (anniversary,
   not the first of the calendar month). Unused credits do not roll over. Successful
   renewal starts a fresh allocation; failed renewal cannot retain the old one.
@@ -60,9 +65,11 @@ Hosted checkout URLs are short-lived and stored in the owner-scoped checkout row
   in the provider portal; use it for cancel/resume, payment details and invoices.
 
 Current product usage pricing remains separate: alignment uses its existing
-credit price; standard lyric exports and authenticated Motion Design exports
-support quoted reservations/refunds. Motion uses `MOTION_EXPORT_CREDITS` per
-video, including each matrix cell, independent of aspect/resolution/duration.
+credit price (1 credit); standard lyric exports and authenticated Motion Design exports
+support quoted reservations/refunds. Motion exports support dual-tier execution:
+- **Local WebCodecs GPU fast export** (`MOTION_WEBCODECS_CREDITS` = 5 credits): instant client-side MP4 generation.
+- **Cloud Chromium headless render** (`MOTION_EXPORT_CREDITS` = 30 credits): server-side fallback and queued render.
+- Upfront capability probe (`VideoEncoder.isConfigSupported`) informs deterministic pricing before export, with confirmation dialog before fallback.
 Rhythm Studio remains free. Resolution-specific, excerpt-specific and separation
 surcharges are not complete; keep `DRAFT_EXPORT_CREDITS`, `CLIP_EXPORT_CREDITS`
 and `SEPARATION_CREDITS` at zero. Before changing prices, verify the charge shown to the user matches

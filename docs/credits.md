@@ -28,14 +28,38 @@ No payment or public balance-adjustment endpoint is exposed.
   Completed project deletion does not refund successful work or erase history.
 - Legacy task failures retain the existing one-time refund behavior. New imports
   use the alignment execution leases described below. Legacy tasks without leases
-  are not failed just because they are old. No automatic monthly credit grants
-  exist; FREE_MONTHLY_QUOTA is currently used as the initial allowance.
+  are not failed just because they are old.
+- **Initial Welcome Gift**: New users receive **100 permanent credits** (`NEW_USER_PERMANENT_CREDITS = 100`)
+  upon registration (both Firebase login and email/password signup). These credits are permanent
+  and never expire.
+- **Free User Monthly Quota**: Once the initial 100 permanent credits are consumed (permanent available < 20),
+  free tier accounts receive a monthly quota of **20 credits** (`FREE_MONTHLY_QUOTA = 20`).
+  Monthly quota lots expire at the end of each calendar month (23:59:59 UTC). Unused monthly credits
+  expire via `expire_available()`, and a fresh 20-credit quota is eligible in the subsequent calendar month.
+  Free quota claiming is idempotent via `POST /api/credits/claim-monthly-quota` and auto-claimed in the dashboard.
 
 ## Client and API
 
 `GET /api/credits?page=1&page_size=20` is authenticated and owner scoped. It returns
-available/reserved balances, paginated activity and current prices. The dashboard
+available/reserved balances, wallet breakdown (expiring monthly vs permanent credits),
+`monthly_quota` eligibility status, paginated activity and current prices. The dashboard
 shows the ledger and export dialog shows the price before submission.
+
+### Motion Studio Export Pricing
+
+Motion Studio exports support dual execution paths:
+- **Local WebCodecs GPU Fast Export** (`MOTION_WEBCODECS_CREDITS`, defaults to 5 in production):
+  Renders directly inside modern Chromium browsers using client GPU hardware encoders (H.264/MP4)
+  in ~10 seconds with zero server compute. Automatically recorded to My Exports (`render/record_webcodecs`).
+- **Cloud Chromium Headless Render** (`MOTION_EXPORT_CREDITS`, defaults to 30 in production):
+  Server-side Remotion Puppeteer render queue for fallback or background cloud rendering.
+- **Upfront Capability Probing**: Before rendering, the browser executes a silent `<5ms` hardware
+  encoder probe (`VideoEncoder.isConfigSupported`). If WebCodecs is usable, the UI locks the price to 5 credits.
+  If unsupported (e.g. Safari or disabled GPU acceleration), the UI disables the fast option and displays
+  30 credits upfront.
+- **Graceful Fallback Protection**: If client-side WebCodecs encoding encounters an unexpected runtime error,
+  the system halts and explicitly prompts the user (`window.confirm`) before switching to cloud render.
+  It never silently deducts 30 credits without user consent.
 
 If an administrator later chooses a nonzero LYRIC_EXPORT_CREDITS:
 

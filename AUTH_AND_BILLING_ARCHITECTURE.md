@@ -78,7 +78,7 @@ sequenceDiagram
 
 ### 1. `User` 模型与外部 UID 映射
 - `id`：直接使用 Firebase Auth 分配的全局唯一字符串 `uid`（28~36 字符），天然建立一对一信任关系。
-- `credits`：账户可用额度（免费用户默认赠送 5 点）。
+- `credits`：账户可用额度（新用户注册赠送 100 永久积分 `NEW_USER_PERMANENT_CREDITS=100`；消耗完毕后免费用户每月可领 20 免费额度 `FREE_MONTHLY_QUOTA=20`）。
 - `plan`：用户套餐等级（`free` / `pro` / `enterprise`）。
 
 ```python
@@ -90,7 +90,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(128), nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     plan: Mapped[UserPlan] = mapped_column(SAEnum(UserPlan), default=UserPlan.FREE, nullable=False)
-    credits: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    credits: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -300,3 +300,22 @@ async def get_download_url(
    - 更新 [src/api_server.py](file:///Users/luca/suno2MV/src/api_server.py)：落实防重幂等与原子扣点；实现受控 Presigned URL 下发。
 3. **阶段三：前端登录与状态展示**
    - 前端引入 Firebase Web SDK，放置“Google 一键登录”按钮与额度余额徽章，跑通全链路。
+
+---
+
+## 九、动效工坊双轨执行与精准计费 (Motion Studio & WebCodecs)
+
+针对高频短视频渲染场景，系统提供双轨执行架构以平衡成本与体验：
+
+1. **本地 GPU 极速秒出 (WebCodecs)**：
+   - 扣除 **5 积分** (`MOTION_WEBCODECS_CREDITS`)；
+   - 依赖客户端硬件加速 (W3C WebCodecs API) 并在浏览器画布直接压制，10 秒内秒出，0 服务端算力消耗；
+   - 成片通过 `render/record_webcodecs` 自动同步至“我的成片”，支持离线管理。
+2. **云端无头浏览器兜底渲染 (Chromium Cluster)**：
+   - 扣除 **30 积分** (`MOTION_EXPORT_CREDITS`)；
+   - 适用于不支持硬件编码的浏览器（如 Safari/旧版 Firefox）或大批量排队渲染。
+3. **导出前硬件能力预检与直接定价**：
+   - 弹窗打开瞬间执行静默预检 (`VideoEncoder.isConfigSupported`)；
+   - 若环境支持，直接锁定为 5 积分，按钮标注明确金额；
+   - 若环境不支持，自动置灰本地选项，切换为云端通道（30 积分），杜绝模棱两可；
+   - 本地压制中途若发生异常，强制弹窗让用户二次确认是否转云端，严禁静默扣除 30 积分。
