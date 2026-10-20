@@ -754,12 +754,25 @@ def test_cloud_motion_download_restores_private_export_without_opening_song(sand
 @pytest.mark.skipif(__import__('os').getenv('RUN_MOTION_RENDER') != '1', reason='需显式启用 Chrome/FFmpeg 成片测试')
 def test_cloud_motion_renders_and_persists_private_video(sandbox):
     import time
+    import uuid
     from src.motion_cloud import task_prefix
+    from src.settings import get_settings
     seed_cloud_motion(sandbox)
+    cost = get_settings().MOTION_EXPORT_CREDITS
+    if cost > 0:
+        async def topup():
+            async with sandbox.sessions() as db:
+                user = await db.get(User, 'alice')
+                user.credits = max(user.credits, cost + 5)
+                await db.commit()
+        asyncio.run(topup())
     base = '/api/cloud-motion'
     assert sandbox.client.post(base + '/director/rules', json={'project_id': 'alice_motion'}, headers=headers()).status_code == 200
-    started = sandbox.client.post(base + '/render', json={'project_id': 'alice_motion', 'height': 360,
-        'length': .5, 'post': False}, headers=headers())
+    render_body = {'project_id': 'alice_motion', 'height': 360, 'length': .5, 'post': False}
+    if cost > 0:
+        render_body['request_id'] = str(uuid.uuid4())
+        render_body['accepted_cost'] = cost
+    started = sandbox.client.post(base + '/render', json=render_body, headers=headers())
     assert started.status_code == 202, started.text
     job_id = started.json()['id']
     assert sandbox.client.get(base + '/render/' + job_id, headers=headers('bob')).status_code == 404
