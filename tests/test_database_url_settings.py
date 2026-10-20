@@ -23,3 +23,16 @@ def test_postgres_password_at_sign_is_encoded_once(scheme, password):
 def test_sqlite_database_url_is_unchanged():
     url = "sqlite+aiosqlite:///./test.db"
     assert Settings(_env_file=None, DATABASE_URL=url, R2_ACCOUNT_ID="").DATABASE_URL == url
+
+
+def test_empty_string_env_vars_fall_back_to_defaults(monkeypatch):
+    monkeypatch.setenv("MOTION_WEBCODECS_CREDITS", "")
+    monkeypatch.setenv("MOTION_EXPORT_CREDITS", "   ")
+    monkeypatch.setenv("FREE_MONTHLY_QUOTA", "")
+    monkeypatch.setenv("NEW_USER_PERMANENT_CREDITS", "")
+    s = Settings(_env_file=None, R2_ACCOUNT_ID="")
+    assert s.MOTION_WEBCODECS_CREDITS == 0
+    assert s.MOTION_EXPORT_CREDITS == 0
+    assert s.FREE_MONTHLY_QUOTA == 20
+    assert s.NEW_USER_PERMANENT_CREDITS == 100
+

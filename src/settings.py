@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from functools import lru_cache
-from pydantic import Field
+from pydantic import Field, model_validator
 
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -39,6 +39,25 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _strip_empty_env_strings(cls, values: object) -> object:
+        """过滤环境变量或 .env 中设置的空字符串（如 VAR='' 或 VAR=），使数字/布尔等非字符串字段能安全回退至代码默认值。"""
+        if isinstance(values, dict):
+            cleaned = {}
+            for k, v in values.items():
+                if isinstance(v, str) and not v.strip():
+                    field = (
+                        cls.model_fields.get(k)
+                        or cls.model_fields.get(k.lower())
+                        or cls.model_fields.get(k.upper())
+                    )
+                    if field and field.annotation is not str:
+                        continue
+                cleaned[k] = v
+            return cleaned
+        return values
 
     # ── 通用 ──────────────────────────────────────────────
     APP_NAME: str = "M2V — Auto-Karaoke MV Generator"
