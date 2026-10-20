@@ -16,7 +16,25 @@ const {start,length,options,audioPath}=job;
 const short=options.height||720,long=Math.round(short*16/9);
 const width=options.aspect==='9:16'?short:long,height=options.aspect==='9:16'?long:short,fps=30,total=Math.round(length*fps);
 if(!Number.isFinite(start)||!Number.isFinite(length)||length<=0)throw new Error('渲染任务缺少有效范围或导演方案');
-const chrome=process.env.CHROME_PATH||(process.platform==='darwin'?'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome':'/usr/bin/chromium');
+function resolveBrowserExecutable() {
+  if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) {
+    return process.env.CHROME_PATH;
+  }
+  if (process.platform === 'darwin') {
+    return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  }
+  const candidates = [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0];
+}
+const chrome=resolveBrowserExecutable();
 const source={
   '/motion_render.html': ['motion_render.html','text/html; charset=utf-8'],
   '/motion/render-entry.js':['motion/render-entry.js','text/javascript; charset=utf-8'],

@@ -3,6 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawn} from 'node:child_process';
 import {selectComposition,renderMedia,makeCancelSignal} from '@remotion/renderer';
+
 const [jobFile,outFile]=process.argv.slice(2);
 if(!jobFile||!outFile)throw new Error('缺少渲染任务或输出路径');
 const job=JSON.parse(fs.readFileSync(jobFile,'utf8'));
@@ -10,10 +11,37 @@ const {start,length,project,options,audioPath}=job;
 if(!Number.isFinite(start)||start<0||!Number.isFinite(length)||length<=0)throw new Error('导出时间无效');
 const serveUrl=fileURLToPath(new URL('../../local/remotion',import.meta.url));
 if(!fs.existsSync(path.join(serveUrl,'index.html')))throw new Error('请先构建 Remotion 前端');
-const browserExecutable=process.env.CHROME_PATH||(process.platform==='darwin'?'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome':'/usr/bin/chromium');
+
+function resolveBrowserExecutable() {
+  if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) {
+    return process.env.CHROME_PATH;
+  }
+  if (process.platform === 'darwin') {
+    return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  }
+  const candidates = [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return candidates[0];
+}
+
+const browserExecutable=resolveBrowserExecutable();
 const inputProps={project,options,rhythm:job.rhythm,timeOffset:start,renderLength:length};
 const compositionId=job.scene==='rhythm'?'RhythmStage':'LyricPoster';
-const chromiumOptions=job.scene==='rhythm'?{gl:'swangle'}:undefined;
+
+const isLinux = process.platform === 'linux';
+const linuxArgs = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'];
+const chromiumOptions = {
+  gl: job.scene === 'rhythm' ? 'swangle' : undefined,
+  args: isLinux ? linuxArgs : undefined,
+};
+
 const tmp=fs.mkdtempSync(path.join(path.dirname(outFile),'remotion-'));
 const silent=path.join(tmp,'silent.mp4');
 const {cancel,cancelSignal}=makeCancelSignal();let mux;
@@ -29,4 +57,7 @@ try{
    let error='';mux.stderr.on('data',d=>error+=d);mux.on('error',reject);mux.on('close',code=>code===0?resolve():reject(new Error(error||`音频合成失败 ${code}`)));
  });
  process.stdout.write(`PROGRESS ${composition.durationInFrames}/${composition.durationInFrames}\n`);
+}catch(err){
+ process.stderr.write(`RENDER ERROR: ${err?.stack || err?.message || String(err)}\n`);
+ process.exit(1);
 }finally{fs.rmSync(tmp,{recursive:true,force:true});}
