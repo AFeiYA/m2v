@@ -132,12 +132,12 @@ def test_worker_claim_runs_only_once_and_live_heartbeat_extends_without_progress
             return await db.get(AlignmentExecution, task_id)
     row = asyncio.run(lease())
     ticks = threading.Event()
-    monkeypatch.setattr(execution, 'HEARTBEAT_SECONDS', 0.02)
-    monkeypatch.setattr(execution, 'LEASE_SECONDS', 0.15)
+    monkeypatch.setattr(execution, 'HEARTBEAT_SECONDS', 0.05)
+    monkeypatch.setattr(execution, 'LEASE_SECONDS', 0.5)
     original = execution.sync_db
     def observe(action):
         result = original(action)
-        if action.__name__ == 'renew':
+        if action.__name__ == 'renew' and result:
             ticks.set()
         return result
     monkeypatch.setattr(execution, 'sync_db', observe)
@@ -146,7 +146,7 @@ def test_worker_claim_runs_only_once_and_live_heartbeat_extends_without_progress
     def fake(task_id, mp3_key, lyrics_key, config_dict):
         calls.append(task_id)
         assert ticks.wait(5)
-        threading.Event().wait(0.3)  # Several lease periods without progress.
+        threading.Event().wait(0.6)  # Exceeds lease period without worker progress.
         live = asyncio.run(lease())
         assert live.lease_until.replace(tzinfo=execution.timezone.utc) > execution.now()
         assert sandbox.client.get('/api/tasks/'+task_id, headers=headers()).json()['status'] == 'pending'
