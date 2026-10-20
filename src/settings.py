@@ -132,12 +132,13 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
 
     # ── 用户配额与积分定价 ──────────────────────────────────
-    FREE_MONTHLY_QUOTA: int = 5         # 免费用户每月可生成次数
+    FREE_MONTHLY_QUOTA: int = 20         # 免费用户每月免费额度（初始永久积分消耗完毕后）
+    NEW_USER_PERMANENT_CREDITS: int = 100 # 新用户注册赠送永久积分（永久有效不设到期）
     # Default to 0 in development/beta to keep exports free unless configured
     SEPARATION_CREDITS: int = Field(default=0, ge=0)
     LYRIC_EXPORT_CREDITS: int = Field(default=0, ge=0)
-    MOTION_EXPORT_CREDITS: int = Field(default=30, ge=0)
-    MOTION_WEBCODECS_CREDITS: int = Field(default=5, ge=0)
+    MOTION_EXPORT_CREDITS: int = Field(default=0, ge=0)
+    MOTION_WEBCODECS_CREDITS: int = Field(default=0, ge=0)
     DRAFT_EXPORT_CREDITS: int = Field(default=0, ge=0)
     CLIP_EXPORT_CREDITS: int = Field(default=0, ge=0)
     MAX_CONCURRENT_RENDERS_PER_USER: int = Field(default=2, ge=1)

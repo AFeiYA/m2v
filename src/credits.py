@@ -7,7 +7,7 @@ No payment/top-up endpoint is exposed here.
 from __future__ import annotations
 
 import hashlib
-from datetime import timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select, update
@@ -166,6 +166,96 @@ async def grant(db, uid, amount, reference, description="Credits added by admini
     return True
 
 
+async def check_monthly_quota_status(db, uid: str) -> dict:
+    from src.models import UserPlan
+    from src.billing_models import BillingSubscription
+    settings = get_settings()
+    user = await db.get(User, uid)
+    now_utc = datetime.now(timezone.utc)
+    month_key = f"{now_utc.year}-{now_utc.month:02d}"
+    reference = f"free-monthly-{month_key}"
+    event_id = key(uid, "grant", reference)
+    claimed = bool(await db.get(CreditEntry, event_id))
+
+    if not user or user.plan != UserPlan.FREE:
+        return {
+            "amount": settings.FREE_MONTHLY_QUOTA,
+            "eligible": False,
+            "claimed": claimed,
+            "month": month_key,
+        }
+
+    active_sub = (await db.execute(
+        select(BillingSubscription).where(
+            BillingSubscription.user_id == uid,
+            BillingSubscription.status.in_(("active", "on_trial", "paused"))
+        )
+    )).scalars().first()
+    if active_sub:
+        return {
+            "amount": settings.FREE_MONTHLY_QUOTA,
+            "eligible": False,
+            "claimed": claimed,
+            "month": month_key,
+        }
+
+    balance = user.credits
+    wallet_info = await lots.wallet(db, uid, balance)
+    permanent_available = wallet_info.get("permanent_available", 0)
+
+    # 初始赠送积分消耗完毕后（永久积分小于每月配额），每月可领取一次免费额度
+    eligible = (not claimed) and (permanent_available < settings.FREE_MONTHLY_QUOTA)
+    return {
+        "amount": settings.FREE_MONTHLY_QUOTA,
+        "eligible": eligible,
+        "claimed": claimed,
+        "month": month_key,
+        "permanent_available": permanent_available,
+    }
+
+
+async def replenish_free_quota(db, uid: str) -> dict:
+    status = await check_monthly_quota_status(db, uid)
+    if not status["eligible"]:
+        reason = "already_claimed" if status["claimed"] else "has_permanent_credits"
+        return {"granted": False, "reason": reason, **status}
+
+    settings = get_settings()
+    now_utc = datetime.now(timezone.utc)
+    month_key = status["month"]
+    origin = f"free-monthly-{uid}-{month_key}"
+    reference = f"free-monthly-{month_key}"
+
+    if now_utc.month == 12:
+        end_of_month = now_utc.replace(year=now_utc.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    else:
+        end_of_month = now_utc.replace(month=now_utc.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    amount = settings.FREE_MONTHLY_QUOTA
+    description = f"Monthly free quota ({amount} credits)"
+    success = await grant(
+        db, uid, amount, reference, description=description,
+        lot_origin=origin, expires_at=end_of_month, source_group="free_monthly", period_start=now_utc
+    )
+    if success:
+        new_balance = await lock_balance(db, uid)
+        return {
+            "granted": True,
+            "amount": amount,
+            "balance": new_balance,
+            "expires_at": end_of_month.isoformat(),
+            "month": month_key,
+        }
+    return {"granted": False, "reason": "already_claimed", **status}
+
+
+@router.post("/claim-monthly-quota")
+async def claim_monthly_quota(user: User = Depends(get_current_user), db=Depends(get_db)):
+    result = await replenish_free_quota(db, user.id)
+    await db.commit()
+    return result
+
+
 @router.get("")
 async def history(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=50),
                   user: User = Depends(get_current_user), db=Depends(get_db)):
@@ -191,8 +281,10 @@ async def history(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, l
                         "amount": row.amount, "balance_after": row.balance_after,
                         "description": row.description, "created_at": date.isoformat()})
     settings = get_settings()
+    quota_status = await check_monthly_quota_status(db, user.id)
     return {"available": balance, "reserved": reserved, "entries": entries,
             "wallet": await lots.wallet(db,user.id,balance),
+            "monthly_quota": quota_status,
             "total": total, "page": page, "page_size": page_size,
             "pricing": {
                 "alignment": 1,

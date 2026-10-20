@@ -571,7 +571,7 @@ def test_firebase_email_verification_is_not_assumed(sandbox, monkeypatch):
     first = sandbox.client.get("/api/auth/me", headers=credentials)
     assert first.status_code == 200
     assert first.json()["is_verified"] is False
-    assert first.json()["credits"] == auth.settings.FREE_MONTHLY_QUOTA
+    assert first.json()["credits"] == auth.settings.NEW_USER_PERMANENT_CREDITS
     payload["email_verified"] = True
     second = sandbox.client.get("/api/auth/me", headers=credentials)
     assert second.json()["is_verified"] is True

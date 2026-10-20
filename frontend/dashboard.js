@@ -1456,6 +1456,15 @@ async function loadCredits(page = creditPage) {
     }
     if (creditExpiryTimer) clearTimeout(creditExpiryTimer);
     creditExpiryTimer = null;
+    if (data.monthly_quota?.eligible && !data.monthly_quota?.claimed) {
+      try {
+        const claimRes = await api('/api/credits/claim-monthly-quota', {method: 'POST'});
+        if (claimRes.ok) {
+          const claimed = await claimRes.json();
+          if (claimed.granted) return loadCredits(page);
+        }
+      } catch (e) { console.debug("Monthly quota auto-claim skipped", e); }
+    }
     if (data.wallet) {
       if (data.wallet.next_expiry) {
         const delay = Math.min(86400000, Math.max(500, new Date(data.wallet.next_expiry).getTime() - Date.now() + 250));

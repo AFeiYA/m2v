@@ -139,7 +139,7 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
         email=req.email,
         username=req.username,
         password_hash=hash_password(req.password),
-        credits=settings.FREE_MONTHLY_QUOTA,
+        credits=settings.NEW_USER_PERMANENT_CREDITS,
     )
     db.add(user)
     await db.flush()

@@ -113,6 +113,9 @@ def test_motion_admission_rejection_does_not_leave_queued_job(sandbox, monkeypat
     from tests.test_saas_isolation import seed_cloud_motion
     from src.motion_cloud import Workspace
     from src import motion_api
+    from src.settings import get_settings
+    monkeypatch.setattr(get_settings(), 'MOTION_EXPORT_CREDITS', 0)
+    monkeypatch.setattr(get_settings(), 'MOTION_WEBCODECS_CREDITS', 0)
     seed_cloud_motion(sandbox)
     def reject(*args):
         raise HTTPException(403, 'No render allowance')

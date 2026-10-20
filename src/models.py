@@ -84,7 +84,7 @@ class User(Base):
     plan: Mapped[UserPlan] = mapped_column(
         SAEnum(UserPlan), default=UserPlan.FREE, nullable=False
     )
-    credits: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    credits: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(

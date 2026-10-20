@@ -209,7 +209,7 @@ async def get_user_from_token(token: str, db: AsyncSession) -> User:
                 password_hash="FIREBASE_AUTH",
                 avatar_url=payload.get("picture"),
                 plan=UserPlan.FREE,
-                credits=settings.FREE_MONTHLY_QUOTA,
+                credits=settings.NEW_USER_PERMANENT_CREDITS,
                 is_active=True,
                 is_verified=bool(payload.get("email_verified", False)),
             )
