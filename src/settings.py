@@ -136,7 +136,8 @@ class Settings(BaseSettings):
     # Default to 0 in development/beta to keep exports free unless configured
     SEPARATION_CREDITS: int = Field(default=0, ge=0)
     LYRIC_EXPORT_CREDITS: int = Field(default=0, ge=0)
-    MOTION_EXPORT_CREDITS: int = Field(default=0, ge=0)
+    MOTION_EXPORT_CREDITS: int = Field(default=30, ge=0)
+    MOTION_WEBCODECS_CREDITS: int = Field(default=5, ge=0)
     DRAFT_EXPORT_CREDITS: int = Field(default=0, ge=0)
     CLIP_EXPORT_CREDITS: int = Field(default=0, ge=0)
     MAX_CONCURRENT_RENDERS_PER_USER: int = Field(default=2, ge=1)

@@ -86,6 +86,7 @@ async def reserve(db, uid, operation_id, kind, amount):
     labels = {
         "lyric_export": "Lyric video export",
         "motion_export": "Motion Studio export",
+        "motion_webcodecs": "Motion Studio WebCodecs fast export",
         "separation": "Vocal separation",
         "alignment": "Lyrics alignment",
         "draft_export": "720p Draft export",
@@ -112,6 +113,7 @@ async def finish(db, uid, operation_id, kind, success):
     labels = {
         "lyric_export": "Lyric video export",
         "motion_export": "Motion Studio export",
+        "motion_webcodecs": "Motion Studio WebCodecs fast export",
         "separation": "Vocal separation",
         "alignment": "Lyrics alignment",
         "draft_export": "720p Draft export",
@@ -196,7 +198,8 @@ async def history(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, l
                 "alignment": 1,
                 "separation": getattr(settings, "SEPARATION_CREDITS", 0),
                 "lyric_export": settings.LYRIC_EXPORT_CREDITS,
-                "motion_export": getattr(settings, "MOTION_EXPORT_CREDITS", 0),
+                "motion_export": getattr(settings, "MOTION_EXPORT_CREDITS", 30),
+                "motion_webcodecs": getattr(settings, "MOTION_WEBCODECS_CREDITS", 5),
                 "draft_export": getattr(settings, "DRAFT_EXPORT_CREDITS", 0),
                 "clip_export": getattr(settings, "CLIP_EXPORT_CREDITS", 0),
             }}

@@ -20,11 +20,13 @@ async def reconcile(db, uid):
         return
     await credits.lock_balance(db, uid)
     for job_id in expired:
+        row = await db.get(MotionExportRequest, job_id)
+        kind = 'motion_webcodecs' if row and row.cost == get_settings().MOTION_WEBCODECS_CREDITS else 'motion_export'
         changed = await db.execute(update(MotionExportRequest).execution_options(synchronize_session=False).where(
             MotionExportRequest.id == job_id, MotionExportRequest.state == 'active',
             MotionExportRequest.lease_until <= now()).values(state='interrupted'))
         if changed.rowcount:
-            await credits.finish(db, uid, job_id, 'motion_export', False)
+            await credits.finish(db, uid, job_id, kind, False)
             await release_motion(db, uid, job_id)
 
 
@@ -33,7 +35,8 @@ async def admit(db, uid, project_id, candidate_id, request, *, busy=False):
     await reconcile(db, uid)
     values = request.model_dump(mode='json')
     request_id = values.get('request_id')
-    cost = get_settings().MOTION_EXPORT_CREDITS
+    is_webcodecs = bool(values.get('mode') == 'webcodecs' or values.get('fast_webcodecs'))
+    cost = get_settings().MOTION_WEBCODECS_CREDITS if is_webcodecs else get_settings().MOTION_EXPORT_CREDITS
     if cost and not request_id:
         raise HTTPException(409, 'A request_id is required for paid Motion exports.')
     job_id = hashlib.sha256(f'{uid}:motion:{request_id}'.encode()).hexdigest()[:32] if request_id else candidate_id
@@ -50,8 +53,9 @@ async def admit(db, uid, project_id, candidate_id, request, *, busy=False):
         raise HTTPException(409,'已有视频正在导出，请等待完成或取消')
     if values.get('accepted_cost') != cost and cost:
         raise HTTPException(409, 'Review and accept the current Motion export credit price before rendering.')
+    credit_kind = 'motion_webcodecs' if is_webcodecs else 'motion_export'
     await reserve_motion(db, uid, job_id)
-    await credits.reserve(db, uid, job_id, 'motion_export', cost)
+    await credits.reserve(db, uid, job_id, credit_kind, cost)
     db.add(MotionExportRequest(id=job_id,user_id=uid,task_id=project_id,
         fingerprint=fingerprint,cost=cost,state='active',lease_until=now()+timedelta(seconds=LEASE_SECONDS)))
     await db.flush()
@@ -91,7 +95,8 @@ async def publish(db, uid, job_id, task_id, storage_key, kind, details):
     if not await record_export(job_id,uid,task_id,storage_key,kind,details,db=db):
         raise RuntimeError('Source song is no longer available for publication')
     if row:
-        await credits.finish(db,uid,job_id,'motion_export',True)
+        kind = 'motion_webcodecs' if row.cost == get_settings().MOTION_WEBCODECS_CREDITS else 'motion_export'
+        await credits.finish(db,uid,job_id,kind,True)
         row.state='done'
     return True
 
@@ -102,7 +107,8 @@ async def finish(db, uid, job_id, success=False, cancelled=False):
     if row and row.user_id == uid and row.state == 'active':
         # Successful charging happens only in the same transaction as publication.
         delivered = bool(success and await db.get(VideoExport,job_id))
-        await credits.finish(db,uid,job_id,'motion_export',delivered)
+        kind = 'motion_webcodecs' if row.cost == get_settings().MOTION_WEBCODECS_CREDITS else 'motion_export'
+        await credits.finish(db,uid,job_id,kind,delivered)
         row.state = 'done' if delivered else ('cancelled' if cancelled else 'failed')
     await release_motion(db,uid,job_id)
     return row.state if row and row.user_id == uid else None
