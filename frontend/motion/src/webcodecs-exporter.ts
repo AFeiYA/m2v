@@ -53,43 +53,98 @@ export const H264_CANDIDATE_CODECS = [
   'avc1.4d0034', // Main Profile Level 5.2
 ];
 
-/** Pre-flight probe: asynchronously check whether hardware H.264 video encoding is actually usable */
-export async function canUseWebCodecs(options?: { width?: number; height?: number }): Promise<{ supported: boolean; chosenCodec?: string; reason?: string }> {
+/** Pre-flight probe: asynchronously check whether hardware/software H.264 video encoding is actually usable */
+export async function canUseWebCodecs(options?: { width?: number; height?: number }): Promise<{
+  supported: boolean;
+  chosenCodec?: string;
+  hardwareAccelerated?: boolean;
+  maxResolution?: number;
+  reason?: string;
+}> {
   if (typeof window === 'undefined') return { supported: false, reason: 'Non-browser environment' };
   if (!isWebCodecsSupported()) {
-    return { supported: false, reason: 'Browser lacks WebCodecs API (requires Chrome, Edge, or modern Chromium/Safari 16.4+)' };
+    return { supported: false, reason: 'Browser lacks WebCodecs API (requires Chrome, Edge, Safari 16.4+, or Firefox 130+)' };
   }
   if (window.isSecureContext === false) {
-    if (typeof window.location !== 'undefined' && window.location.hostname === '0.0.0.0') {
+    if (typeof window.location !== 'undefined') {
+      const hostname = window.location.hostname;
       const port = window.location.port ? `:${window.location.port}` : '';
-      return {
-        supported: false,
-        reason: `0.0.0.0 is not a secure context in browsers. Please use http://127.0.0.1${port} or http://localhost${port}`,
-      };
+      if (hostname === '0.0.0.0') {
+        return {
+          supported: false,
+          reason: `0.0.0.0 is not a secure context in browsers. Please use http://127.0.0.1${port} or http://localhost${port}`,
+        };
+      }
+      if (/^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(hostname)) {
+        return {
+          supported: false,
+          reason: `LAN IP (${hostname}) without HTTPS disables browser GPU APIs. Visit via http://localhost${port} on the host machine or configure HTTPS.`,
+        };
+      }
     }
     return { supported: false, reason: 'WebCodecs requires HTTPS or localhost' };
   }
+
+  const W = options?.width || 1080;
+  const H = options?.height || 1920;
+  const accelModes = ['prefer-hardware', 'no-preference'] as const;
+
   try {
-    const W = options?.width || 1080;
-    const H = options?.height || 1920;
-    for (const codec of H264_CANDIDATE_CODECS) {
-      try {
-        const support = await (window as any).VideoEncoder.isConfigSupported({
-          codec,
-          width: W,
-          height: H,
-          bitrate: 10_000_000,
-          framerate: 30,
-          hardwareAcceleration: 'prefer-hardware',
-        });
-        if (support && support.supported) {
-          return { supported: true, chosenCodec: codec };
+    // 1. Try target resolution with prefer-hardware then no-preference (CPU fallback)
+    for (const accel of accelModes) {
+      for (const codec of H264_CANDIDATE_CODECS) {
+        try {
+          const support = await (window as any).VideoEncoder.isConfigSupported({
+            codec,
+            width: W,
+            height: H,
+            bitrate: 10_000_000,
+            framerate: 30,
+            hardwareAcceleration: accel,
+          });
+          if (support && support.supported) {
+            return {
+              supported: true,
+              chosenCodec: codec,
+              hardwareAccelerated: accel === 'prefer-hardware',
+              maxResolution: Math.max(W, H),
+            };
+          }
+        } catch {
+          // try next candidate
         }
-      } catch {
-        // try next candidate
       }
     }
-    return { supported: false, reason: 'GPU does not support H.264 video encoding at this resolution' };
+
+    // 2. If target resolution failed, test 720p fallback
+    if (W > 720 || H > 1280) {
+      for (const accel of accelModes) {
+        for (const codec of H264_CANDIDATE_CODECS) {
+          try {
+            const support = await (window as any).VideoEncoder.isConfigSupported({
+              codec,
+              width: 720,
+              height: 1280,
+              bitrate: 5_000_000,
+              framerate: 30,
+              hardwareAcceleration: accel,
+            });
+            if (support && support.supported) {
+              return {
+                supported: true,
+                chosenCodec: codec,
+                hardwareAccelerated: accel === 'prefer-hardware',
+                maxResolution: 720,
+              };
+            }
+          } catch {
+            // continue
+          }
+        }
+      }
+    }
+
+    return { supported: false, reason: 'GPU/system does not support H.264 video encoding at this resolution' };
   } catch (err: any) {
     return { supported: false, reason: err?.message || 'Encoder probe failed' };
   }
@@ -274,22 +329,30 @@ export async function exportMotionWebCodecs(params: {
   });
 
   let selectedCodec = H264_CANDIDATE_CODECS[0];
-  for (const candidate of H264_CANDIDATE_CODECS) {
-    try {
-      const probe = await (window as any).VideoEncoder.isConfigSupported({
-        codec: candidate,
-        width,
-        height,
-        bitrate: 10_000_000,
-        framerate: 30,
-        hardwareAcceleration: 'prefer-hardware',
-      });
-      if (probe && probe.supported) {
-        selectedCodec = candidate;
-        break;
+  let selectedAccel: 'prefer-hardware' | 'no-preference' = 'prefer-hardware';
+  let foundConfig = false;
+
+  for (const accel of ['prefer-hardware', 'no-preference'] as const) {
+    if (foundConfig) break;
+    for (const candidate of H264_CANDIDATE_CODECS) {
+      try {
+        const probe = await (window as any).VideoEncoder.isConfigSupported({
+          codec: candidate,
+          width,
+          height,
+          bitrate: 10_000_000,
+          framerate: 30,
+          hardwareAcceleration: accel,
+        });
+        if (probe && probe.supported) {
+          selectedCodec = candidate;
+          selectedAccel = accel;
+          foundConfig = true;
+          break;
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
   }
 
@@ -299,7 +362,7 @@ export async function exportMotionWebCodecs(params: {
     height,
     bitrate: 10_000_000, // 10 Mbps
     framerate: 30,
-    hardwareAcceleration: 'prefer-hardware' as const,
+    hardwareAcceleration: selectedAccel,
     avc: { format: 'avc' as const },
   };
   videoEncoder.configure(videoConfig);
