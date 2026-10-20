@@ -751,6 +751,7 @@ def test_cloud_motion_download_restores_private_export_without_opening_song(sand
     assert sandbox.client.get(url).status_code == 401
 
 
+@pytest.mark.local_only
 @pytest.mark.skipif(__import__('os').getenv('RUN_MOTION_RENDER') != '1', reason='需显式启用 Chrome/FFmpeg 成片测试')
 def test_cloud_motion_renders_and_persists_private_video(sandbox):
     import time

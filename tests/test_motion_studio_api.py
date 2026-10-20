@@ -41,6 +41,7 @@ def test_plan_save_locks_and_route_shared_song_store(song):
         assert '保持安静的节奏' in whole_input.json()['prompt']
 
 
+@pytest.mark.local_only
 @pytest.mark.skipif(os.getenv('RUN_MOTION_RENDER')!='1',reason='需显式启用 Chrome/FFmpeg 成片测试')
 @pytest.mark.parametrize('worker',['render.mjs','render-remotion.mjs'])
 def test_render_worker_outputs_audio_video_and_exact_frames(song,tmp_path,worker):
@@ -133,6 +134,7 @@ def test_semantic_relations_persist_in_plan_store(song):
         assert client.post('/api/motion/director/line/validate',json={'project_id':id,'line_id':'line_0001','response':response}).status_code==422
 
 
+@pytest.mark.local_only
 @pytest.mark.skipif(os.getenv('RUN_MOTION_RENDER')!='1',reason='需显式启用 Chrome/FFmpeg 成片测试')
 def test_portrait_export_preserves_readable_lyric_during_handover_gap(tmp_path):
     from src.motion_director import rule_plan
@@ -306,6 +308,7 @@ def test_gemini_quota_fallback_is_bounded_and_repairs_stay_on_lite(song,monkeypa
         assert client.get('/api/motion/project',params={'project_id':id}).json()['plan']==old
 
 
+@pytest.mark.local_only
 @pytest.mark.skipif(os.getenv('RUN_MOTION_RENDER')!='1',reason='需显式启用 Chrome/FFmpeg 成片测试')
 def test_fractional_mp3_clip_preserves_all_remotion_frames(tmp_path):
     from src.motion_director import rule_plan
@@ -463,6 +466,7 @@ def test_karaoke_modes_save_without_touching_lyrics_or_timing(song):
         assert path.read_text() == original
 
 
+@pytest.mark.local_only
 @pytest.mark.skipif(os.getenv('RUN_MOTION_RENDER')!='1', reason='需显式启用 Chrome/FFmpeg 成片测试')
 @pytest.mark.parametrize('worker',['render.mjs', 'render-remotion.mjs'])
 def test_karaoke_video_wipe_is_visible_and_monotonic(tmp_path, worker):
@@ -512,6 +516,7 @@ def test_rhythm_settings_are_independent_of_poster_and_render_requires_evidence(
         assert missing.status_code == 422 and '节奏数据' in missing.json()['detail']
 
 
+@pytest.mark.local_only
 @pytest.mark.skipif(os.getenv('RUN_MOTION_RENDER')!='1',reason='需显式启用 Chrome/FFmpeg 3D 渲染测试')
 def test_rhythm_worker_renders_3d_audio_and_clip_offset(tmp_path):
     from PIL import Image
