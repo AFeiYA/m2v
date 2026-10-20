@@ -223,7 +223,7 @@ $('visual-template-select')?.addEventListener('change', action(applyVisualTempla
 let cancelExportQueue = false;
 let exportQueueRunning = false;
 let motionQuote:{projectId:string;cost:number}|null=null;
-let motionPricing = { webcodecs: 5, cloud: 30 };
+let motionPricing = { webcodecs: 10, cloud: 10 };
 const motionRequestIds=new Map<string,string>();
 
 function isFastWebCodecsActive(): boolean {
@@ -340,14 +340,14 @@ function updateMatrixCount() {
       price.textContent = isZh ? '本地模式 · 不消耗云端积分' : 'Local export · no cloud credits';
     } else {
       const modeDesc = isFast
-        ? (isZh ? '⚡ 极速本地导出 (WebCodecs)' : '⚡ Fast local export (WebCodecs)')
+        ? (isZh ? '⚡ 优先本地极速导出' : '⚡ Local fast export first')
         : (isZh ? '☁️ 云端排队渲染' : '☁️ Cloud render');
       const itemDesc = custom
         ? (isZh ? '自定义片段' : '1 clip')
         : (isZh ? `${count} 个视频` : `${count} video${count === 1 ? '' : 's'}`);
       price.textContent = isZh
-        ? `${modeDesc} · ${unitCost} 积分/个 · ${itemDesc} 合计 ${totalCost} 积分。任务失败将自动返还预留积分。`
-        : `${modeDesc} · ${count} videos · ${unitCost} credits each · ${totalCost} credits total. Failed or cancelled exports return unexpired reserved credits.`;
+        ? `${modeDesc} · ${unitCost} 积分/个 · ${itemDesc} 合计 ${totalCost} 积分。遇阻自动转云端，失败返还预留积分。`
+        : `${modeDesc} · ${count} videos · ${unitCost} credits each · ${totalCost} credits total. Auto cloud fallback; failed exports refund reserved credits.`;
     }
   }
   const btn = $<HTMLButtonElement>('export');
@@ -511,18 +511,9 @@ async function runExportVideo() {
             text.textContent = `${task.title} (${task.aspect}): ${isZh ? '已取消' : 'Cancelled'}`;
             break;
           }
-          console.warn('[MotionStudio] Local WebCodecs export failed:', err);
-          const cloudPrice = motionPricing.cloud ?? 30;
-          const confirmMsg = isZh
-            ? `⚠️ 本地极速压制遇到异常（${err?.message || '显存受限或解码中断'}）。\n\n是否改用云端服务器排队渲染？\n注意：云端渲染需要扣除 ${cloudPrice} 积分。`
-            : `⚠️ Local fast export encountered an error (${err?.message || 'GPU or decoder issue'}).\n\nFallback to cloud server render?\nNote: Cloud rendering costs ${cloudPrice} credits.`;
-
-          const proceedCloud = typeof window.confirm === 'function' ? window.confirm(confirmMsg) : false;
-          if (!proceedCloud) {
-            text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地压制失败，已取消（未扣积分）' : 'Local export failed, cancelled (no credits charged)'}`;
-            continue;
-          }
-          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '已确认转入服务端通道…' : 'Confirmed, falling back to server…'}`;
+          console.warn('[MotionStudio] Local WebCodecs export failed, auto-falling back to cloud render:', err);
+          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地压制受限，已自动转入云端通道…' : 'Local export unavailable, auto-switching to cloud render…'}`;
+          $('export-status').textContent = isZh ? '本地压制受限，已自动为您接入云端通道排队渲染…' : 'Local export unavailable, automatically switching to cloud render…';
         }
       }
 
@@ -690,97 +681,36 @@ $('export-custom-range')?.addEventListener('change',updateMatrixCount);
 $('clip-start')?.addEventListener('input',updateMatrixCount);
 $('clip-length')?.addEventListener('input',updateMatrixCount);
 
-async function initExportEngineHint() {
+function initExportEngineHint() {
   const fastCheckbox = $<HTMLInputElement>('export-fast-webcodecs');
   const fastLabel = $('lbl-export-fast-mode');
   const exportStatus = $('export-status');
   const isZh = (window as any).currentLocale === 'zh';
 
-  const apiSupported = typeof isWebCodecsSupported === 'function' && isWebCodecsSupported();
-  const check = typeof canUseWebCodecs === 'function' ? await canUseWebCodecs() : { supported: apiSupported };
-
   if (fastCheckbox) {
+    fastCheckbox.disabled = false;
+    fastCheckbox.checked = true;
     fastCheckbox.onchange = () => {
       updateMatrixCount();
       if (exportStatus) {
-        if (fastCheckbox.checked) {
-          exportStatus.textContent = isZh
-            ? `⚡ WebCodecs 极速导出 · ${motionPricing.webcodecs} 积分/个 · 10秒秒出。若导出遇硬件异常，将由您弹窗确认是否切换云端，绝不乱扣积分。`
-            : `⚡ WebCodecs Fast Export · ${motionPricing.webcodecs} credits · Instant output. Confirmation required before any cloud fallback.`;
-        } else {
-          exportStatus.textContent = isZh
-            ? `☁️ 云端渲染通道 · 服务端 Chromium 集群 · ${motionPricing.cloud} 积分/个 · 可后台排队。`
-            : `☁️ Cloud Render Channel · Server Chromium · ${motionPricing.cloud} credits.`;
-        }
+        exportStatus.textContent = fastCheckbox.checked
+          ? (isZh ? `⚡ 优先本地 GPU 极速导出（10秒秒出）；若遇环境或浏览器限制，自动转入云端通道。` : `⚡ Local GPU fast export first (10s); auto fall back to cloud if local environment is restricted.`)
+          : (isZh ? `☁️ 云端渲染通道 · 服务端 Chromium 集群 · 可后台排队。` : `☁️ Cloud Render Channel · Server Chromium · Background queue.`);
       }
     };
   }
 
-  if (!apiSupported) {
-    // Ancient browser lacking WebCodecs API
-    if (fastCheckbox) {
-      fastCheckbox.checked = false;
-      fastCheckbox.disabled = true;
-    }
-    if (fastLabel) {
-      fastLabel.style.opacity = '0.55';
-      fastLabel.title = isZh ? '当前浏览器缺少 WebCodecs 接口（建议使用 Chrome / Edge / Safari 16.4+ / Firefox 130+）' : 'Browser lacks WebCodecs API';
-    }
-    if (exportStatus) {
-      exportStatus.textContent = isZh
-        ? `当前浏览器不支持 WebCodecs API，已选用云端通道 (${motionPricing.cloud} 积分/个)。建议使用 Chrome/Edge 体验 10 秒秒出。`
-        : `Browser lacks WebCodecs API, using cloud render channel (${motionPricing.cloud} credits).`;
-    }
-  } else if (check.supported) {
-    // Fully verified and supported
-    if (fastCheckbox) {
-      fastCheckbox.disabled = false;
-      fastCheckbox.checked = true;
-    }
-    if (fastLabel) {
-      fastLabel.style.opacity = '1';
-      fastLabel.title = isZh ? '本地 GPU 硬件加速就绪 · 10秒秒出' : 'Local GPU acceleration ready · Instant 10s output';
-    }
-    if (exportStatus) {
-      const modeNote = check.hardwareAccelerated ? (isZh ? '本地 GPU 硬件加速' : 'Local GPU accelerated') : (isZh ? '本地极速压制' : 'Local fast encoding');
-      exportStatus.textContent = isZh
-        ? `⚡ WebCodecs 极速导出 · ${modeNote} · ${motionPricing.webcodecs} 积分/个 · 10秒秒出。`
-        : `⚡ WebCodecs Fast Export · ${modeNote} · ${motionPricing.webcodecs} credits · Instant output.`;
-    }
-  } else {
-    // API exists but probe flagged a caution (e.g. 0.0.0.0, LAN IP, or strict GPU level)
-    // NEVER disable the checkbox! Let the user keep full autonomy!
-    if (fastCheckbox) {
-      fastCheckbox.disabled = false;
-      fastCheckbox.checked = false; // default to safe, but allow user to check!
-    }
-    const is0000 = typeof window !== 'undefined' && window.location?.hostname === '0.0.0.0';
-    const isLan = typeof window !== 'undefined' && /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(window.location?.hostname || '');
-    if (fastLabel) {
-      fastLabel.style.opacity = '0.85';
-      fastLabel.title = isZh
-        ? (is0000 ? '请访问 127.0.0.1 或 localhost 启用本地 GPU 导出' : (isLan ? '局域网访问限制了 GPU 权限，可在本机用 localhost 访问' : `预检提示: ${check.reason || '未完全确认规格'}（您仍可勾选尝试）`))
-        : (check.reason || 'WebCodecs caution (override available)');
-    }
-    if (exportStatus) {
-      if (is0000) {
-        const port = window.location.port ? `:${window.location.port}` : '';
-        const targetUrl = `http://127.0.0.1${port}${window.location.pathname}${window.location.search}`;
-        exportStatus.innerHTML = isZh
-          ? `⚠️ 当前使用 0.0.0.0 访问，浏览器安全策略限制了 GPU 权限。请访问 <a href="${targetUrl}" style="color:#b7f34a;text-decoration:underline;font-weight:bold;">http://127.0.0.1${port}</a> 启用 10 秒极速导出。您亦可手动勾选上方选项尝试本地压制。`
-          : `⚠️ Accessing via 0.0.0.0 blocks browser GPU APIs. Visit <a href="${targetUrl}" style="color:#b7f34a;text-decoration:underline;font-weight:bold;">http://127.0.0.1${port}</a> to enable fast export.`;
-      } else if (isLan) {
-        exportStatus.textContent = isZh
-          ? `⚠️ 正在通过局域网 IP 访问，浏览器安全策略限制了 GPU 权限。在运行本机通过 localhost 打开可直接启用 10 秒极速导出。您亦可手动勾选上方选项尝试本地压制。`
-          : `⚠️ Accessing via LAN IP without HTTPS restricts browser GPU APIs. Visit via localhost on host or use HTTPS.`;
-      } else {
-        const reasonDetail = check.reason ? ` [${check.reason}]` : '';
-        exportStatus.textContent = isZh
-          ? `当前环境预检提示未完全确认高阶编码${reasonDetail}，已默认选用云端 (${motionPricing.cloud} 积分)。您仍可勾选上方选项尝试本地极速导出 (5 积分)，失败时可自由决定是否切回云端。`
-          : `Local GPU probe returned a caution${reasonDetail}, defaulting to cloud (${motionPricing.cloud} credits). You can still check above to try local export.`;
-      }
-    }
+  if (fastLabel) {
+    fastLabel.style.opacity = '1';
+    fastLabel.title = isZh ? '优先本地 GPU 极速导出 (10秒秒出 · 遇阻自动转云端)' : 'Local fast export first (auto cloud fallback)';
   }
+
+  if (exportStatus) {
+    exportStatus.textContent = isZh
+      ? `⚡ 优先本地 GPU 极速压制（10 秒秒出）；若遇本地硬件或浏览器限制，系统将自动无缝转入云端通道渲染。`
+      : `⚡ Local GPU fast export first (10s); auto fall back to cloud if local environment is restricted.`;
+  }
+
   updateMatrixCount();
 }
 void initExportEngineHint();

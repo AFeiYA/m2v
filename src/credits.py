@@ -290,8 +290,8 @@ async def history(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, l
                 "alignment": 1,
                 "separation": getattr(settings, "SEPARATION_CREDITS", 0),
                 "lyric_export": settings.LYRIC_EXPORT_CREDITS,
-                "motion_export": getattr(settings, "MOTION_EXPORT_CREDITS", 30),
-                "motion_webcodecs": getattr(settings, "MOTION_WEBCODECS_CREDITS", 5),
+                "motion_export": getattr(settings, "MOTION_EXPORT_CREDITS", 10),
+                "motion_webcodecs": getattr(settings, "MOTION_WEBCODECS_CREDITS", 10),
                 "draft_export": getattr(settings, "DRAFT_EXPORT_CREDITS", 0),
                 "clip_export": getattr(settings, "CLIP_EXPORT_CREDITS", 0),
             }}
