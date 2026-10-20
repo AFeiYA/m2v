@@ -399,10 +399,21 @@
         } else if (event.data.type === "M2V_LOAD_SONG") {
           const songId = event.data.songId;
           if (songId) {
-            const select = document.getElementById("project-select");
-            if (select && select.value !== songId) {
-              select.value = songId;
-              select.dispatchEvent(new Event("change"));
+            if (typeof window.loadMotionSong === "function") {
+              window.loadMotionSong(songId);
+            } else {
+              const select = document.getElementById("project-select");
+              if (select && select.value !== songId) {
+                let opt = Array.from(select.options).find(o => o.value === songId);
+                if (!opt) {
+                  opt = document.createElement("option");
+                  opt.value = songId;
+                  opt.textContent = event.data.title || songId;
+                  select.appendChild(opt);
+                }
+                select.value = songId;
+                select.dispatchEvent(new Event("change"));
+              }
             }
           }
         } else if (event.data.type === "M2V_STUDIO_PAUSE") {

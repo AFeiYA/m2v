@@ -7,13 +7,59 @@ declare global {
   m2vServiceAuthReady?: Promise<void>;
   m2vCache?: {getMedia(uid:string,task:string,type:string,version:string):Promise<Blob|null>;saveMedia(uid:string,task:string,type:string,blob:Blob,version:string):Promise<unknown>};
   m2vMediaCacheReady?:Promise<void>;
+  loadMotionSong?: (id: string) => Promise<void>;
+  getMotionProjectId?: () => string;
  }
+}
+
+let explicitCloudMode: boolean | null = null;
+
+export function setCloudMode(enabled: boolean): void {
+ explicitCloudMode = enabled;
+}
+
+export function isRemoteStaticHost(): boolean {
+ return typeof location !== 'undefined' && /(?:fovea\.si|pages\.dev|web\.app)$/.test(location.hostname);
+}
+
+export function cloudService(): boolean {
+ if (explicitCloudMode !== null) return explicitCloudMode;
+ if (typeof window !== 'undefined' && Boolean(window.M2V_API_BASE)) return true;
+ if (isRemoteStaticHost()) return true;
+ if (typeof location !== 'undefined' && location.hostname.endsWith('hf.space')) return true;
+ if (typeof window !== 'undefined' && window.parent && window.parent !== window) return true;
+ if (typeof localStorage !== 'undefined' && Boolean(localStorage.getItem('m2v_token'))) return true;
+ return false;
+}
+
+export function serviceUrl(path: string): string {
+ const base = window.M2V_API_BASE?.replace(/\/+$/, '') ||
+  (isRemoteStaticHost() ? 'https://lucazhou-suno2mv-api.hf.space' : location.origin);
+ return new URL(path, base).href;
+}
+
+async function getAuthToken(forceRefresh = false): Promise<string | null> {
+ let token: string | null = null;
+ if (window.m2vAuth?.getIdToken) {
+  try {
+   token = await window.m2vAuth.getIdToken(forceRefresh);
+  } catch (_) {}
+ }
+ if (!token && typeof localStorage !== 'undefined') {
+  token = localStorage.getItem('m2v_token');
+ }
+ if (!token && typeof window !== 'undefined' && window.parent && window.parent !== window) {
+  try {
+   token = window.parent.localStorage?.getItem('m2v_token') || null;
+  } catch (_) {}
+ }
+ return token;
 }
 
 export async function serviceAudio(path:string,task:string,identity?:{uid:string;version:string}):Promise<{blob:Blob;cached:boolean}>{
  await authentication();
  const checkAccount=async()=>{
-  const token=await window.m2vAuth?.getIdToken(false);
+  const token=await getAuthToken(false);
   if(!token)throw new Error('Sign in before loading audio.');
   if(identity){let uid='';try{uid=JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).sub;}catch{}
    if(uid!==identity.uid)throw new Error('Account changed. Please select your song again.');}
@@ -35,17 +81,6 @@ export async function serviceAudio(path:string,task:string,identity?:{uid:string
  await checkAccount();
  if(identity&&cache)await cache.saveMedia(identity.uid,task,type,blob,identity.version);
  return {blob,cached:false};
-}
-
-export function cloudService(): boolean {
- // Sign-in is shared with the local shell; its presence does not select a backend.
- return Boolean(window.M2V_API_BASE) || /(?:fovea\.si|pages\.dev|web\.app|hf\.space)$/.test(location.hostname);
-}
-
-export function serviceUrl(path: string): string {
- const base=window.M2V_API_BASE?.replace(/\/+$/,'') ||
-  (cloudService()&&!location.hostname.endsWith('hf.space')?'https://lucazhou-suno2mv-api.hf.space':location.origin);
- return new URL(path,base).href;
 }
 
 function script(src: string): Promise<void> {
@@ -76,13 +111,13 @@ export async function serviceFetch(path: string, options: RequestInit={}): Promi
  const headers=new Headers(options.headers);
  if(authenticated){
   await authentication();
-  const token=await window.m2vAuth?.getIdToken(false);
+  const token=await getAuthToken(false);
   if(!token)throw new Error('Sign in on the home page before opening Motion Studio.');
   headers.set('Authorization','Bearer '+token);
  }
  let response=await fetch(url,{...options,headers});
  if(authenticated&&response.status===401){
-  const token=await window.m2vAuth?.getIdToken(true);
+  const token=await getAuthToken(true);
   if(!token)throw new Error('Your session expired. Please sign in again.');
   headers.set('Authorization','Bearer '+token);
   response=await fetch(url,{...options,headers});
@@ -104,9 +139,18 @@ export function motionUrl(path: string): string {
  return (cloudService()?'/api/cloud-motion/':'/api/motion/')+path;
 }
 
-export function motionJson(path: string,method='GET',body?: unknown): Promise<any> {
- return serviceJson(motionUrl(path),{method,headers:body?{'Content-Type':'application/json'}:undefined,
-  body:body?JSON.stringify(body):undefined});
+export async function motionJson(path: string,method='GET',body?: unknown): Promise<any> {
+ try {
+  return await serviceJson(motionUrl(path),{method,headers:body?{'Content-Type':'application/json'}:undefined,
+   body:body?JSON.stringify(body):undefined});
+ } catch (err: any) {
+  if (!cloudService() && (err?.message?.includes('403') || err?.message?.includes('不对云端开放') || err?.message?.includes('Forbidden'))) {
+   setCloudMode(true);
+   return await serviceJson(motionUrl(path),{method,headers:body?{'Content-Type':'application/json'}:undefined,
+    body:body?JSON.stringify(body):undefined});
+  }
+  throw err;
+ }
 }
 
 export async function downloadService(path:string,filename='motion-studio.mp4'): Promise<void> {
@@ -118,7 +162,7 @@ export async function downloadService(path:string,filename='motion-studio.mp4'):
   if(!match)throw new Error('Open My Exports to download this video.');
   await authentication();
   const account=async()=>{
-   const token=await window.m2vAuth?.getIdToken(false);
+   const token=await getAuthToken(false);
    if(!token)return null;
    try{return JSON.parse(atob(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).sub||token;}catch{return token;}
   };

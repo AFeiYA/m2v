@@ -46,7 +46,9 @@ body.embedded-studio #nav-gallery,
 body.embedded-studio a[href*="motion-studio"],
 body.embedded-studio a[href*="gallery"],
 body.embedded-studio #btn-lang-toggle,
-body.embedded-studio #auth-pill { display: none !important; }
+body.embedded-studio #auth-pill,
+#nav-my-exports,
+#lyric-my-exports { display: none !important; }
 
 /* 快捷 Suno 导入栏 */
 .suno-quick-bar {

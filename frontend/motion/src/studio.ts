@@ -8,7 +8,7 @@ import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,res
 import { RemotionPreview } from './remotion-preview';
 import { isWebCodecsSupported, exportMotionWebCodecs } from './webcodecs-exporter';
 import { defaults, normalizeProject, renderSize, buildExportClips, type Project, type Options, type MotionPlan, type ExportClip } from './model';
-import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,downloadService} from './service-api';
+import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,setCloudMode,downloadService} from './service-api';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const audio=new Audio();
 audio.hidden=true;
@@ -18,6 +18,7 @@ let audioObjectUrl='';
 let audioReady=false;
 let loadSequence=0;
 let project:Project|null=null,plan:MotionPlan|null=null,engine:RemotionPreview|null=null,selected='',currentCue='',dirty=false,jobId='',playing=false;
+let activeSongPicker:any=null;
 audio.addEventListener('pause',()=>{playing=false;$('play').textContent='▶';});
 let identityDirty=false,settingsDirty=false,saving=false;
 let ruleSeed:MotionPlan|null=null;
@@ -124,7 +125,23 @@ async function load(id:string){
   if(audioObjectUrl)URL.revokeObjectURL(audioObjectUrl);
   audioObjectUrl=nextAudioUrl;audio.src=audioObjectUrl||result.audio_url||'';audio.currentTime=0;audio.load();
   audioReady=Boolean(audioObjectUrl||result.audio_url);
-  $('track-name').textContent=project.title||$<HTMLSelectElement>('project-select').selectedOptions[0].text;
+  const select=$<HTMLSelectElement>('project-select');
+  if(select){
+   if(select.options){
+    let opt = Array.from(select.options).find(o => o.value === id);
+    if(!opt){
+     opt=document.createElement('option');
+     opt.value=id;
+     select.append(opt);
+    }
+    opt.textContent=project.title||id;
+   }
+   select.value=id;
+  }
+  if(activeSongPicker&&project.title){
+   try{activeSongPicker.setTitle(project.title);}catch(_){}
+  }
+  $('track-name').textContent=project.title||select?.selectedOptions?.[0]?.text||'';
   $<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';
   $('analysis-status').textContent=project.analysis.energy_curve.length?`Audio analysis ready · ${project.analysis.beats.length} beats · Estimated ${project.analysis.bpm} BPM`:'No audio analysis yet. Run it in Lyric Editor.';
   refresh();listCues();populateExportMatrix();await loadExports();
@@ -742,14 +759,38 @@ void initExportEngineHint();
 function tick(){if(engine&&playing){if(clipEnd!==null&&audio.currentTime>=clipEnd){audio.pause();audio.currentTime=clipReviewTime;clipEnd=null;playing=false;$('play').textContent='▶';status(reviewHandover?'Transition preview complete':'Line playback complete. Showing the final poster.');}engine.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';if(audio.ended){playing=false;$('play').textContent='▶';}}requestAnimationFrame(tick);}requestAnimationFrame(tick);
 audio.addEventListener('seeked',()=>{if(scrubbing)return;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';});
 window.addEventListener('beforeunload',event=>{if(dirty||identityDirty||settingsDirty){event.preventDefault();event.returnValue='';}});
+(window as any).loadMotionSong = (id: string) => load(id);
+(window as any).getMotionProjectId = () => selected;
 (async()=>{try{
  const select=$<HTMLSelectElement>('project-select');
- const rows=cloudService()?(await serviceJson('/api/songs?view=all&page_size=50')).songs.filter((s:any)=>s.current_task_id).map((s:any)=>({id:s.current_task_id,name:s.title})):await api('projects');
+ let rows: {id: string; name: string}[] = [];
+ if (cloudService()) {
+  try {
+   const res = await serviceJson('/api/songs?view=all&page_size=50');
+   rows = (res?.songs || []).filter((s:any)=>s.current_task_id).map((s:any)=>({id:s.current_task_id,name:s.title}));
+  } catch (err) {
+   console.warn('Failed to load songs from /api/songs:', err);
+   try { rows = await api('projects'); } catch (_) {}
+  }
+ } else {
+  try {
+   rows = await api('projects');
+  } catch (err) {
+   console.warn('Local projects unavailable, attempting cloud songs:', err);
+   try {
+    const res = await serviceJson('/api/songs?view=all&page_size=50');
+    rows = (res?.songs || []).filter((s:any)=>s.current_task_id).map((s:any)=>({id:s.current_task_id,name:s.title}));
+    setCloudMode(true);
+   } catch (_) {}
+  }
+ }
  for(const row of rows){const item=document.createElement('option');item.value=row.id;item.textContent=row.name;select.append(item);}
- if(cloudService())window.m2vSongPicker?.mount(select,serviceJson,async id=>{await load(id);return selected===id;});
+ if(window.m2vSongPicker){
+  activeSongPicker = window.m2vSongPicker.mount(select,serviceJson,async id=>{await load(id);return selected===id;});
+ }
  const params=new URLSearchParams(location.search),wanted=params.get('project')||params.get('song');
  const chosen=rows.find((row:{id:string;name:string})=>row.id===wanted||row.name===wanted)||(rows.length===1?rows[0]:null);
- if(chosen){select.value=chosen.id;await load(chosen.id);}else if(cloudService()&&wanted){await load(wanted);}
+ if(chosen){select.value=chosen.id;await load(chosen.id);}else if(wanted){await load(wanted);}
 }catch(error){status(String(error));}})();
 
 async function loadExports(){

@@ -1439,7 +1439,7 @@ function initLyricExportModal() {
           progressBox.style.display = "none";
           resultBox.style.display = "flex";
           if ($("#lyric-result-heading")) $("#lyric-result-heading").textContent = "Exports in progress";
-          if ($("#lyric-my-exports")) $("#lyric-my-exports").hidden = !cloud;
+          if ($("#lyric-my-exports")) $("#lyric-my-exports").hidden = true;
           if (resultVideo) { resultVideo.pause(); resultVideo.hidden = true; }
           if (btnPreview) btnPreview.hidden = true;
           if (btnDownload) btnDownload.hidden = true;
@@ -1642,7 +1642,7 @@ function initLyricExportModal() {
               if (btnDownload) btnDownload.hidden = false;
               resultBox.style.display = "flex";
               const libraryLink = $("#lyric-my-exports");
-              if (libraryLink) libraryLink.hidden = !cloud;
+              if (libraryLink) libraryLink.hidden = true;
               const elapsedLabel = window.currentLocale === "en" ? "Elapsed" : "耗时";
               resultMeta.textContent = `${result.resolution ? result.resolution.join('x') : ''} · ${result.size_mb || 0}MB · ${elapsedLabel} ${result.elapsed_seconds || 0}s`;
               if (resultVideo) {
