@@ -44,14 +44,19 @@ jobs:
         run: python scripts/ci_render_scope.py
 
       - name: Disable unused Microsoft APT feeds
-        # Playwright and ffmpeg need Ubuntu packages, not this runner-provided
-        # feed. Its 403 responses otherwise make every apt-get update fail.
+        # Playwright and ffmpeg need standard Ubuntu packages, not Microsoft's
+        # runner-provided feed which returns 403 on Ubuntu 24.04 (noble).
         run: |
-          for ci_apt_source in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
-            if [ -f "$ci_apt_source" ] && grep -q 'packages\.microsoft\.com' "$ci_apt_source"; then
-              sudo mv "$ci_apt_source" "$ci_apt_source.disabled"
+          sudo rm -f /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure* /etc/apt/sources.list.d/*dotnet* 2>/dev/null || true
+          if [ -f /etc/apt/sources.list ]; then
+            sudo sed -i '/packages\.microsoft\.com/d' /etc/apt/sources.list 2>/dev/null || true
+          fi
+          for f in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            if [ -f "$f" ] && sudo grep -q 'packages\.microsoft\.com' "$f"; then
+              sudo rm -f "$f"
             fi
           done
+          sudo rm -rf /var/lib/apt/lists/*microsoft* /var/lib/apt/lists/*azure* 2>/dev/null || true
 
       - name: Check and build Motion Studio
         working-directory: frontend/motion
