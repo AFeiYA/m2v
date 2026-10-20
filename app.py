@@ -2,7 +2,7 @@
 Hugging Face Spaces Entry Point
 - 保留 Gradio SDK 与 ZeroGPU 部署入口
 - 兼容原生 FastAPI 后端接口 (/api/suno/import, /api/alignment, /api/asset_file 等)
-- 支持 Vercel 前端无缝代理请求
+- Cloudflare Pages 浏览器端通过已配置的 API 地址访问
 """
 
 import os
@@ -116,6 +116,6 @@ if __name__ == "__main__":
     )
     mount_fastapi_routes(demo)
     print(f"\n💡 [M2V 提示] 本地浏览器访问推荐使用: http://127.0.0.1:{port} 或 http://localhost:{port}")
-    print(f"   (因现代浏览器安全策略，使用 127.0.0.1 / localhost 才能启用 WebCodecs 本地 GPU 10秒极速导出)\n")
+    print(f"   (因现代浏览器安全策略，使用 127.0.0.1 / localhost 才能启用 WebCodecs 本地导出)\n")
     # 阻塞主线程以保持服务常驻
     demo.block_thread()

@@ -1,81 +1,61 @@
-# 🚀 Suno2MV 云端极速部署指南 (0 元成本架构)
+# Deployment: Cloudflare Pages + Hugging Face
 
-本项目采用 **Vercel (前端 CDN) + Hugging Face Spaces (后端容器)** 分离架构，实现永久 0 元服务器费用部署。
+This is the supported production path in `.github/workflows/ci.yml`.
+Vercel configurations are historical references under `docs/archive/deployment/`;
+they are not active deployment entry points.
 
----
+## Responsibilities
 
-## 架构拓扑
-```
-用户浏览器 ➔ https://mv.fovea.si (Vercel)
-               ├── 静态资源与页面 (HTML / CSS / JS) 由 Vercel 免费 CDN 全球加速
-               └── /api/* 请求通过 vercel.json 自动反向代理到 ➔ https://<你的Space名>.hf.space (Hugging Face)
-```
+- Cloudflare Pages serves the browser workspace and static assets at `mv.fovea.si`.
+- The Gradio Space starts `app.py` and mounts the authenticated FastAPI APIs.
+- Firebase authenticates users; application records and credits live in the
+  configured SQL database. Private audio, alignment, artwork and video use the
+  configured StorageBackend. Container-local files are caches, not durable storage.
+- Browser rendering is attempted first; server rendering remains the fallback.
+  Prices come from backend configuration, not frontend defaults.
 
----
+## CI deployment
 
-## 第一部分：部署后端 (Hugging Face Spaces)
+1. Changes to main run the frontend tests/build, backend tests and route checks.
+   Relevant render changes also run real synthetic render acceptance. Manual
+   dispatch can request rendering; ordinary documentation changes do not need it.
+2. Both deploy jobs consume the same verified Motion assets. Do not hand-edit
+   generated bundles in `frontend/local/motion/`.
+3. HF deployment requires GitHub Secret `HF_TOKEN` and targets the Space declared
+   in the workflow. CI creates an asset snapshot and replaces that Space's main
+   branch; do not use the Space repository for independent application changes.
+4. Pages deployment requires GitHub Secrets `CLOUDFLARE_API_TOKEN`,
+   `CLOUDFLARE_ACCOUNT_ID`, and repository Variable `CLOUDFLARE_PAGES_PROJECT_NAME`.
+   `scripts/prepare_pages.py` stages browser files, resolves page links and excludes
+   source trees, tests, Node dependencies and backend Remotion bundles.
+5. Configure backend secrets in the HF environment using `.env.example` as the
+   reference. Never copy a local `.env`, database or account profile into Git.
 
-Hugging Face Spaces 免费提供 **2 vCPU + 16GB 内存 + 50GB 磁盘** 的 Python/Gradio 算力环境（100% 永久免费，无需绑定信用卡）。
+The HF SDK remains **Gradio** (`sdk: gradio`, `app_file: app.py` in README).
+It installs `requirements.txt` and `packages.txt`; the root Dockerfile is an
+alternative container build, not the Gradio Space's startup configuration.
 
-### 步骤：
-1. 打开 [Hugging Face Spaces](https://huggingface.co/spaces)，点击 **Create new Space**；
-2. 填写 Space 信息：
-   - **Space name**: 例如 `suno2mv-api` (或任意名称)
-   - **License**: MIT
-   - **Select the Space SDK**: 选择 **Gradio**
-   - **Choose a Gradio template**: 选择 **Blank**
-   - **Space hardware**: 选择 **Free (2 vCPU · 16GB · CPU basic)**
-   - **Visibility**: Public (或 Private 均可)
-3. 点击底部 **Create Space** 按钮；
-4. 将当前 `deploy/cloud` 分支的代码推送到 Hugging Face：
-   ```bash
-   # 添加 Hugging Face 为远程仓库 (HF 页面会提供你的具体 git 链接)
-   git remote add hf https://huggingface.co/spaces/<你的HF用户名>/<你的Space名>
+## Before enabling paid usage
 
-   # 推送当前分支到 HF 的 main 分支
-   git push hf deploy/cloud:main -f
-   ```
-5. Hugging Face 会自动读取 `Dockerfile` 开始构建，约 2~3 分钟构建完成后，状态变为 **Running**；
-6. 复制 Space 的公网直链地址（通常形如 `https://<你的HF用户名>-<你的Space名>.hf.space`）。
+- Configure durable SQL and private object storage. Verify fresh imports restore
+  after a backend restart, including original audio, stems and alignment.
+- Verify backend CORS and Firebase configuration for the actual frontend domain;
+  see [Firebase authentication](docs/FIREBASE_AUTH.md).
+- Configure Lemon Squeezy and run its sandbox/live acceptance separately;
+  see [billing](docs/LEMON_SQUEEZY_BILLING.md). A successful code deploy does not
+  mean merchant onboarding or payments are enabled.
+- Run import → edit/save → export → My Exports → sign out/in → download with a
+  test account. Verify a second account cannot access the first account's assets.
+- Browser MP4s are uploaded before archive/credit settlement. The endpoint bounds
+  files to 512 MiB; a proxy or hosting provider may impose a smaller limit. A failed
+  save exposes Retry saving video and must not silently rerender or charge twice.
 
----
+## Verification and rollback
 
-## 第二部分：部署前端 (Vercel) 并绑定域名
+Actions success confirms CI and deployment submission. Check HF build/startup logs
+and the live site separately. The runtime checks Node, Chromium and FFmpeg before
+serving server renders. See [runtime details](docs/motion-gradio-deployment.md).
 
-### 步骤：
-1. 打开 `vercel.json`，将 `YOUR_BACKEND_APP.hf.space` 替换为你刚刚获取的真实 Hugging Face 域名：
-   ```json
-   {
-     "version": 2,
-     "rewrites": [
-       {
-         "source": "/api/:match*",
-         "destination": "https://<你的HF用户名>-<你的Space名>.hf.space/api/:match*"
-       },
-       ...
-     ]
-   }
-   ```
-   提交并推送到 GitHub 的 `deploy/cloud` 分支。
-
-2. 登录 [Vercel](https://vercel.com/)，点击 **Add New Project**，绑定同一个 GitHub 仓库；
-3. 选择构建分支为：**`deploy/cloud`**；
-4. Framework Preset 选择 **Other**，Root Directory 保持根目录 `./`；
-5. 点击 **Deploy**，几秒钟内完成部署！
-
-### 绑定自定义子域名 (如 mv.fovea.si)：
-1. 在 Vercel 项目控制台，进入 **Settings** ➔ **Domains**；
-2. 输入 `mv.fovea.si`，点击 **Add**；
-3. 按照提示在你的 DNS 托管商（如 Cloudflare / 阿里云 / 腾讯云）添加一条 `CNAME` 解析记录：
-   - **主机记录 / 名称**: `mv`
-   - **记录类型**: `CNAME`
-   - **记录值**: `cname.vercel-dns.com`
-4. 等待 1~2 分钟 DNS 生效，Vercel 会自动签发免费 HTTPS 证书。
-
----
-
-## 验证上线
-打开浏览器访问：`https://mv.fovea.si`
-- 界面即刻秒开；
-- 粘贴任意公开的 Suno 歌曲链接（例如 `https://suno.com/s/3pkzqXgDSlZq9xcm`）；
-- 点击【⚡ 导入对齐】，即可全自动完成歌词抓取、高清音频分离与词级卡拉OK对齐！
+Rollback by reverting the application commit and rerunning the normal pipeline.
+Keep database migrations and stored asset keys compatible; never reset production
+storage or credit history to roll back a UI change.

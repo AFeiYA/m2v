@@ -219,7 +219,7 @@ m2v/
 
 ### 4.1 Module 1: 歌词预处理器 (`preprocessor.py`)
 
-**输入:** `.txt` 或 `.lrc` 文件路径  
+**输入:** `.txt` 或 `.lrc` 文件路径
 **输出:** 清洗后的纯文本（按行分段）
 
 | 步骤 | 操作 | 依赖 |
@@ -233,7 +233,7 @@ m2v/
 
 ### 4.2 Module 2: 人声分离器 (`separator.py`)
 
-**输入:** MP3 文件路径  
+**输入:** MP3 文件路径
 **输出:** `vocals.wav` + `instrumental.wav`
 
 ```python
@@ -254,7 +254,7 @@ def separate_vocals(mp3_path: str, output_dir: str) -> tuple[str, str]:
 
 ### 4.3 Module 3: 词级对齐引擎 (`aligner.py`)
 
-**输入:** `vocals.wav` + 清洗后歌词文本  
+**输入:** `vocals.wav` + 清洗后歌词文本
 **输出:** `word_timestamps.json`
 
 ```python
@@ -295,7 +295,7 @@ def align_lyrics(vocals_path: str, lyrics_lines: list[str], language: str = "zh"
 
 ### 4.4 Module 4: ASS 字幕生成器 (`subtitle.py`)
 
-**输入:** `word_timestamps.json` + 样式配置  
+**输入:** `word_timestamps.json` + 样式配置
 **输出:** `karaoke.ass`
 
 **ASS 卡拉OK核心语法:**
@@ -329,7 +329,7 @@ def add_beat_effects(ass_content: str, audio_path: str) -> str:
 
 ### 4.5 Module 5: 视频合成器 (`compositor.py`)
 
-**输入:** 背景素材 + 原始音频 + `karaoke.ass`  
+**输入:** 背景素材 + 原始音频 + `karaoke.ass`
 **输出:** `final_video.mp4`
 
 **模式 A — 静态图片背景:**

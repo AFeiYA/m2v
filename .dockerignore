@@ -7,3 +7,19 @@ work
 input
 output
 # Motion assets are delivered by CI and must reach the Gradio runtime.
+
+# Private local configuration, credentials, snapshots and development artifacts
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite3
+*.wav
+*.mp3
+*.mp4
+*.zip
+backups
+.agents
+.firebase
+.wrangler
+docs/archive

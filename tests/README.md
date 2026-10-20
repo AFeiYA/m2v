@@ -4,7 +4,7 @@
 
 纯逻辑、Schema、对齐算法的模拟回归、接口、发布状态及会话隔离测试继续运行。账号状态使用模拟 Uploader；文件操作使用临时目录，不要求真实登录、不发布真实内容、不修改真实 Token。
 
-HF 入口启动和合成音频的音频分析测试继续留在 CI。Motion 渲染测试需要 Node、Chrome 和 FFmpeg，现有工作流已准备这些依赖，并设置 `RUN_MOTION_RENDER=1`，因此也继续保留。
+HF 入口启动和合成音频的音频分析测试继续留在 CI。Motion 渲染测试需要 Node、Chrome 和 FFmpeg，CI 仅在渲染相关代码变化或手动勾选时设置 `RUN_MOTION_RENDER=1`；普通改动不运行真实渲染。使用临时合成片段，不使用私人歌曲。
 
 ## 仅本地运行
 
@@ -23,5 +23,9 @@ python -m pytest tests/ -m "not local_only"
 # 本地素材/模型集成检查（缺少素材会跳过）
 python -m pytest tests/ -m local_only
 ```
+
+前端与插件检查：`node --test chrome_extension/tests/*.test.cjs frontend/tests/*.test.cjs`。
+Motion 类型与模型检查：在 `frontend/motion` 运行 `npm run check && npm test`。
+本地显式验证真实渲染：准备 Node/Chromium/FFmpeg 后设置 `RUN_MOTION_RENDER=1`。
 
 新增测试应按真实依赖分类。调用第三方接口但已经被模拟的测试仍属于 CI；不要为了让 CI 通过而跳过能稳定验证的逻辑。

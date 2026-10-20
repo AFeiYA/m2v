@@ -1,6 +1,11 @@
 # Product direction and delivery plan
 
-Updated: 2026-10-16. Audience: individual Suno creators, initially English-speaking.
+Updated: 2026-10-20. Audience: individual Suno creators, initially English-speaking.
+
+Current module/deployment references: [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md),
+[deployment](../DEPLOY.md), [billing](LEMON_SQUEEZY_BILLING.md). Phase and branch
+notes below are implementation history; they do not override current catalogue
+or runtime configuration.
 
 ## Promise and primary workflow
 
@@ -165,13 +170,19 @@ has passed real-account acceptance.
    keyboard behavior using real project data. Keep English as the default.
 
 
-### Approved pricing — 2026-10-19
+### Current implementation references — 2026-10-20
 
-- Monthly 1,000 credits: $5/month; unused period credits expire, no rollover.
-- Monthly 2,500 credits: $10/month; unused period credits expire, no rollover.
-- Permanent 500 credits: $5 one-time; never expires.
+The production catalogue and monthly/permanent credit policy are documented in
+[LEMON_SQUEEZY_BILLING.md](LEMON_SQUEEZY_BILLING.md); that document supersedes the
+older $5/1,000 subscription plan. Backend configuration remains authoritative.
 
-Expiry follows the subscription billing anniversary, not calendar-month reset.
-Monthly credits are spent first. Renewal, cancellation, held-job failure, expiry and
-refund accounting retain source provenance; no account-wide balance reset occurs.
-Merchant variants must be updated to match these three prices before enabling sales.
+The payment adapter is now present on main; branch names in older phase notes are
+historical, not deployment instructions. Merchant activation and live acceptance
+remain external release gates. See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)
+for core versus experimental modules and [../DEPLOY.md](../DEPLOY.md) for the
+current Pages/Gradio deployment.
+
+Browser encoding and upload/publication are separate stages. Only an actual,
+verified MP4 can enter My Exports. Archive and credit settlement commit together;
+a save retry reuses the same request ID and file. Metadata-only cloud recording
+returns 410 and must not produce a downloadable video or charge credits.

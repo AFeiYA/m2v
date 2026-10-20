@@ -221,15 +221,15 @@ e:\m2v\
 返回存储层中的 alignment JSON，仅限当前用户的任务。
 
 ### `PUT /api/editor/tasks/{task_id}/align`
-请求体 = 编辑后的完整 alignment JSON。  
+请求体 = 编辑后的完整 alignment JSON。
 校验规则：
 1. 每行 `words` 非空
 2. 所有时间值 ≥ 0
 3. 字级 `end ≥ start`
 4. 自动修正 `line.start/end` 与首末字一致
 
-失败返回 `422` + 错误详情。  
-成功返回 `200` + `{ "status": "ok", "task_id": "..." }`。  
+失败返回 `422` + 错误详情。
+成功返回 `200` + `{ "status": "ok", "task_id": "..." }`。
 写入前自动备份 `.bak`。
 
 ### `GET /api/editor/tasks/{task_id}/audio`
@@ -265,8 +265,8 @@ Phase 1 (预览) ──→ Phase 2 (编辑) ──→ Phase 3 (生成) ──→
      2天                 2天                1天              持续
 ```
 
-**建议从 Phase 1 开始**：先做出能看波形 + 歌词的页面。  
-能看到问题在哪，比盲调 JSON 效率高十倍。  
+**建议从 Phase 1 开始**：先做出能看波形 + 歌词的页面。
+能看到问题在哪，比盲调 JSON 效率高十倍。
 Phase 2 的拖拽编辑是核心价值，但要求 Phase 1 的基础。
 
 **启动命令（最终形态）：**
