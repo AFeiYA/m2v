@@ -1067,6 +1067,15 @@ def test_suno_lyric_versions_share_audio_and_delete_only_last_reference(sandbox,
     assert not asyncio.run(sandbox.storage.exists(second["mp3_key"]))
 
 
+def test_download_ass_generates_dynamically_from_alignment_json(sandbox, monkeypatch):
+    install_pipeline(sandbox, monkeypatch, False)
+    task_id = submit(sandbox, monkeypatch, "suno").json()["task_id"]
+    res = sandbox.client.get(f"/api/tasks/{task_id}/download/ass", headers=headers())
+    assert res.status_code == 200
+    assert "Dialogue:" in res.text or "[Script Info]" in res.text
+    assert "attachment; filename=" in res.headers.get("content-disposition", "")
+
+
 def test_suno_missing_cached_audio_downloads_a_new_copy(sandbox, monkeypatch):
     from src import suno_fetch
     install_pipeline(sandbox, monkeypatch, False)

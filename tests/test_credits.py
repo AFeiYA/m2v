@@ -209,15 +209,16 @@ def test_credit_reservation_and_terminal_events_are_idempotent(sandbox):
     assert data['available'] == 4 and data['reserved'] == 0 and data['total'] == 3
 
 
-@pytest.mark.parametrize('fault',['missing_subtitle','missing_upload'])
+@pytest.mark.parametrize('fault',['missing_alignment','missing_upload'])
 def test_alignment_credits_are_returned_when_deliverables_are_missing(sandbox, monkeypatch, fault):
     import sys
     install_pipeline(sandbox,monkeypatch,False)
-    if fault == 'missing_subtitle':
+    if fault == 'missing_alignment':
         original = sys.modules['src.main'].process_one
         def partial(**kwargs):
             result = original(**kwargs)
-            (kwargs['output_dir'] / 'source.ass').unlink()
+            for f in kwargs['output_dir'].glob('*_alignment.json'):
+                f.unlink()
             return result
         monkeypatch.setattr(sys.modules['src.main'],'process_one',partial)
     else:

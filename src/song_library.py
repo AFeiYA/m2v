@@ -44,7 +44,7 @@ def version(task, count=0):
             "status": task.status.value, "progress": task.progress,
             "editable": task.status == TaskStatus.COMPLETED and bool(task.alignment_json_key),
             "updated_at": date(task).isoformat(), "export_count": count,
-            "has_ass": bool(task.output_ass_key), "has_video": bool(task.output_mp4_key),
+            "has_ass": bool(task.output_ass_key or task.alignment_json_key), "has_video": bool(task.output_mp4_key),
             "error": task.error_message if task.status == TaskStatus.FAILED else None}
 
 

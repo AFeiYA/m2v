@@ -378,11 +378,6 @@ async def regenerate(
             audio_path=audio_local,
         )
 
-        # 上传 ASS
-        ass_key = f"results/{task_id}/{task.title}.ass"
-        await storage.save(ass_key, ass_path)
-        task.output_ass_key = ass_key
-
         if mode == "video" and audio_local:
             from src.compositor import compose_video
             mp4_path = work_dir / f"{task.title}.mp4"

@@ -26,6 +26,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
+import re
 
 from fastapi import (
     APIRouter,
@@ -42,7 +43,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -364,7 +365,7 @@ async def upload_and_create_task(
     suno_url: str | None = Query(None, description="Suno 歌曲链接"),
     language: str = Query("auto", description="语言代码，默认自动检测"),
     skip_separation: bool = Query(False, description="跳过人声分离"),
-    ass_only: bool = Query(True, description="只生成 ASS 与对齐数据"),
+    ass_only: bool = Query(False, description="只生成 ASS 与对齐数据"),
     beat_effects: bool = Query(False, description="节奏动画"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -693,6 +694,31 @@ async def download_file(
     file_type: mp4 | ass | alignment | mp3 | lyrics
     """
     task = await _get_user_task(db, user.id, task_id)
+    storage = get_storage()
+
+    # 动态即时生成 ASS 字幕：永远基于最新的 alignment.json，服务端无需持久化冗余的 .ass 文件
+    if file_type == "ass":
+        if not task.alignment_json_key and not task.output_ass_key:
+            raise HTTPException(404, "该任务尚未生成对齐数据")
+        if task.alignment_json_key:
+            import tempfile
+            from src.aligner import AlignmentResult
+            from src.subtitle import generate_ass
+            with tempfile.TemporaryDirectory(prefix="m2v-ass-dl-") as td:
+                align_local = Path(td) / "alignment.json"
+                await storage.load(task.alignment_json_key, align_local)
+                alignment = AlignmentResult.load_json(align_local)
+                ass_local = Path(td) / f"{task.title or 'subtitles'}.ass"
+                generate_ass(alignment=alignment, output_path=ass_local)
+                ass_content = ass_local.read_text(encoding="utf-8")
+            safe_filename = re.sub(r'[^\w.\-\u4e00-\u9fa5]', '_', task.title or "lyrics").strip('.') or "lyrics"
+            return Response(
+                content=ass_content,
+                media_type="text/plain; charset=utf-8",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{safe_filename}.ass"',
+                },
+            )
 
     key_map = {
         "mp4": task.output_mp4_key,
@@ -705,8 +731,6 @@ async def download_file(
     key = key_map.get(file_type)
     if not key:
         raise HTTPException(404, f"文件类型 '{file_type}' 不存在或尚未生成")
-
-    storage = get_storage()
 
     # 本地存储直接返回文件
     if isinstance(storage, LocalStorage):

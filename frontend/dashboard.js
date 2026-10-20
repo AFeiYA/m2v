@@ -846,7 +846,7 @@ function renderTask(task) {
     if (task.output_mp4_key) {
       actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="mp4">📹 Download MP4</button>`;
     }
-    if (task.output_ass_key) {
+    if (task.output_ass_key || task.alignment_json_key) {
       actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="ass">📄 Download ASS</button>`;
     }
     if (task.alignment_json_key) {

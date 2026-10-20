@@ -300,20 +300,6 @@ def process_song_task(
                 raise RuntimeError("Alignment upload size mismatch")
             result_keys["alignment_json_key"] = key
 
-        # ASS 字幕
-        ass_file = output_dir / f"{stem}.ass"
-        if not ass_file.is_file() or ass_file.stat().st_size == 0:
-            raise RuntimeError("Subtitle result was not generated; credits will be returned")
-        if ass_file.exists():
-            key = f"results/{task_id}/{ass_file.name}"
-            loop.run_until_complete(storage.save(key, ass_file))
-            if not loop.run_until_complete(storage.exists(key)):
-                raise RuntimeError("Subtitle upload could not be verified")
-            size = loop.run_until_complete(storage.get_size(key))
-            if size is not None and size != ass_file.stat().st_size:
-                raise RuntimeError("Subtitle upload size mismatch")
-            result_keys["output_ass_key"] = key
-
         # MP4 视频
         mp4_file = output_dir / f"{stem}.mp4"
         if mp4_file.exists():
