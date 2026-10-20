@@ -5,7 +5,7 @@ import {POSTER_FONT} from './poster-layout';
 import {checkImportScope} from './import-scope';
 import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,resolvePaletteColors,pickRandomStackLayout,type CompiledPoster,type DefaultLayoutPreset,type StackLayout} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
-import { isWebCodecsSupported, exportMotionWebCodecs } from './webcodecs-exporter';
+import { isWebCodecsSupported, canUseWebCodecs, exportMotionWebCodecs } from './webcodecs-exporter';
 import { defaults, normalizeProject, renderSize, buildExportClips, type Project, type Options, type MotionPlan, type ExportClip } from './model';
 import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,downloadService} from './service-api';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -223,13 +223,29 @@ $('visual-template-select')?.addEventListener('change', action(applyVisualTempla
 let cancelExportQueue = false;
 let exportQueueRunning = false;
 let motionQuote:{projectId:string;cost:number}|null=null;
+let motionPricing = { webcodecs: 5, cloud: 30 };
 const motionRequestIds=new Map<string,string>();
+
+function isFastWebCodecsActive(): boolean {
+  const isWebCodecs = typeof isWebCodecsSupported === 'function' && isWebCodecsSupported();
+  const fastCheckbox = $<HTMLInputElement>('export-fast-webcodecs');
+  return Boolean(isWebCodecs && fastCheckbox && fastCheckbox.checked && !fastCheckbox.disabled);
+}
+
+function getMotionUnitCost(): number {
+  if (!cloudService()) return 0;
+  return isFastWebCodecsActive() ? motionPricing.webcodecs : motionPricing.cloud;
+}
 
 async function refreshMotionPrice(checkChange=false){
  if(!cloudService())return 0;
  const id=selected,previous=motionQuote;
  const data=await serviceJson('/api/credits?page_size=1');
- const cost=data.pricing?.motion_export;
+ const cloudCost=data.pricing?.motion_export;
+ const webcodecsCost=data.pricing?.motion_webcodecs;
+ if(Number.isInteger(cloudCost)&&cloudCost>=0) motionPricing.cloud = cloudCost;
+ if(Number.isInteger(webcodecsCost)&&webcodecsCost>=0) motionPricing.webcodecs = webcodecsCost;
+ const cost=getMotionUnitCost();
  if(id!==selected)throw Error('Song changed. Please review the export selection.');
  if(!Number.isInteger(cost)||cost<0)throw Error('Unable to check Motion export price. Please retry.');
  motionQuote={projectId:id,cost};updateMatrixCount();
@@ -314,11 +330,31 @@ function updateMatrixCount() {
   const isZh = (window as any).currentLocale === 'zh';
   const badge = $('matrix-selected-count');
   if (badge) badge.textContent = `${count} ${isZh ? '已选' : 'selected'}`;
-  const price=$('motion-credit-price');
-  if(price)price.textContent=!cloudService()?'Local export · no cloud credits':motionQuote?.projectId===selected?`${count} videos · ${motionQuote.cost} credits each · ${count*motionQuote.cost} credits total. Failed or cancelled exports return unexpired reserved credits.`:'Export price unavailable. Please retry before rendering.';
+  const isFast = isFastWebCodecsActive();
+  const unitCost = getMotionUnitCost();
+  const totalCost = count * unitCost;
+
+  const price = $('motion-credit-price');
+  if (price) {
+    if (!cloudService()) {
+      price.textContent = isZh ? '本地模式 · 不消耗云端积分' : 'Local export · no cloud credits';
+    } else {
+      const modeDesc = isFast
+        ? (isZh ? '⚡ 极速本地导出 (WebCodecs)' : '⚡ Fast local export (WebCodecs)')
+        : (isZh ? '☁️ 云端排队渲染' : '☁️ Cloud render');
+      const itemDesc = custom
+        ? (isZh ? '自定义片段' : '1 clip')
+        : (isZh ? `${count} 个视频` : `${count} video${count === 1 ? '' : 's'}`);
+      price.textContent = isZh
+        ? `${modeDesc} · ${unitCost} 积分/个 · ${itemDesc} 合计 ${totalCost} 积分。任务失败将自动返还预留积分。`
+        : `${modeDesc} · ${count} videos · ${unitCost} credits each · ${totalCost} credits total. Failed or cancelled exports return unexpired reserved credits.`;
+    }
+  }
   const btn = $<HTMLButtonElement>('export');
   if (btn && !btn.disabled) {
-    btn.textContent = custom ? (isZh ? '导出自定义片段' : 'Export Custom Clip') : (isZh ? `导出所选视频 (${count})` : `Export Selected (${count})`);
+    const costText = cloudService() && totalCost > 0 ? ` (${totalCost} 积分)` : (cloudService() ? (isZh ? ' (免费)' : ' (Free)') : '');
+    const actionText = custom ? (isZh ? '导出自定义片段' : 'Export Custom Clip') : (isZh ? `导出所选视频 (${count})` : `Export Selected (${count})`);
+    btn.textContent = `${actionText}${costText}`;
   }
 }
 
@@ -475,8 +511,18 @@ async function runExportVideo() {
             text.textContent = `${task.title} (${task.aspect}): ${isZh ? '已取消' : 'Cancelled'}`;
             break;
           }
-          console.warn('[MotionStudio] Local WebCodecs export failed, falling back to server render:', err);
-          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地压制失败，正在转入服务端通道…' : 'Local encode failed, falling back to server…'}`;
+          console.warn('[MotionStudio] Local WebCodecs export failed:', err);
+          const cloudPrice = motionPricing.cloud ?? 30;
+          const confirmMsg = isZh
+            ? `⚠️ 本地极速压制遇到异常（${err?.message || '显存受限或解码中断'}）。\n\n是否改用云端服务器排队渲染？\n注意：云端渲染需要扣除 ${cloudPrice} 积分。`
+            : `⚠️ Local fast export encountered an error (${err?.message || 'GPU or decoder issue'}).\n\nFallback to cloud server render?\nNote: Cloud rendering costs ${cloudPrice} credits.`;
+
+          const proceedCloud = typeof window.confirm === 'function' ? window.confirm(confirmMsg) : false;
+          if (!proceedCloud) {
+            text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地压制失败，已取消（未扣积分）' : 'Local export failed, cancelled (no credits charged)'}`;
+            continue;
+          }
+          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '已确认转入服务端通道…' : 'Confirmed, falling back to server…'}`;
         }
       }
 
@@ -486,7 +532,7 @@ async function runExportVideo() {
       let submittedJobId = '';
       const renderBody={project_id:sourceProject,aspect:task.aspect,height:sourceOptions.height,
         bloom:sourceOptions.bloom,shake:sourceOptions.shake,post:sourceOptions.post,start:task.start,length:task.length,
-        ...(cloudService()?{accepted_cost:acceptedCost}:{})};
+        ...(cloudService()?{accepted_cost:motionPricing.cloud}:{})};
       const requestIdentity=cloudService()?await motionRequestId(sourceProject,renderBody,sourceRevision):null;
       while (!cancelExportQueue) {
         try {
@@ -644,32 +690,49 @@ $('export-custom-range')?.addEventListener('change',updateMatrixCount);
 $('clip-start')?.addEventListener('input',updateMatrixCount);
 $('clip-length')?.addEventListener('input',updateMatrixCount);
 
-function initExportEngineHint() {
-  const isWebCodecs = typeof isWebCodecsSupported === 'function' && isWebCodecsSupported();
+async function initExportEngineHint() {
   const fastCheckbox = $<HTMLInputElement>('export-fast-webcodecs');
   const fastLabel = $('lbl-export-fast-mode');
   const exportStatus = $('export-status');
   const isZh = (window as any).currentLocale === 'zh';
 
-  if (!isWebCodecs) {
-    if (fastLabel) fastLabel.hidden = true;
-    if (fastCheckbox) fastCheckbox.checked = false;
+  const check = typeof canUseWebCodecs === 'function' ? await canUseWebCodecs() : { supported: isWebCodecsSupported() };
+  if (!check.supported) {
+    if (fastCheckbox) {
+      fastCheckbox.checked = false;
+      fastCheckbox.disabled = true;
+    }
+    if (fastLabel) {
+      fastLabel.style.opacity = '0.55';
+      fastLabel.title = isZh ? '当前浏览器或硬件不支持本地 GPU 极速压制，已选用云端服务' : 'WebCodecs not supported, using cloud render';
+    }
+    if (exportStatus) {
+      exportStatus.textContent = isZh
+        ? `当前环境不支持本地 GPU 极速压制，已选用云端通道 (${motionPricing.cloud} 积分/个)。`
+        : `Local GPU encoding unsupported, using cloud render channel (${motionPricing.cloud} credits).`;
+    }
   } else {
     if (fastCheckbox) {
+      fastCheckbox.disabled = false;
+      fastCheckbox.checked = true;
       fastCheckbox.onchange = () => {
+        updateMatrixCount();
         if (exportStatus) {
           exportStatus.textContent = fastCheckbox.checked
-            ? (isZh ? 'WebCodecs 极速导出 · 本地 GPU 加速 · 30fps / H.264 · 10秒秒出。' : 'WebCodecs Fast Export · Local GPU accelerated · 30fps / H.264 · Instant output.')
-            : (isZh ? 'Remotion 云端导出 · 服务端无头浏览器 · 30fps / H.264。' : 'Remotion Cloud Export · Server headless Chromium · 30fps / H.264.');
+            ? (isZh ? `⚡ WebCodecs 极速导出 · 本地 GPU 加速 · ${motionPricing.webcodecs} 积分/个 · 10秒秒出。` : `⚡ WebCodecs Fast Export · GPU accelerated · ${motionPricing.webcodecs} credits · Instant output.`)
+            : (isZh ? `☁️ 云端渲染通道 · 服务端 Chromium 集群 · ${motionPricing.cloud} 积分/个 · 可后台排队。` : `☁️ Cloud Render Channel · Server Chromium · ${motionPricing.cloud} credits.`);
         }
       };
-      if (exportStatus && fastCheckbox.checked) {
-        exportStatus.textContent = isZh ? 'WebCodecs 极速导出 · 本地 GPU 加速 · 30fps / H.264 · 10秒秒出。' : 'WebCodecs Fast Export · Local GPU accelerated · 30fps / H.264 · Instant output.';
+      if (exportStatus) {
+        exportStatus.textContent = isZh
+          ? `⚡ WebCodecs 极速导出 · 本地 GPU 加速 · ${motionPricing.webcodecs} 积分/个 · 10秒秒出。`
+          : `⚡ WebCodecs Fast Export · GPU accelerated · ${motionPricing.webcodecs} credits · Instant output.`;
       }
     }
   }
+  updateMatrixCount();
 }
-initExportEngineHint();
+void initExportEngineHint();
 function tick(){if(engine&&playing){if(clipEnd!==null&&audio.currentTime>=clipEnd){audio.pause();audio.currentTime=clipReviewTime;clipEnd=null;playing=false;$('play').textContent='▶';status(reviewHandover?'Transition preview complete':'Line playback complete. Showing the final poster.');}engine.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';if(audio.ended){playing=false;$('play').textContent='▶';}}requestAnimationFrame(tick);}requestAnimationFrame(tick);
 audio.addEventListener('seeked',()=>{if(scrubbing)return;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';});
 window.addEventListener('beforeunload',event=>{if(dirty||identityDirty||settingsDirty){event.preventDefault();event.returnValue='';}});

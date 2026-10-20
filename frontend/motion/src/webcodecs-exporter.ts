@@ -43,6 +43,34 @@ export function isWebCodecsSupported(): boolean {
   );
 }
 
+/** Pre-flight probe: asynchronously check whether hardware H.264 video encoding is actually usable */
+export async function canUseWebCodecs(options?: { width?: number; height?: number }): Promise<{ supported: boolean; reason?: string }> {
+  if (typeof window === 'undefined') return { supported: false, reason: 'Non-browser environment' };
+  if (!isWebCodecsSupported()) {
+    return { supported: false, reason: 'Browser lacks WebCodecs API (requires Chrome, Edge, or modern Chromium)' };
+  }
+  if (window.isSecureContext === false) {
+    return { supported: false, reason: 'WebCodecs requires HTTPS or localhost' };
+  }
+  try {
+    const W = options?.width || 1080;
+    const H = options?.height || 1920;
+    const support = await (window as any).VideoEncoder.isConfigSupported({
+      codec: 'avc1.42e01e',
+      width: W,
+      height: H,
+      bitrate: 5_000_000,
+      framerate: 30,
+    });
+    if (!support || !support.supported) {
+      return { supported: false, reason: 'GPU does not support H.264 video encoding at this resolution' };
+    }
+    return { supported: true };
+  } catch (err: any) {
+    return { supported: false, reason: err?.message || 'Encoder probe failed' };
+  }
+}
+
 /** Render a single full video frame onto a 2D canvas context */
 export function renderCanvasFrame(
   ctx: CanvasRenderingContext2D,
