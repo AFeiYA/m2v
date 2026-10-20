@@ -52,7 +52,7 @@ frontend/motion/node_modules
 .wrangler/
 firebase-debug.log
 firebase-debug.*.log
-frontend/local/motion/
+# frontend/local/motion/ is tracked so pre-compiled UI bundles are available without node build step
 
 frontend/local/remotion/
 

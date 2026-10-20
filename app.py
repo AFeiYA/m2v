@@ -115,5 +115,7 @@ if __name__ == "__main__":
         show_error=True,
     )
     mount_fastapi_routes(demo)
+    print(f"\n💡 [M2V 提示] 本地浏览器访问推荐使用: http://127.0.0.1:{port} 或 http://localhost:{port}")
+    print(f"   (因现代浏览器安全策略，使用 127.0.0.1 / localhost 才能启用 WebCodecs 本地 GPU 10秒极速导出)\n")
     # 阻塞主线程以保持服务常驻
     demo.block_thread()

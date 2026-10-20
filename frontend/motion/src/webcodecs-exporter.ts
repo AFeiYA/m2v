@@ -43,29 +43,53 @@ export function isWebCodecsSupported(): boolean {
   );
 }
 
+/** Standard H.264 profile/level candidate codecs in descending order of quality and preference */
+export const H264_CANDIDATE_CODECS = [
+  'avc1.64002a', // High Profile Level 4.2 (1080p60 capable, optimal quality & compression)
+  'avc1.4d002a', // Main Profile Level 4.2 (broad macOS & Windows GPU support)
+  'avc1.420028', // Baseline Profile Level 4.0 (1080p30 capable)
+  'avc1.42002a', // Baseline Profile Level 4.2
+  'avc1.640034', // High Profile Level 5.2
+  'avc1.4d0034', // Main Profile Level 5.2
+];
+
 /** Pre-flight probe: asynchronously check whether hardware H.264 video encoding is actually usable */
-export async function canUseWebCodecs(options?: { width?: number; height?: number }): Promise<{ supported: boolean; reason?: string }> {
+export async function canUseWebCodecs(options?: { width?: number; height?: number }): Promise<{ supported: boolean; chosenCodec?: string; reason?: string }> {
   if (typeof window === 'undefined') return { supported: false, reason: 'Non-browser environment' };
   if (!isWebCodecsSupported()) {
-    return { supported: false, reason: 'Browser lacks WebCodecs API (requires Chrome, Edge, or modern Chromium)' };
+    return { supported: false, reason: 'Browser lacks WebCodecs API (requires Chrome, Edge, or modern Chromium/Safari 16.4+)' };
   }
   if (window.isSecureContext === false) {
+    if (typeof window.location !== 'undefined' && window.location.hostname === '0.0.0.0') {
+      const port = window.location.port ? `:${window.location.port}` : '';
+      return {
+        supported: false,
+        reason: `0.0.0.0 is not a secure context in browsers. Please use http://127.0.0.1${port} or http://localhost${port}`,
+      };
+    }
     return { supported: false, reason: 'WebCodecs requires HTTPS or localhost' };
   }
   try {
     const W = options?.width || 1080;
     const H = options?.height || 1920;
-    const support = await (window as any).VideoEncoder.isConfigSupported({
-      codec: 'avc1.42e01e',
-      width: W,
-      height: H,
-      bitrate: 5_000_000,
-      framerate: 30,
-    });
-    if (!support || !support.supported) {
-      return { supported: false, reason: 'GPU does not support H.264 video encoding at this resolution' };
+    for (const codec of H264_CANDIDATE_CODECS) {
+      try {
+        const support = await (window as any).VideoEncoder.isConfigSupported({
+          codec,
+          width: W,
+          height: H,
+          bitrate: 10_000_000,
+          framerate: 30,
+          hardwareAcceleration: 'prefer-hardware',
+        });
+        if (support && support.supported) {
+          return { supported: true, chosenCodec: codec };
+        }
+      } catch {
+        // try next candidate
+      }
     }
-    return { supported: true };
+    return { supported: false, reason: 'GPU does not support H.264 video encoding at this resolution' };
   } catch (err: any) {
     return { supported: false, reason: err?.message || 'Encoder probe failed' };
   }
@@ -249,8 +273,28 @@ export async function exportMotionWebCodecs(params: {
     },
   });
 
+  let selectedCodec = H264_CANDIDATE_CODECS[0];
+  for (const candidate of H264_CANDIDATE_CODECS) {
+    try {
+      const probe = await (window as any).VideoEncoder.isConfigSupported({
+        codec: candidate,
+        width,
+        height,
+        bitrate: 10_000_000,
+        framerate: 30,
+        hardwareAcceleration: 'prefer-hardware',
+      });
+      if (probe && probe.supported) {
+        selectedCodec = candidate;
+        break;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const videoConfig = {
-    codec: 'avc1.64002a', // H.264 High Profile Level 4.2
+    codec: selectedCodec,
     width,
     height,
     bitrate: 10_000_000, // 10 Mbps
@@ -258,11 +302,6 @@ export async function exportMotionWebCodecs(params: {
     hardwareAcceleration: 'prefer-hardware' as const,
     avc: { format: 'avc' as const },
   };
-
-  const supported = await (window as any).VideoEncoder.isConfigSupported(videoConfig);
-  if (!supported.supported) {
-    videoConfig.codec = 'avc1.42001f'; // Baseline profile fallback
-  }
   videoEncoder.configure(videoConfig);
 
   // 2. Configure AudioEncoder (if supported)

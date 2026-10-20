@@ -702,14 +702,26 @@ async function initExportEngineHint() {
       fastCheckbox.checked = false;
       fastCheckbox.disabled = true;
     }
+    const is0000 = typeof window !== 'undefined' && window.location?.hostname === '0.0.0.0';
     if (fastLabel) {
       fastLabel.style.opacity = '0.55';
-      fastLabel.title = isZh ? '当前浏览器或硬件不支持本地 GPU 极速压制，已选用云端服务' : 'WebCodecs not supported, using cloud render';
+      fastLabel.title = isZh
+        ? (is0000 ? '请使用 127.0.0.1 或 localhost 访问以启用本地 GPU 导出' : `当前环境不支持本地 GPU 极速压制 (${check.reason || '无WebCodecs权限'})`)
+        : (is0000 ? 'Please visit via 127.0.0.1 or localhost to enable local GPU export' : `WebCodecs not supported (${check.reason || 'No WebCodecs'})`);
     }
     if (exportStatus) {
-      exportStatus.textContent = isZh
-        ? `当前环境不支持本地 GPU 极速压制，已选用云端通道 (${motionPricing.cloud} 积分/个)。`
-        : `Local GPU encoding unsupported, using cloud render channel (${motionPricing.cloud} credits).`;
+      if (is0000) {
+        const port = window.location.port ? `:${window.location.port}` : '';
+        const targetUrl = `http://127.0.0.1${port}${window.location.pathname}${window.location.search}`;
+        exportStatus.innerHTML = isZh
+          ? `⚠️ 当前使用 0.0.0.0 访问，浏览器安全策略限制了 GPU 权限。请访问 <a href="${targetUrl}" style="color:#b7f34a;text-decoration:underline;font-weight:bold;">http://127.0.0.1${port}</a> 启用 10 秒极速导出。`
+          : `⚠️ Accessing via 0.0.0.0 blocks browser GPU APIs. Visit <a href="${targetUrl}" style="color:#b7f34a;text-decoration:underline;font-weight:bold;">http://127.0.0.1${port}</a> to enable fast export.`;
+      } else {
+        const reasonDetail = check.reason ? ` [${check.reason}]` : '';
+        exportStatus.textContent = isZh
+          ? `当前环境未检测到可用的本地 GPU 编码加速${reasonDetail}，已选用云端通道 (${motionPricing.cloud} 积分/个)。`
+          : `Local GPU encoding unavailable${reasonDetail}, using cloud render channel (${motionPricing.cloud} credits).`;
+      }
     }
   } else {
     if (fastCheckbox) {
