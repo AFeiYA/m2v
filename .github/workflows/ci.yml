@@ -5,6 +5,12 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      run_render_tests:
+        description: Run real Chromium/FFmpeg rendering acceptance tests
+        type: boolean
+        default: false
 
 jobs:
   test:
@@ -17,6 +23,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
@@ -30,6 +38,10 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/motion/package-lock.json
+
+      - name: Determine whether real rendering is needed
+        id: render_scope
+        run: python scripts/ci_render_scope.py
 
       - name: Disable unused Microsoft APT feeds
         # Playwright and ffmpeg need Ubuntu packages, not this runner-provided
@@ -48,7 +60,11 @@ jobs:
           npm run check
           npm test
           npm run build
-          node node_modules/playwright-core/cli.js install --with-deps chromium
+
+      - name: Install Chromium for render acceptance
+        if: steps.render_scope.outputs.run_render_tests == '1'
+        working-directory: frontend/motion
+        run: node node_modules/playwright-core/cli.js install --with-deps chromium
 
       - name: Test Chrome extension and dashboard authentication
         run: node --test chrome_extension/tests/*.test.cjs frontend/tests/*.test.cjs
@@ -73,11 +89,16 @@ jobs:
           pytest tests/test_hf_entrypoint.py -v
 
       - name: Run Full Test Suite
+        env:
+          RUN_MOTION_RENDER: ${{ steps.render_scope.outputs.run_render_tests }}
         run: |
-          export CHROME_PATH=$(cd frontend/motion && node --input-type=module -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')
-          RUN_MOTION_RENDER=1 pytest tests/ -v --maxfail=1 -m "not local_only"
+          if [ "$RUN_MOTION_RENDER" = "1" ]; then
+            export CHROME_PATH=$(cd frontend/motion && node --input-type=module -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')
+          fi
+          pytest tests/ -v --maxfail=1 -m "not local_only"
 
       - name: Verify Gradio Motion runtime preparation
+        if: steps.render_scope.outputs.run_render_tests == '1'
         run: |
           export CHROME_PATH=$(cd frontend/motion && node --input-type=module -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')
           python -c 'from src.hf_motion_runtime import prepare_motion_runtime; prepare_motion_runtime()'
