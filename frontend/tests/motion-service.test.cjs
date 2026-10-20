@@ -41,6 +41,23 @@ test('local studio retains its existing local project API',async()=>{
   const s=setup({host:'localhost'});await s.api.motionJson('projects');
   assert.equal(s.calls[0].url,'https://localhost/api/motion/projects');assert.equal(s.calls[0].authorization,null);
 });
+test('a signed-in loopback studio stays local without reading cloud credentials',async()=>{
+  const s=setup({host:'127.0.0.1'});
+  assert.equal(s.api.cloudService(),false);
+  await s.api.motionJson('projects');
+  assert.equal(s.calls[0].url,'https://127.0.0.1/api/motion/projects');
+  assert.equal(s.calls[0].authorization,null);
+  assert.deepEqual(s.tokens,[]);
+});
+test('a local studio can explicitly select an authenticated cloud backend',async()=>{
+  const s=setup({host:'localhost'});
+  s.context.window.M2V_API_BASE='https://backend.example/';
+  assert.equal(s.api.cloudService(),true);
+  await s.api.motionJson('projects');
+  assert.equal(s.calls[0].url,'https://backend.example/api/cloud-motion/projects');
+  assert.equal(s.calls[0].authorization,'Bearer valid-token');
+  assert.deepEqual(s.tokens,[false]);
+});
 
 function audioSetup(uid='alice'){
  const calls=[],entries=new Map();let user=uid;
