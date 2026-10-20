@@ -5,6 +5,7 @@ import {POSTER_FONT} from './poster-layout';
 import {checkImportScope} from './import-scope';
 import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,resolvePaletteColors,pickRandomStackLayout,type CompiledPoster,type DefaultLayoutPreset,type StackLayout} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
+import { isWebCodecsSupported, exportMotionWebCodecs } from './webcodecs-exporter';
 import { defaults, normalizeProject, renderSize, buildExportClips, type Project, type Options, type MotionPlan, type ExportClip } from './model';
 import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,downloadService} from './service-api';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -333,6 +334,72 @@ async function runExportVideo() {
         break;
       }
       const { task, row, text } = itemRows[i];
+
+      const useWebCodecs = typeof isWebCodecsSupported === 'function' && isWebCodecsSupported() && ($<HTMLInputElement>('export-fast-webcodecs')?.checked ?? true);
+      if (useWebCodecs && project) {
+        text.textContent = `${task.title} (${task.aspect}): ${isZh ? '正在本地硬件极速压制…' : 'Encoding locally with GPU…'}`;
+        updateSummary(`${task.title} (${task.aspect})`);
+        const fullDuration = project.duration || 60;
+        const taskLength = task.length ?? Math.max(0.1, fullDuration - task.start);
+
+        try {
+          const blob = await exportMotionWebCodecs({
+            project,
+            range: {
+              title: task.title,
+              aspect: task.aspect,
+              start: task.start,
+              length: taskLength,
+            },
+            audioBlobOrUrl: audioObjectUrl || audio.src || null,
+            onProgress: ({ frame, totalFrames, pct }) => {
+              const progMsg = isZh
+                ? `本地极速压制中 ${frame}/${totalFrames} 帧 (${Math.round(pct)}%)`
+                : `Fast encoding ${frame}/${totalFrames} frames (${Math.round(pct)}%)`;
+              text.textContent = `${task.title} (${task.aspect}): ${progMsg}`;
+              $('export-status').textContent = `${task.title} (${task.aspect}) · ${progMsg}`;
+            },
+            isCancelled: () => cancelExportQueue,
+          });
+
+          completedCount++;
+          updateSummary();
+          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '导出完成，已自动下载' : 'Completed, downloaded'}`;
+
+          const blobUrl = URL.createObjectURL(blob);
+          const safeTitle = (project.title || 'motion').trim().replace(/[/\\?%*:|"<>]/g, '_');
+          const filename = `${safeTitle}-${task.title}-${task.aspect}.mp4`;
+
+          const dlLink = document.createElement('a');
+          dlLink.className = 'dl-link';
+          dlLink.textContent = isZh ? '下载 ↓' : 'Download ↓';
+          dlLink.href = blobUrl;
+          dlLink.download = filename;
+          row.append(dlLink);
+
+          if (tasks.length === 1) {
+            downloadLink.href = blobUrl;
+            downloadLink.download = filename;
+            downloadLink.hidden = false;
+          }
+
+          const autoDl = document.createElement('a');
+          autoDl.href = blobUrl;
+          autoDl.download = filename;
+          document.body.appendChild(autoDl);
+          autoDl.click();
+          autoDl.remove();
+          continue;
+        } catch (err: any) {
+          if (cancelExportQueue || err?.message?.includes('cancelled')) {
+            text.textContent = `${task.title} (${task.aspect}): ${isZh ? '已取消' : 'Cancelled'}`;
+            break;
+          }
+          console.warn('[MotionStudio] Local WebCodecs export failed, falling back to server render:', err);
+          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地压制失败，正在转入服务端通道…' : 'Local encode failed, falling back to server…'}`;
+        }
+      }
+
       text.textContent = `${task.title} (${task.aspect}): ${isZh ? '准备导出…' : 'Preparing…'}`;
       updateSummary(`${task.title} (${task.aspect})`);
 
@@ -496,6 +563,33 @@ $('cancel').onclick=action(async()=>{
 $('export-custom-range')?.addEventListener('change',updateMatrixCount);
 $('clip-start')?.addEventListener('input',updateMatrixCount);
 $('clip-length')?.addEventListener('input',updateMatrixCount);
+
+function initExportEngineHint() {
+  const isWebCodecs = typeof isWebCodecsSupported === 'function' && isWebCodecsSupported();
+  const fastCheckbox = $<HTMLInputElement>('export-fast-webcodecs');
+  const fastLabel = $('lbl-export-fast-mode');
+  const exportStatus = $('export-status');
+  const isZh = (window as any).currentLocale === 'zh';
+
+  if (!isWebCodecs) {
+    if (fastLabel) fastLabel.hidden = true;
+    if (fastCheckbox) fastCheckbox.checked = false;
+  } else {
+    if (fastCheckbox) {
+      fastCheckbox.onchange = () => {
+        if (exportStatus) {
+          exportStatus.textContent = fastCheckbox.checked
+            ? (isZh ? 'WebCodecs 极速导出 · 本地 GPU 加速 · 30fps / H.264 · 10秒秒出。' : 'WebCodecs Fast Export · Local GPU accelerated · 30fps / H.264 · Instant output.')
+            : (isZh ? 'Remotion 云端导出 · 服务端无头浏览器 · 30fps / H.264。' : 'Remotion Cloud Export · Server headless Chromium · 30fps / H.264.');
+        }
+      };
+      if (exportStatus && fastCheckbox.checked) {
+        exportStatus.textContent = isZh ? 'WebCodecs 极速导出 · 本地 GPU 加速 · 30fps / H.264 · 10秒秒出。' : 'WebCodecs Fast Export · Local GPU accelerated · 30fps / H.264 · Instant output.';
+      }
+    }
+  }
+}
+initExportEngineHint();
 function tick(){if(engine&&playing){if(clipEnd!==null&&audio.currentTime>=clipEnd){audio.pause();audio.currentTime=clipReviewTime;clipEnd=null;playing=false;$('play').textContent='▶';status(reviewHandover?'Transition preview complete':'Line playback complete. Showing the final poster.');}engine.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';if(audio.ended){playing=false;$('play').textContent='▶';}}requestAnimationFrame(tick);}requestAnimationFrame(tick);
 audio.addEventListener('seeked',()=>{if(scrubbing)return;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';});
 window.addEventListener('beforeunload',event=>{if(dirty||identityDirty||settingsDirty){event.preventDefault();event.returnValue='';}});

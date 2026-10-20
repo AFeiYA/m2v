@@ -28,7 +28,7 @@ function setup(){
  }};
  const compiled=esbuild.buildSync({entryPoints:[path.join(__dirname,'../motion/src/local-design.ts')],bundle:true,platform:'node',format:'cjs',write:false}).outputFiles[0].text;
  const design={exports:{}};new Function('module','exports',compiled)(design,design.exports);
- const requireStub=name=>name.includes('local-design')?design.exports:name.includes('service-api')?service:name.includes('remotion-preview')?{RemotionPreview}:name.includes('/model')?{defaults:{},normalizeProject:p=>p,renderSize:()=>({width:720,height:1280}),buildExportClips:()=>[{id:'full',title:'Full song',available:true,start_time:0,end_time:null},{id:'chorus',title:'Chorus',available:true,start_time:20,end_time:35}]}:{};
+ const requireStub=name=>name.includes('local-design')?design.exports:name.includes('service-api')?service:name.includes('remotion-preview')?{RemotionPreview}:name.includes('webcodecs-exporter')?{isWebCodecsSupported:()=>false,exportMotionWebCodecs:async()=>new Blob()}:name.includes('/model')?{defaults:{},normalizeProject:p=>p,renderSize:()=>({width:720,height:1280}),buildExportClips:()=>[{id:'full',title:'Full song',available:true,start_time:0,end_time:null},{id:'chorus',title:'Chorus',available:true,start_time:20,end_time:35}]}:{};
  const context={module:{exports:{}},require:requireStub,document,window:{addEventListener(){},confirm:()=>false},MutationObserver:class{observe(){}},Audio,structuredClone,
   URL,URLSearchParams,Blob,FormData,setTimeout,requestAnimationFrame(){},console,location:{search:''}};
  vm.createContext(context);vm.runInContext(code,context);

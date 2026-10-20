@@ -314,6 +314,10 @@
             <div id="matrix-queue-items" style="display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto;"></div>
           </div>
 
+          <label id="lbl-export-fast-mode" class="check" style="margin-bottom:8px; font-size:11.5px; display:flex; align-items:center; gap:6px; color:#b9ff70; cursor:pointer;">
+            <input id="export-fast-webcodecs" type="checkbox" checked>
+            <span data-i18n="ms_fast_webcodecs">🚀 极速本地导出 (WebCodecs GPU加速 · 10秒秒出)</span>
+          </label>
           <p id="motion-credit-price" class="help" role="status"></p>
           <button id="export" class="primary" data-i18n="ms_btn_export">Export MP4</button>
           <button id="cancel" hidden data-i18n="ms_btn_cancel_export">Cancel Export</button>
