@@ -137,6 +137,8 @@ async def list_exports(page: int = Query(1, ge=1), page_size: int = Query(20, ge
 async def media_access(export_id: str, preview: bool = False,
                        user: User = Depends(get_current_user_flexible), db: AsyncSession = Depends(get_db)):
     record = await owned_export(export_id, user.id, db)
+    if not record.storage_key.lower().endswith('.mp4'):
+        raise HTTPException(409, 'This legacy export contains metadata only. Export the video again to create a downloadable MP4.')
     storage = get_storage()
     try:
         exists = await storage.exists(record.storage_key)

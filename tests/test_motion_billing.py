@@ -18,6 +18,7 @@ from src.settings import get_settings
 @pytest.fixture
 def paid(sandbox,monkeypatch):
     monkeypatch.setattr(get_settings(),'MOTION_EXPORT_CREDITS',2)
+    monkeypatch.setattr(get_settings(),'MOTION_WEBCODECS_CREDITS',2)
     seed_cloud_motion(sandbox)
     return sandbox
 
@@ -211,30 +212,16 @@ def test_paid_http_render_publishes_charges_once_and_replays_across_restart(paid
     assert len(started)==1
 
 
-def test_paid_http_record_webcodecs_charges_and_records(paid, monkeypatch):
-    monkeypatch.setattr(get_settings(), 'MOTION_WEBCODECS_CREDITS', 2)
-    base = '/api/cloud-motion'
-    job_id = 'wc_test_' + str(uuid.uuid4())[:8]
-    req_body = {
-        'project_id': 'alice_motion',
-        'job_id': job_id,
-        'title': 'Alice WebCodecs Export',
-        'aspect': '9:16',
-        'duration': 15.0,
-        'total_frames': 450,
-        'file_size': 1024000
-    }
-    res = paid.client.post(base + '/render/record_webcodecs', headers=headers(), json=req_body)
-    assert res.status_code == 200, res.text
-    assert res.json()['status'] == 'done'
-    credits_response = paid.client.get('/api/credits', headers=headers()).json()
-    assert credits_response['available'] == 3, credits_response
-
-    # Idempotent re-post does not double charge
-    res2 = paid.client.post(base + '/render/record_webcodecs', headers=headers(), json=req_body)
-    assert res2.status_code == 200
-    credits_response2 = paid.client.get('/api/credits', headers=headers()).json()
-    assert credits_response2['available'] == 3
+def test_metadata_only_cloud_export_is_retired_without_charging_or_writing(paid):
+    from src.motion_cloud import workspace_for
+    job_id = 'a' * 32
+    response = paid.client.post('/api/cloud-motion/render/record_webcodecs', headers=headers(), json={
+        'project_id':'alice_motion', 'job_id':job_id, 'file_size':1024000,
+    })
+    assert response.status_code == 410
+    workspace = workspace_for('alice', paid.storage)
+    assert not list(workspace.root.glob(f'**/{job_id}_status.json'))
+    assert paid.client.get('/api/credits',headers=headers()).json()['available'] == 5
 
 
 def test_busy_engine_waits_without_creating_or_charging_a_request(paid):

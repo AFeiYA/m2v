@@ -1,3 +1,4 @@
+import {archiveBrowserVideo} from './browser-export';
 import type {HighlightMode} from './karaoke';
 import {localRulePlan,localPalette,preserveHighlight} from './local-design';
 import {compileSongLayout,paintSongLayout,paintCoverBackground} from './song-layout';
@@ -5,15 +6,19 @@ import {POSTER_FONT} from './poster-layout';
 import {checkImportScope} from './import-scope';
 import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,resolvePaletteColors,pickRandomStackLayout,type CompiledPoster,type DefaultLayoutPreset,type StackLayout} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
-import { isWebCodecsSupported, canUseWebCodecs, exportMotionWebCodecs } from './webcodecs-exporter';
+import { isWebCodecsSupported, exportMotionWebCodecs } from './webcodecs-exporter';
 import { defaults, normalizeProject, renderSize, buildExportClips, type Project, type Options, type MotionPlan, type ExportClip } from './model';
 import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,downloadService} from './service-api';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const audio=new Audio();
+audio.hidden=true;
+audio.id='motion-audio';
+document.body.append(audio); // Shared workspace playback controls must see it.
 let audioObjectUrl='';
 let audioReady=false;
 let loadSequence=0;
 let project:Project|null=null,plan:MotionPlan|null=null,engine:RemotionPreview|null=null,selected='',currentCue='',dirty=false,jobId='',playing=false;
+audio.addEventListener('pause',()=>{playing=false;$('play').textContent='▶';});
 let identityDirty=false,settingsDirty=false,saving=false;
 let ruleSeed:MotionPlan|null=null;
 let coverPending:Promise<void>|null=null;
@@ -183,7 +188,7 @@ function applyVisualTemplate() {
     refresh();
     listCues();
     populateExportMatrix();
-    status(isZh ? '已应用「灵动流式歌词」模版 (9:16 竖屏 · Apple 逐字扫光) · 享受 WebCodecs 10秒秒出' : 'Applied "Apple Scroll" template (9:16 Portrait · Smooth sweep) · WebCodecs 10s export ready');
+    status(isZh ? '已应用「灵动流式歌词」模版 (9:16 竖屏 · Apple 逐字扫光)' : 'Applied "Apple Scroll" template (9:16 Portrait · Smooth sweep)');
   } else if (tpl === 'tv') {
     options.aspect = '16:9';
     if (aspectSelect) aspectSelect.value = '16:9';
@@ -206,7 +211,7 @@ function applyVisualTemplate() {
     refresh();
     listCues();
     populateExportMatrix();
-    status(isZh ? '已应用「经典双行卡拉OK」模版 (16:9 横屏 · 双行交替扫光) · 享受 WebCodecs 10秒秒出' : 'Applied "TV Karaoke" template (16:9 Landscape · Dual-line sweep) · WebCodecs 10s export ready');
+    status(isZh ? '已应用「经典双行卡拉OK」模版 (16:9 横屏 · 双行交替扫光)' : 'Applied "TV Karaoke" template (16:9 Landscape · Dual-line sweep)');
   } else {
     if ($('default-layout-preset')) $<HTMLSelectElement>('default-layout-preset').value = 'smart';
     plan = localRulePlan(project, base, $<HTMLSelectElement>('preset')?.value || 'impact', 'smart',
@@ -216,7 +221,7 @@ function applyVisualTemplate() {
     refresh();
     listCues();
     populateExportMatrix();
-    status(isZh ? '已应用「动态海报分镜」模版 (多段卡点 · 视觉冲击) · 享受 WebCodecs 10秒秒出' : 'Applied "Kinetic Posters" template (Dynamic layout & punchy beats) · WebCodecs 10s export ready');
+    status(isZh ? '已应用「动态海报分镜」模版 (多段卡点 · 视觉冲击)' : 'Applied "Kinetic Posters" template (Dynamic layout & punchy beats)');
   }
 }
 $('visual-template-select')?.addEventListener('change', action(applyVisualTemplate));
@@ -454,6 +459,7 @@ async function runExportVideo() {
         const fullDuration = project.duration || 60;
         const taskLength = task.length ?? Math.max(0.1, fullDuration - task.start);
 
+        let retryArchive:(()=>Promise<void>)|null=null;
         try {
           const blob = await exportMotionWebCodecs({
             project,
@@ -474,27 +480,19 @@ async function runExportVideo() {
             isCancelled: () => cancelExportQueue,
           });
 
-          completedCount++;
-          updateSummary();
-          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '导出完成，已自动下载' : 'Completed, downloaded'}`;
-
-          const webcodecsJobId = window.crypto?.randomUUID?.() ? window.crypto.randomUUID().replace(/-/g, '').slice(0, 32) : 'wc_' + Date.now();
-          // Record local export so it appears in My Exports with offline ready status
-          await api('render/record_webcodecs', 'POST', {
-            project_id: sourceProject,
-            job_id: webcodecsJobId,
-            title: `${project.title || sourceProject} · ${task.title}`,
-            aspect: task.aspect,
-            duration: Number(taskLength.toFixed(1)),
-            total_frames: Math.round(taskLength * 30),
-            file_size: blob.size,
-            ...(cloudService() ? { accepted_cost: motionPricing.webcodecs, request_id: webcodecsJobId } : {})
-          }).catch(err => {
-            console.error('Failed to record webcodecs export:', err);
-          });
-
+          const exportTitle=project.title || sourceProject;
+          const browserRequest=cloudService()?await motionRequestId(sourceProject,{
+            mode:'browser',aspect:task.aspect,start:task.start,length:taskLength,
+            accepted_cost:acceptedCost,
+          },sourceRevision):null;
+          retryArchive=async()=>{
+            text.textContent=`${task.title} (${task.aspect}): ${isZh?'正在保存视频…':'Saving video…'}`;
+            await archiveBrowserVideo(blob,{
+              projectId:sourceProject,requestId:browserRequest?.id||'',acceptedCost,
+              title:`${exportTitle} · ${task.title}`,aspect:task.aspect,
+            });
           const blobUrl = URL.createObjectURL(blob);
-          const safeTitle = (project.title || 'motion').trim().replace(/[/\\?%*:|"<>]/g, '_');
+          const safeTitle = (exportTitle || 'motion').trim().replace(/[/\\?%*:|"<>]/g, '_');
           const filename = `${safeTitle}-${task.title}-${task.aspect}.mp4`;
 
           const dlLink = document.createElement('a');
@@ -506,6 +504,7 @@ async function runExportVideo() {
 
           if (tasks.length === 1) {
             downloadLink.href = blobUrl;
+            downloadLink.onclick = null;
             downloadLink.download = filename;
             downloadLink.hidden = false;
           }
@@ -516,11 +515,27 @@ async function runExportVideo() {
           document.body.appendChild(autoDl);
           autoDl.click();
           autoDl.remove();
+          completedCount++;
+          if(browserRequest)clearMotionRequest(browserRequest.key);
+          updateSummary();
+          text.textContent=`${task.title} (${task.aspect}): ${isZh?'视频已完成，已发起下载':'Video ready, download started'}`;
+          await loadExports().catch(error=>console.error(error));
+          };
+          await retryArchive();
           continue;
         } catch (err: any) {
           if (cancelExportQueue || err?.message?.includes('cancelled')) {
             text.textContent = `${task.title} (${task.aspect}): ${isZh ? '已取消' : 'Cancelled'}`;
             break;
+          }
+          if(retryArchive){
+            const retry=document.createElement('button');
+            retry.textContent=isZh?'重试保存视频':'Retry saving video';
+            retry.onclick=()=>{retry.disabled=true;void retryArchive!().then(()=>retry.remove()).catch(error=>{
+              retry.disabled=false;text.textContent=String(error);
+            });};
+            row.append(retry);
+            throw new Error(isZh?'本地编码已完成，但保存尚未确认。请重试保存；不会重复渲染。':'Video encoded, but saving is not confirmed. Retry saving this video; it will not be rendered again.');
           }
           console.warn('[MotionStudio] Local WebCodecs export failed, auto-falling back to cloud render:', err);
           text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地压制受限，已自动转入云端通道…' : 'Local export unavailable, auto-switching to cloud render…'}`;
@@ -534,7 +549,7 @@ async function runExportVideo() {
       let submittedJobId = '';
       const renderBody={project_id:sourceProject,aspect:task.aspect,height:sourceOptions.height,
         bloom:sourceOptions.bloom,shake:sourceOptions.shake,post:sourceOptions.post,start:task.start,length:task.length,
-        ...(cloudService()?{accepted_cost:motionPricing.cloud}:{})};
+        ...(cloudService()?{accepted_cost:acceptedCost}:{})};
       const requestIdentity=cloudService()?await motionRequestId(sourceProject,renderBody,sourceRevision):null;
       while (!cancelExportQueue) {
         try {
@@ -704,7 +719,7 @@ function initExportEngineHint() {
       updateMatrixCount();
       if (exportStatus) {
         exportStatus.textContent = fastCheckbox.checked
-          ? (isZh ? `⚡ 优先本地 GPU 极速导出（10秒秒出）；若遇环境或浏览器限制，自动转入云端通道。` : `⚡ Local GPU fast export first (10s); auto fall back to cloud if local environment is restricted.`)
+          ? (isZh ? `⚡ 优先本地 GPU 极速导出；若遇环境或浏览器限制，自动转入云端通道。` : `⚡ Local GPU fast export first; auto fall back to cloud if local environment is restricted.`)
           : (isZh ? `☁️ 云端渲染通道 · 服务端 Chromium 集群 · 可后台排队。` : `☁️ Cloud Render Channel · Server Chromium · Background queue.`);
       }
     };
@@ -712,13 +727,13 @@ function initExportEngineHint() {
 
   if (fastLabel) {
     fastLabel.style.opacity = '1';
-    fastLabel.title = isZh ? '优先本地 GPU 极速导出 (10秒秒出 · 遇阻自动转云端)' : 'Local fast export first (auto cloud fallback)';
+    fastLabel.title = isZh ? '优先本地 GPU 极速导出 (遇阻自动转云端)' : 'Local fast export first (auto cloud fallback)';
   }
 
   if (exportStatus) {
     exportStatus.textContent = isZh
-      ? `⚡ 优先本地 GPU 极速压制（10 秒秒出）；若遇本地硬件或浏览器限制，系统将自动无缝转入云端通道渲染。`
-      : `⚡ Local GPU fast export first (10s); auto fall back to cloud if local environment is restricted.`;
+      ? `⚡ 优先本地 GPU 极速压制；若遇本地硬件或浏览器限制，系统将自动无缝转入云端通道渲染。`
+      : `⚡ Local GPU fast export first; auto fall back to cloud if local environment is restricted.`;
   }
 
   updateMatrixCount();

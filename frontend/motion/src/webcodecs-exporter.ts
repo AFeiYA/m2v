@@ -1,3 +1,4 @@
+import {decodeExportAudio} from './export-audio';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import {
   compileSongPosters,
@@ -53,102 +54,6 @@ export const H264_CANDIDATE_CODECS = [
   'avc1.4d0034', // Main Profile Level 5.2
 ];
 
-/** Pre-flight probe: asynchronously check whether hardware/software H.264 video encoding is actually usable */
-export async function canUseWebCodecs(options?: { width?: number; height?: number }): Promise<{
-  supported: boolean;
-  chosenCodec?: string;
-  hardwareAccelerated?: boolean;
-  maxResolution?: number;
-  reason?: string;
-}> {
-  if (typeof window === 'undefined') return { supported: false, reason: 'Non-browser environment' };
-  if (!isWebCodecsSupported()) {
-    return { supported: false, reason: 'Browser lacks WebCodecs API (requires Chrome, Edge, Safari 16.4+, or Firefox 130+)' };
-  }
-  if (window.isSecureContext === false) {
-    if (typeof window.location !== 'undefined') {
-      const hostname = window.location.hostname;
-      const port = window.location.port ? `:${window.location.port}` : '';
-      if (hostname === '0.0.0.0') {
-        return {
-          supported: false,
-          reason: `0.0.0.0 is not a secure context in browsers. Please use http://127.0.0.1${port} or http://localhost${port}`,
-        };
-      }
-      if (/^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(hostname)) {
-        return {
-          supported: false,
-          reason: `LAN IP (${hostname}) without HTTPS disables browser GPU APIs. Visit via http://localhost${port} on the host machine or configure HTTPS.`,
-        };
-      }
-    }
-    return { supported: false, reason: 'WebCodecs requires HTTPS or localhost' };
-  }
-
-  const W = options?.width || 1080;
-  const H = options?.height || 1920;
-  const accelModes = ['prefer-hardware', 'no-preference'] as const;
-
-  try {
-    // 1. Try target resolution with prefer-hardware then no-preference (CPU fallback)
-    for (const accel of accelModes) {
-      for (const codec of H264_CANDIDATE_CODECS) {
-        try {
-          const support = await (window as any).VideoEncoder.isConfigSupported({
-            codec,
-            width: W,
-            height: H,
-            bitrate: 10_000_000,
-            framerate: 30,
-            hardwareAcceleration: accel,
-          });
-          if (support && support.supported) {
-            return {
-              supported: true,
-              chosenCodec: codec,
-              hardwareAccelerated: accel === 'prefer-hardware',
-              maxResolution: Math.max(W, H),
-            };
-          }
-        } catch {
-          // try next candidate
-        }
-      }
-    }
-
-    // 2. If target resolution failed, test 720p fallback
-    if (W > 720 || H > 1280) {
-      for (const accel of accelModes) {
-        for (const codec of H264_CANDIDATE_CODECS) {
-          try {
-            const support = await (window as any).VideoEncoder.isConfigSupported({
-              codec,
-              width: 720,
-              height: 1280,
-              bitrate: 5_000_000,
-              framerate: 30,
-              hardwareAcceleration: accel,
-            });
-            if (support && support.supported) {
-              return {
-                supported: true,
-                chosenCodec: codec,
-                hardwareAccelerated: accel === 'prefer-hardware',
-                maxResolution: 720,
-              };
-            }
-          } catch {
-            // continue
-          }
-        }
-      }
-    }
-
-    return { supported: false, reason: 'GPU/system does not support H.264 video encoding at this resolution' };
-  } catch (err: any) {
-    return { supported: false, reason: err?.message || 'Encoder probe failed' };
-  }
-}
 
 /** Render a single full video frame onto a 2D canvas context */
 export function renderCanvasFrame(
@@ -231,7 +136,7 @@ export function renderCanvasFrame(
 
 /**
  * Fast client-side WebCodecs MP4 video export directly in the browser.
- * Near 0 server compute cost, 10-15s export speed with local GPU acceleration.
+ * Render time depends on the device, song duration and selected format.
  */
 export async function exportMotionWebCodecs(params: {
   project: Project;
@@ -277,28 +182,8 @@ export async function exportMotionWebCodecs(params: {
     }
   }
 
-  // Prepare Audio Buffer if source available
-  let audioBuffer: AudioBuffer | null = null;
-  if (audioBlobOrUrl && typeof AudioContext !== 'undefined') {
-    try {
-      let arrayBuffer: ArrayBuffer;
-      if (audioBlobOrUrl instanceof Blob) {
-        arrayBuffer = await audioBlobOrUrl.arrayBuffer();
-      } else {
-        const res = await fetch(audioBlobOrUrl);
-        arrayBuffer = await res.arrayBuffer();
-      }
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-    } catch (err) {
-      console.warn('[WebCodecsExporter] Audio decode failed, exporting video without audio:', err);
-    }
-  }
-
-  const canEncodeAudio =
-    typeof (window as any).AudioEncoder !== 'undefined' &&
-    audioBuffer !== null &&
-    audioBuffer.length > 0;
+  const audioBuffer = await decodeExportAudio(audioBlobOrUrl || null);
+  if(range.start>=audioBuffer.duration)throw new Error('The clip starts after the song audio ends.');
 
   const target = new ArrayBufferTarget();
   const muxer = new Muxer({
@@ -308,11 +193,11 @@ export async function exportMotionWebCodecs(params: {
       width,
       height,
     },
-    audio: canEncodeAudio && audioBuffer ? {
+    audio: {
       codec: 'aac',
       numberOfChannels: 2,
       sampleRate: audioBuffer.sampleRate,
-    } : undefined,
+    },
     fastStart: 'in-memory',
     firstTimestampBehavior: 'offset',
   });
@@ -365,82 +250,77 @@ export async function exportMotionWebCodecs(params: {
     hardwareAcceleration: selectedAccel,
     avc: { format: 'avc' as const },
   };
-  videoEncoder.configure(videoConfig);
-
-  // 2. Configure AudioEncoder (if supported)
   let audioEncoder: any = null;
-  if (canEncodeAudio && audioBuffer) {
-    try {
-      audioEncoder = new (window as any).AudioEncoder({
-        output: (chunk: any, metadata: any) => {
-          muxer.addAudioChunk(chunk, metadata);
-        },
-        error: (err: any) => {
-          console.warn('[WebCodecsExporter] AudioEncoder error:', err);
-        },
-      });
-
-      audioEncoder.configure({
-        codec: 'mp4a.40.2',
-        numberOfChannels: 2,
-        sampleRate: audioBuffer.sampleRate,
-        bitrate: 192000,
-      });
-
-      // Slice & Encode Audio Samples
-      const sampleRate = audioBuffer.sampleRate;
-      const channels = Math.min(2, audioBuffer.numberOfChannels);
-      const startSample = Math.floor(range.start * sampleRate);
-      const totalAudioSamples = Math.floor(range.length * sampleRate);
-      const endSample = Math.min(audioBuffer.length, startSample + totalAudioSamples);
-      const sliceLength = Math.max(0, endSample - startSample);
-
-      if (sliceLength > 0) {
-        const chunkSize = 1024;
-        const leftChannel = audioBuffer.getChannelData(0);
-        const rightChannel = channels > 1 ? audioBuffer.getChannelData(1) : leftChannel;
-
-        for (let offset = 0; offset < sliceLength; offset += chunkSize) {
-          const count = Math.min(chunkSize, sliceLength - offset);
-          const chunkData = new Float32Array(count * 2);
-          for (let s = 0; s < count; s++) {
-            chunkData[s * 2] = leftChannel[startSample + offset + s] || 0;
-            chunkData[s * 2 + 1] = rightChannel[startSample + offset + s] || 0;
-          }
-          const audioTimestampUs = Math.round((offset / sampleRate) * 1_000_000);
-          const audioData = new (window as any).AudioData({
-            format: 'f32',
-            sampleRate,
-            numberOfChannels: 2,
-            numberOfFrames: count,
-            timestamp: audioTimestampUs,
-            data: chunkData,
-          });
-          audioEncoder.encode(audioData);
-          audioData.close();
-        }
-      }
-    } catch (audioErr) {
-      console.warn('[WebCodecsExporter] Audio encoding failed, continuing video only:', audioErr);
-      audioEncoder = null;
-    }
-  }
-
-  // 3. Render and Encode Video Frames
-  const fps = 30;
-  const totalFrames = Math.max(1, Math.round(range.length * fps));
-  const renderCanvas = document.createElement('canvas');
-  renderCanvas.width = width;
-  renderCanvas.height = height;
-  const renderCtx = renderCanvas.getContext('2d', { alpha: false })!;
-
+  let audioError: Error | null = null;
   try {
+    videoEncoder.configure(videoConfig);
+
+    // 2. Audio is required for a completed lyric video.
+    audioEncoder = new (window as any).AudioEncoder({
+      output: (chunk: any, metadata: any) => {
+        muxer.addAudioChunk(chunk, metadata);
+      },
+      error: (err: any) => {
+        audioError = err;
+      },
+    });
+
+    audioEncoder.configure({
+      codec: 'mp4a.40.2',
+      numberOfChannels: 2,
+      sampleRate: audioBuffer.sampleRate,
+      bitrate: 192000,
+    });
+
+    // Slice & Encode Audio Samples
+    const sampleRate = audioBuffer.sampleRate;
+    const channels = Math.min(2, audioBuffer.numberOfChannels);
+    const startSample = Math.floor(range.start * sampleRate);
+    const totalAudioSamples = Math.floor(range.length * sampleRate);
+    const endSample = Math.min(audioBuffer.length, startSample + totalAudioSamples);
+    const sliceLength = Math.max(0, endSample - startSample);
+
+    if (sliceLength > 0) {
+      const chunkSize = 1024;
+      const leftChannel = audioBuffer.getChannelData(0);
+      const rightChannel = channels > 1 ? audioBuffer.getChannelData(1) : leftChannel;
+
+      for (let offset = 0; offset < sliceLength; offset += chunkSize) {
+        const count = Math.min(chunkSize, sliceLength - offset);
+        const chunkData = new Float32Array(count * 2);
+        for (let s = 0; s < count; s++) {
+          chunkData[s * 2] = leftChannel[startSample + offset + s] || 0;
+          chunkData[s * 2 + 1] = rightChannel[startSample + offset + s] || 0;
+        }
+        const audioTimestampUs = Math.round((offset / sampleRate) * 1_000_000);
+        const audioData = new (window as any).AudioData({
+          format: 'f32',
+          sampleRate,
+          numberOfChannels: 2,
+          numberOfFrames: count,
+          timestamp: audioTimestampUs,
+          data: chunkData,
+        });
+        audioEncoder.encode(audioData);
+        audioData.close();
+      }
+    }
+
+    // 3. Render and Encode Video Frames
+    const fps = 30;
+    const totalFrames = Math.max(1, Math.round(range.length * fps));
+    const renderCanvas = document.createElement('canvas');
+    renderCanvas.width = width;
+    renderCanvas.height = height;
+    const renderCtx = renderCanvas.getContext('2d', { alpha: false })!;
+
+
     for (let f = 0; f < totalFrames; f++) {
       if (isCancelled?.()) {
         throw new Error('Export cancelled by user');
       }
-      if (videoError) {
-        throw videoError;
+      if (videoError || audioError) {
+        throw videoError || audioError;
       }
 
       const t = range.start + f / fps;
@@ -481,12 +361,13 @@ export async function exportMotionWebCodecs(params: {
     if (audioEncoder) {
       await audioEncoder.flush();
     }
+    if(videoError || audioError)throw videoError || audioError;
     muxer.finalize();
 
     const buffer = target.buffer;
     return new Blob([buffer], { type: 'video/mp4' });
   } finally {
-    videoEncoder.close();
-    audioEncoder?.close();
+    if(videoEncoder.state!=='closed')videoEncoder.close();
+    if(audioEncoder&&audioEncoder.state!=='closed')audioEncoder.close();
   }
 }

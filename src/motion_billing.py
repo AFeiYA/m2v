@@ -7,9 +7,23 @@ from fastapi import HTTPException
 from sqlalchemy import select, update
 
 from src import credits
-from src.models import MotionExportRequest, MotionRenderLease, VideoExport
+from src.models import CreditReservation, MotionExportRequest, MotionRenderLease, VideoExport
 from src.queue_limiter import now, LEASE_SECONDS, lock_admission, reserve_motion, release_motion
 from src.settings import get_settings
+
+
+async def reservation_kind(db, uid, job_id):
+    """Read the historical reservation; equal prices cannot identify its kind."""
+    return (await db.execute(select(CreditReservation.kind).where(
+        CreditReservation.user_id == uid, CreditReservation.operation_id == job_id,
+        CreditReservation.kind.in_(('motion_export', 'motion_webcodecs')),
+    ))).scalar_one_or_none()
+
+
+async def settle_reservation(db, uid, job_id, success):
+    kind = await reservation_kind(db, uid, job_id)
+    if kind is not None:
+        await credits.finish(db, uid, job_id, kind, success)
 
 
 async def reconcile(db, uid):
@@ -20,13 +34,11 @@ async def reconcile(db, uid):
         return
     await credits.lock_balance(db, uid)
     for job_id in expired:
-        row = await db.get(MotionExportRequest, job_id)
-        kind = 'motion_webcodecs' if row and row.cost == get_settings().MOTION_WEBCODECS_CREDITS else 'motion_export'
         changed = await db.execute(update(MotionExportRequest).execution_options(synchronize_session=False).where(
             MotionExportRequest.id == job_id, MotionExportRequest.state == 'active',
             MotionExportRequest.lease_until <= now()).values(state='interrupted'))
         if changed.rowcount:
-            await credits.finish(db, uid, job_id, kind, False)
+            await settle_reservation(db, uid, job_id, False)
             await release_motion(db, uid, job_id)
 
 
@@ -95,8 +107,7 @@ async def publish(db, uid, job_id, task_id, storage_key, kind, details):
     if not await record_export(job_id,uid,task_id,storage_key,kind,details,db=db):
         raise RuntimeError('Source song is no longer available for publication')
     if row:
-        kind = 'motion_webcodecs' if row.cost == get_settings().MOTION_WEBCODECS_CREDITS else 'motion_export'
-        await credits.finish(db,uid,job_id,kind,True)
+        await settle_reservation(db,uid,job_id,True)
         row.state='done'
     return True
 
@@ -107,8 +118,7 @@ async def finish(db, uid, job_id, success=False, cancelled=False):
     if row and row.user_id == uid and row.state == 'active':
         # Successful charging happens only in the same transaction as publication.
         delivered = bool(success and await db.get(VideoExport,job_id))
-        kind = 'motion_webcodecs' if row.cost == get_settings().MOTION_WEBCODECS_CREDITS else 'motion_export'
-        await credits.finish(db,uid,job_id,kind,delivered)
+        await settle_reservation(db,uid,job_id,delivered)
         row.state = 'done' if delivered else ('cancelled' if cancelled else 'failed')
     await release_motion(db,uid,job_id)
     return row.state if row and row.user_id == uid else None

@@ -98,9 +98,9 @@ class RenderRequest(ProjectRequest):
 
 class WebCodecsRecordRequest(BaseModel):
     project_id: str
-    job_id: str
-    title: str = ''
-    aspect: str = '9:16'
+    job_id: str = Field(pattern=r'^[a-f0-9]{32}$')
+    title: str = Field(default='', max_length=255)
+    aspect: Literal['9:16', '16:9'] = '9:16'
     duration: float = 0.0
     total_frames: int = 0
     file_size: int = 0
@@ -112,8 +112,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                          resolve_project=None, list_projects=None, audio_url=None,
                          on_write=None, on_delete=None, input_root=None, public_exports=True,
                          before_render=None, on_render_finish=None, on_render_heartbeat=None,
-                         prepare_render=None, render_record=None, cancel_render=None,
-                         on_record_webcodecs=None):
+                         prepare_render=None, render_record=None, cancel_render=None):
     router = APIRouter(prefix=prefix)
 
     inputs = input_root if input_root is not None else ROOT / 'input'
@@ -789,6 +788,8 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
 
     @router.post('/render/record_webcodecs')
     def record_webcodecs(req: WebCodecsRecordRequest, sid: str = Depends(resolve_session_id)):
+        if not public_exports:
+            raise HTTPException(410, 'Metadata-only exports are retired. Upload the actual MP4 to /browser-exports.')
         path, payload = read(req.project_id)
         outdir = path.parent / 'motion_exports'
         outdir.mkdir(parents=True, exist_ok=True)
@@ -810,8 +811,6 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
             'size': req.file_size
         }
         status_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
-        if on_record_webcodecs is not None:
-            on_record_webcodecs(req, data, status_file)
         return {'status': 'done', 'id': req.job_id}
 
     @router.get('/render/{job_id}/stream')

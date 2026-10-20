@@ -14,7 +14,7 @@ function setup(){
   setAttribute(k,v){this[k]=v;},addEventListener(name,handler){this[name]=handler;},replaceChildren(){this.children=[];},append(v){this.children.push(v);},
   querySelectorAll(){return [];},getContext(){return {};},classList:{toggle(){return false;}}});
  const document={getElementById(id){if(!nodes.has(id)){const n=node();n.value=({preset:'impact','theme-bg':'auto','default-layout-preset':'smart',aspect:'16:9',resolution:'720',bloom:'.7',shake:'.65'})[id]||'';nodes.set(id,n);}return nodes.get(id);},querySelectorAll(){return [];},createElement:node,body:node()};
- class Audio{currentTime=0;src='';pause(){}load(){}addEventListener(){}}
+ class Audio{currentTime=0;src='';pause(){this.on_pause?.();}load(){}addEventListener(name,handler){this['on_'+name]=handler;}}
  class RemotionPreview{renderAt(){}dispose(){}}
  const service={cloudService:()=>false,motionUrl:p=>'/'+p,downloadService:url=>url,motionJson:async (name,method,body)=>{
   if(method==='PUT'){writes.push({name,body});const d=deferred();saves.push(d);return d.promise;}
@@ -197,4 +197,13 @@ test('retrying a partially submitted batch reuses completed item identities',asy
  await assert.rejects(s.api.exportVideo(),/Network/);await s.api.exportVideo();
  assert.equal(bodies[0].request_id,bodies[2].request_id);
  assert.equal(bodies[1].request_id,bodies[3].request_id);
+});
+
+test('workspace pause reaches Motion audio and resets the playback button',()=>{
+ const s=setup();
+ const audio=s.context.document.body.children.find(child=>child.id==='motion-audio');
+ assert.ok(audio,'Motion audio must be attached for shared playback controls');
+ s.nodes.get('play').textContent='Ⅱ';
+ audio.pause();
+ assert.equal(s.nodes.get('play').textContent,'▶');
 });
