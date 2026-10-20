@@ -70,7 +70,20 @@
   }
   async function action(button) {
     const uid = currentUser?.id;
-    if (!uid || !enabled || busy) return;
+    if (!uid) {
+      const msg = 'Please sign in first to subscribe or buy credits.';
+      if ($('billing-return-status')) $('billing-return-status').textContent = msg;
+      if (typeof showStatus === 'function') showStatus(msg, true);
+      else if (typeof showAuth === 'function') showAuth();
+      return;
+    }
+    if (!enabled) {
+      const msg = $('billing-notice')?.textContent || 'Purchases are not enabled yet. Your existing credits and projects remain available.';
+      if ($('billing-return-status')) $('billing-return-status').textContent = msg;
+      if (typeof showStatus === 'function') showStatus(msg, false);
+      return;
+    }
+    if (busy) return;
     busy = true; button.disabled = true;
     try {
       if (button.dataset.billingBuy) {
@@ -97,7 +110,7 @@
     } catch (error) { if (currentUser?.id === uid) $('billing-return-status').textContent = error.message; }
     finally { busy = false; button.disabled = false; }
   }
-  document.addEventListener('DOMContentLoaded', () => {
+  function init() {
     $('billing-panel')?.addEventListener('click', event => {
       const button = event.target.closest('button[data-billing-buy],button[data-billing-portal],button[data-billing-receipt]');
       if (button) void action(button);
@@ -111,6 +124,13 @@
       catch(error){if(currentUser?.id===uid)$('billing-return-status').textContent=error.message;}
       finally{button.disabled=false;}
     });
-  });
+  }
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      init();
+    } else {
+      document.addEventListener('DOMContentLoaded', init);
+    }
+  }
   window.m2vBilling = {refresh,reset};
 })();

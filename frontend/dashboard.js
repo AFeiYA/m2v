@@ -507,10 +507,6 @@ async function loadUser() {
       if ($("#sidebar-credits-num")) $("#sidebar-credits-num").textContent = Number(currentUser.credits || 0).toLocaleString();
       if ($("#stat-val-available")) $("#stat-val-available").textContent = Number(currentUser.credits || 0).toLocaleString();
       if ($("#stat-val-monthly")) $("#stat-val-monthly").textContent = Number(currentUser.credits || 0).toLocaleString();
-      if ($("#sidebar-credits-fill")) {
-        const pct = Math.min(100, Math.max(0, Math.round(((currentUser.credits || 0) / 3000) * 100)));
-        $("#sidebar-credits-fill").style.width = pct + "%";
-      }
       localStorage.setItem("m2v_user", JSON.stringify({
         id: currentUser.id,
         displayName: displayName,
@@ -1035,6 +1031,7 @@ function showStatus(msg, isError = false) {
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 4000);
 }
+window.showStatus = showStatus;
 
 function escapeHtml(str) {
   const div = document.createElement("div");

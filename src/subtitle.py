@@ -290,16 +290,33 @@ def _wrap_lines(alignment: AlignmentResult, max_width: int, font_size: int, font
         except:
             font = get_fallback_font()
             
+    if single_row:
+        # KTV 双行卡拉OK排版规则：先测量全曲中最长的那一句，计算全局统一字号，保证整首歌上下两行字体大小严格一致
+        lengths = []
+        clean_texts = []
+        for line in alignment.lines:
+            tokens = resolve_word_spacings(line.text, line.words)
+            t = "".join(tokens).replace("\\N", " ") if tokens else line.text.replace("\\N", " ")
+            clean_texts.append(t)
+            try:
+                lengths.append(float(font.getlength(t)))
+            except:
+                lengths.append(float(len(t) * font_size))
+        max_measured = max(lengths) if lengths else 1.0
+        min_uniform_size = max(18, int(font_size * 0.60))
+        uniform_size = max(min_uniform_size, int(font_size * min(1.0, max_width / max(1.0, max_measured))))
+
+        for idx, line in enumerate(alignment.lines):
+            line.style_overrides["_render_font_size"] = uniform_size
+            if not line.words:
+                line.text = clean_texts[idx]
+            else:
+                for w in line.words:
+                    w.word = w.word.replace("\\N", "")
+        return alignment
+
     for line in alignment.lines:
         tokens = resolve_word_spacings(line.text, line.words)
-        if single_row:
-            text = "".join(tokens).replace("\\N", " ") if tokens else line.text.replace("\\N", " ")
-            measured = float(font.getlength(text))
-            # Fit each lyric into one of the two fixed karaoke rows.
-            line.style_overrides["_render_font_size"] = max(12, int(font_size * min(1, max_width / max(1, measured))))
-            if not line.words:
-                line.text = text
-                continue
         current_width = 0.0
         for i, word in enumerate(line.words):
             token = tokens[i] if i < len(tokens) else word.word
@@ -665,14 +682,15 @@ def _generate_tv_events(
         x_pos = x_left if is_upper else x_right
         font_tag = f"\\fs{line.style_overrides.get('_render_font_size', config.font_size)}\\q2"
 
-        # ── 预览阶段 (暗色白字) ──
-        if i > 0:
-            preview_start = lines[i - 1].start
+        # ── 1. 预览阶段 (暗色未唱，提前显示以便预读跟唱) ──
+        if i == 0:
+            preview_start = max(0.0, line.start - 3.0)
+        elif i == 1:
+            preview_start = lines[0].start
         else:
-            preview_start = max(0, line.start - 2.0)
+            preview_start = lines[i - 1].start
 
         preview_end = line.start
-
         if preview_end > preview_start + 0.05:
             ass_ps = seconds_to_ass_time(preview_start)
             ass_pe = seconds_to_ass_time(preview_end)
@@ -682,24 +700,39 @@ def _generate_tv_events(
                 f"{{{dim_tags}}}{line.text}"
             )
 
-        # ── 演唱阶段 (白→青色过光) ──
+        # ── 2. 演唱阶段 (卡拉OK过光逐字扫亮) ──
         active_start = line.start
-        if i + 1 < N:
-            active_end = lines[i + 1].start
-        else:
-            active_end = line.end + 2.0
-        active_end = max(active_end, line.end + 0.1)
+        active_end = line.end
+        if active_end <= active_start:
+            active_end = active_start + 0.5
 
         ass_as = seconds_to_ass_time(active_start)
         ass_ae = seconds_to_ass_time(active_end)
 
         karaoke_text = _build_karaoke(line, active_start) if line.words else line.text
-        # \1c = 过光后颜色(已唱=青色), \2c = 过光前颜色(未唱=白色), \1a\2a = 强制不透明
+        # \1c = 过光后颜色(已唱=高亮), \2c = 过光前颜色(未唱=暗色), \1a\2a = 强制不透明
         active_tags = f"{font_tag}{an}\\pos({x_pos},{y_pos})\\1c{color_sung}\\2c{color_unsunng}\\1a&H00&\\2a&H00&"
         events.append(
             f"Dialogue: 0,{ass_as},{ass_ae},{config.style_name},,0,0,0,,"
             f"{{{active_tags}}}{karaoke_text}"
         )
+
+        # ── 3. 唱完常驻阶段 (保持高亮颜色常驻在该槽位，直到同一槽位下一句进场顶替) ──
+        # 同一槽位(同为上行或下行)的下一句索引是 i + 2
+        if i + 2 < N:
+            # 当 i+1 句开唱时，i+2 句开始在该槽位进入预览，此时当前句结束常驻
+            stay_end = lines[i + 1].start
+        else:
+            stay_end = active_end + 3.0
+
+        if stay_end > active_end + 0.05:
+            ass_ss = seconds_to_ass_time(active_end)
+            ass_se = seconds_to_ass_time(stay_end)
+            stay_tags = f"{font_tag}{an}\\pos({x_pos},{y_pos})\\1c{color_sung}\\1a&H00&"
+            events.append(
+                f"Dialogue: 0,{ass_ss},{ass_se},{config.style_name},,0,0,0,,"
+                f"{{{stay_tags}}}{line.text}"
+            )
 
     return events
 
