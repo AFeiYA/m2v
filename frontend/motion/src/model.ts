@@ -11,11 +11,27 @@ export type Project = {
   title: string; song_cover?:{data_url:string;width:number;height:number;source:string;source_url?:string}; artist?:string; song_identity?:SongIdentity; duration: number; lines: Line[]; motion_plan?:MotionPlan;
   analysis: { bpm: number; beats: number[]; drum_hits: {time: number; type: string}[]; energy_curve: {time: number; energy: number}[] };
 };
+export type VisualMode = 'kinetic' | 'tv' | 'apple';
+
 export type Options = {
   aspect: '16:9' | '9:16'; preset: string; mode: 'slam' | 'phrase';
   height?:360|720; bloom: number; grain: number; shake: number; punch: number; post: boolean;
+  visualMode?: VisualMode;
 };
-export const defaults: Options = { aspect: '16:9', preset: 'impact', mode: 'slam', bloom: 0.7, grain: 0.035, shake: 0.65, punch: 0.7, post: true };
+export const defaults: Options = { aspect: '16:9', preset: 'impact', mode: 'slam', bloom: 0.7, grain: 0.035, shake: 0.65, punch: 0.7, post: true, visualMode: 'kinetic' };
+
+export function resolveVisualMode(
+  requestedMode: VisualMode | undefined,
+  aspect: '16:9' | '9:16'
+): VisualMode {
+  if (requestedMode === 'tv') {
+    return aspect === '16:9' ? 'tv' : 'apple';
+  }
+  if (requestedMode === 'apple') {
+    return aspect === '9:16' ? 'apple' : 'tv';
+  }
+  return 'kinetic';
+}
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 export function normalizeProject(input: any): Project {
   if (!input || typeof input !== 'object') throw new Error('工程 JSON 格式无效。');

@@ -108,6 +108,8 @@ async function load(id:string){
   {const v=result.settings||initialSettings;Object.assign(options,{aspect:v.aspect,height:v.height,post:v.post,bloom:v.bloom,shake:v.shake});
    for(const key of ['aspect','resolution','post','bloom','shake']){const node=$<HTMLInputElement>(key);if(key==='post')node.checked=options.post;else node.value=String(key==='resolution'?options.height:options[key as 'aspect'|'bloom'|'shake']);}
    $<HTMLSelectElement>('highlight-mode').value=v.highlight||'none';$<HTMLSelectElement>('preset').value=v.palette;$<HTMLSelectElement>('theme-bg').value=v.background;$<HTMLSelectElement>('default-layout-preset').value=v.layout;
+   const tplSelect=$<HTMLSelectElement>('visual-template-select');
+   if(tplSelect)options.visualMode=(tplSelect.value as any)||(options.aspect==='9:16'?'apple':'kinetic');
   }
   audioReady=false;audio.src='';audio.currentTime=0;
   showIdentity();showCover();$<HTMLAnchorElement>('rhythm-link').href='/rhythm-studio?project='+encodeURIComponent(id);coverPending=cacheSunoCover(id);
@@ -197,6 +199,7 @@ function applyVisualTemplate() {
 
   if (tpl === 'apple') {
     options.aspect = '9:16';
+    options.visualMode = 'apple';
     if (aspectSelect) aspectSelect.value = '9:16';
     if ($('highlight-mode')) $<HTMLSelectElement>('highlight-mode').value = 'sweep';
     if ($('default-layout-preset')) $<HTMLSelectElement>('default-layout-preset').value = 'single';
@@ -220,6 +223,7 @@ function applyVisualTemplate() {
     status(isZh ? '已应用「灵动流式歌词」模版 (9:16 竖屏 · Apple 逐字扫光)' : 'Applied "Apple Scroll" template (9:16 Portrait · Smooth sweep)');
   } else if (tpl === 'tv') {
     options.aspect = '16:9';
+    options.visualMode = 'tv';
     if (aspectSelect) aspectSelect.value = '16:9';
     if ($('highlight-mode')) $<HTMLSelectElement>('highlight-mode').value = 'sweep';
     if ($('default-layout-preset')) $<HTMLSelectElement>('default-layout-preset').value = 'two-stack';
@@ -242,6 +246,7 @@ function applyVisualTemplate() {
     populateExportMatrix();
     status(isZh ? '已应用「经典双行卡拉OK」模版 (16:9 横屏 · 双行交替扫光)' : 'Applied "TV Karaoke" template (16:9 Landscape · Dual-line sweep)');
   } else {
+    options.visualMode = 'kinetic';
     if ($('default-layout-preset')) $<HTMLSelectElement>('default-layout-preset').value = 'smart';
     plan = localRulePlan(project, base, $<HTMLSelectElement>('preset')?.value || 'impact', 'smart',
       $<HTMLSelectElement>('theme-bg')?.value as any || 'auto');
@@ -497,6 +502,7 @@ async function runExportVideo() {
               aspect: task.aspect,
               start: task.start,
               length: taskLength,
+              visualMode: options.visualMode,
             },
             audioBlobOrUrl: audioObjectUrl || audio.src || null,
             onProgress: ({ frame, totalFrames, pct }) => {
@@ -717,7 +723,24 @@ $('validate-plan').onclick=action(()=>returnedPlan(false));$('import-plan').oncl
 $('download-plan').onclick=action(()=>{if(!plan)throw new Error('No plan yet.');download('motion-plan.json',JSON.stringify(plan,null,2));});
 $<HTMLSelectElement>('project-select').onchange=action(()=>load($<HTMLSelectElement>('project-select').value));$<HTMLSelectElement>('cue-select').onchange=()=>{currentCue=$<HTMLSelectElement>('cue-select').value;showCue();};
 for(const id of ['cue-template','cue-layout','cue-palette','cue-intensity','cue-emphasis','cue-locked'])$(id).addEventListener('input',()=>{const cue=plan?.cues.find(c=>c.line_id===currentCue);if(!cue)return;cue.template=$<HTMLSelectElement>('cue-template').value as typeof cue.template;cue.layout=$<HTMLSelectElement>('cue-layout').value as typeof cue.layout;cue.palette=$<HTMLSelectElement>('cue-palette').value as typeof cue.palette;cue.intensity=Number($<HTMLInputElement>('cue-intensity').value);cue.emphasis=$<HTMLInputElement>('cue-emphasis').value;cue.locked=$<HTMLInputElement>('cue-locked').checked;dirty=true;refresh();if(id==='cue-locked')showCue(false);status('Preview updated · Unsaved changes');});
-for(const id of ['aspect','resolution','post','bloom','shake'])$(id).addEventListener('input',()=>{options.aspect=$<HTMLSelectElement>('aspect').value as Options['aspect'];options.height=Number($<HTMLSelectElement>('resolution').value) as 360|720;options.post=$<HTMLInputElement>('post').checked;options.bloom=Number($<HTMLInputElement>('bloom').value);options.shake=Number($<HTMLInputElement>('shake').value);settingsDirty=true;refresh();status('Format and display settings updated locally. Save to sync.');});
+for(const id of ['aspect','resolution','post','bloom','shake'])$(id).addEventListener('input',()=>{
+  options.aspect=$<HTMLSelectElement>('aspect').value as Options['aspect'];
+  options.height=Number($<HTMLSelectElement>('resolution').value) as 360|720;
+  options.post=$<HTMLInputElement>('post').checked;
+  options.bloom=Number($<HTMLInputElement>('bloom').value);
+  options.shake=Number($<HTMLInputElement>('shake').value);
+  if(id==='aspect'){
+    const tplSelect=$<HTMLSelectElement>('visual-template-select');
+    if(options.aspect==='9:16'&&options.visualMode==='tv'){
+      options.visualMode='apple';
+      if(tplSelect)tplSelect.value='apple';
+    }else if(options.aspect==='16:9'&&options.visualMode==='apple'){
+      options.visualMode='tv';
+      if(tplSelect)tplSelect.value='tv';
+    }
+  }
+  settingsDirty=true;refresh();status('Format and display settings updated locally. Save to sync.');
+});
 $('play').onclick=action(async()=>{if(!project)return;if(!audioReady)throw new Error('Audio is loading. You can preview posters while waiting.');clipEnd=null;if(playing){audio.pause();playing=false;$('play').textContent='▶';}else{await audio.play();playing=true;$('play').textContent='Ⅱ';}});const seek=$<HTMLInputElement>('seek');
 function beginScrub(){if(scrubbing)return;scrubbing=true;resumeAfterScrub=playing;audio.pause();playing=false;$('play').textContent='▶';clipEnd=null;}
 async function finishScrub(){if(!scrubbing)return;scrubbing=false;const resume=resumeAfterScrub;resumeAfterScrub=false;if(resume){await audio.play();playing=true;$('play').textContent='Ⅱ';}}

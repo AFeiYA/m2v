@@ -9,6 +9,7 @@ import {
   visiblePosterAt,
   stageAt,
   POSTER_FONT,
+  resolvePaletteColors,
   type CompiledPoster,
   type CompiledIntroTitle,
 } from './poster-layout';
@@ -20,13 +21,22 @@ import {
   paintSongLayout,
   type SongLayout,
 } from './song-layout';
-import { featuresAt, type Project, type Options } from './model';
+import { featuresAt, resolveVisualMode, type Project, type Options, type VisualMode } from './model';
+import {
+  compileKtvDualLayout,
+  paintKtvDualCanvas,
+  type KtvDualCompiled,
+  compileAppleScrollLayout,
+  paintAppleScrollCanvas,
+  type AppleScrollCompiled,
+} from './stream-layout';
 
 export type ExportRange = {
   title: string;
   aspect: '16:9' | '9:16';
   start: number;
   length: number;
+  visualMode?: VisualMode;
 };
 
 export type ProgressCallback = (progress: {
@@ -59,18 +69,34 @@ export const H264_CANDIDATE_CODECS = [
 export function renderCanvasFrame(
   ctx: CanvasRenderingContext2D,
   project: Project,
-  layouts: CompiledPoster[],
+  layouts: CompiledPoster[] | null,
   songLayout: SongLayout | null,
   intro: CompiledIntroTitle | null,
   coverImage: HTMLImageElement | null,
   t: number,
   W: number,
-  H: number
+  H: number,
+  streamOptions?: {
+    visualMode?: VisualMode;
+    ktvLayout?: KtvDualCompiled | null;
+    appleLayout?: AppleScrollCompiled | null;
+  }
 ): void {
-  const plan = visiblePosterAt(layouts, t);
-  const stage = stageAt(layouts, t);
-  const background = stage?.background || '#0d120a';
-  const accent = stage?.accent || '#b7f34a';
+  const visualMode = streamOptions?.visualMode || 'kinetic';
+  let background = '#0d120a';
+  let accent = '#b7f34a';
+
+  if (visualMode === 'tv' && streamOptions?.ktvLayout) {
+    background = streamOptions.ktvLayout.palette.background;
+    accent = streamOptions.ktvLayout.palette.accent;
+  } else if (visualMode === 'apple' && streamOptions?.appleLayout) {
+    background = streamOptions.appleLayout.palette.background;
+    accent = streamOptions.appleLayout.palette.accent;
+  } else if (layouts) {
+    const stage = stageAt(layouts, t);
+    background = stage?.background || '#0d120a';
+    accent = stage?.accent || '#b7f34a';
+  }
 
   // 1. Clear & Background
   ctx.clearRect(0, 0, W, H);
@@ -123,11 +149,18 @@ export function renderCanvasFrame(
     }
   }
 
-  // 4. Poster Nodes, typography, and karaoke highlights
-  const feature = featuresAt(project, t);
-  const beatVal = feature.kick || feature.beat * 0.3;
-  if (plan) {
-    paintCompiledPoster(ctx, plan, t, beatVal, false);
+  // 4. Lyrics presentation
+  if (visualMode === 'tv' && streamOptions?.ktvLayout) {
+    paintKtvDualCanvas(ctx, streamOptions.ktvLayout, t, POSTER_FONT);
+  } else if (visualMode === 'apple' && streamOptions?.appleLayout) {
+    paintAppleScrollCanvas(ctx, streamOptions.appleLayout, t, POSTER_FONT);
+  } else if (layouts) {
+    const plan = visiblePosterAt(layouts, t);
+    const feature = featuresAt(project, t);
+    const beatVal = feature.kick || feature.beat * 0.3;
+    if (plan) {
+      paintCompiledPoster(ctx, plan, t, beatVal, false);
+    }
   }
 
   // 5. Song Layout texts and section indicator
@@ -159,14 +192,29 @@ export async function exportMotionWebCodecs(params: {
   const width = portrait ? 1080 : 1920;
   const height = portrait ? 1920 : 1080;
 
-  // Measure and compile poster layouts
+  // Measure and compile layouts
   const measureCanvas = document.createElement('canvas');
   measureCanvas.width = width;
   measureCanvas.height = height;
   const measureCtx = measureCanvas.getContext('2d')!;
   const measure = canvasMeasure(measureCtx);
 
-  const layouts = compileSongPosters(project, width, height, measure);
+  const visualMode = resolveVisualMode(range.visualMode, range.aspect);
+  const basePaletteName = project.motion_plan?.cues?.[0]?.palette || 'impact';
+  const palette = resolvePaletteColors(basePaletteName, 'auto');
+
+  let layouts: CompiledPoster[] | null = null;
+  let ktvLayout: KtvDualCompiled | null = null;
+  let appleLayout: AppleScrollCompiled | null = null;
+
+  if (visualMode === 'tv') {
+    ktvLayout = compileKtvDualLayout(project, width, height, measure, palette);
+  } else if (visualMode === 'apple') {
+    appleLayout = compileAppleScrollLayout(project, width, height, measure, palette);
+  } else {
+    layouts = compileSongPosters(project, width, height, measure);
+  }
+
   const songLayout = compileSongLayout(project, width, height, measure);
   const intro = project.song_identity ? null : compileIntroTitle(project, width, height, measure);
 
@@ -333,7 +381,12 @@ export async function exportMotionWebCodecs(params: {
         coverImage,
         t,
         width,
-        height
+        height,
+        {
+          visualMode,
+          ktvLayout,
+          appleLayout,
+        }
       );
 
       const timestampUs = Math.round((f / fps) * 1_000_000);
