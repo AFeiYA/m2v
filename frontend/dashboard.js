@@ -501,10 +501,12 @@ async function loadUser() {
       const displayName = currentUser.display_name || currentUser.username || "Account";
       if ($("#user-info")) $("#user-info").textContent = displayName;
       if ($("#user-email-label")) $("#user-email-label").textContent = currentUser.email || "Signed in";
-      $("#user-credits").textContent = `${currentUser.credits} credits remaining`;
+      $("#user-credits").textContent = `${currentUser.credits} available`;
       if ($("#header-username-label")) $("#header-username-label").textContent = displayName;
       document.querySelectorAll?.(".avatar-circle")?.forEach?.(el => el.textContent = (displayName || "U").charAt(0).toUpperCase());
       if ($("#sidebar-credits-num")) $("#sidebar-credits-num").textContent = Number(currentUser.credits || 0).toLocaleString();
+      if ($("#stat-val-available")) $("#stat-val-available").textContent = Number(currentUser.credits || 0).toLocaleString();
+      if ($("#stat-val-monthly")) $("#stat-val-monthly").textContent = Number(currentUser.credits || 0).toLocaleString();
       if ($("#sidebar-credits-fill")) {
         const pct = Math.min(100, Math.max(0, Math.round(((currentUser.credits || 0) / 3000) * 100)));
         $("#sidebar-credits-fill").style.width = pct + "%";
@@ -1448,8 +1450,9 @@ async function loadCredits(page = creditPage) {
     creditPage = page;
     const available = Number(data.available) || 0, reserved = Number(data.reserved) || 0;
     $("#credit-summary").textContent = `${available} available · ${reserved} reserved. Failed tasks return unused, unexpired credits.`;
-    $("#user-credits").textContent = `${available} credits available`;
+    $("#user-credits").textContent = `${available} available`;
     if ($("#sidebar-credits-num")) $("#sidebar-credits-num").textContent = available.toLocaleString();
+    if ($("#stat-val-available")) $("#stat-val-available").textContent = available.toLocaleString();
     if ($("#sidebar-credits-fill")) {
       const pct = Math.min(100, Math.max(0, Math.round((available / 3000) * 100)));
       $("#sidebar-credits-fill").style.width = pct + "%";
@@ -1472,15 +1475,21 @@ async function loadCredits(page = creditPage) {
       }
       const expiry = data.wallet.next_expiry ? ` · Next expiry: ${new Date(data.wallet.next_expiry).toLocaleString()}` : "";
       $("#credit-summary").textContent += ` Monthly: ${data.wallet.subscription_available} · Permanent: ${data.wallet.permanent_available}${expiry}. Monthly credits are used first; permanent credits never expire.`;
+      if ($("#stat-val-monthly")) $("#stat-val-monthly").textContent = Number(data.wallet.subscription_available || 0).toLocaleString();
+      if ($("#stat-val-permanent")) $("#stat-val-permanent").textContent = Number(data.wallet.permanent_available || 0).toLocaleString();
+    } else {
+      if ($("#stat-val-monthly")) $("#stat-val-monthly").textContent = available.toLocaleString();
+      if ($("#stat-val-permanent")) $("#stat-val-permanent").textContent = "0";
     }
     const exportCost = Number(data.pricing?.lyric_export) || 0;
+    if ($("#stat-val-export-cost")) $("#stat-val-export-cost").textContent = exportCost ? `${exportCost} credits` : "Free";
     $("#credit-pricing").textContent = `Lyrics alignment: ${data.pricing?.alignment ?? 1} credit per task. Lyric video export: ${exportCost ? exportCost + " credits" : "currently free"}. Reusing an unchanged alignment and downloading an existing video are free.`;
     const immediate = $("#suno-opt-render-video"), assOnly = $("#opt-ass-only");
     if (immediate) { immediate.disabled = exportCost > 0; if (exportCost > 0) immediate.checked = false; }
     if (assOnly) { assOnly.disabled = exportCost > 0; if (exportCost > 0) assOnly.checked = true; }
     const labels = {opening:"Starting balance",reserve:"Reserved",settle:"Completed",release:"Returned",grant:"Added"};
     const entries = data.entries || [];
-    $("#credit-history").innerHTML = entries.length ? `<div style="overflow-x:auto"><table style="width:100%;text-align:left"><thead><tr><th>Date</th><th>Activity</th><th>Credits</th><th>Available after</th></tr></thead><tbody>${entries.map(row => `<tr><td>${escapeHtml(new Date(row.created_at).toLocaleString())}</td><td>${escapeHtml(row.description || labels[row.event] || row.event)}</td><td>${row.event === "settle" ? "—" : (Number(row.amount)>0 ? "+" : "")+(Number(row.amount)||0)}</td><td>${Number(row.balance_after)||0}</td></tr>`).join("")}</tbody></table></div>` : "No credit activity yet.";
+    $("#credit-history").innerHTML = entries.length ? `<div class="credit-table-wrap"><table class="credit-table"><thead><tr><th>Date</th><th>Activity</th><th>Credits</th><th>Available after</th></tr></thead><tbody>${entries.map(row => `<tr><td>${escapeHtml(new Date(row.created_at).toLocaleString())}</td><td><span class="credit-badge badge-${escapeHtml(row.event || 'default')}">${escapeHtml(row.description || labels[row.event] || row.event)}</span></td><td><span class="${Number(row.amount) > 0 ? 'delta-pos' : Number(row.amount) < 0 ? 'delta-neg' : 'delta-zero'}">${row.event === "settle" ? "—" : (Number(row.amount)>0 ? "+" : "")+(Number(row.amount)||0)}</span></td><td><strong>${Number(row.balance_after)||0}</strong></td></tr>`).join("")}</tbody></table></div>` : "No credit activity yet.";
     $("#credits-page").textContent = `Page ${page}`;
     $("#credits-prev").disabled = page <= 1;
     $("#credits-next").disabled = page * 20 >= (data.total || 0);

@@ -30,6 +30,7 @@
       const [status, history] = await Promise.all([json('/status'), json('/orders?page=' + nextPage)]);
       if (currentUser?.id !== uid || seq !== sequence) return;
       enabled = true; page = nextPage;
+      if ($('billing-plans-preview')) $('billing-plans-preview').hidden = true;
       $('billing-notice').textContent = (catalog.test_mode ? 'TEST MODE — no real payment. ' : '') + catalog.credit_policy + ' ' + catalog.subscription_policy;
       $('billing-products').innerHTML = catalog.products.map(p => `<article class="billing-product"><span class="billing-kind">${p.kind === 'subscription' ? 'MONTHLY SUBSCRIPTION' : 'ONE-TIME PACK'}</span><h3>${escape(p.name)}</h3><p class="billing-price">${escape(money(p.price_cents, p.currency))}${p.kind === 'subscription' ? '<small> / month</small>' : ''}</p><p>${Number(p.credits).toLocaleString('en-US')} credits${p.kind === 'subscription' ? ' per billing month' : ''}</p><p class="billing-validity">${p.kind === 'subscription' ? 'Unused credits expire at the end of each billing period.' : 'One-time purchase. Credits never expire.'}</p><button class="btn btn-primary" data-billing-buy="${escape(p.id)}">${p.kind === 'subscription' ? 'Subscribe monthly' : 'Buy credits'}</button><small>Taxes may apply. Final amount shown at checkout.</small></article>`).join('');
       $('billing-subscriptions').innerHTML = status.subscriptions.map(s => `<div class="billing-subscription"><span>Subscription: <strong>${escape(s.status)}</strong>${s.ends_at ? ' · Ends ' + escape(new Date(s.ends_at).toLocaleDateString()) : s.renews_at ? ' · Renews ' + escape(new Date(s.renews_at).toLocaleDateString()) : ''}</span><button class="btn btn-sm btn-outline" data-billing-portal="${escape(s.id)}">Manage subscription</button></div>`).join('');
@@ -43,6 +44,7 @@
     } catch (error) {
       if (currentUser?.id !== uid || seq !== sequence) return;
       enabled = false;
+      if ($('billing-plans-preview')) $('billing-plans-preview').hidden = false;
       $('billing-notice').textContent = error.status === 404 ? 'Purchases are not enabled yet. Your existing credits and projects remain available.' : error.message;
       for (const id of ['billing-products','billing-subscriptions','billing-orders']) $(id).textContent = '';
       for (const id of ['billing-refresh','billing-reconcile','billing-pagination']) $(id).hidden = true;

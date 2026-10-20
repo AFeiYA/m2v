@@ -1249,56 +1249,92 @@ header {
   gap: 10px;
 }
 .sidebar-quota-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
+  border: 1px solid rgba(183, 243, 74, 0.15);
   border-radius: 12px;
   padding: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 .quota-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.45);
-  margin-bottom: 6px;
+  color: rgba(255, 255, 255, 0.65);
+  margin-bottom: 8px;
+}
+.quota-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+}
+.quota-icon {
+  stroke: #b7f34a;
+}
+.quota-pill, .sidebar-quota-card #user-credits {
+  background: rgba(183, 243, 74, 0.12);
+  color: #b7f34a;
+  border: 1px solid rgba(183, 243, 74, 0.28);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
 }
 .quota-val-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
   margin-bottom: 6px;
 }
 #sidebar-credits-num {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 800;
   color: #fff;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }
 .quota-total {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.4);
 }
 .quota-bar-track {
   width: 100%;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.1);
+  height: 5px;
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 9999px;
   overflow: hidden;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .quota-bar-fill {
   height: 100%;
-  background: #b7f34a;
+  background: linear-gradient(90deg, #84cc16 0%, #b7f34a 100%);
   border-radius: 9999px;
   transition: width 0.3s ease;
+  box-shadow: 0 0 10px rgba(183, 243, 74, 0.35);
 }
 .quota-upgrade-link {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: rgba(183, 243, 74, 0.07);
+  border: 1px solid rgba(183, 243, 74, 0.2);
+  border-radius: 8px;
   font-size: 11px;
   font-weight: 600;
   color: #b7f34a;
   text-decoration: none;
+  transition: all 0.15s ease;
 }
 .quota-upgrade-link:hover {
-  text-decoration: underline;
+  background: rgba(183, 243, 74, 0.15);
+  border-color: rgba(183, 243, 74, 0.4);
+  color: #d9f99d;
+  text-decoration: none;
 }
 
 /* Account Details inside Sidebar */
@@ -1684,5 +1720,363 @@ html {scroll-padding-top:calc(var(--header-height) + 24px)}
   border: none;
   background: #090a0f;
 }
+
+/* ======================================================================
+   Credits & Subscription Showcase
+   ====================================================================== */
+
+.credits-header-wrap {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.credits-header-wrap h2 {
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.02em;
+  margin: 0 0 4px 0;
+}
+.credits-header-wrap .section-subtitle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.48);
+  margin: 0;
+}
+
+/* 4 KPI Hero Stat Cards */
+.credits-hero-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.credits-stat-card {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+.credits-stat-card:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.credits-stat-card.featured {
+  background: linear-gradient(135deg, rgba(183, 243, 74, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border-color: rgba(183, 243, 74, 0.28);
+  box-shadow: 0 4px 20px rgba(183, 243, 74, 0.06);
+}
+.stat-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.stat-card-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.stat-card-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.65);
+}
+.stat-card-badge.status-active {
+  background: rgba(183, 243, 74, 0.15);
+  color: #b7f34a;
+  border: 1px solid rgba(183, 243, 74, 0.3);
+}
+.stat-card-badge.status-perm {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+.stat-card-badge.status-rate {
+  background: rgba(244, 114, 182, 0.15);
+  color: #f472b6;
+  border: 1px solid rgba(244, 114, 182, 0.3);
+}
+.stat-card-val-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.stat-card-num {
+  font-size: 28px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.stat-card-unit {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.4);
+}
+.stat-card-desc {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.42);
+  margin: 0;
+  line-height: 1.4;
+}
+.stat-card-rates {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rate-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.rate-item strong {
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Billing Panel & Plans */
+.billing-panel {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 32px;
+}
+.billing-panel-head {
+  margin-bottom: 20px;
+}
+.billing-panel-head h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 6px 0;
+}
+.billing-notice-text {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Pricing Grid Showcase */
+.billing-plans-preview, #billing-products {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+.billing-plan-card, .billing-product {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 20px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  transition: all 0.2s ease;
+}
+.billing-plan-card:hover, .billing-product:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.billing-plan-card.highlight {
+  background: linear-gradient(180deg, rgba(183, 243, 74, 0.09) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(183, 243, 74, 0.35);
+  box-shadow: 0 4px 24px rgba(183, 243, 74, 0.08);
+}
+.plan-popular-tag {
+  position: absolute;
+  top: -10px;
+  right: 16px;
+  background: #b7f34a;
+  color: #10120d;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  box-shadow: 0 2px 8px rgba(183, 243, 74, 0.4);
+}
+.plan-card-top {
+  margin-bottom: 16px;
+}
+.billing-kind {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+  margin-bottom: 6px;
+}
+.billing-plan-card h3, .billing-product h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0 8px 0;
+}
+.billing-price {
+  font-size: 24px;
+  font-weight: 800;
+  color: #fff;
+  margin: 0 0 6px 0;
+  letter-spacing: -0.02em;
+}
+.billing-price small {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
+}
+.billing-credits-highlight {
+  font-size: 12px;
+  font-weight: 600;
+  color: #b7f34a;
+  margin: 0;
+}
+.plan-feature-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plan-feature-list li {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.plan-feature-list li strong {
+  color: #fff;
+}
+.plan-feature-list li svg {
+  flex-shrink: 0;
+}
+.plan-cta-btn, .billing-product .btn-primary {
+  width: 100%;
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.plan-footnote, .billing-product small {
+  display: block;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+  line-height: 1.3;
+}
+
+/* Activity & Ledger History */
+.credit-activity-container {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  padding: 24px;
+}
+.credit-activity-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.credit-activity-head h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+.credit-summary-text {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  margin: 0;
+}
+.credit-pricing-text {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.38);
+  margin: 0 0 16px 0;
+}
+.credit-table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  margin-bottom: 16px;
+}
+.credit-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+.credit-table th {
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.02);
+}
+.credit-table td {
+  padding: 11px 14px;
+  color: rgba(255, 255, 255, 0.78);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.credit-table tr:last-child td {
+  border-bottom: none;
+}
+.credit-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+}
+.delta-pos {
+  color: #b7f34a;
+  font-weight: 700;
+}
+.delta-neg {
+  color: #f87171;
+  font-weight: 700;
+}
+.delta-zero {
+  color: rgba(255, 255, 255, 0.4);
+}
+.credits-pagination-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.credits-pagination-wrap span {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
 
 
