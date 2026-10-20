@@ -349,7 +349,7 @@
 
           <label id="lbl-export-fast-mode" class="check" style="display: none !important;">
             <input id="export-fast-webcodecs" type="checkbox" checked>
-            <span data-i18n="ms_fast_webcodecs">⚡ 优先本地极速导出 (10秒秒出 · 遇阻自动转云端)</span>
+            <span data-i18n="ms_fast_webcodecs">⚡ 优先本地极速导出 (遇阻自动转云端)</span>
           </label>
           <p id="motion-credit-price" class="help" role="status"></p>
           <button id="export" class="primary" data-i18n="ms_btn_export">Export MP4</button>
@@ -408,8 +408,6 @@
         } else if (event.data.type === "M2V_STUDIO_PAUSE") {
           try {
             document.querySelectorAll("audio, video").forEach(m => m.pause());
-            const playBtn = document.getElementById("btn-play");
-            if (playBtn && playBtn.textContent.includes("Pause")) playBtn.click();
           } catch (_) {}
         } else if (event.data.type === "M2V_STUDIO_DESTROY") {
           try {

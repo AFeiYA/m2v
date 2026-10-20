@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title data-i18n="ms_app_title">Motion Studio · Kinetic Typography Lab · m2v</title>
+  <link rel="stylesheet" href="/motion-lab.css">
+  <script src="/static/i18n.js?v=20261016_locale"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <b class="mark">M</b>
+      <div>
+        <strong>Motion Studio</strong>
+        <small data-i18n="ms_brand_desc">Song → Motion Director → MP4</small>
+      </div>
+    </div>
+    <div class="header-right">
+      <button id="poster-sample" data-i18n="ms_btn_poster" data-i18n-title="ms_btn_poster_title">Current Poster</button>
+      <button id="focus-preview" data-i18n="ms_btn_focus">Focus Preview</button>
+      <a href="/gallery" style="display: none !important;" data-i18n="ms_nav_gallery">Gallery ↗</a>
+      <a href="/lyric-editor" style="display: none !important;" data-i18n="ms_nav_editor">Lyric Editor ↗</a>
+      <a href="/motion-lab" style="display: none !important;" data-i18n="ms_nav_lab">Lab ↗</a>
+      <button id="btn-lang-toggle" onclick="toggleLocale()" class="nav-lang-btn" style="background: rgba(255,255,255,0.08); border: 1px solid #334155; color: #cbd5e1; padding: 0 8px; height: 28px; line-height: 26px; border-radius: 4px; font-size: 11px; cursor: pointer; white-space: nowrap; flex-shrink: 0;">🌐 English</button>
+    </div>
+  </header>
+  <main>
+    <section class="stage-wrap">
+      <div class="stage-top">
+        <div>
+          <span class="eyebrow" data-i18n="ms_live_canvas">LIVE CANVAS</span>
+          <strong id="track-name" data-i18n="ms_select_song_start">Select song to start</strong>
+        </div>
+        <span id="stage-meta">16:9 · 1280×720</span>
+      </div>
+      <div id="stage-box">
+        <canvas id="stage" width="1280" height="720"></canvas>
+        <div id="stage-error" hidden></div>
+        <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      </div>
+      <div class="transport">
+        <button id="play" class="play">▶</button>
+        <span id="time">00:00.00</span>
+        <input id="seek" type="range" min="0" max="18" step="0.01" value="0">
+        <span id="duration">00:18.00</span>
+        <span class="transport-hint" data-i18n="ms_transport_hint">Scrub timeline to inspect frame by frame</span>
+      </div>
+      <div class="status">
+        <span class="tag" data-i18n="ms_tag_director">Motion Director</span>
+        <span id="status" data-i18n="ms_status_ready">Ready</span>
+        <span id="line-status"></span>
+      </div>
+    </section>
+    <aside>
+      <div class="side-head">
+        <h1 data-i18n="ms_side_title">Lyric Motion Studio</h1>
+        <p data-i18n="ms_side_desc">Select a song, generate a director plan, preview and export complete video.</p>
+      </div>
+      <div class="side-scroll">
+        <section class="panel">
+          <h2 data-i18n="ms_sec1_title">01 / Song &amp; Aspect Ratio</h2>
+          <select id="project-select">
+            <option value="" data-i18n="ms_opt_select_song">Select song…</option>
+          </select>
+          <p id="analysis-status" class="help" data-i18n="ms_help_select_project">Please select an existing alignment project</p>
+          <label for="aspect" data-i18n="ms_lbl_aspect">Aspect Ratio</label>
+          <select id="aspect">
+            <option value="16:9" data-i18n="ms_opt_16_9">Landscape 16:9</option>
+            <option value="9:16" data-i18n="ms_opt_9_16">Portrait 9:16</option>
+          </select>
+          <label for="resolution" data-i18n="ms_lbl_res">Resolution</label>
+          <select id="resolution">
+            <option value="720" data-i18n="ms_opt_720p">720p</option>
+            <option value="360" data-i18n="ms_opt_360p">360p Fast Test</option>
+          </select>
+        </section>
+
+        <section class="panel">
+          <h2 data-i18n="ms_sec_identity">Song Identity &amp; Layout</h2>
+          <label for="song-title" data-i18n="ms_lbl_song_title">Song Title</label>
+          <input id="song-title" type="text" maxlength="120" placeholder="Default from Suno title" data-i18n-placeholder="ms_ph_song_title">
+          <label for="song-artist" data-i18n="ms_lbl_artist">Artist</label>
+          <input id="song-artist" type="text" maxlength="80" placeholder="Default from Suno artist, optional" data-i18n-placeholder="ms_ph_artist">
+          <p id="identity-source" class="help"></p>
+          <label data-i18n="ms_lbl_cover">Cover Art</label>
+          <img id="song-cover-preview" alt="歌曲封面" hidden style="width:100%;max-height:180px;object-fit:contain;border-radius:6px">
+          <p id="cover-status" class="help"></p>
+          <label class="filepick">
+            <span data-i18n="ms_btn_pick_cover">Replace Cover Image</span>
+            <input id="cover-file" type="file" accept="image/jpeg,image/png,image/webp">
+          </label>
+          <button id="restore-cover" class="secondary" data-i18n="ms_btn_restore_cover">Restore Suno Cover</button>
+          <label for="cover-mode" data-i18n="ms_lbl_cover_mode">Cover Presentation</label>
+          <select id="cover-mode">
+            <option value="background" data-i18n="ms_opt_cover_bg">Muted Background Cover</option>
+            <option value="none" data-i18n="ms_opt_cover_none">No Cover · Text Only</option>
+          </select>
+          <label for="cover-x" data-i18n="ms_lbl_cover_x">Crop Focus · Horizontal</label>
+          <input id="cover-x" type="range" min="0" max="100" value="50">
+          <label for="cover-y" data-i18n="ms_lbl_cover_y">Crop Focus · Vertical</label>
+          <input id="cover-y" type="range" min="0" max="100" value="50">
+          <label for="cover-zoom" data-i18n="ms_lbl_cover_zoom">Cover Zoom</label>
+          <input id="cover-zoom" type="range" min="1" max="2" step="0.05" value="1">
+          <p class="help" data-i18n="ms_help_cover">Cover is shown clearly in intro/outro and dimmed during singing to maintain lyric focus.</p>
+          <label for="song-theme" data-i18n="ms_lbl_song_theme">Visual Theme</label>
+          <select id="song-theme">
+            <option value="director" data-i18n="ms_opt_theme_director">Follow Director Design</option>
+            <option value="editorial" data-i18n="ms_opt_theme_editorial">Editorial B&amp;W · Restrained</option>
+            <option value="neon" data-i18n="ms_opt_theme_neon">Neon Stage · Accent Rings</option>
+            <option value="paper" data-i18n="ms_opt_theme_paper">Warm Paper · Light &amp; Warm</option>
+          </select>
+          <p class="help" data-i18n="ms_help_theme">Unifies palette across cover and lyrics without altering rhythm alignment.</p>
+          <label for="song-style" data-i18n="ms_lbl_song_style">Song Layout</label>
+          <select id="song-style">
+            <option value="editorial" data-i18n="ms_opt_style_editorial">Poster · Signature &amp; Hairline</option>
+            <option value="minimal" data-i18n="ms_opt_style_minimal">Minimal · Compact Signature</option>
+            <option value="none" data-i18n="ms_opt_style_none">Lyrics Only</option>
+          </select>
+          <label class="check"><input type="checkbox" id="song-intro" checked> <span data-i18n="ms_chk_intro">Intro Title &amp; Cover</span></label>
+          <label class="check"><input type="checkbox" id="song-signature" checked> <span data-i18n="ms_chk_sig">Show Signature during Playback</span></label>
+          <label class="check"><input type="checkbox" id="song-section" checked> <span data-i18n="ms_chk_section">Show Section Names</span></label>
+          <label class="check"><input type="checkbox" id="song-outro" checked> <span data-i18n="ms_chk_outro">Outro Ending Card</span></label>
+          <p class="help" data-i18n="ms_help_intro_outro">Intro and outro only use existing pre/outro space without altering song duration.</p>
+          <button id="save-identity" class="primary" data-i18n="ms_btn_save_identity">Save All Changes</button>
+          <button id="reset-identity" class="secondary" data-i18n="ms_btn_reset_identity">Reset Title &amp; Artist</button>
+        </section>
+
+        <section class="panel">
+          <h2 data-i18n="ms_sec2_title">02 / Motion Director</h2>
+          <label for="visual-template-select" data-i18n="ms_lbl_visual_template" style="color:#b9ff70; font-weight:700;">Visual Template</label>
+          <select id="visual-template-select" style="border:1px solid #365334; background:#141f17; font-weight:600; color:#e7eee7;">
+            <option value="kinetic" data-i18n="ms_tpl_kinetic">🌟 Kinetic Posters (Dynamic &amp; Punchy)</option>
+            <option value="apple" data-i18n="ms_tpl_apple">📱 Apple Scroll (Smooth 9:16 Lyrics Flow)</option>
+            <option value="tv" data-i18n="ms_tpl_tv">📺 TV Karaoke (Classic 16:9 Dual-line)</option>
+          </select>
+          <p class="help" data-i18n="ms_help_visual_template" style="margin-top:2px; margin-bottom:12px; font-size:11px; color:#788f7e;">Integrated export templates: Portrait scroll for TikTok/Reels, landscape dual-line for TV/KTV, and kinetic posters for dynamic impact.</p>
+          <label for="preset" data-i18n="ms_lbl_preset">Preferred Palette Theme</label>
+          <select id="preset">
+            <option value="impact" data-i18n="ms_palette_impact">Impact · Electric Green</option>
+            <option value="neon" data-i18n="ms_palette_neon">Neon · Cyber Blue</option>
+            <option value="sunset" data-i18n="ms_palette_sunset">Sunset · Fiery Gold</option>
+            <option value="amber" data-i18n="ms_palette_amber">Amber · Warm Gold</option>
+            <option value="violet" data-i18n="ms_palette_violet">Violet · Electric Aurora</option>
+            <option value="sakura" data-i18n="ms_palette_sakura">Sakura · Soft Pink</option>
+            <option value="monochrome" data-i18n="ms_palette_monochrome">Minimal · Black & White</option>
+            <option value="random" data-i18n="ms_palette_random_all">🎲 Random Palettes Across Song</option>
+          </select>
+          <label for="theme-bg" data-i18n="ms_lbl_theme_bg">Background Style</label>
+          <select id="theme-bg">
+            <option value="auto" data-i18n="ms_opt_bg_auto">Auto Follow Theme (Default Dark)</option>
+            <option value="dark" data-i18n="ms_opt_bg_dark">Dark Night (High Contrast · Recommended)</option>
+            <option value="light" data-i18n="ms_opt_bg_light">Light Paper (Clean Bright)</option>
+          </select>
+          <label for="default-layout-preset" data-i18n="ms_lbl_layout_preset">Default Layout Preset (Rule-based)</label>
+          <select id="default-layout-preset">
+            <option value="smart" data-i18n="ms_opt_layout_smart">Smart Phrase Wrap (Recommended)</option>
+            <option value="random" data-i18n="ms_opt_layout_random">🎲 Random Variety Layout</option>
+            <option value="single" data-i18n="ms_opt_layout_single">Single Line Centered</option>
+            <option value="two-stack" data-i18n="ms_opt_layout_two">Two-Stack Duel</option>
+            <option value="three-stack" data-i18n="ms_opt_layout_three">Three-Stack Ladder</option>
+            <option value="word-by-word" data-i18n="ms_opt_layout_word">Word-by-Word Impact</option>
+          </select>
+          <button id="generate" class="primary" data-i18n="ms_btn_rule_gen">Rule Generate Plan</button>
+          <label for="director-instruction" data-i18n="ms_lbl_director_inst">Director Preferences (Optional)</label>
+          <textarea id="director-instruction" placeholder="e.g.: Design final poster first, emphasize primary keyword, then stage entrances sequentially" data-i18n-placeholder="ms_ph_director_inst" rows="3"></textarea>
+          <button id="line-director-input" class="primary" data-i18n="ms_btn_dl_line_prompt">Download Line Prompt</button>
+          <p id="ai-config-status" class="help">正在检查 Gemini 配置…</p>
+          <button id="ai-line" data-i18n="ms_btn_ai_line">Gemini Direct Line</button>
+          <button id="ai-song" data-i18n="ms_btn_ai_song">Gemini Direct Song</button>
+          <p id="ai-job-status" class="help"></p>
+          <button id="ai-apply" class="primary" data-i18n="ms_btn_ai_apply" hidden>Preview Gemini Plan</button>
+          <button id="director-input" class="secondary" data-i18n="ms_btn_dl_song_prompt">Download Song Prompt</button>
+          <details>
+            <summary data-i18n="ms_summary_view_prompt">View Generated Prompt</summary>
+            <textarea id="director-prompt" readonly rows="8" aria-label="生成的导演提示词"></textarea>
+          </details>
+          <details>
+            <summary data-i18n="ms_summary_validate_llm">Validate &amp; Apply LLM Response</summary>
+            <label for="import-scope" data-i18n="ms_lbl_import_scope">Scope</label>
+            <select id="import-scope">
+              <option value="line" data-i18n="ms_opt_scope_line">Current Line</option>
+              <option value="song" data-i18n="ms_opt_scope_song">Entire Song</option>
+            </select>
+            <textarea id="llm-return" placeholder="Paste director JSON returned by LLM" data-i18n-placeholder="ms_ph_llm_return" style="width:100%;height:130px"></textarea>
+            <button id="validate-plan" data-i18n="ms_btn_validate_plan">Validate Only</button>
+            <button id="import-plan" data-i18n="ms_btn_import_plan">Apply to Preview</button>
+            <p id="director-validation" class="help"></p>
+          </details>
+          <button id="download-plan" class="secondary" data-i18n="ms_btn_dl_plan">Download Plan JSON</button>
+        </section>
+
+        <section class="panel">
+          <h2 data-i18n="ms_sec3_title">03 / Line-by-Line Tuning</h2>
+          <label for="cue-select" data-i18n="ms_lbl_cue_select">Lyric Line</label>
+          <select id="cue-select"></select>
+          <label for="poster-layout" data-i18n="ms_lbl_poster_layout">Poster Layout</label>
+          <div style="display:flex;gap:6px">
+            <select id="poster-layout" style="flex:1">
+              <option value="hero-stack" data-i18n="ms_opt_hero_stack">Hero Stack (Left Aligned)</option>
+              <option value="center-stack" data-i18n="ms_opt_center_stack">Center Stack</option>
+              <option value="right-stack" data-i18n="ms_opt_right_stack">Right Stack (Right Impact)</option>
+              <option value="staggered" data-i18n="ms_opt_staggered">Staggered (Left-Right Dynamic)</option>
+            </select>
+            <button id="random-layout-cue" class="secondary" style="white-space:nowrap" title="Randomly switch poster alignment for this line" data-i18n="ms_btn_random_layout" data-i18n-title="ms_btn_random_layout_title">🎲 Change Align</button>
+          </div>
+          <p id="poster-design-status" class="help"></p>
+          <label for="cue-layout-preset" data-i18n="ms_lbl_cue_preset">Layout Preset</label>
+          <div style="display:flex;gap:6px">
+            <select id="cue-layout-preset" style="flex:1">
+              <option value="smart" data-i18n="ms_opt_layout_smart">Smart Phrase Wrap (Recommended)</option>
+              <option value="random" data-i18n="ms_opt_layout_random">🎲 Random Variety Layout</option>
+              <option value="single" data-i18n="ms_opt_layout_single">Single Line Centered</option>
+              <option value="two-stack" data-i18n="ms_opt_layout_two">Two-Stack Duel</option>
+              <option value="three-stack" data-i18n="ms_opt_layout_three">Three-Stack Ladder</option>
+              <option value="word-by-word" data-i18n="ms_opt_layout_word">Word-by-Word Impact</option>
+            </select>
+            <button id="apply-layout-preset" class="secondary" style="white-space:nowrap" data-i18n="ms_btn_apply_layout">Apply Preset</button>
+          </div>
+          <label for="cue-palette" data-i18n="ms_lbl_cue_palette">Palette</label>
+          <div style="display:flex;gap:6px">
+            <select id="cue-palette" style="flex:1">
+              <option value="impact" data-i18n="ms_palette_impact">Impact · Electric Green</option>
+              <option value="neon" data-i18n="ms_palette_neon">Neon · Cyber Blue</option>
+              <option value="sunset" data-i18n="ms_palette_sunset">Sunset · Fiery Gold</option>
+              <option value="amber" data-i18n="ms_palette_amber">Amber · Warm Gold</option>
+              <option value="violet" data-i18n="ms_palette_violet">Violet · Electric Aurora</option>
+              <option value="sakura" data-i18n="ms_palette_sakura">Sakura · Soft Pink</option>
+              <option value="monochrome" data-i18n="ms_palette_monochrome">Minimal · Black & White</option>
+              <option value="random" data-i18n="ms_palette_random">🎲 Random Palette</option>
+            </select>
+            <button id="apply-palette" class="secondary" style="white-space:nowrap" data-i18n="ms_btn_apply_palette">Apply Palette</button>
+          </div>
+          <label for="visual-intensity" data-i18n="ms_lbl_visual_intensity">Visual Intensity</label>
+          <select id="visual-intensity">
+            <option value="auto" data-i18n="ms_opt_intensity_auto">Auto (By Section)</option>
+            <option value="restrained" data-i18n="ms_opt_intensity_restrained">Restrained</option>
+            <option value="expanded" data-i18n="ms_opt_intensity_expanded">Expanded</option>
+            <option value="peak" data-i18n="ms_opt_intensity_peak">Peak</option>
+          </select>
+          <p id="visual-intensity-status" class="help"></p>
+          <label for="cue-exit" data-i18n="ms_lbl_cue_exit">Handover Transition</label>
+          <select id="cue-exit">
+            <option value="fade" data-i18n="ms_opt_exit_fade">Hold then Fade Handover</option>
+            <option value="cut" data-i18n="ms_opt_exit_cut">Hold then Cut Handover</option>
+          </select>
+          <p id="handover-status" class="help"></p>
+          <button id="play-cue" data-i18n="ms_btn_play_cue">Play Current Line</button>
+          <button id="play-handover" class="secondary" data-i18n="ms_btn_play_handover">Play Line &amp; Handover</button>
+          <label for="semantic-mode" data-i18n="ms_lbl_semantic_mode">Semantic Arrangement</label>
+          <select id="semantic-mode">
+            <option value="auto" data-i18n="ms_opt_semantic_auto">Auto arrange by semantic relations</option>
+            <option value="off" data-i18n="ms_opt_semantic_off">Manual node parameters only</option>
+          </select>
+          <div id="poster-node-editor"></div>
+          <details>
+            <summary data-i18n="ms_summary_legacy_params">Legacy Plan Parameters</summary>
+            <label for="cue-template" data-i18n="ms_lbl_legacy_anim">Animation</label>
+            <select id="cue-template">
+              <option value="word-impact">Word impact</option>
+              <option value="phrase-rise">Phrase rise</option>
+              <option value="quiet-hold">Quiet hold</option>
+            </select>
+            <label for="cue-layout" data-i18n="ms_lbl_legacy_layout">Layout</label>
+            <select id="cue-layout">
+              <option value="center">Center</option>
+              <option value="left">Left-aligned lyrics</option>
+            </select>
+            <label for="cue-emphasis" data-i18n="ms_lbl_legacy_emphasis">Emphasis Keyword (From Lyrics)</label>
+            <input id="cue-emphasis" type="text">
+            <label for="cue-intensity" data-i18n="ms_lbl_legacy_intensity">Animation Intensity</label>
+            <input id="cue-intensity" type="range" min="0" max="1" step="0.05" value="0.5">
+          </details>
+          <label class="check"><input id="cue-locked" type="checkbox"> <span data-i18n="ms_chk_cue_locked">Lock line (preserve during re-direct)</span></label>
+          <button id="regenerate-cue" class="secondary" data-i18n="ms_btn_regen_cue">Rule Regenerate Line</button>
+          <button id="save-plan" class="primary" data-i18n="ms_btn_save_plan">Save All Changes</button>
+        </section>
+
+        <section class="panel" hidden>
+          <h2>04 / Experimental visual effects</h2>
+          <label class="check"><input id="post" type="checkbox" checked>Bloom / halo / film grain</label>
+          <label for="bloom">Bloom</label>
+          <input id="bloom" type="range" min="0" max="1.4" step="0.05" value="0.7">
+          <label for="shake">Shake</label>
+          <input id="shake" type="range" min="0" max="1.5" step="0.05" value="0.65">
+        </section>
+
+        <section class="panel export">
+          <h2 data-i18n="ms_sec5_title">05 / Export MP4</h2>
+
+          <div class="matrix-export-wrap" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <span style="font-size:12px; font-weight:600; color:#b9ff70;" data-i18n="ms_matrix_title">Export Matrix · Clips &amp; Formats</span>
+              <span id="matrix-selected-count" style="font-size:11px; color:#788f7e;">1 selected</span>
+            </div>
+            
+            <div id="matrix-candidates-list" class="matrix-candidates-list"></div>
+          </div>
+
+          <details id="custom-range-details" style="margin-bottom:12px;">
+            <summary style="font-size:11px; color:#96c8a0; cursor:pointer;" data-i18n="ms_custom_range_summary">Custom Range (Override Matrix)</summary>
+            <div style="margin-top:8px;">
+              <label class="check" style="margin-top:4px!important; margin-bottom:8px;">
+                <input id="export-custom-range" type="checkbox"> <span data-i18n="ms_use_custom_range">Use custom range instead of matrix</span>
+              </label>
+              <div id="custom-range-inputs" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <div>
+                  <label for="clip-start" data-i18n="ms_lbl_clip_start" style="font-size:11px; margin-top:0;">Start (s)</label>
+                  <input id="clip-start" type="number" min="0" step="0.1" value="0">
+                </div>
+                <div>
+                  <label for="clip-length" data-i18n="ms_lbl_clip_length" style="font-size:11px; margin-top:0;">Duration (s)</label>
+                  <input id="clip-length" type="number" min="0.1" step="0.1" value="8">
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <div id="matrix-queue-box" hidden>
+            <div id="matrix-queue-summary" style="font-weight:600; color:#b9ff70; margin-bottom:6px;">Queue status</div>
+            <div id="matrix-queue-items" style="display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto;"></div>
+          </div>
+
+          <label id="lbl-export-fast-mode" class="check" style="display: none !important;">
+            <input id="export-fast-webcodecs" type="checkbox" checked>
+            <span data-i18n="ms_fast_webcodecs">⚡ 优先本地极速导出 (10秒秒出 · 遇阻自动转云端)</span>
+          </label>
+          <p id="motion-credit-price" class="help" role="status"></p>
+          <button id="export" class="primary" data-i18n="ms_btn_export">Export MP4</button>
+          <button id="cancel" hidden data-i18n="ms_btn_cancel_export">Cancel Export</button>
+          <p id="export-status" class="help" data-i18n="ms_help_export">Remotion · Current poster layout &amp; original audio · 30fps / H.264.</p>
+          <a id="download" hidden download data-i18n="ms_btn_download_video">Download Video ↓</a>
+          <p style="display: none !important;"><a id="my-exports-bottom" href="/#exports-section" style="display: none !important;" hidden data-i18n="ms_nav_exports">My Exports ↗</a></p>
+          <div id="export-history" class="help"></div>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <dialog id="poster-dialog" aria-labelledby="poster-title" style="width:min(1200px,94vw);max-width:94vw;max-height:94vh;padding:20px;border:1px solid #48533e;border-radius:16px;background:#10160f;color:#f0f4e9">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <h2 id="poster-title" data-i18n="ms_dialog_title">Current Line · Final Poster</h2>
+      <button id="poster-close" data-i18n="ms_btn_dialog_close">Close Poster</button>
+    </div>
+    <p id="poster-lyric"></p>
+    <canvas id="poster-canvas" width="1280" height="720" aria-label="Static lyric poster for the current line" style="display:block;width:100%;height:auto;max-height:65vh;object-fit:contain;aspect-ratio:16/9;border-radius:4px"></canvas>
+    <p id="poster-description" class="help"></p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <button id="poster-png" data-i18n="ms_btn_dl_poster_png">Download Poster PNG</button>
+      <button id="poster-json" data-i18n="ms_btn_dl_poster_json">Download Design JSON</button>
+    </div>
+  </dialog>
+
+  <script type="module" src="/motion/studio.js"></script>
+</body>
+</html>
