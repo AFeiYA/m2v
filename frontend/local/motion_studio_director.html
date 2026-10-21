@@ -355,7 +355,7 @@
           <p id="motion-credit-price" class="help" role="status"></p>
           <button id="export" class="primary" data-i18n="ms_btn_export">Export MP4</button>
           <button id="cancel" hidden data-i18n="ms_btn_cancel_export">Cancel Export</button>
-          <p id="export-status" class="help" data-i18n="ms_help_export">Remotion · Current poster layout &amp; original audio · 30fps / H.264.</p>
+          <p id="export-status" class="help" role="status" aria-live="polite" data-i18n="ms_help_export">Remotion · Current poster layout &amp; original audio · 30fps / H.264.</p>
           <a id="download" hidden download data-i18n="ms_btn_download_video">Download Video ↓</a>
           <p style="display: none !important;"><a id="my-exports-bottom" href="/#exports-section" style="display: none !important;" hidden data-i18n="nav_my_exports">My Exports ↗</a></p>
           <div id="export-history" class="help"></div>
@@ -378,7 +378,7 @@
     </div>
   </dialog>
 
-  <script type="module" src="/motion/studio.js?v=20261021_navigation"></script>
+  <script type="module" src="/motion/studio.js?v=20261022_export_feedback"></script>
   <script>
     if (window.parent && window.parent !== window) {
       document.body.classList.add("embedded-studio");

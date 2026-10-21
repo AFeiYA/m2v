@@ -94,7 +94,7 @@ async function saveAll(){
   if(id===selected){showCue(false);status(dirty||identityDirty||settingsDirty?'Submitted version saved. Newer edits remain local.':'Theme, layout, and song details saved.');}
  }finally{saving=false;updateSaveState();}
 }
-function requireSaved(){if(dirty||identityDirty||settingsDirty)throw new Error('Save your current preview using the top Save button before continuing.');}
+function requireSaved(){if(dirty||identityDirty||settingsDirty)throw new Error((window as any).currentLocale==='zh'?'当前修改尚未保存，请先点击顶部的保存按钮，再导出。未提交导出任务，也不会扣除积分。':'Save your changes using the top Save button before exporting. No export has started and no credits have been charged.');}
 async function load(id:string){
  if(exportQueueRunning&&id!==selected){$<HTMLSelectElement>('project-select').value=selected;status('Cancel or finish the export queue before switching songs.');return;}
  if((dirty||identityDirty||settingsDirty)&&id!==selected&&!window.confirm('Switch songs and discard unsaved preview changes?')){$<HTMLSelectElement>('project-select').value=selected;return;}
@@ -435,7 +435,7 @@ function updateMatrixCount() {
   }
   const btn = $<HTMLButtonElement>('export');
   if (btn && !btn.disabled) {
-    const costText = cloudService() && totalCost > 0 ? ` (${totalCost} 积分)` : (cloudService() ? (isZh ? ' (免费)' : ' (Free)') : '');
+    const costText = cloudService() && totalCost > 0 ? ` (${totalCost} ${isZh ? '积分' : 'credits'})` : (cloudService() ? (isZh ? ' (免费)' : ' (Free)') : '');
     const actionText = custom ? (isZh ? '导出自定义片段' : 'Export Custom Clip') : (isZh ? `导出所选视频 (${count})` : `Export Selected (${count})`);
     btn.textContent = `${actionText}${costText}`;
   }
@@ -444,7 +444,21 @@ function updateMatrixCount() {
 async function exportVideo() {
   if(exportQueueRunning)return;
   exportQueueRunning=true;
-  try {await runExportVideo();} finally {exportQueueRunning=false;}
+  try {
+    if(saving||dirty||identityDirty||settingsDirty){
+      const message=saving
+        ? ((window as any).currentLocale==='zh'?'正在保存，请等待保存完成后再导出。':'Saving your changes. Please wait until saving finishes before exporting.')
+        : ((window as any).currentLocale==='zh'?'当前修改尚未保存，请先点击顶部的保存按钮，再导出。未提交导出任务，也不会扣除积分。':'Save your changes using the top Save button before exporting. No export has started and no credits have been charged.');
+      $('export-status').textContent=message;
+      window.alert(message);
+      if(!saving)$('save-design').focus({preventScroll:true});
+      throw new Error(message);
+    }
+    await runExportVideo();
+  } catch(error){
+    $('export-status').textContent=error instanceof Error?error.message:String(error);
+    throw error;
+  } finally {exportQueueRunning=false;}
 }
 
 async function runExportVideo() {

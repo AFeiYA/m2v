@@ -4,14 +4,14 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
 const esbuild=require('../motion/node_modules/esbuild');
-const source=fs.readFileSync(path.join(__dirname,'../motion/src/studio.ts'),'utf8')+'\nexport {load,refreshSourceInfo,rules,previewPalette,saveAll,editIdentity,exportVideo,refreshMotionPrice}; export const getDraft=()=>plan;';
+const source=fs.readFileSync(path.join(__dirname,'../motion/src/studio.ts'),'utf8')+'\nexport {load,refreshSourceInfo,rules,previewPalette,saveAll,editIdentity,exportVideo,refreshMotionPrice,updateMatrixCount}; export const getDraft=()=>plan;';
 const code=esbuild.transformSync(source,{loader:'ts',format:'cjs',target:'es2022'}).code;
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};}
 function setup(){
- const writes=[],saves=[],renders=[];
+ const writes=[],saves=[],renders=[],alerts=[];
  const nodes=new Map(),pending=new Map();
  const node=()=>({value:'',style:{},dataset:{},checked:false,hidden:false,children:[],textContent:'',
-  setAttribute(k,v){this[k]=v;},addEventListener(name,handler){this[name]=handler;},replaceChildren(){this.children=[];},append(v){this.children.push(v);},
+  focus(){this.focused=true;},setAttribute(k,v){this[k]=v;},addEventListener(name,handler){this[name]=handler;},replaceChildren(){this.children=[];},append(v){this.children.push(v);},
   querySelectorAll(){return [];},getContext(){return {};},classList:{toggle(){return false;}}});
  const document={getElementById(id){if(!nodes.has(id)){const n=node();n.value=({preset:'impact','theme-bg':'auto','default-layout-preset':'smart',aspect:'16:9',resolution:'720',bloom:'.7',shake:'.65'})[id]||'';nodes.set(id,n);}return nodes.get(id);},querySelectorAll(){return [];},createElement:node,body:node()};
  class Audio{currentTime=0;src='';pause(){this.on_pause?.();}load(){}addEventListener(name,handler){this['on_'+name]=handler;}}
@@ -29,12 +29,12 @@ function setup(){
  const compiled=esbuild.buildSync({entryPoints:[path.join(__dirname,'../motion/src/local-design.ts')],bundle:true,platform:'node',format:'cjs',write:false}).outputFiles[0].text;
  const design={exports:{}};new Function('module','exports',compiled)(design,design.exports);
  const requireStub=name=>name.includes('local-design')?design.exports:name.includes('service-api')?service:name.includes('remotion-preview')?{RemotionPreview}:name.includes('webcodecs-exporter')?{isWebCodecsSupported:()=>false,exportMotionWebCodecs:async()=>new Blob()}:name.includes('/model')?{defaults:{},normalizeProject:p=>p,renderSize:()=>({width:720,height:1280}),buildExportClips:()=>[{id:'full',title:'Full song',available:true,start_time:0,end_time:null},{id:'chorus',title:'Chorus',available:true,start_time:20,end_time:35}],resolveVisualMode:(m,a)=>m==='tv'?(a==='16:9'?'tv':'apple'):m==='apple'?(a==='9:16'?'apple':'tv'):'kinetic'}:{};
- const context={module:{exports:{}},require:requireStub,document,window:{addEventListener(){},confirm:()=>false},MutationObserver:class{observe(){}},Audio,structuredClone,
+ const context={module:{exports:{}},require:requireStub,document,window:{addEventListener(){},confirm:()=>false,alert:message=>alerts.push(message)},MutationObserver:class{observe(){}},Audio,structuredClone,
   URL,URLSearchParams,Blob,FormData,setTimeout,requestAnimationFrame(){},console,location:{search:''}};
  vm.createContext(context);vm.runInContext(code,context);
  function request(id){const d=deferred();pending.set(id,d);return d;}
  function result(title){return {project:{title,duration:2,lines:[],analysis:{energy_curve:[],beats:[]}},plan:null,audio_url:title+'.mp3'};}
- return {api:context.module.exports,nodes,request,result,writes,saves,renders,context,design:design.exports};
+ return {alerts,api:context.module.exports,nodes,request,result,writes,saves,renders,context,design:design.exports};
 }
 test('a late previous song response cannot replace current credits or artwork',async()=>{
  const s=setup(),old=s.request('old'),current=s.request('current');
@@ -87,6 +87,10 @@ test('switching and exporting never silently save an unfinished preview',async()
  const s=await loaded();s.api.rules();await s.api.load('other');
  assert.equal(s.nodes.get('project-select').value,'song');
  await assert.rejects(s.api.exportVideo(),/Save/);assert.equal(s.writes.length,0);
+ assert.equal(s.renders.length,0);assert.equal(s.alerts.length,1);
+ assert.match(s.alerts[0],/no credits have been charged/);
+ assert.equal(s.nodes.get('export-status').textContent,s.alerts[0]);
+ assert.equal(s.nodes.get('save-design').focused,true);
 });
 test('format and signature edits use the same explicit save',async()=>{
  const s=await loaded();s.nodes.get('aspect').value='9:16';s.nodes.get('aspect').input();
@@ -206,4 +210,16 @@ test('workspace pause reaches Motion audio and resets the playback button',()=>{
  s.nodes.get('play').textContent='Ⅱ';
  audio.pause();
  assert.equal(s.nodes.get('play').textContent,'▶');
+});
+
+test('export credit units follow the selected locale',async()=>{
+ const s=await loaded();s.context.require('./service-api').cloudService=()=>true;
+ s.context.require('./service-api').serviceJson=async()=>({pricing:{motion_export:10,motion_webcodecs:10}});
+ await s.api.refreshMotionPrice();
+ s.context.document.getElementById('export-custom-range').checked=true;
+ for(const locale of ['en','zh']){
+  s.context.window.currentLocale=locale;s.api.updateMatrixCount();
+  assert.match(s.nodes.get('export').textContent,locale==='zh'?/积分/:/credits/);
+  if(locale==='en')assert.doesNotMatch(s.nodes.get('export').textContent,/积分/);
+ }
 });
