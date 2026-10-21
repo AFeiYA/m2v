@@ -6,9 +6,9 @@ import type {Project,Options} from './model';
 /** Existing audio controls provide the master clock; Player receives absolute frame seeks. */
 export class RemotionPreview {
  private root:Root;private host:HTMLDivElement;private ref=createRef<PlayerRef>();private latest=0;private raf=0;
- constructor(canvas:HTMLCanvasElement,project:Project,options:Options,width:number,height:number){
+ constructor(canvas:HTMLCanvasElement,project:Project,options:Options,width:number,height:number,onError?:(error:Error)=>void){
   this.host=document.createElement('div');this.host.style.cssText='position:absolute;inset:0;width:100%;height:100%';canvas.hidden=true;canvas.parentElement!.append(this.host);
-  this.root=createRoot(this.host);this.root.render(<Player ref={this.ref} component={LyricVideo} inputProps={{project,options}} durationInFrames={Math.max(1,Math.ceil(project.duration*30))} compositionWidth={width} compositionHeight={height} fps={30} controls={false} clickToPlay={false} doubleClickToFullscreen={false} spaceKeyToPlayOrPause={false} style={{width:'100%',height:'100%'}}/>);
+  this.root=createRoot(this.host);this.root.render(<Player ref={this.ref} component={LyricVideo} inputProps={{project,options}} durationInFrames={Math.max(1,Math.ceil(project.duration*30))} compositionWidth={width} compositionHeight={height} fps={30} controls={false} clickToPlay={false} doubleClickToFullscreen={false} spaceKeyToPlayOrPause={false} style={{width:'100%',height:'100%'}} errorFallback={({error})=>{queueMicrotask(()=>onError?.(error));return <div role="alert" style={{padding:24,color:'#fca5a5'}}>Preview unavailable: {error.message}. Retry opening the editor.</div>;}}/>);
   const ready=()=>{if(this.ref.current)this.ref.current.seekTo(this.latest);else this.raf=requestAnimationFrame(ready);};this.raf=requestAnimationFrame(ready);
  }
  renderAt(t:number){const frame=Math.max(0,Math.floor(t*30));if(frame!==this.latest||!this.ref.current){this.latest=frame;this.ref.current?.seekTo(frame);}}

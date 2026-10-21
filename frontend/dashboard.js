@@ -46,6 +46,7 @@ function resolveApiBase() {
 }
 
 let API = resolveApiBase();
+window.m2vWorkspaceApi = () => API;
 console.log("[M2V] 当前有效 API 服务地址:", API);
 
 // ── State ────────────────────────────────────────────────
@@ -343,6 +344,7 @@ function showAuth() {
 }
 
 window.openLyricStudio = function(songId, songTitle) {
+  if(window.m2vCanOpenStudio&&!window.m2vCanOpenStudio("lyric",songId||window.m2vActiveSong?.id))return false;
   if (songId) {
     const title = songTitle || (window.librarySongs?.get(songId)?.title) || songId;
     window.m2vActiveSong = { id: songId, title: title };
@@ -354,19 +356,6 @@ window.openLyricStudio = function(songId, songTitle) {
     } catch (_) {}
   }
   const activeSong = window.m2vActiveSong || JSON.parse(sessionStorage.getItem("m2v_active_song") || "null");
-  const iframe = $("#iframe-lyric-editor");
-  if (iframe) {
-    const targetUrl = activeSong?.id ? `/lyric-editor/${encodeURIComponent(activeSong.id)}` : "/lyric-editor";
-    if (!iframe.src || iframe.src === "about:blank" || iframe.dataset?.loadedSongId !== (activeSong?.id || "")) {
-      iframe.src = targetUrl;
-      if (iframe.dataset) iframe.dataset.loadedSongId = activeSong?.id || "";
-    } else {
-      try {
-        iframe.contentWindow?.postMessage({ type: "M2V_LOAD_SONG", songId: activeSong?.id }, window.location.origin);
-      } catch (_) {}
-    }
-    syncAuthToFrame(iframe);
-  }
   const titleEl = $("#lyric-bar-song-title");
   if (titleEl && activeSong?.title) titleEl.textContent = activeSong.title;
   const bcSong = $("#bc-song-name");
@@ -376,10 +365,12 @@ window.openLyricStudio = function(songId, songTitle) {
     if (bcSong.style) bcSong.style.display = "inline";
     if (bcSep && bcSep.style) bcSep.style.display = "inline";
   }
-  location.hash = "lyric-editor-section";
+  if(window.m2vNavigateWorkspace)window.m2vNavigateWorkspace("lyric-editor-section");
+  else location.hash = "lyric-editor-section";
 };
 
 window.openMotionStudio = function(songId, songTitle) {
+  if(window.m2vCanOpenStudio&&!window.m2vCanOpenStudio("motion",songId||window.m2vActiveSong?.id))return false;
   if (songId) {
     const title = songTitle || (window.librarySongs?.get(songId)?.title) || songId;
     window.m2vActiveSong = { id: songId, title: title };
@@ -391,19 +382,6 @@ window.openMotionStudio = function(songId, songTitle) {
     } catch (_) {}
   }
   const activeSong = window.m2vActiveSong || JSON.parse(sessionStorage.getItem("m2v_active_song") || "null");
-  const iframe = $("#iframe-motion-studio");
-  if (iframe) {
-    const targetUrl = activeSong?.id ? `/motion-studio?project=${encodeURIComponent(activeSong.id)}` : "/motion-studio";
-    if (!iframe.src || iframe.src === "about:blank" || iframe.dataset?.loadedSongId !== (activeSong?.id || "")) {
-      iframe.src = targetUrl;
-      if (iframe.dataset) iframe.dataset.loadedSongId = activeSong?.id || "";
-    } else {
-      try {
-        iframe.contentWindow?.postMessage({ type: "M2V_LOAD_SONG", songId: activeSong?.id }, window.location.origin);
-      } catch (_) {}
-    }
-    syncAuthToFrame(iframe);
-  }
   const titleEl = $("#motion-bar-song-title");
   if (titleEl && activeSong?.title) titleEl.textContent = activeSong.title;
   const bcSong = $("#bc-song-name");
@@ -413,34 +391,9 @@ window.openMotionStudio = function(songId, songTitle) {
     if (bcSong.style) bcSong.style.display = "inline";
     if (bcSep && bcSep.style) bcSep.style.display = "inline";
   }
-  location.hash = "motion-studio-section";
+  if(window.m2vNavigateWorkspace)window.m2vNavigateWorkspace("motion-studio-section");
+  else location.hash = "motion-studio-section";
 };
-
-function syncAuthToFrame(iframe) {
-  if (!iframe) return;
-  const doSync = () => {
-    try {
-      if (!iframe.contentWindow) return;
-      const t = token || localStorage.getItem("m2v_token");
-      const u = localStorage.getItem("m2v_user");
-      const p = localStorage.getItem("m2v_auth_provider");
-      if (t) {
-        iframe.contentWindow.localStorage?.setItem("m2v_token", t);
-        if (u) iframe.contentWindow.localStorage?.setItem("m2v_user", u);
-        if (p) iframe.contentWindow.localStorage?.setItem("m2v_auth_provider", p);
-      }
-      if (window.m2vAuth) {
-        iframe.contentWindow.m2vAuth = window.m2vAuth;
-      }
-      iframe.contentWindow.postMessage({ type: "M2V_SYNC_AUTH", token: t, user: u ? JSON.parse(u) : null }, window.location.origin);
-    } catch (_) {}
-  };
-  if (iframe.contentDocument?.readyState === "complete") {
-    doSync();
-  } else {
-    iframe.addEventListener("load", doSync, { once: true });
-  }
-}
 
 function checkRedirect() {
   try {

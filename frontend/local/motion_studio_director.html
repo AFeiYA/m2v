@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-studio="motion">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,6 +10,7 @@
   <script src="/static/song-picker.js?v=20261016_library2"></script>
 </head>
 <body>
+  <script src="/static/studio-bridge.js?v=20261021"></script>
   <header>
     <div class="brand">
       <b class="mark">M</b>
@@ -377,7 +378,7 @@
     </div>
   </dialog>
 
-  <script type="module" src="/motion/studio.js?v=20261021_status"></script>
+  <script type="module" src="/motion/studio.js?v=20261021_navigation"></script>
   <script>
     if (window.parent && window.parent !== window) {
       document.body.classList.add("embedded-studio");

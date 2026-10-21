@@ -45,3 +45,16 @@ test('WorkspaceStore manages user, song, and section state with reactive subscri
   // No new events after unsubscribe
   assert.equal(events[events.length - 1].action, 'USER_LOGOUT');
 });
+
+test('separate editor draft states survive view changes and clear on logout',()=>{
+ const store=new WorkspaceStore();store.setActiveSong({id:'song',title:'Song'});
+ store.setEditorState('lyric',{songId:'song',dirty:true,saving:false});
+ store.setActiveSection('motion-studio-section');
+ assert.equal(store.getState().editors.lyric.dirty,true);
+ store.setEditorState('motion',{songId:'song',dirty:true});
+ store.setEditorState('lyric',{songId:'song',dirty:false});
+ assert.equal(store.getState().song.isDirty,true);
+ store.clearUser();
+ assert.equal(store.getState().editors.motion.dirty,false);
+ assert.equal(store.getState().editors.lyric.songId,null);
+});

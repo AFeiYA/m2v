@@ -17,6 +17,7 @@
           savedVersion: null,     // server version tag or commit hash
           isDirty: false,         // has unsaved changes
         },
+        editors: {lyric: {songId:null,dirty:false,saving:false}, motion: {songId:null,dirty:false,saving:false}},
         motion: {
           activeProjectId: null,
           preset: null,
@@ -115,6 +116,13 @@
       this._notify('SONG_CHANGED', this._state.song.activeSong);
     }
 
+    setEditorState(studio, state) {
+      if (!['lyric','motion'].includes(studio)) return;
+      this._state.editors[studio] = {...this._state.editors[studio], ...state};
+      this._state.song.isDirty=Object.values(this._state.editors).some(editor=>editor.dirty&&editor.songId===this._state.song.activeSong?.id);
+      this._notify('EDITOR_STATE_CHANGED', {studio, ...this._state.editors[studio]});
+    }
+
     setLyricVersion(versionId, savedVersion = null) {
       this._state.song.activeVersionId = versionId;
       if (savedVersion !== null) this._state.song.savedVersion = savedVersion;
@@ -134,6 +142,7 @@
       this._state.song.savedVersion = null;
       this._state.song.isDirty = false;
       this._state.motion.activeProjectId = null;
+      this._state.editors = {lyric:{songId:null,dirty:false,saving:false},motion:{songId:null,dirty:false,saving:false}};
       try {
         if (typeof sessionStorage !== 'undefined') {
           sessionStorage.removeItem('m2v_active_song');

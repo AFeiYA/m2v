@@ -27,8 +27,6 @@ export function cloudService(): boolean {
  if (typeof window !== 'undefined' && Boolean(window.M2V_API_BASE)) return true;
  if (isRemoteStaticHost()) return true;
  if (typeof location !== 'undefined' && location.hostname.endsWith('hf.space')) return true;
- if (typeof window !== 'undefined' && window.parent && window.parent !== window) return true;
- if (typeof localStorage !== 'undefined' && Boolean(localStorage.getItem('m2v_token'))) return true;
  return false;
 }
 

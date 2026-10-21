@@ -8,7 +8,7 @@ import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,res
 import { RemotionPreview } from './remotion-preview';
 import { isWebCodecsSupported, exportMotionWebCodecs } from './webcodecs-exporter';
 import { defaults, normalizeProject, renderSize, buildExportClips, type Project, type Options, type MotionPlan, type ExportClip } from './model';
-import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,setCloudMode,downloadService} from './service-api';
+import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,downloadService} from './service-api';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const audio=new Audio();
 audio.hidden=true;
@@ -29,7 +29,7 @@ const options:Options={...defaults,height:720};
 const initialSettings=settingsSnapshot();
 const status=(text:string)=>{$('status').textContent=text;updateSaveState();};
 function download(name:string,data:string,type='application/json'){const url=URL.createObjectURL(new Blob([data],{type})),link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-function refresh(){updateSaveState();if(!project)return;project.motion_plan=plan||undefined;const {width,height}=renderSize(options),canvas=$<HTMLCanvasElement>('stage');engine?.dispose();canvas.width=width;canvas.height=height;canvas.style.aspectRatio=`${width}/${height}`;$('stage-box').style.aspectRatio=`${width}/${height}`;engine=new RemotionPreview(canvas,project,options,width,height);engine.renderAt(audio.currentTime||0);$('stage-meta').textContent=`Remotion · ${options.aspect} · ${width}×${height}`;}
+function refresh(){updateSaveState();if(!project)return;project.motion_plan=plan||undefined;const {width,height}=renderSize(options),canvas=$<HTMLCanvasElement>('stage');engine?.dispose();canvas.width=width;canvas.height=height;canvas.style.aspectRatio=`${width}/${height}`;$('stage-box').style.aspectRatio=`${width}/${height}`;const previewId=selected;engine=new RemotionPreview(canvas,project,options,width,height,error=>{if(selected!==previewId)return;status('Preview unavailable: '+error.message);(window as any).m2vStudioBridge?.error(selected,'Preview unavailable: '+error.message);});engine.renderAt(audio.currentTime||0);$('stage-meta').textContent=`Remotion · ${options.aspect} · ${width}×${height}`;}
 function listCues(){const select=$<HTMLSelectElement>('cue-select');select.replaceChildren();for(const cue of plan?.cues||[]){const line=project?.lines.find(l=>l.id===cue.line_id),item=document.createElement('option');item.value=cue.line_id;item.textContent=(cue.locked?'🔒 ':'')+(line?.text||cue.line_id);select.append(item);}if(plan?.cues.some(c=>c.line_id===currentCue))select.value=currentCue;else currentCue=plan?.cues[0]?.line_id||'';showCue(false);}
 function showCue(seek=true){const cue=plan?.cues.find(c=>c.line_id===currentCue);if(!cue)return;
  const line=project?.lines.find(l=>l.id===currentCue);
@@ -66,6 +66,7 @@ function updateSaveState(){
  button.textContent=saving?(english?'Saving…':'保存中…'):(english?'Save':'保存');
  $('save-state').textContent=changed?(english?'Unsaved preview':'预览有未保存修改'):(english?'Saved':'已保存');
  $('save-state').dataset.dirty=String(changed);
+ (window as any).m2vStudioBridge?.state(selected,changed,saving);
 }
 function settingsSnapshot(){return {aspect:options.aspect,height:options.height,post:options.post,bloom:options.bloom,shake:options.shake,
  palette:$<HTMLSelectElement>('preset').value,background:$<HTMLSelectElement>('theme-bg').value,layout:$<HTMLSelectElement>('default-layout-preset').value,highlight:$<HTMLSelectElement>('highlight-mode').value||'none'};}
@@ -89,6 +90,7 @@ async function saveAll(){
   const results=await Promise.allSettled([savePlan(),saveIdentity(),saveSettings()]);
   const failure=results.find(r=>r.status==='rejected') as PromiseRejectedResult|undefined;
   if(failure)throw failure.reason;
+  if(id===selected)(window as any).m2vStudioBridge?.saved(id,dirty||identityDirty||settingsDirty);
   if(id===selected){showCue(false);status(dirty||identityDirty||settingsDirty?'Submitted version saved. Newer edits remain local.':'Theme, layout, and song details saved.');}
  }finally{saving=false;updateSaveState();}
 }
@@ -117,6 +119,7 @@ async function load(id:string){
   $<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';
   refresh();listCues();
   status(result.plan_error||(plan?'Saved director plan loaded · Preparing audio…':'Layout ready · Preparing audio…'));
+  (window as any).m2vStudioBridge?.loaded(id,false,project.title);
   let nextAudioUrl='';
   let audioCached=false;
   if(result.audio_url&&cloudService()){
@@ -161,6 +164,7 @@ async function load(id:string){
   if(sequence===loadSequence){
    console.error('[MotionStudio] Error loading song:', error);
    status('Failed to load: ' + (error?.message || String(error)));
+   (window as any).m2vStudioBridge?.error(id,error?.message||String(error));
   }
  }
 }
@@ -798,35 +802,17 @@ window.addEventListener('beforeunload',event=>{if(dirty||identityDirty||settings
 (window as any).getMotionProjectId = () => selected;
 (async()=>{try{
  const select=$<HTMLSelectElement>('project-select');
- let rows: {id: string; name: string}[] = [];
- if (cloudService()) {
-  try {
-   const res = await serviceJson('/api/songs?view=all&page_size=50');
-   rows = (res?.songs || []).filter((s:any)=>s.current_task_id).map((s:any)=>({id:s.current_task_id,name:s.title}));
-  } catch (err) {
-   console.warn('Failed to load songs from /api/songs:', err);
-   try { rows = await api('projects'); } catch (_) {}
-  }
- } else {
-  try {
-   rows = await api('projects');
-  } catch (err) {
-   console.warn('Local projects unavailable, attempting cloud songs:', err);
-   try {
-    const res = await serviceJson('/api/songs?view=all&page_size=50');
-    rows = (res?.songs || []).filter((s:any)=>s.current_task_id).map((s:any)=>({id:s.current_task_id,name:s.title}));
-    setCloudMode(true);
-   } catch (_) {}
-  }
- }
+ const rows: {id:string;name:string}[]=cloudService()
+  ? ((await serviceJson('/api/songs?view=all&page_size=50'))?.songs||[]).filter((s:any)=>s.current_task_id).map((s:any)=>({id:s.current_task_id,name:s.title}))
+  : await api('projects');
  for(const row of rows){const item=document.createElement('option');item.value=row.id;item.textContent=row.name;select.append(item);}
  if(window.m2vSongPicker){
   activeSongPicker = window.m2vSongPicker.mount(select,serviceJson,async id=>{await load(id);return selected===id;});
  }
  const params=new URLSearchParams(location.search),wanted=params.get('project')||params.get('song');
- const chosen=rows.find((row:{id:string;name:string})=>row.id===wanted||row.name===wanted)||(rows.length===1?rows[0]:null);
+ const chosen=wanted?rows.find((row:{id:string;name:string})=>row.id===wanted||row.name===wanted):(rows.length===1?rows[0]:null);
  if(chosen){select.value=chosen.id;await load(chosen.id);}else if(wanted){await load(wanted);}
-}catch(error){status(String(error));}})();
+}catch(error){status(String(error));(window as any).m2vStudioBridge?.error(new URLSearchParams(location.search).get('project')||'',String(error));}})();
 
 async function loadExports(){
   const id=selected,sequence=loadSequence;

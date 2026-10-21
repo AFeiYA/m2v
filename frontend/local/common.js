@@ -599,10 +599,12 @@ async function loadFileList(preferredTitle) {
 
     if (targetTaskId) {
       const idx = state.allFiles.findIndex(f => f.task_id === targetTaskId);
-      if (idx >= 0) {
-        loadSong(idx);
-        return;
+      if (idx >= 0) loadSong(idx);
+      else {
+        status('The requested song is unavailable. Choose it from My Songs or restore it from Trash.',true);
+        window.m2vStudioBridge?.error(targetTaskId,'The requested song is unavailable.');
       }
+      return;
     }
     if (targetSong) {
       const idx = state.allFiles.findIndex(f => f.name === targetSong || f.name.includes(targetSong));
@@ -615,6 +617,9 @@ async function loadFileList(preferredTitle) {
   } catch (e) {
     if (dom.songSelect) dom.songSelect.innerHTML = `<option value="">${window.t ? t("song_select_failed") : "Unable to load songs"}</option>`;
     status((window.t ? t("msg_load_file_failed") : "Failed to load song list: ") + e, true);
+    const params=new URLSearchParams(location.search);
+    const id=params.get('task_id')||(location.pathname.match(/\/lyric-editor\/([^/]+)/)||[])[1]||'';
+    window.m2vStudioBridge?.error(id,'Unable to load songs. Check your sign-in and retry.');
   }
 }
 
@@ -625,7 +630,12 @@ function cloudSongFile(s) {
 }
 
 let songLoadSequence = 0;
+let lyricEditRevision = 0;
+let alignmentSaveInFlight = false;
 async function loadSong(idx) {
+  const nextFile=state.allFiles[idx];
+  if(state.dirty&&nextFile&&nextFile!==state.currentFile&&!confirm('Switch songs and discard unsaved lyric changes?'))return;
+
   const loadSequence = ++songLoadSequence;
   const loadOwner = window.m2vCache?.getCurrentUid();
   const isCurrentLoad = () => loadSequence === songLoadSequence && loadOwner === window.m2vCache?.getCurrentUid();
@@ -633,7 +643,7 @@ async function loadSong(idx) {
   if (!file) return;
   if(file.is_saas&&!file.details_loaded){
     const response=await apiFetch(`/api/editor/tasks/${file.task_id}/info`);
-    if(!response.ok){status('Unable to open this version. Restore it from Trash if needed.',true);return;}
+    if(!response.ok){status('Unable to open this version. Restore it from Trash if needed.',true);window.m2vStudioBridge?.error(file.task_id,'Unable to open this song. Check sign-in or restore it from Trash.');return;}
     const info = await response.json();
     if (!isCurrentLoad()) return;
     Object.assign(file,cloudSongFile(info));
@@ -646,15 +656,6 @@ async function loadSong(idx) {
   trackLoadingStates.clear();
 
   state.currentFile = file;
-  if (window.parent && window.parent !== window) {
-    try {
-      window.parent.postMessage({
-        type: "M2V_SONG_CHANGED",
-        songId: file.task_id || file.id || file.name,
-        title: file.name
-      }, window.location.origin);
-    } catch (_) {}
-  }
   state.selectedLine = -1;
   state.selectedWord = -1;
   state.undoStack = [];
@@ -721,8 +722,11 @@ async function loadSong(idx) {
     if (!isCurrentLoad()) return;
     status((window.t ? t("msg_align_load_failed") : "Failed to load alignment data: ") + e, true);
     state.alignment = null;
+    window.m2vStudioBridge?.error(taskId || file.name, 'Unable to load lyric alignment. Check sign-in or restore the song from Trash.');
     return;
   }
+
+  window.m2vStudioBridge?.loaded(taskId || file.name, state.dirty, file.name);
 
   // 1. 立即优先渲染歌词与分镜面板 (零等待秒级呈现)
   if (window.onSongLoaded) window.onSongLoaded();
@@ -1115,21 +1119,25 @@ window.downloadOriginalAudio = downloadOriginalAudio;
 // Save Alignment (Pydantic v2 Backend)
 // ---------------------------------------------------------------------------
 async function saveAlignment() {
-  if (!state.currentFile || !state.alignment) return false;
+  if (!state.currentFile || !state.alignment || alignmentSaveInFlight) return false;
+  const file=state.currentFile, revision=lyricEditRevision, snapshot=JSON.parse(JSON.stringify(state.alignment));
+  const id=file.task_id || file.id || file.name;
+  alignmentSaveInFlight=true;
+  window.m2vStudioBridge?.state(id,state.dirty,true);
   status(window.t ? t("msg_saving") : "保存中…");
   try {
     let r;
-    if (state.currentFile.is_saas || state.currentFile.task_id) {
-      r = await apiFetch(`/api/editor/tasks/${state.currentFile.task_id}/align`, {
+    if (file.is_saas || file.task_id) {
+      r = await apiFetch(`/api/editor/tasks/${file.task_id}/align`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state.alignment),
+        body: JSON.stringify(snapshot),
       });
     } else {
-      r = await apiFetch("/api/alignment?path=" + encodeURIComponent(state.currentFile.json_path), {
+      r = await apiFetch("/api/alignment?path=" + encodeURIComponent(file.json_path), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state.alignment),
+        body: JSON.stringify(snapshot),
       });
     }
     const j = await r.json();
@@ -1149,7 +1157,8 @@ async function saveAlignment() {
       status(msg, true);
       return false;
     } else {
-      state.dirty = false;
+      if(state.currentFile!==file)return true;
+      state.dirty = lyricEditRevision !== revision;
       const newVersion = j.version || String(Date.now());
       if (state.currentFile) {
         state.currentFile.version = newVersion;
@@ -1157,16 +1166,20 @@ async function saveAlignment() {
       const uid = window.m2vCache ? window.m2vCache.getCurrentUid() : null;
       const taskId = state.currentFile?.task_id || state.currentFile?.id;
       if (window.m2vCache && taskId) {
-        window.m2vCache.saveProject(uid, taskId, "alignment", state.alignment, newVersion);
-        window.m2vCache.clearDraft(uid, taskId, "alignment");
+        window.m2vCache.saveProject(uid, taskId, "alignment", snapshot, newVersion);
+        if(!state.dirty)window.m2vCache.clearDraft(uid, taskId, "alignment");
       }
       document.title = (state.currentFile?.name || "M2V") + " — " + (window.t ? t("app_title") : "编辑器");
-      status(window.t ? t("msg_saved") : "✅ 已保存");
+      window.m2vStudioBridge?.saved(id,state.dirty,newVersion);
+      status(state.dirty?'Saved the submitted version. Newer edits remain unsaved.':(window.t ? t('msg_saved') : 'Saved'));
       return true;
     }
   } catch (e) {
     status((window.t ? t("msg_save_failed") : "保存失败: ") + e, true);
     return false;
+  } finally {
+    alignmentSaveInFlight=false;
+    if(state.currentFile===file)window.m2vStudioBridge?.state(id,state.dirty,false);
   }
 }
 
@@ -1258,7 +1271,9 @@ function scheduleDraftSave() {
 }
 
 function markDirty() {
+  lyricEditRevision++;
   state.dirty = true;
+  window.m2vStudioBridge?.state(state.currentFile?.task_id || state.currentFile?.id || state.currentFile?.name || '',true,alignmentSaveInFlight);
   document.title = "● " + (state.currentFile?.name || "M2V") + " — 编辑器";
   scheduleDraftSave();
 }

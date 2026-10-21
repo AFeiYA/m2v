@@ -122,3 +122,12 @@ test('signing out during access lookup does not start a download',async()=>{
  await assert.rejects(s.api.downloadService('/api/cloud-motion/render/'+'c'.repeat(32)+'/download'),/Account changed/);
  assert.equal(s.clicks.length,0);
 });
+
+test('a saved token alone does not silently change a standalone local backend',async()=>{
+ const s=setup({host:'localhost'});
+ s.context.localStorage={getItem:()=> 'saved-token'};
+ assert.equal(s.api.cloudService(),false);
+ await s.api.motionJson('projects');
+ assert.equal(s.calls[0].url,'https://localhost/api/motion/projects');
+ assert.equal(s.calls[0].authorization,null);
+});

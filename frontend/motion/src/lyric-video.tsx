@@ -1,5 +1,5 @@
 import {highlightState} from './karaoke';
-import React, {useEffect,useMemo,useState,useId} from 'react';
+import React, {useEffect,useState,useId} from 'react';
 import {AbsoluteFill,Img,useCurrentFrame,useVideoConfig,useDelayRender} from 'remotion';
 import {featuresAt,type Project,type Options} from './model';
 import {compileSongPosters,stageAt,visiblePosterAt,canvasMeasure,POSTER_FONT,posterNodeState,posterHoldState,posterExitOpacity,posterRings,compileIntroTitle,introTitleState,resolvePaletteColors,type CompiledPoster,type CompiledIntroTitle} from './poster-layout';
@@ -55,7 +55,7 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
  const background = stage?.background || (ktvLayout || appleLayout)?.palette.background || '#0d120a';
  const accent = stage?.accent || (ktvLayout || appleLayout)?.palette.accent || '#b7f34a';
 
- const feature=useMemo(()=>featuresAt(project,t),[project,t]);
+ const feature=featuresAt(project,t);
  const complete=plan?Math.max(...plan.nodes.map(n=>n.settled)):Infinity;
  const introState=intro?introTitleState(intro,t,height):null;
  const songFrame=songLayoutAt(songLayout,t);
