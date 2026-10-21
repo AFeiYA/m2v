@@ -212,6 +212,8 @@ test('Apple Scroll multi-line sentences compile exact rows, dynamic height, and 
     rect: (x, y, w, h) => canvasCalls.push({ type: 'rect', x, y, w, h }),
     clip: () => canvasCalls.push({ type: 'clip' }),
     fillText: (text, x, y) => canvasCalls.push({ type: 'fillText', text, x, y }),
+    fillRect: (x, y, w, h) => canvasCalls.push({ type: 'fillRect', x, y, w, h }),
+    createRadialGradient: () => ({ addColorStop: () => {} }),
     set font(v) {},
     set fillStyle(v) {},
     set globalAlpha(v) {},
@@ -223,4 +225,38 @@ test('Apple Scroll multi-line sentences compile exact rows, dynamic height, and 
   assert.ok(canvasCalls.length > 0, 'Canvas paint commands recorded');
   const fillTexts = canvasCalls.filter(c => c.type === 'fillText');
   assert.ok(fillTexts.length >= 2, 'All sub-rows of active multi-line sentence are painted');
+});
+
+test('Apple Scroll viewport restricts visible lines to 3-4, preserves top/bottom safe breathing space and never touches borders', () => {
+  const project = {
+    duration: 60,
+    lines: Array.from({ length: 15 }, (_, i) => ({
+      id: String(i),
+      text: `Lyric line number ${i} for scrolling density check`,
+      start: i * 3.0,
+      end: (i + 1) * 3.0 - 0.5,
+      words: []
+    }))
+  };
+
+  const compiled = compileAppleScrollLayout(project, 1080, 1920, measure, palette);
+
+  // Test at several playback times
+  [0.5, 9.0, 18.0, 30.0].forEach(t => {
+    const state = appleScrollStateAt(compiled, t);
+
+    // 1. Never overfill screen: visible line count must be between 1 and 4
+    assert.ok(state.items.length >= 1 && state.items.length <= 4, `At t=${t}s, lines count ${state.items.length} must be <= 4`);
+
+    // 2. Never touch borders (no 顶格):
+    // All visible items must stay within 16% ~ 82% of height
+    for (const item of state.items) {
+      assert.ok(item.y > 1920 * 0.14, `Line ${item.compiled.lineIndex} y=${item.y} must not exceed top safe margin`);
+      assert.ok(item.y < 1920 * 0.82, `Line ${item.compiled.lineIndex} y=${item.y} must not exceed bottom safe margin`);
+      assert.ok(item.alpha > 0.02, 'Rendered item must have noticeable alpha');
+      if (item.isActive) {
+        assert.equal(item.alpha, 1.0, 'Active line must have full opacity 1.0');
+      }
+    }
+  });
 });

@@ -364,7 +364,8 @@ export function compileAppleScrollLayout(
   const activeFontSize = Math.round(width * 0.052); // ~56px on 1080w
   const contextFontSize = Math.round(activeFontSize * 0.72);
   const rowLineHeight = Math.round(activeFontSize * 1.34);
-  const paragraphGap = Math.round(activeFontSize * 1.65);
+  // 句子间距舒展留白：设为字号的 1.9x，营造优雅呼吸感
+  const paragraphGap = Math.round(activeFontSize * 1.9);
 
   const compiledLines: AppleLineCompiled[] = [];
   let cumulativeY = 0;
@@ -438,6 +439,28 @@ export interface AppleLineRenderItem {
   spansWithProgress: { span: HighlightSpan; progress: number; active: boolean }[];
 }
 
+/**
+ * 视口上下边缘羽化衰减函数 (Hermite 曲线)。
+ * 顶部 16% 与底部 20% 属于受保护的负空间呼吸区，歌词接近边缘时平滑融入背景。
+ */
+export function computeAppleEdgeFade(centerY: number, height: number): number {
+  const topFadeStart = height * 0.16; // 顶部 16% 呼吸安全区
+  const topFadeEnd = height * 0.30;   // 30% 处达到全透
+  const bottomFadeStart = height * 0.65; // 65% 开始衰减
+  const bottomFadeEnd = height * 0.80;   // 底部 20% 呼吸安全区
+
+  if (centerY <= topFadeStart || centerY >= bottomFadeEnd) return 0;
+  if (centerY < topFadeEnd) {
+    const p = (centerY - topFadeStart) / (topFadeEnd - topFadeStart);
+    return p * p * (3 - 2 * p);
+  }
+  if (centerY > bottomFadeStart) {
+    const p = (bottomFadeEnd - centerY) / (bottomFadeEnd - bottomFadeStart);
+    return p * p * (3 - 2 * p);
+  }
+  return 1;
+}
+
 export function appleScrollStateAt(
   layout: AppleScrollCompiled,
   t: number
@@ -467,31 +490,54 @@ export function appleScrollStateAt(
     scrollFraction = 1 - Math.pow(1 - scrollFraction, 3);
   }
 
-  // Apple Music 移动端光学焦点约在视口高 44% 偏上方，留给下方预读更多空间
-  const focalCenterY = Math.round(layout.height * 0.44);
+  // Apple Music 移动端光学焦点约在视口高 42% 偏上方，留给下方预读更多空间
+  const focalCenterY = Math.round(layout.height * 0.42);
   const focalWorldY = currentLine.centerY + (nextLine ? (nextLine.centerY - currentLine.centerY) * scrollFraction : 0);
+  const continuousIndex = activeIndex + scrollFraction;
 
   const items: AppleLineRenderItem[] = [];
 
   for (let i = 0; i < lines.length; i++) {
+    const distUnits = i - continuousIndex;
+    // 限制视口渲染行数：上方最多 1.5 行、下方最多 2.5 行，彻底杜绝满屏与拥挤
+    if (distUnits < -1.8 || distUnits > 2.8) {
+      continue;
+    }
+
     const c = lines[i];
     // 当前句子的视觉中心
     const itemCenterY = Math.round(focalCenterY + (c.centerY - focalWorldY));
     // 当前句子首行基线
     const itemTopY = Math.round(itemCenterY - c.sentenceHeight / 2);
 
-    // 剔除完全超出可视区域外的句子
-    if (itemTopY + c.sentenceHeight < -200 || itemTopY > layout.height + 250) {
+    // 剔除进入上下绝对安全保护区的句子
+    if (itemCenterY < layout.height * 0.14 || itemCenterY > layout.height * 0.82) {
       continue;
     }
 
-    const distFromFocus = (c.centerY - focalWorldY) / Math.max(1, layout.paragraphGap);
     const isActive = i === activeIndex;
+    const absDist = Math.abs(distUnits);
 
-    const scale = isActive ? 1.0 : Math.max(0.85, 1.0 - Math.min(3, Math.abs(distFromFocus)) * 0.05);
-    const alpha = isActive
-      ? 1.0
-      : Math.max(0.2, 0.6 - Math.min(3, Math.abs(distFromFocus)) * 0.14);
+    let baseAlpha = 0;
+    if (isActive) {
+      baseAlpha = 1.0;
+    } else if (distUnits < 0) {
+      // 上方已唱句子：低调退场
+      baseAlpha = Math.max(0, 0.36 * (1 - (absDist - 0.5) / 1.5));
+    } else {
+      // 下方即将唱的句子：适度清晰方便伴唱预读
+      baseAlpha = Math.max(0, 0.48 * (1 - (absDist - 0.5) / 2.2));
+    }
+
+    // 叠加视口边缘平滑羽化衰减，彻底避免靠近边界时顶格
+    const edgeFade = computeAppleEdgeFade(itemCenterY, layout.height);
+    const alpha = Number((baseAlpha * edgeFade).toFixed(3));
+    if (alpha <= 0.02) {
+      continue;
+    }
+
+    // 焦点微缩放层级（非焦点句轻微缩放 0.90 ~ 0.96，焦点句 1.0）
+    const scale = isActive ? 1.0 : Math.max(0.88, 1.0 - absDist * 0.05);
 
     const spansWithProgress = c.spans.map(span => {
       const h = highlightState(span, t, 'sweep');
@@ -514,6 +560,23 @@ export function appleScrollStateAt(
   };
 }
 
+function hexToRgba(hex: string, alpha: number): string {
+  const clean = hex.replace('#', '');
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16);
+    const g = parseInt(clean[1] + clean[1], 16);
+    const b = parseInt(clean[2] + clean[2], 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  if (clean.length >= 6) {
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  return `rgba(255,255,255,${alpha})`;
+}
+
 export function paintAppleScrollCanvas(
   ctx: CanvasRenderingContext2D,
   layout: AppleScrollCompiled,
@@ -522,6 +585,27 @@ export function paintAppleScrollCanvas(
 ): void {
   const { items } = appleScrollStateAt(layout, t);
 
+  // 1. 绘制焦点区域轻微的环境氛围晕光 (Ambient Glow)
+  if (typeof ctx.createRadialGradient === 'function') {
+    ctx.save();
+    const focalCenterY = Math.round(layout.height * 0.42);
+    const glow = ctx.createRadialGradient(
+      layout.width * 0.38,
+      focalCenterY,
+      layout.width * 0.05,
+      layout.width * 0.38,
+      focalCenterY,
+      layout.width * 0.65
+    );
+    glow.addColorStop(0, hexToRgba(layout.palette.accent, 0.10));
+    glow.addColorStop(0.5, hexToRgba(layout.palette.accent, 0.03));
+    glow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, layout.width, layout.height);
+    ctx.restore();
+  }
+
+  // 2. 绘制歌词句子
   for (const item of items) {
     const c = item.compiled;
     ctx.save();
@@ -530,13 +614,13 @@ export function paintAppleScrollCanvas(
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
 
-    // 1. 绘制底色文字（所有子行）
+    // 绘制底色文字（所有子行）
     ctx.fillStyle = layout.palette.foreground;
     for (const row of c.rows) {
       ctx.fillText(row.text, row.x, item.y + row.yOffset);
     }
 
-    // 2. 焦点行绘制卡拉OK高亮扫光
+    // 焦点行绘制卡拉OK高亮扫光
     if (item.isActive) {
       for (const sp of item.spansWithProgress) {
         if (sp.progress <= 0) continue;

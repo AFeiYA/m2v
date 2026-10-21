@@ -109,79 +109,114 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
 
     {!songFrame.cover && activeVisualMode === 'apple' && appleLayout && (()=>{
       const { items } = appleScrollStateAt(appleLayout, t);
-      return items.map(item => {
-        const c = item.compiled;
-        const fontSize = Math.round(c.fontSize * item.scale);
-        if (!item.isActive) {
-          return (
-            <g key={c.lineIndex} opacity={item.alpha}>
-              {c.rows.map((row, rIdx) => (
-                <text
-                  key={rIdx}
-                  x={row.x}
-                  y={item.y + row.yOffset}
-                  fill={appleLayout.palette.foreground}
-                  fontSize={fontSize}
-                  fontWeight={700}
-                  fontFamily={POSTER_FONT}
-                  style={{whiteSpace:'pre'}}
-                >
-                  {row.text}
-                </text>
-              ))}
-            </g>
-          );
-        }
-        return (
-          <g key={c.lineIndex} opacity={item.alpha}>
-            {c.rows.map((row, rIdx) => (
-              <text
-                key={rIdx}
-                x={row.x}
-                y={item.y + row.yOffset}
-                fill={appleLayout.palette.foreground}
-                fontSize={fontSize}
-                fontWeight={700}
-                fontFamily={POSTER_FONT}
-                style={{whiteSpace:'pre'}}
-              >
-                {row.text}
-              </text>
-            ))}
-            {item.spansWithProgress.map((sp, k) => {
-              if (sp.progress <= 0) return null;
-              const clipId = `apple-clip-${highlightId}-${c.lineIndex}-${k}`;
-              const targetRow = c.rows[sp.span.row] || c.rows[0];
+      const maskGradId = `apple-scroll-fade-grad-${highlightId}`;
+      const maskId = `apple-scroll-fade-mask-${highlightId}`;
+      const ambientGlowId = `apple-ambient-glow-${highlightId}`;
+
+      return (
+        <g key="apple-scroll-container">
+          <defs>
+            {/* 上下边缘柔和羽化遮罩：顶部 16% 与底部 20% 保护留白，确保歌词绝不顶格，平滑融入深色背景 */}
+            <linearGradient id={maskGradId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#fff" stopOpacity="0" />
+              <stop offset="16%" stopColor="#fff" stopOpacity="0" />
+              <stop offset="28%" stopColor="#fff" stopOpacity="1" />
+              <stop offset="68%" stopColor="#fff" stopOpacity="1" />
+              <stop offset="80%" stopColor="#fff" stopOpacity="0" />
+              <stop offset="100%" stopColor="#fff" stopOpacity="0" />
+            </linearGradient>
+            <mask id={maskId}>
+              <rect x="0" y="0" width={width} height={height} fill={`url(#${maskGradId})`} />
+            </mask>
+            {/* 焦点位置微弱环境晕光 (Ambient Glow) */}
+            <radialGradient id={ambientGlowId} cx="38%" cy="42%" r="55%">
+              <stop offset="0%" stopColor={appleLayout.palette.accent} stopOpacity={0.12} />
+              <stop offset="50%" stopColor={appleLayout.palette.accent} stopOpacity={0.03} />
+              <stop offset="100%" stopColor={appleLayout.palette.background} stopOpacity={0} />
+            </radialGradient>
+          </defs>
+
+          {/* 氛围晕光底层 */}
+          <rect x="0" y="0" width={width} height={height} fill={`url(#${ambientGlowId})`} pointerEvents="none" />
+
+          {/* 歌词流式聚焦渲染（带遮罩羽化） */}
+          <g mask={`url(#${maskId})`}>
+            {items.map(item => {
+              const c = item.compiled;
+              const fontSize = Math.round(c.fontSize * item.scale);
+              if (!item.isActive) {
+                return (
+                  <g key={c.lineIndex} opacity={item.alpha}>
+                    {c.rows.map((row, rIdx) => (
+                      <text
+                        key={rIdx}
+                        x={row.x}
+                        y={item.y + row.yOffset}
+                        fill={appleLayout.palette.foreground}
+                        fontSize={fontSize}
+                        fontWeight={700}
+                        fontFamily={POSTER_FONT}
+                        style={{whiteSpace:'pre'}}
+                      >
+                        {row.text}
+                      </text>
+                    ))}
+                  </g>
+                );
+              }
               return (
-                <g key={k} aria-hidden="true">
-                  <defs>
-                    <clipPath id={clipId}>
-                      <rect
-                        x={sp.span.x}
-                        y={item.y + sp.span.top}
-                        width={sp.span.width * sp.progress}
-                        height={sp.span.height}
-                      />
-                    </clipPath>
-                  </defs>
-                  <text
-                    x={targetRow.x}
-                    y={item.y + targetRow.yOffset}
-                    fill={appleLayout.palette.accent}
-                    clipPath={`url(#${clipId})`}
-                    fontSize={fontSize}
-                    fontWeight={700}
-                    fontFamily={POSTER_FONT}
-                    style={{whiteSpace:'pre'}}
-                  >
-                    {targetRow.text}
-                  </text>
+                <g key={c.lineIndex} opacity={item.alpha}>
+                  {c.rows.map((row, rIdx) => (
+                    <text
+                      key={rIdx}
+                      x={row.x}
+                      y={item.y + row.yOffset}
+                      fill={appleLayout.palette.foreground}
+                      fontSize={fontSize}
+                      fontWeight={700}
+                      fontFamily={POSTER_FONT}
+                      style={{whiteSpace:'pre'}}
+                    >
+                      {row.text}
+                    </text>
+                  ))}
+                  {item.spansWithProgress.map((sp, k) => {
+                    if (sp.progress <= 0) return null;
+                    const clipId = `apple-clip-${highlightId}-${c.lineIndex}-${k}`;
+                    const targetRow = c.rows[sp.span.row] || c.rows[0];
+                    return (
+                      <g key={k} aria-hidden="true">
+                        <defs>
+                          <clipPath id={clipId}>
+                            <rect
+                              x={sp.span.x}
+                              y={item.y + sp.span.top}
+                              width={sp.span.width * sp.progress}
+                              height={sp.span.height}
+                            />
+                          </clipPath>
+                        </defs>
+                        <text
+                          x={targetRow.x}
+                          y={item.y + targetRow.yOffset}
+                          fill={appleLayout.palette.accent}
+                          clipPath={`url(#${clipId})`}
+                          fontSize={fontSize}
+                          fontWeight={700}
+                          fontFamily={POSTER_FONT}
+                          style={{whiteSpace:'pre'}}
+                        >
+                          {targetRow.text}
+                        </text>
+                      </g>
+                    );
+                  })}
                 </g>
               );
             })}
           </g>
-        );
-      });
+        </g>
+      );
     })()}
 
     {!songFrame.cover && activeVisualMode === 'kinetic' && plan?.nodes.map((n,i)=>{
