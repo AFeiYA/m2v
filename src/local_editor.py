@@ -2364,7 +2364,7 @@ def rhythm_studio():
     return HTMLResponse(path.read_text(encoding="utf-8"), headers={"Cache-Control": "no-cache"})
 
 
-@app.get("/motion-studio", response_class=HTMLResponse)
+@app.api_route("/motion-studio", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def motion_studio():
     ms_file = _FRONTEND_DIR / "motion_studio_director.html"
     if not ms_file.exists():
