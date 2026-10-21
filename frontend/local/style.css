@@ -493,7 +493,7 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 #time-display { font-family: monospace; font-size: 12px; color: #94a3b8; font-variant-numeric: tabular-nums; }
 #zoom-slider { width: 120px; vertical-align: middle; accent-color: #b7f34a; }
 #editor-container { flex: 1; display: flex; overflow: hidden; background: #090a0f; }
-#lyrics-panel { width: 45%; overflow-y: auto; border-right: 1px solid var(--border); background: #0b0c10; }
+#lyrics-panel { width: 45%; min-width: 0; flex-shrink: 0; overflow-y: auto; border-right: 1px solid var(--border); background: #0b0c10; }
 #lyrics-list { padding: 4px 0; }
 .lyric-row {
   display: flex; align-items: center;
@@ -545,18 +545,24 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .lyric-syl.sung { color: #b7f34a; }
 .lyric-syl.singing { color: #c9ff69; text-shadow: 0 0 8px rgba(183, 243, 74, 0.5); }
 
-#line-edit-controls { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+#line-edit-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
 #line-edit-controls button {
   background: var(--bg-hover); color: var(--text);
   border: 1px solid var(--border); padding: 2px 8px;
   border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap;
 }
 #line-edit-controls button:hover { background: var(--accent); color: #10120d; }
-#word-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #090a0f; }
+#word-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: #090a0f; }
 #word-panel-header {
+  display: flex; flex-direction: column; align-items: stretch; gap: 10px;
+  flex-shrink: 0; min-width: 0;
   padding: 10px 14px; background: #111216;
   border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600;
   color: rgba(255, 255, 255, 0.6);
+}
+#word-panel-title {
+  display: block; min-width: 0; line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 #word-timeline { flex: 1; overflow-x: auto; overflow-y: hidden; padding: 14px; position: relative; }
 .word-bar-container {
@@ -675,7 +681,7 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   box-shadow: 0 0 12px #b7f34a;
 }
 #word-controls {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; flex-wrap: wrap; flex-shrink: 0; align-items: center; gap: 8px;
   padding: 8px 14px; background: #111216;
   border-top: 1px solid var(--border);
 }

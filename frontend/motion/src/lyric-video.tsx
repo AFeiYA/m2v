@@ -109,34 +109,72 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
 
     {!songFrame.cover && activeVisualMode === 'apple' && appleLayout && (()=>{
       const { items } = appleScrollStateAt(appleLayout, t);
-      const startX = Math.round(width * 0.12);
       return items.map(item => {
         const c = item.compiled;
         const fontSize = Math.round(c.fontSize * item.scale);
         if (!item.isActive) {
           return (
-            <text key={c.lineIndex} x={startX} y={item.y} fill={appleLayout.palette.foreground} opacity={item.alpha} fontSize={fontSize} fontWeight={700} fontFamily={POSTER_FONT} style={{whiteSpace:'pre'}}>
-              {c.text}
-            </text>
+            <g key={c.lineIndex} opacity={item.alpha}>
+              {c.rows.map((row, rIdx) => (
+                <text
+                  key={rIdx}
+                  x={row.x}
+                  y={item.y + row.yOffset}
+                  fill={appleLayout.palette.foreground}
+                  fontSize={fontSize}
+                  fontWeight={700}
+                  fontFamily={POSTER_FONT}
+                  style={{whiteSpace:'pre'}}
+                >
+                  {row.text}
+                </text>
+              ))}
+            </g>
           );
         }
         return (
           <g key={c.lineIndex} opacity={item.alpha}>
-            <text x={startX} y={item.y} fill={appleLayout.palette.foreground} fontSize={fontSize} fontWeight={700} fontFamily={POSTER_FONT} style={{whiteSpace:'pre'}}>
-              {c.text}
-            </text>
+            {c.rows.map((row, rIdx) => (
+              <text
+                key={rIdx}
+                x={row.x}
+                y={item.y + row.yOffset}
+                fill={appleLayout.palette.foreground}
+                fontSize={fontSize}
+                fontWeight={700}
+                fontFamily={POSTER_FONT}
+                style={{whiteSpace:'pre'}}
+              >
+                {row.text}
+              </text>
+            ))}
             {item.spansWithProgress.map((sp, k) => {
               if (sp.progress <= 0) return null;
               const clipId = `apple-clip-${highlightId}-${c.lineIndex}-${k}`;
+              const targetRow = c.rows[sp.span.row] || c.rows[0];
               return (
                 <g key={k} aria-hidden="true">
                   <defs>
                     <clipPath id={clipId}>
-                      <rect x={sp.span.x} y={item.y - Math.round(c.fontSize * 0.9)} width={sp.span.width * sp.progress} height={Math.round(c.fontSize * 1.3)} />
+                      <rect
+                        x={sp.span.x}
+                        y={item.y + sp.span.top}
+                        width={sp.span.width * sp.progress}
+                        height={sp.span.height}
+                      />
                     </clipPath>
                   </defs>
-                  <text x={startX} y={item.y} fill={appleLayout.palette.accent} clipPath={`url(#${clipId})`} fontSize={fontSize} fontWeight={700} fontFamily={POSTER_FONT} style={{whiteSpace:'pre'}}>
-                    {c.text}
+                  <text
+                    x={targetRow.x}
+                    y={item.y + targetRow.yOffset}
+                    fill={appleLayout.palette.accent}
+                    clipPath={`url(#${clipId})`}
+                    fontSize={fontSize}
+                    fontWeight={700}
+                    fontFamily={POSTER_FONT}
+                    style={{whiteSpace:'pre'}}
+                  >
+                    {targetRow.text}
                   </text>
                 </g>
               );

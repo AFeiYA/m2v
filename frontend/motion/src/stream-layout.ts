@@ -251,10 +251,83 @@ export function paintKtvDualCanvas(
 // 2. Apple Music 灵动流式歌词模型 (9:16 垂直居中滚动聚焦)
 // ---------------------------------------------------------------------------
 
+const NO_LINE_START = /^[，。！？、；：”’）》〉】｝〕…—~～,.!?;:)\]}"']/u;
+const NO_LINE_END = /^[“‘（《〈【｛〔([<{]/u;
+
+/**
+ * 依行宽与避头尾法则 (Kinsoku Shori) 将长句折为多行。
+ * 英文保持词完整、中日韩允许字间换行、标点不单独孤立在行首或行尾。
+ */
+export function wrapSentenceToRows(
+  text: string,
+  size: number,
+  weight: number,
+  maxWidth: number,
+  measure: TextMeasure
+): string[] {
+  if (!text || !text.trim()) return [text || ''];
+  if (measure(text, size, weight).width <= maxWidth) return [text.trim()];
+
+  // Token 分词：英文完整单词（含缩写与连字符）及后随标点、汉字单字、其它符号及空白
+  const tokenRegex = /[\p{Script=Latin}\p{N}]+(?:['’\-][\p{Script=Latin}\p{N}]+)*[^\p{Script=Latin}\p{N}\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]*|[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[^\p{Script=Latin}\p{N}\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+|\s+/gu;
+
+  const tokens = text.match(tokenRegex) || [text];
+  const rows: string[] = [''];
+
+  for (const token of tokens) {
+    const i = rows.length - 1;
+    const current = rows[i];
+    const candidate = current + token;
+
+    if (current && measure(candidate, size, weight).width > maxWidth && token.trim()) {
+      // 避尾法则：上一行末尾是开括号或前引号时，将该字符拉到新行
+      const lastChar = current.trim().slice(-1);
+      if (NO_LINE_END.test(lastChar)) {
+        const prevTokens = current.match(tokenRegex) || [];
+        if (prevTokens.length > 1) {
+          const pulled = prevTokens.pop()!;
+          rows[i] = prevTokens.join('').trimEnd();
+          rows.push((pulled + token).trimStart());
+          continue;
+        }
+      }
+
+      // 避头法则：当前 token 以行首禁用标点开头时，将上一行末尾单词一起拉下
+      if (NO_LINE_START.test(token.trim())) {
+        const prevTokens = current.match(tokenRegex) || [];
+        if (prevTokens.length > 1) {
+          const pulled = prevTokens.pop()!;
+          rows[i] = prevTokens.join('').trimEnd();
+          rows.push((pulled + token).trimStart());
+          continue;
+        }
+      }
+
+      rows.push(token.trimStart());
+    } else {
+      rows[i] += token;
+    }
+  }
+
+  const cleaned = rows.map(r => r.trim()).filter(Boolean);
+  return cleaned.length ? cleaned : [text.trim()];
+}
+
+export interface AppleRowCompiled {
+  text: string;
+  x: number;
+  yOffset: number; // 相对当前句子基线的纵向偏移 (0, rowLineHeight, 2*rowLineHeight...)
+  width: number;
+}
+
 export interface AppleLineCompiled {
   lineIndex: number;
   line: Line;
   text: string;
+  rows: AppleRowCompiled[];
+  sentenceHeight: number; // (rows.length - 1) * rowLineHeight
+  cumulativeY: number;    // 虚拟长列表中的句首基线位置
+  centerY: number;        // 该句的纵向视觉中心
   width: number;
   fontSize: number;
   start: number;
@@ -266,8 +339,12 @@ export interface AppleScrollCompiled {
   aspect: '9:16';
   width: number;
   height: number;
+  startX: number;
+  maxWidth: number;
   activeFontSize: number;
   contextFontSize: number;
+  rowLineHeight: number;
+  paragraphGap: number;
   lineGap: number;
   lines: AppleLineCompiled[];
   palette: StreamPalette;
@@ -281,47 +358,72 @@ export function compileAppleScrollLayout(
   palette: StreamPalette
 ): AppleScrollCompiled {
   const lines = project.lines || [];
-  const activeFontSize = Math.round(width * 0.052); // ~56px on 1080
-  const contextFontSize = Math.round(activeFontSize * 0.72); // ~40px
-  const lineGap = Math.round(activeFontSize * 1.55);
+  // Apple Music 移动端规范：左边距安全边距约 8%，给歌词留出 84% 舒适阅读宽度
+  const startX = Math.round(width * 0.08);
+  const maxWidth = width - startX * 2;
+  const activeFontSize = Math.round(width * 0.052); // ~56px on 1080w
+  const contextFontSize = Math.round(activeFontSize * 0.72);
+  const rowLineHeight = Math.round(activeFontSize * 1.34);
+  const paragraphGap = Math.round(activeFontSize * 1.65);
 
   const compiledLines: AppleLineCompiled[] = [];
+  let cumulativeY = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const m = measure(line.text, activeFontSize, 700);
-    // 水平居中或者靠左边距
-    const startX = Math.round(width * 0.12);
+    const textRows = wrapSentenceToRows(line.text, activeFontSize, 700, maxWidth, measure);
+    const rowList: AppleRowCompiled[] = textRows.map((text, rIdx) => ({
+      text,
+      x: startX,
+      yOffset: rIdx * rowLineHeight,
+      width: measure(text, activeFontSize, 700).width,
+    }));
+
+    const sentenceHeight = (textRows.length - 1) * rowLineHeight;
+    const centerY = cumulativeY + sentenceHeight / 2;
+
     const wordList = line.words || [];
     const indices = wordList.map((_, idx) => idx);
     const spans = compileHighlightSpans(
       wordList,
       indices,
-      [{ text: line.text, x: startX, y: 0 }],
+      rowList.map(r => ({ text: r.text, x: r.x, y: r.yOffset })),
       activeFontSize,
       700,
       measure
     );
 
+    const m = measure(line.text, activeFontSize, 700);
+
     compiledLines.push({
       lineIndex: i,
       line,
       text: line.text,
+      rows: rowList,
+      sentenceHeight,
+      cumulativeY,
+      centerY,
       width: m.width,
       fontSize: activeFontSize,
       start: line.start,
       end: line.end,
       spans,
     });
+
+    cumulativeY += sentenceHeight + paragraphGap;
   }
 
   return {
     aspect: '9:16',
     width,
     height,
+    startX,
+    maxWidth,
     activeFontSize,
     contextFontSize,
-    lineGap,
+    rowLineHeight,
+    paragraphGap,
+    lineGap: paragraphGap,
     lines: compiledLines,
     palette,
   };
@@ -329,7 +431,7 @@ export function compileAppleScrollLayout(
 
 export interface AppleLineRenderItem {
   compiled: AppleLineCompiled;
-  y: number;
+  y: number; // 句首第一行 (row 0) 的基线 Y 坐标
   scale: number;
   alpha: number;
   isActive: boolean;
@@ -354,7 +456,7 @@ export function appleScrollStateAt(
     }
   }
 
-  // 2. 平滑过渡因子 (如果正在接近下一行，适度向上平移)
+  // 2. 平滑过渡因子 (如果正在接近下一行，平滑上滚)
   const currentLine = lines[activeIndex];
   const nextLine = lines[activeIndex + 1];
   let scrollFraction = 0.0;
@@ -365,26 +467,32 @@ export function appleScrollStateAt(
     scrollFraction = 1 - Math.pow(1 - scrollFraction, 3);
   }
 
-  const focalCenterY = Math.round(layout.height * 0.45);
-  const continuousIndex = activeIndex + scrollFraction;
+  // Apple Music 移动端光学焦点约在视口高 44% 偏上方，留给下方预读更多空间
+  const focalCenterY = Math.round(layout.height * 0.44);
+  const focalWorldY = currentLine.centerY + (nextLine ? (nextLine.centerY - currentLine.centerY) * scrollFraction : 0);
 
   const items: AppleLineRenderItem[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const dist = i - continuousIndex;
-    // 距离焦点超过 4 行的不在视口渲染
-    if (Math.abs(dist) > 4.5) continue;
+    const c = lines[i];
+    // 当前句子的视觉中心
+    const itemCenterY = Math.round(focalCenterY + (c.centerY - focalWorldY));
+    // 当前句子首行基线
+    const itemTopY = Math.round(itemCenterY - c.sentenceHeight / 2);
 
-    const y = Math.round(focalCenterY + dist * layout.lineGap);
-    const isActive = Math.abs(dist) < 0.5;
+    // 剔除完全超出可视区域外的句子
+    if (itemTopY + c.sentenceHeight < -200 || itemTopY > layout.height + 250) {
+      continue;
+    }
 
-    // 距离中心越远，字体越小、越暗
-    const scale = isActive ? 1.0 : Math.max(0.75, 1.0 - Math.abs(dist) * 0.08);
+    const distFromFocus = (c.centerY - focalWorldY) / Math.max(1, layout.paragraphGap);
+    const isActive = i === activeIndex;
+
+    const scale = isActive ? 1.0 : Math.max(0.85, 1.0 - Math.min(3, Math.abs(distFromFocus)) * 0.05);
     const alpha = isActive
       ? 1.0
-      : Math.max(0.18, 0.72 - Math.abs(dist) * 0.16);
+      : Math.max(0.2, 0.6 - Math.min(3, Math.abs(distFromFocus)) * 0.14);
 
-    const c = lines[i];
     const spansWithProgress = c.spans.map(span => {
       const h = highlightState(span, t, 'sweep');
       return { span, progress: h.progress, active: h.active };
@@ -392,7 +500,7 @@ export function appleScrollStateAt(
 
     items.push({
       compiled: c,
-      y,
+      y: itemTopY,
       scale,
       alpha,
       isActive,
@@ -402,7 +510,7 @@ export function appleScrollStateAt(
 
   return {
     items,
-    currentScrollY: focalCenterY - continuousIndex * layout.lineGap,
+    currentScrollY: focalCenterY - focalWorldY,
   };
 }
 
@@ -413,7 +521,6 @@ export function paintAppleScrollCanvas(
   fontFamily: string
 ): void {
   const { items } = appleScrollStateAt(layout, t);
-  const startX = Math.round(layout.width * 0.12);
 
   for (const item of items) {
     const c = item.compiled;
@@ -423,28 +530,28 @@ export function paintAppleScrollCanvas(
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
 
-    if (!item.isActive) {
-      // 非焦点行：半透明暗色
-      ctx.fillStyle = layout.palette.foreground;
-      ctx.fillText(c.text, startX, item.y);
-    } else {
-      // 焦点行：先画待唱底色，再裁剪画高亮扫光
-      ctx.fillStyle = layout.palette.foreground;
-      ctx.fillText(c.text, startX, item.y);
+    // 1. 绘制底色文字（所有子行）
+    ctx.fillStyle = layout.palette.foreground;
+    for (const row of c.rows) {
+      ctx.fillText(row.text, row.x, item.y + row.yOffset);
+    }
 
+    // 2. 焦点行绘制卡拉OK高亮扫光
+    if (item.isActive) {
       for (const sp of item.spansWithProgress) {
         if (sp.progress <= 0) continue;
+        const targetRow = c.rows[sp.span.row] || c.rows[0];
         ctx.save();
         ctx.beginPath();
         ctx.rect(
           sp.span.x,
-          item.y - Math.round(c.fontSize * 0.9),
+          item.y + sp.span.top,
           sp.span.width * sp.progress,
-          Math.round(c.fontSize * 1.3)
+          sp.span.height
         );
         ctx.clip();
         ctx.fillStyle = layout.palette.accent;
-        ctx.fillText(c.text, startX, item.y);
+        ctx.fillText(targetRow.text, targetRow.x, item.y + targetRow.yOffset);
         ctx.restore();
       }
     }

@@ -21,6 +21,8 @@ const {
   ktvDualStateAt,
   compileAppleScrollLayout,
   appleScrollStateAt,
+  wrapSentenceToRows,
+  paintAppleScrollCanvas,
 } = load('stream-layout.ts');
 
 const measure = (text, size) => ({
@@ -143,4 +145,82 @@ test('Apple Scroll layout focuses active sentence and smoothly scrolls focal Y',
   // 随着时间向后推移，滚动 Y 轴向上移动（数值变小）
   const stateAt7 = appleScrollStateAt(compiled, 7.0);
   assert.ok(stateAt7.currentScrollY < stateAt3.currentScrollY);
+});
+
+test('wrapSentenceToRows wraps English at word boundaries and Chinese at glyph boundaries with Kinsoku Shori', () => {
+  // 1. Long English sentence wraps at whole words without cutting words
+  const enSentence = "When I stop running away, I've arrived at the place where the road back home is clear.";
+  const enRows = wrapSentenceToRows(enSentence, 40, 700, 450, measure);
+  assert.ok(enRows.length > 1, 'Long English sentence must wrap to multiple rows');
+  for (const row of enRows) {
+    assert.ok(measure(row, 40, 700).width <= 450, `Row "${row}" must not exceed maxWidth`);
+  }
+  // No partial word splitting: words like "running", "I've", "arrived" are kept intact
+  assert.ok(enRows.some(r => r.includes('running')));
+  assert.ok(enRows.some(r => r.includes("I've")));
+  assert.ok(enRows.some(r => r.includes("arrived")));
+
+  // 2. Kinsoku Shori: closing quotes and punctuation never start a line alone
+  const quoteSentence = 'It says: "I am willing, I am able, I am here to stay."';
+  const quoteRows = wrapSentenceToRows(quoteSentence, 40, 700, 400, measure);
+  assert.ok(quoteRows.length >= 2);
+  for (const row of quoteRows) {
+    assert.ok(!/^[，。！？、；：”’）》〉】｝〕…—~～,.!?;:)\]}"']/u.test(row), `Row "${row}" must not start with forbidden punctuation`);
+  }
+});
+
+test('Apple Scroll multi-line sentences compile exact rows, dynamic height, and multi-row highlight spans', () => {
+  const words = [
+    { word: 'When', start: 1.0, end: 1.5 },
+    { word: 'I', start: 1.5, end: 1.8 },
+    { word: 'stop', start: 1.8, end: 2.3 },
+    { word: 'running', start: 2.3, end: 3.0 },
+    { word: 'away,', start: 3.0, end: 3.8 },
+    { word: "I've", start: 3.8, end: 4.4 },
+    { word: 'arrived.', start: 4.4, end: 5.2 },
+  ];
+  const project = {
+    duration: 15,
+    lines: [
+      { id: '1', text: "When I stop running away, I've arrived.", start: 1.0, end: 5.2, words },
+      { id: '2', text: "Short second line", start: 5.5, end: 8.0, words: [{ word: 'Short', start: 5.5, end: 6.2 }, { word: 'second', start: 6.2, end: 7.0 }, { word: 'line', start: 7.0, end: 8.0 }] }
+    ]
+  };
+
+  // 9:16 mobile canvas: width=720, height=1280
+  const compiled = compileAppleScrollLayout(project, 720, 1280, measure, palette);
+  const line0 = compiled.lines[0];
+
+  assert.ok(line0.rows.length >= 2, 'Line 0 must wrap into at least 2 rows for mobile width');
+  assert.ok(line0.sentenceHeight > 0, 'Multi-line sentence has positive sentenceHeight');
+  assert.equal(line0.rows[0].yOffset, 0);
+  assert.equal(line0.rows[1].yOffset, compiled.rowLineHeight);
+
+  // Highlight spans compile across multiple rows
+  assert.equal(line0.spans.length, words.length, 'All words must have highlight spans');
+  const spanRow0 = line0.spans.filter(s => s.row === 0);
+  const spanRow1 = line0.spans.filter(s => s.row === 1);
+  assert.ok(spanRow0.length > 0, 'Row 0 has spans');
+  assert.ok(spanRow1.length > 0, 'Row 1 has spans');
+
+  // Verify paintAppleScrollCanvas runs cleanly with multi-row spans
+  const canvasCalls = [];
+  const mockCtx = {
+    save: () => {},
+    restore: () => {},
+    beginPath: () => {},
+    rect: (x, y, w, h) => canvasCalls.push({ type: 'rect', x, y, w, h }),
+    clip: () => canvasCalls.push({ type: 'clip' }),
+    fillText: (text, x, y) => canvasCalls.push({ type: 'fillText', text, x, y }),
+    set font(v) {},
+    set fillStyle(v) {},
+    set globalAlpha(v) {},
+    set textBaseline(v) {},
+    set textAlign(v) {},
+  };
+
+  paintAppleScrollCanvas(mockCtx, compiled, 2.5, 'sans-serif');
+  assert.ok(canvasCalls.length > 0, 'Canvas paint commands recorded');
+  const fillTexts = canvasCalls.filter(c => c.type === 'fillText');
+  assert.ok(fillTexts.length >= 2, 'All sub-rows of active multi-line sentence are painted');
 });
