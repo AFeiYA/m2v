@@ -126,7 +126,13 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
             return validate_path(resolve_project(project_id))
         scan = get_scan_dir().resolve()
         path = (scan / project_id).resolve()
-        if not path.is_relative_to(scan) or not path.name.endswith(('_alignment.json', '_project.json')):
+        if not path.is_relative_to(scan):
+            raise HTTPException(400, '歌曲工程路径无效')
+        if path.is_dir():
+            candidates = sorted(path.glob('*_alignment.json')) or sorted(path.glob('*_project.json'))
+            if candidates:
+                path = candidates[0].resolve()
+        if not path.name.endswith(('_alignment.json', '_project.json')) or not path.exists():
             raise HTTPException(400, '歌曲工程路径无效')
         return validate_path(path)
 
