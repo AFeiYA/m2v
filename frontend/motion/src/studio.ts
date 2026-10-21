@@ -7,7 +7,7 @@ import {checkImportScope} from './import-scope';
 import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,resolvePaletteColors,pickRandomStackLayout,type CompiledPoster,type DefaultLayoutPreset,type StackLayout} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
 import { isWebCodecsSupported, exportMotionWebCodecs } from './webcodecs-exporter';
-import { defaults, normalizeProject, renderSize, buildExportClips, type Project, type Options, type MotionPlan, type ExportClip } from './model';
+import { defaults, normalizeProject, renderSize, buildExportClips, resolveVisualMode, type Project, type Options, type MotionPlan, type ExportClip } from './model';
 import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,downloadService} from './service-api';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const audio=new Audio();
@@ -306,6 +306,15 @@ async function motionRequestId(projectId:string,body:object,revision:string){
  if(!id){id=window.crypto.randomUUID();motionRequestIds.set(key,id);try{localStorage.setItem(key,id);}catch{}}
  return {id,key};
 }
+function safeResolveVisualMode(mode: any, aspect: '16:9' | '9:16'): 'tv' | 'apple' | 'kinetic' {
+  if (typeof resolveVisualMode === 'function') {
+    return resolveVisualMode(mode, aspect);
+  }
+  if (mode === 'tv') return aspect === '16:9' ? 'tv' : 'apple';
+  if (mode === 'apple') return aspect === '9:16' ? 'apple' : 'tv';
+  return 'kinetic';
+}
+
 function clearMotionRequest(key:string){motionRequestIds.delete(key);try{localStorage.removeItem(key);}catch{}}
 
 function populateExportMatrix() {
@@ -314,11 +323,23 @@ function populateExportMatrix() {
   container.replaceChildren();
   const isZh = (window as any).currentLocale === 'zh';
   const clips = typeof buildExportClips === 'function' ? buildExportClips(project, isZh ? 'zh' : 'en') : [];
+  const visualMode = options.visualMode || 'kinetic';
+
+  let pLabel = isZh ? '9:16 竖屏' : '9:16 Portrait';
+  let lLabel = isZh ? '16:9 横屏' : '16:9 Landscape';
+
+  if (visualMode === 'tv' || visualMode === 'apple') {
+    pLabel = isZh ? '9:16 Apple Music' : '9:16 Apple Music';
+    lLabel = isZh ? '16:9 KTV 双行' : '16:9 KTV Dual';
+  } else {
+    pLabel = isZh ? '9:16 动效海报' : '9:16 Poster';
+    lLabel = isZh ? '16:9 动效海报' : '16:9 Poster';
+  }
 
   const headings = [
     isZh ? '片段' : 'Clip',
-    isZh ? '9:16 竖屏' : '9:16 Portrait',
-    isZh ? '16:9 横屏' : '16:9 Landscape'
+    pLabel,
+    lLabel
   ];
   for (const h of headings) {
     const el = document.createElement('strong');
@@ -355,7 +376,10 @@ function populateExportMatrix() {
       check.dataset.ratio = ratio;
       check.checked = clip.id === 'full' && ratio === (options.aspect || '9:16');
       check.disabled = !clip.available;
-      check.setAttribute?.('aria-label', `${clip.title} ${ratio}`);
+      const formatDesc = (visualMode === 'tv' || visualMode === 'apple')
+        ? (ratio === '9:16' ? 'Apple Music' : 'KTV')
+        : 'Poster';
+      check.setAttribute?.('aria-label', `${clip.title} ${ratio} ${formatDesc}`);
       check.addEventListener('change', () => {
         updateMatrixCount();
 
@@ -364,6 +388,25 @@ function populateExportMatrix() {
       container.append(card);
     }
   });
+
+  // 格式说明提示（消除画幅混淆疑虑）
+  let hintEl = $('matrix-mode-hint') as HTMLDivElement | null;
+  if (!hintEl) {
+    hintEl = document.createElement('div');
+    hintEl.id = 'matrix-mode-hint';
+    hintEl.style.cssText = 'font-size:11px; color:#8ba090; margin-top:6px; line-height:1.4;';
+    container.parentNode?.insertBefore(hintEl, container.nextSibling);
+  }
+  if (visualMode === 'tv' || visualMode === 'apple') {
+    hintEl.textContent = isZh
+      ? '💡 智能双格式就绪：勾选 9:16 导出 Apple Music 灵动流式，勾选 16:9 导出 KTV 双行交替，支持批量导出。'
+      : '💡 Dual-format ready: 9:16 exports Apple Music scroll, 16:9 exports KTV dual lines. Batch export supported.';
+  } else {
+    hintEl.textContent = isZh
+      ? '💡 动效海报模式：9:16 导出竖屏海报分镜，16:9 导出横屏海报分镜。'
+      : '💡 Kinetic Poster mode: 9:16 exports portrait poster, 16:9 exports landscape poster.';
+  }
+
   updateMatrixCount();
 }
 
@@ -421,20 +464,23 @@ async function runExportVideo() {
   type QueueTask = {
     title: string;
     aspect: '16:9' | '9:16';
+    visualMode: 'tv' | 'apple' | 'kinetic';
     start: number;
     length: number | null;
   };
   const tasks: QueueTask[] = customRange ? [{
     title: isZh ? '自定义片段' : 'Custom clip',
     aspect: sourceOptions.aspect,
+    visualMode: safeResolveVisualMode(sourceOptions.visualMode, sourceOptions.aspect),
     start: Math.max(0, Number($<HTMLInputElement>('clip-start').value || 0)),
     length: Math.max(0.1, Number($<HTMLInputElement>('clip-length').value || 8))
   }] : selectedBoxes.map(box => {
     const clip = clips.find(c => c.id === box.dataset.clipId)!;
     const aspect = (box.dataset.ratio || options.aspect) as '16:9' | '9:16';
+    const visualMode = safeResolveVisualMode(sourceOptions.visualMode, aspect);
     const start = clip.start_time;
     const length = clip.end_time == null ? null : Math.max(0.1, clip.end_time - clip.start_time);
-    return { title: clip.title, aspect, start, length };
+    return { title: clip.title, aspect, visualMode, start, length };
   });
 
   if (cloudService()) {
@@ -467,7 +513,8 @@ async function runExportVideo() {
     const row = document.createElement('div');
     row.className = 'queue-row';
     const text = document.createElement('span');
-    text.textContent = `${task.title} (${task.aspect}): ${isZh ? '排队中…' : 'Queued…'}`;
+    const modeName = task.visualMode === 'apple' ? 'Apple Music' : (task.visualMode === 'tv' ? 'KTV' : (isZh ? '海报' : 'Poster'));
+    text.textContent = `${task.title} (${task.aspect} · ${modeName}): ${isZh ? '排队中…' : 'Queued…'}`;
     row.append(text);
     queueItems.append(row);
     return { task, row, text };
@@ -506,7 +553,7 @@ async function runExportVideo() {
               aspect: task.aspect,
               start: task.start,
               length: taskLength,
-              visualMode: options.visualMode,
+              visualMode: task.visualMode,
             },
             audioBlobOrUrl: audioObjectUrl || audio.src || null,
             onProgress: ({ frame, totalFrames, pct }) => {
@@ -532,7 +579,8 @@ async function runExportVideo() {
             });
           const blobUrl = URL.createObjectURL(blob);
           const safeTitle = (exportTitle || 'motion').trim().replace(/[/\\?%*:|"<>]/g, '_');
-          const filename = `${safeTitle}-${task.title}-${task.aspect}.mp4`;
+          const modeTag = task.visualMode === 'apple' ? 'apple' : (task.visualMode === 'tv' ? 'ktv' : 'poster');
+          const filename = `${safeTitle}-${task.title}-${task.aspect.replace(':', '_')}-${modeTag}.mp4`;
 
           const dlLink = document.createElement('a');
           dlLink.className = 'dl-link';
@@ -588,6 +636,7 @@ async function runExportVideo() {
       let submittedJobId = '';
       const renderBody={project_id:sourceProject,aspect:task.aspect,height:sourceOptions.height,
         bloom:sourceOptions.bloom,shake:sourceOptions.shake,post:sourceOptions.post,start:task.start,length:task.length,
+        visual_mode:task.visualMode,
         ...(cloudService()?{accepted_cost:acceptedCost}:{})};
       const requestIdentity=cloudService()?await motionRequestId(sourceProject,renderBody,sourceRevision):null;
       while (!cancelExportQueue) {

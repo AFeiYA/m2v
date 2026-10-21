@@ -49,7 +49,7 @@ test('WebCodecs exporter and LyricVideo integrate streamLayout for TV and Apple 
   const studioCode = fs.readFileSync(path.join(__dirname, '../motion/src/studio.ts'), 'utf-8');
   assert.ok(studioCode.includes("options.visualMode = 'apple'"), 'Studio sets visualMode apple');
   assert.ok(studioCode.includes("options.visualMode = 'tv'"), 'Studio sets visualMode tv');
-  assert.ok(studioCode.includes('visualMode: options.visualMode'), 'Studio passes visualMode to exportMotionWebCodecs');
+  assert.ok(studioCode.includes('visualMode: task.visualMode') || studioCode.includes('visualMode: options.visualMode'), 'Studio passes visualMode to exportMotionWebCodecs');
 });
 
 test('Built studio.js bundle contains integrated stream-layout engine', () => {

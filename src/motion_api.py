@@ -89,6 +89,7 @@ class RenderRequest(ProjectRequest):
     accepted_cost: int | None = Field(default=None, ge=0)
     scene: Literal['poster', 'rhythm'] = 'poster'
     aspect: Literal['16:9', '9:16'] = '16:9'
+    visual_mode: Literal['tv', 'apple', 'kinetic'] = 'kinetic'
     height: Literal[360, 720] = 720
     start: float = Field(default=0, ge=0, allow_inf_nan=False)
     length: float | None = Field(default=None, gt=0, allow_inf_nan=False)
@@ -547,7 +548,8 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                 payload['duration'] = duration
                 payload['motion_plan'] = plan
                 options = {'aspect': req.aspect, 'height': req.height, 'mode': 'phrase', 'preset': req.style,
-                           'bloom': req.bloom, 'grain': .035, 'shake': req.shake, 'punch': .7, 'post': req.post}
+                           'bloom': req.bloom, 'grain': .035, 'shake': req.shake, 'punch': .7, 'post': req.post,
+                           'visualMode': req.visual_mode}
                 atomic_write(snapshot, {'project': payload, 'options': options, 'scene': req.scene, 'rhythm': rhythm, 'audioPath': str(audio), 'start': req.start, 'length': length})
                 jobs[job_id] = {'id': job_id, 'scene': req.scene, 'session_id': sid, 'status': 'queued', 'frames': 0, 'total': round(length*30), 'error': '', 'created_at': time.time(), 'width': round(req.height*16/9) if req.aspect == '16:9' else req.height, 'height': req.height if req.aspect == '16:9' else round(req.height*16/9), 'output': str(out)}
             def run():
