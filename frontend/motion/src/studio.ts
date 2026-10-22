@@ -591,6 +591,7 @@ async function runExportVideo() {
               projectId:sourceProject,requestId:browserRequest?.id||'',acceptedCost,
               title:`${exportTitle} · ${task.title}`,aspect:task.aspect,
             });
+            if(cloudService())(window as any).m2vStudioBridge?.exported(sourceProject);
           const blobUrl = URL.createObjectURL(blob);
           const safeTitle = (exportTitle || 'motion').trim().replace(/[/\\?%*:|"<>]/g, '_');
           const modeTag = task.visualMode === 'apple' ? 'apple' : (task.visualMode === 'tv' ? 'ktv' : 'poster');
@@ -701,6 +702,7 @@ async function runExportVideo() {
 
         if (job.status === 'done') {
           completedCount++;
+          if(cloudService())(window as any).m2vStudioBridge?.exported(sourceProject);
           if(requestIdentity)completedRequestKeys.push(requestIdentity.key);
           const dlUrl = motionUrl('render/' + submittedJobId + '/download');
           const dlLink = document.createElement('a');

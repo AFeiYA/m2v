@@ -25,6 +25,7 @@
     },
     loaded(id,changed=false,title=''){songId=id;dirty=Boolean(changed);send('M2V_STUDIO_LOADED',{title});},
     saved(id,changed=false,version=null){songId=id;dirty=Boolean(changed);send('M2V_STUDIO_SAVED',{version});},
+    exported(id){send('M2V_STUDIO_EXPORTED',{songId:id});},
     error(id,message){songId=id;send('M2V_STUDIO_ERROR',{message:String(message).slice(0,300)});},
   };
   send('M2V_STUDIO_READY');

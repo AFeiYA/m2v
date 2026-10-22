@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your workspace · Sonicflow Studio</title>
+  <meta name="robots" content="noindex,nofollow">
+  <link rel="stylesheet" href="/dashboard.css?v=20261021_navigation">
+  <script>
+    window.M2V_API_BASE = "https://lucazhou-suno2mv-api.hf.space";
+  </script>
+</head>
+<body>
+
+  <!-- ========== 登录/注册弹窗 ========== -->
+  <div id="auth-overlay" class="overlay" style="display: none;">
+    <div class="auth-card">
+      <h2 id="auth-title">Sign in to Sonicflow Studio</h2>
+      <div class="google-auth-section" style="margin-bottom: 16px;">
+        <button type="button" id="btn-google-login" class="btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; background: #fff; color: #3c4043; border: 1px solid #dadce0; border-radius: 6px; padding: 10px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgba(60,64,67,0.2);">
+          <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/><path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.347 2.825.957 4.039l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z"/></svg>
+          Continue with Google
+        </button>
+        <div style="display: flex; align-items: center; margin: 14px 0 8px 0; color: #888;">
+          <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.15);"></div>
+          <span style="padding: 0 10px; font-size: 12px; color: #aaa;">or use email and password</span>
+          <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.15);"></div>
+        </div>
+      </div>
+      <form id="auth-form">
+        <input id="auth-username" type="text" placeholder="Display name" maxlength="128" autocomplete="username" style="display:none">
+        <input id="auth-email" type="email" placeholder="Email" required autocomplete="email">
+        <input id="auth-password" type="password" placeholder="Password (at least 6 characters)" minlength="6" required autocomplete="current-password">
+        <button type="submit" id="auth-submit">Sign in</button>
+      </form>
+      <button type="button" id="auth-reset-password" class="btn btn-sm btn-outline">Forgot password?</button>
+      <p class="auth-switch">
+        <span id="auth-toggle-text">New to Sonicflow Studio?</span>
+        <a href="#" id="auth-toggle">Create an account</a>
+      </p>
+      <div id="api-config-login" style="display: none; margin-top: 10px; font-size: 12px; text-align: center; color: #888;">
+        <span>Backend service: </span>
+        <a href="#" id="btn-config-api" style="color: #4285F4; text-decoration: underline;">Configure API address</a>
+      </div>
+      <p id="auth-error" class="error-text"></p>
+      <p style="font-size:12px;line-height:1.7;color:#a7ad9f;margin-top:18px">Review our <a href="/terms">Terms</a>, <a href="/privacy">Privacy Policy</a> and <a href="/refunds">Refund Policy</a>. <a href="/">Back to home</a></p>
+    </div>
+  </div>
+
+  <!-- ========== 主界面 ========== -->
+  <div id="app" style="display:none">
+    <!-- 浮动抽屉呼出按钮 (侧边栏收起时在左上角展示，一键展开抽屉) -->
+    <button id="workspace-menu" class="workspace-drawer-toggle" aria-label="Toggle navigation drawer" aria-expanded="true" aria-controls="workspace-sidebar" title="Toggle navigation drawer">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="3" y1="12" x2="21" y2="12"></line>
+        <line x1="3" y1="6" x2="21" y2="6"></line>
+        <line x1="3" y1="18" x2="21" y2="18"></line>
+      </svg>
+    </button>
+
+    <!-- 左侧抽屉式侧边栏 (承载全部工作台导航与流水线流程，0 占用顶部纵向空间) -->
+    <aside id="workspace-sidebar" class="workspace-sidebar" aria-label="Studio navigation">
+      <!-- 侧边栏顶部：品牌 Logo 与 折叠抽屉按钮 -->
+      <div class="sidebar-header">
+        <a class="workspace-brand" href="/" aria-label="Sonicflow Studio home">
+          <div class="brand-badge-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/>
+              <circle cx="19" cy="19" r="2"/>
+            </svg>
+          </div>
+          <span class="brand-name">sonicflow <span class="brand-tag">STUDIO</span></span>
+        </a>
+        <button type="button" class="sidebar-close-btn" id="btn-sidebar-close" aria-label="Collapse drawer" title="Collapse drawer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+      </div>
+
+      <!-- 激活歌曲指示胶囊 (进入工坊时展示) -->
+      <div id="bc-song-name" class="sidebar-song-pill" style="display:none"></div>
+
+      <!-- 快捷创建项目按钮 -->
+      <a href="#upload-section" data-workspace-link class="btn btn-primary btn-sm btn-sidebar-create">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+        <span>＋ New Project</span>
+      </a>
+
+      <!-- 核心流程管道 (1 歌曲库 -> 2 歌词工坊 -> 3 动效分镜 -> 4 成片导出) -->
+      <div class="sidebar-section-wrap">
+        <p class="sidebar-section-label">PIPELINE FLOW</p>
+        <nav class="sidebar-flow-nav" id="studio-header-tabs" aria-label="Creation pipeline">
+          <a href="#tasks-section" data-workspace-link class="sidebar-flow-btn studio-tab-btn" id="tab-nav-library">
+            <span class="flow-num-badge">1</span>
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+            <span class="tab-text">Song Library</span>
+          </a>
+          <a href="#lyric-editor-section" data-workspace-link class="sidebar-flow-btn studio-tab-btn" id="tab-nav-lyric">
+            <span class="flow-num-badge">2</span>
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            <span class="tab-text">Lyric Studio</span>
+          </a>
+          <a href="#motion-studio-section" data-workspace-link class="sidebar-flow-btn studio-tab-btn" id="tab-nav-motion">
+            <span class="flow-num-badge">3</span>
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span class="tab-text">Motion Studio</span>
+          </a>
+          <a href="#exports-section" data-workspace-link class="sidebar-flow-btn studio-tab-btn" id="tab-nav-exports">
+            <span class="flow-num-badge">4</span>
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg>
+            <span class="tab-text">My Exports</span>
+          </a>
+        </nav>
+      </div>
+
+      <!-- 搜索歌曲 -->
+      <div class="sidebar-search-box">
+        <div class="workspace-search">
+          <svg class="search-svg-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input id="song-search" type="search" placeholder="Search song titles..." aria-label="Search song titles">
+        </div>
+      </div>
+
+      <!-- 侧边栏底部：配额额度卡片与用户账户菜单 -->
+      <div class="workspace-sidebar-bottom">
+        <div class="sidebar-quota-card">
+          <div class="quota-header">
+            <span class="quota-label">
+              <svg class="quota-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              <span>Quota &amp; Credits</span>
+            </span>
+            <span id="user-credits" class="quota-pill"></span>
+          </div>
+          <div class="quota-val-row">
+            <span id="sidebar-credits-num">0</span> <span class="quota-total">credits</span>
+          </div>
+          <a href="#credits-section" data-workspace-link class="quota-upgrade-link">
+            <span>Upgrade / Top up</span>
+            <svg class="inline-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 18 6-6-6-6"/></svg>
+          </a>
+        </div>
+
+        <details class="account-menu" id="workspace-account-menu">
+          <summary class="account-menu-summary" aria-label="User account menu" title="Account menu">
+            <div class="user-avatar-pill">
+              <div class="avatar-circle">L</div>
+              <span id="header-username-label" class="header-user-text">Account</span>
+              <svg class="user-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
+          </summary>
+          <div class="account-dropdown-panel" role="menu">
+            <div class="account-menu-header">
+              <div class="account-menu-user-row">
+                <div class="avatar-circle avatar-small">L</div>
+                <div class="account-menu-user-info">
+                  <span id="user-info" class="account-menu-name">Account</span>
+                  <span id="user-email-label" class="account-menu-sub">Signed in</span>
+                </div>
+              </div>
+            </div>
+            <div class="account-menu-divider" role="separator"></div>
+            <button type="button" id="btn-edit-nickname" class="account-menu-item" role="menuitem" title="Edit display name">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              <span>Edit name</span>
+            </button>
+            <a href="#credits-section" class="account-menu-item" role="menuitem" data-workspace-link>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></svg>
+              <span>Credit history</span>
+            </a>
+            <a href="#trash-section" class="account-menu-item" role="menuitem" data-workspace-link>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+              <span>Trash</span>
+            </a>
+            <button type="button" id="btn-copy-plugin-token" class="account-menu-item" role="menuitem" title="Copy extension sign-in token">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-1.5 1.5L14 9l-1.5-1.5-3 3L8 9 6.5 10.5 8 12l-5 5v5h5l5-5 1.5 1.5 1.5-1.5-1.5-1.5 3.5-3.5 1.5 1.5 2-2z"/></svg>
+              <span>Extension token</span>
+            </button>
+            <button type="button" id="btn-config-api-app" style="display:none" class="account-menu-item" role="menuitem" title="Set backend API address">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+              <span>API settings</span>
+            </button>
+            <div class="account-menu-divider" role="separator"></div>
+            <button type="button" id="btn-logout" class="account-menu-item account-menu-item-danger" role="menuitem">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg>
+              <span>Sign out</span>
+            </button>
+          </div>
+        </details>
+      </div>
+    </aside>
+
+    <!-- 抽屉半透明遮罩背景 (仅在移动端或Studio中打开侧边栏时生效) -->
+    <div id="workspace-backdrop" class="workspace-drawer-backdrop" aria-hidden="true"></div>
+
+    <main id="workspace-content" class="workspace-content">
+    <div id="workspace-notice" role="status" hidden><span id="workspace-notice-text"></span> <button id="workspace-notice-review" type="button">Review unsaved changes</button></div>
+
+    <!-- 创作区 (Suno 链接解析 / 本地文件上传) -->
+    <section id="upload-section" class="workspace-page" tabindex="-1" hidden>
+      <div class="upload-hero-wrap">
+        <div class="upload-hero-text">
+          <p class="hero-eyebrow">QUICK START</p>
+          <h1 class="hero-title">Turn music into content<span class="hero-dot">.</span></h1>
+          <p class="hero-subtitle">Paste a Suno song to automatically align lyrics, generate motion posters, and export full-platform videos.</p>
+        </div>
+        <a href="/lyric-editor" class="hero-guide-btn" target="_blank" rel="noopener">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+          Guide &amp; Tips
+        </a>
+      </div>
+
+      <div class="upload-grid-layout">
+        <div class="upload-card main-import-card">
+          <div class="import-card-header">
+            <div class="import-title-group">
+              <div class="import-icon-box">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></svg>
+              </div>
+              <div>
+                <h2>Import Suno Song</h2>
+                <p class="import-subtitle">Start your video project from a single link</p>
+              </div>
+            </div>
+            <span class="step-badge">STEP 01</span>
+          </div>
+
+          <div class="mode-tabs">
+            <button type="button" class="tab-btn active" id="tab-suno">🔗 Suno link</button>
+            <button type="button" class="tab-btn" id="tab-local">📁 Upload files</button>
+          </div>
+
+          <!-- Mode 1: Suno 链接表单 -->
+          <form id="suno-form">
+            <div class="suno-input-box">
+              <svg class="suno-link-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              <input type="url" id="input-suno-url" placeholder="Paste Suno song link, e.g. https://suno.com/song/..." required>
+              <button type="button" id="btn-paste-suno" class="btn-paste-clip" title="Paste from clipboard">Paste</button>
+            </div>
+            <div class="suno-input-hint">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
+              <span>Supports public Suno song URLs</span>
+            </div>
+
+            <details class="import-options"><summary>Advanced import settings</summary>
+            <div class="upload-field" style="margin-bottom: 1rem;">
+              <label for="input-suno-title">Song title (optional; fetched from Suno if blank)</label>
+              <input type="text" id="input-suno-title" placeholder="Song title">
+            </div>
+            <div class="upload-options">
+              <label><input type="checkbox" id="suno-opt-skip-sep"> Skip vocal separation</label>
+              <label><input type="checkbox" id="suno-opt-beat" checked> Analyze rhythm features</label>
+              <select id="suno-opt-lang">
+                <option value="auto" selected>Auto-detect</option>
+                <option value="zh">Chinese</option>
+                <option value="en">English</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+              </select>
+            </div>
+            </details>
+            <button type="submit" id="btn-suno-submit" class="btn btn-hero-primary" style="width:100%;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/></svg>
+              Identify &amp; Align Lyrics ➔
+            </button>
+          </form>
+
+          <!-- Mode 2: 本地上传表单 -->
+          <form id="upload-form" style="display:none">
+            <div class="upload-row">
+              <div class="upload-field">
+                <label for="file-mp3">Audio file (MP3/WAV/FLAC)</label>
+                <input type="file" id="file-mp3" accept=".mp3,.wav,.flac" required>
+              </div>
+              <div class="upload-field">
+                <label for="file-lyrics">Lyrics file (TXT/LRC)</label>
+                <input type="file" id="file-lyrics" accept=".txt,.lrc" required>
+              </div>
+            </div>
+            <div class="upload-row">
+              <div class="upload-field">
+                <label for="local-song-title">Song title (optional; defaults to filename)</label>
+                <input type="text" id="local-song-title" placeholder="Song title">
+              </div>
+              <div class="upload-field">
+                <label for="local-suno-url">Original Suno link (optional)</label>
+                <input type="url" id="local-suno-url" placeholder="https://suno.com/song/...">
+              </div>
+            </div>
+            <div class="upload-options">
+              <label><input type="checkbox" id="opt-skip-sep"> Skip vocal separation (audio is already vocals only)</label>
+              <label><input type="checkbox" id="opt-beat" checked> Analyze rhythm features</label>
+              <select id="opt-lang">
+                <option value="auto" selected>Auto-detect</option>
+                <option value="zh">Chinese</option>
+                <option value="en">English</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+              </select>
+            </div>
+            <button type="submit" id="btn-upload" class="btn btn-hero-primary" style="width:100%;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+              Upload &amp; Align Lyrics ➔
+            </button>
+          </form>
+        </div>
+
+        <!-- Right: Formats Preview Card -->
+        <div class="content-formats-card">
+          <div class="formats-card-header">
+            <h3>Content Formats</h3>
+            <span class="formats-badge">Auto</span>
+          </div>
+          <div class="formats-list">
+            <div class="format-item">
+              <div class="format-icon-wrap icon-landscape">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="12" x="3" y="6" rx="2"/><path d="M7 6v12"/><path d="M17 6v12"/></svg>
+              </div>
+              <div class="format-info">
+                <div class="format-title">Landscape Video</div>
+                <div class="format-sub">16:9 · 1080p YouTube MV</div>
+              </div>
+              <span class="format-check">✓</span>
+            </div>
+            <div class="format-item">
+              <div class="format-icon-wrap icon-portrait">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="12" height="18" x="6" y="3" rx="2"/><path d="M6 7h12"/><path d="M6 17h12"/></svg>
+              </div>
+              <div class="format-info">
+                <div class="format-title">Portrait Video</div>
+                <div class="format-sub">9:16 · TikTok / Shorts</div>
+              </div>
+              <span class="format-check">✓</span>
+            </div>
+            <div class="format-item">
+              <div class="format-icon-wrap icon-matrix">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="m20 4-8.12 8.12"/><path d="M8.12 8.12 12 12"/><path d="m20 20-5.2-5.2"/></svg>
+              </div>
+              <div class="format-info">
+                <div class="format-title">Smart Matrix Clips</div>
+                <div class="format-sub">Verse, Chorus &amp; Highlight</div>
+              </div>
+              <span class="format-check">✓</span>
+            </div>
+          </div>
+          <div class="formats-perks">
+            <div class="perk-row"><span class="perk-dot"></span> Word-level timestamp alignment</div>
+            <div class="perk-row"><span class="perk-dot"></span> Interlude vocal safety protection</div>
+            <div class="perk-row"><span class="perk-dot"></span> Cloud 1080p rendering &amp; R2 delivery</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- 任务列表 -->
+    <section id="tasks-section" class="workspace-page" tabindex="-1">
+      <div class="section-header">
+        <h2>My Library</h2>
+        <button id="btn-refresh" class="btn btn-sm">🔄 Refresh</button>
+      </div>
+      <p class="section-intro">Your songs, lyric versions and finished videos — together in one library.</p>
+      <div class="song-toolbar">
+
+        <select id="song-view" aria-label="Song view"><option value="active">My songs</option><option value="starred">Favorites</option><option value="archived">Archived</option><option value="all">All songs</option></select>
+        <select id="song-sort" aria-label="Sort songs"><option value="recent">Recently updated</option><option value="title">Title A–Z</option></select>
+      </div>
+      <p id="songs-status" role="status"></p>
+      <div id="tasks-list" class="song-grid"></div>
+      <div class="song-pagination"><button id="songs-prev" class="btn btn-sm" disabled>Previous</button><span id="songs-page"></span><button id="songs-next" class="btn btn-sm" disabled>Next</button></div>
+
+      <div id="tasks-empty" class="empty-state" style="display:none">
+        <p>No songs in this view. Try another search or filter, or <a href="#upload-section">import your first song</a>.</p>
+      </div>
+    </section>
+
+    <section id="exports-section" class="workspace-page" tabindex="-1" hidden>
+      <div class="section-header">
+        <div class="exports-header-left">
+          <h2>🎬 My Exports</h2>
+          <span class="exports-subhead">Manage, preview, and download your generated music videos</span>
+        </div>
+        <div class="exports-header-actions">
+          <button id="btn-discover-exports" class="btn btn-sm btn-outline">Find earlier exports</button>
+          <button id="btn-refresh-exports" class="btn btn-sm">Refresh</button>
+        </div>
+      </div>
+      <button id="exports-clear-filter" class="btn btn-sm btn-outline" hidden>Show all videos</button>
+      <p id="exports-status" role="status">Completed videos stay here after you close the editor.</p>
+      <div id="render-jobs-list" aria-live="polite"></div>
+
+      <!-- YouTube Style Video Grid -->
+      <div id="exports-list" class="yt-video-grid"></div>
+
+      <!-- YouTube Style Theater Modal Player -->
+      <div id="exports-preview" class="yt-preview-modal-backdrop" hidden>
+        <div class="yt-preview-modal" role="dialog" aria-modal="true" aria-labelledby="export-preview-title">
+          <div class="yt-preview-header">
+            <div class="yt-preview-title-box">
+              <span class="yt-badge-live">PREVIEW</span>
+              <h3 id="export-preview-title">Video Preview</h3>
+            </div>
+            <button id="btn-close-export-preview" class="btn-yt-close" title="Close preview (Esc)">✕</button>
+          </div>
+          <div class="yt-preview-player-wrap">
+            <video id="export-preview-video" controls playsinline preload="none"></video>
+          </div>
+          <div class="yt-preview-footer">
+            <div id="export-preview-meta" class="yt-preview-meta"></div>
+            <div class="yt-preview-actions">
+              <button id="btn-preview-download" class="btn btn-sm btn-primary" title="Download video file">⬇ Download MP4</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="exports-pagination" style="display:flex;gap:12px;align-items:center;margin:20px 0;justify-content:center">
+        <button id="exports-prev" class="btn btn-sm" disabled>Previous</button>
+        <span id="exports-page"></span><button id="exports-next" class="btn btn-sm" disabled>Next</button>
+      </div>
+    </section>
+
+    <section id="trash-section" class="workspace-page" tabindex="-1" hidden>
+      <div class="section-header"><h2>Trash</h2></div>
+      <p class="section-intro">Restore lyric versions you moved to Trash. Finished videos stay in Exports.</p>
+      <details id="version-trash"><summary>Version Trash · finished videos are kept</summary><div id="version-trash-list"></div></details>
+    </section>
+    <section id="credits-section" class="workspace-page" tabindex="-1" hidden>
+      <div class="section-header credits-header-wrap">
+        <div>
+          <h2>Credits &amp; Subscription</h2>
+          <p class="section-subtitle">Manage your balance, monthly plans, and motion video generation quotas.</p>
+        </div>
+        <button id="btn-refresh-credits" class="btn btn-sm btn-outline">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          <span>Refresh</span>
+        </button>
+      </div>
+
+      <!-- 4 大核心额度指标看板 -->
+      <div class="credits-hero-grid">
+        <div class="credits-stat-card featured">
+          <div class="stat-card-head">
+            <span class="stat-card-label">Available Balance</span>
+            <span class="stat-card-badge status-active">Active</span>
+          </div>
+          <div class="stat-card-val-row">
+            <span id="stat-val-available" class="stat-card-num">3,000</span>
+            <span class="stat-card-unit">credits</span>
+          </div>
+          <p class="stat-card-desc">Total credits ready for video generation &amp; alignment</p>
+        </div>
+
+        <div class="credits-stat-card">
+          <div class="stat-card-head">
+            <span class="stat-card-label">Monthly Quota</span>
+            <span class="stat-card-badge">Cycle</span>
+          </div>
+          <div class="stat-card-val-row">
+            <span id="stat-val-monthly" class="stat-card-num">3,000</span>
+            <span class="stat-card-unit">credits</span>
+          </div>
+          <p class="stat-card-desc">Renews on billing date · Used first</p>
+        </div>
+
+        <div class="credits-stat-card">
+          <div class="stat-card-head">
+            <span class="stat-card-label">Permanent Pack</span>
+            <span class="stat-card-badge status-perm">No Expiry</span>
+          </div>
+          <div class="stat-card-val-row">
+            <span id="stat-val-permanent" class="stat-card-num">0</span>
+            <span class="stat-card-unit">credits</span>
+          </div>
+          <p class="stat-card-desc">Booster pack balance · Never expires</p>
+        </div>
+
+        <div class="credits-stat-card">
+          <div class="stat-card-head">
+            <span class="stat-card-label">Standard Pricing</span>
+            <span class="stat-card-badge status-rate">Rate</span>
+          </div>
+          <div class="stat-card-rates">
+            <div class="rate-item"><span>Motion Video</span><strong id="stat-val-export-cost">10 credits</strong></div>
+            <div class="rate-item"><span>Lyrics Alignment</span><strong>1 credit</strong></div>
+            <div class="rate-item"><span>WebCodecs Export</span><strong class="text-success">Free GPU</strong></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 订阅与充值方案面板 -->
+      <div id="billing-panel" class="billing-panel">
+        <div class="billing-panel-head">
+          <h3>Subscription &amp; Credit Plans</h3>
+          <p id="billing-notice" role="status">Loading billing options…</p>
+        </div>
+
+        <!-- 实时后端商品容器 (由 billing.js 动态渲染) -->
+        <div id="billing-products" class="billing-products"></div>
+
+        <!-- 订阅方案展示墙 (无论是否开通支付网关，用户均可清晰查看各档套餐与权益) -->
+        <div id="billing-plans-preview" class="billing-plans-preview">
+          <!-- Free Tier -->
+          <article class="billing-plan-card">
+            <div class="plan-card-top">
+              <span class="billing-kind">FREE TIER</span>
+              <h3>Starter</h3>
+              <p class="billing-price">$0 <small>/ month</small></p>
+              <p class="billing-credits-highlight">30 Welcome Credits</p>
+            </div>
+            <ul class="plan-feature-list">
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> 720p Standard Resolution</li>
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> WebCodecs Local GPU Fast Export</li>
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Word-level AI Alignment</li>
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Community Priority Queue</li>
+            </ul>
+            <button class="btn btn-outline plan-cta-btn" disabled>Current Free Plan</button>
+            <small class="plan-footnote">Standard access included for all accounts</small>
+          </article>
+
+          <!-- Creator Pro -->
+          <article class="billing-plan-card is-popular">
+            <span class="plan-badge-popular">MOST POPULAR</span>
+            <div class="plan-card-top">
+              <span class="billing-kind">MONTHLY SUBSCRIPTION</span>
+              <h3>Creator Pro</h3>
+              <p class="billing-price">$9.99 <small>/ month</small></p>
+              <p class="billing-credits-highlight">600 credits / month</p>
+            </div>
+            <ul class="plan-feature-list">
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> <strong>60 Full 1080p Video Exports</strong></li>
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> High-Speed Cloud GPU Acceleration</li>
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> All Visual Templates (Kinetic, Apple, TV)</li>
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Commercial Usage Rights</li>
+            </ul>
+            <button class="btn btn-primary plan-cta-btn" data-billing-buy="monthly">Subscribe monthly</button>
+            <small class="plan-footnote">Auto-renews monthly · Cancel anytime in portal</small>
+          </article>
+
+          <!-- Studio Ultra -->
+          <article class="billing-plan-card">
+            <div class="plan-card-top">
+              <span class="billing-kind">MONTHLY SUBSCRIPTION</span>
+              <h3>Studio Ultra</h3>
+              <p class="billing-price">$24.99 <small>/ month</small></p>
+              <p class="billing-credits-highlight">2,500 credits / month</p>
+            </div>
+            <ul class="plan-feature-list">
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> <strong>250 Full 1080p Video Exports</strong></li>
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> VIP Dedicated ZeroGPU Priority Queue</li>
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Multi-clip Batch Concurrency</li>
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Broadcast &amp; Commercial License</li>
+            </ul>
+            <button class="btn btn-primary plan-cta-btn" data-billing-buy="monthly_plus">Subscribe monthly</button>
+            <small class="plan-footnote">Auto-renews monthly · Maximum render throughput</small>
+          </article>
+
+          <!-- Booster Pack -->
+          <article class="billing-plan-card">
+            <div class="plan-card-top">
+              <span class="billing-kind">ONE-TIME PACK</span>
+              <h3>Credit Booster</h3>
+              <p class="billing-price">$4.99 <small>/ one-time</small></p>
+              <p class="billing-credits-highlight">200 Permanent Credits</p>
+            </div>
+            <ul class="plan-feature-list">
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> <strong>Credits Never Expire</strong></li>
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Instant Balance Top-up</li>
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> 20 Complete Motion Videos</li>
+              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Stacks with any subscription plan</li>
+            </ul>
+            <button class="btn btn-primary plan-cta-btn" data-billing-buy="pack">Buy credits</button>
+            <small class="plan-footnote">Non-recurring · Permanent render quota</small>
+          </article>
+        </div>
+
+        <div id="billing-subscriptions"></div>
+        <p id="billing-return-status" role="status"></p>
+        <div class="task-actions"><button id="billing-refresh" class="btn btn-sm btn-outline" hidden>Refresh billing</button><button id="billing-reconcile" class="btn btn-sm btn-outline" hidden>Check recent payments</button></div>
+        <div id="billing-orders"></div>
+        <div id="billing-pagination" class="song-pagination" hidden><button id="billing-prev" class="btn btn-sm">Previous</button><span id="billing-page"></span><button id="billing-next" class="btn btn-sm">Next</button></div>
+      </div>
+
+      <!-- 积分变动记录区 -->
+      <div class="credit-activity-container">
+        <div class="credit-activity-head">
+          <h3>Credit Activity &amp; Balance History</h3>
+          <p id="credit-summary" class="credit-summary-text" role="status"></p>
+        </div>
+        <p id="credit-pricing" class="credit-pricing-text"></p>
+        <div id="credit-history"></div>
+        <div class="credits-pagination-wrap">
+          <button id="credits-prev" class="btn btn-sm" disabled>Previous</button>
+          <span id="credits-page">Page 1</span>
+          <button id="credits-next" class="btn btn-sm" disabled>Next</button>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- 歌词打轴工坊 (单页全屏视口) -->
+    <section id="lyric-editor-section" class="workspace-page studio-viewport-page" tabindex="-1" hidden>
+      <div id="studio-status-lyric" class="studio-load-status" role="status" hidden><span id="studio-status-text-lyric"></span> <button id="studio-retry-lyric" type="button" hidden>Retry opening editor</button></div>
+      <iframe id="iframe-lyric-editor" class="studio-frame" title="Lyric Editor" src="about:blank"></iframe>
+    </section>
+
+    <!-- 动效排版工坊 (单页全屏视口) -->
+    <section id="motion-studio-section" class="workspace-page studio-viewport-page" tabindex="-1" hidden>
+      <div id="studio-status-motion" class="studio-load-status" role="status" hidden><span id="studio-status-text-motion"></span> <button id="studio-retry-motion" type="button" hidden>Retry opening editor</button></div>
+      <iframe id="iframe-motion-studio" class="studio-frame" title="Motion Studio" src="about:blank"></iframe>
+    </section>
+
+    </main>
+  </div>
+
+  <!-- Firebase SDK & Cache -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="/static/cache.js?v=20261013_cache"></script>
+  <script src="/firebase-config.js?v=20261015_english"></script>
+  <script src="/workspace-store.js?v=20261021_navigation"></script>
+  <script src="/studio-adapters.js?v=20261022_credits"></script>
+  <script src="/media-arbiter.js?v=20261019_arbiter"></script>
+  <script src="/workspace.js?v=20261021_navigation"></script>
+  <script src="/dashboard.js?v=20261022_credits"></script>
+  <script src="/billing.js?v=20261022_public_20261020_feedback"></script>
+</body>
+</html>

@@ -51,7 +51,7 @@
 </head>
 
 <body>
-  <script src="/static/studio-bridge.js?v=20261021"></script>
+  <script src="/static/studio-bridge.js?v=20261022_credits"></script>
   <header class="editor-header">
     <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
       <h1 class="editor-header-title" data-i18n="header_title" data-i18n-title="header_title_title" style="cursor: pointer;">🎤 M2V Lyrics</h1>
@@ -83,7 +83,7 @@
 
       <span class="sep ext-nav-sep">|</span>
       <a id="nav-motion-studio" class="nav-ext-link" href="/motion-studio" target="_blank" title="Go to pure motion studio &amp; rhythm lab" data-i18n="nav_motion_studio" data-i18n-title="nav_motion_studio_title">⚡ Motion Studio ↗</a>
-      <a id="nav-my-exports" style="display: none !important;" class="nav-ext-link" href="/#exports-section" data-i18n="nav_my_exports">My Exports ↗</a>
+      <a id="nav-my-exports" style="display: none !important;" class="nav-ext-link" href="/app#exports-section" data-i18n="nav_my_exports">My Exports ↗</a>
       <span class="sep ext-nav-sep">|</span>
       <button id="btn-lang-toggle" class="btn-lang-toggle" onclick="toggleLocale()" title="切换至英文界面 (Switch to English)">🌐 English</button>
       <div id="auth-pill" style="display: none; align-items: center; gap: 6px; flex-shrink: 0;">
@@ -414,7 +414,7 @@
           <video id="lyric-modal-video" preload="none" controls playsinline style="max-height: 280px; max-width: 100%; border-radius: 6px; background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></video>
           <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; width: 100%;">
             <button id="btn-preview-lyric-mp4" type="button" data-i18n="btn_preview_export">Preview video</button>
-            <a id="lyric-my-exports" style="display: none !important;" hidden href="/#exports-section" target="_blank" data-i18n="nav_my_exports">My Exports ↗</a>
+            <a id="lyric-my-exports" style="display: none !important;" hidden href="/app#exports-section" target="_blank" data-i18n="nav_my_exports">My Exports ↗</a>
             <a id="btn-download-lyric-mp4" download href="#" data-i18n="btn_download_mp4" style="flex: 1; text-align: center; text-decoration: none; background: #b7f34a; color: #10120d; font-weight: 700; padding: 8px 12px; border-radius: 6px; font-size: 13px;">⬇️ Download MP4 Video</a>
             <button id="btn-re-render" type="button" data-i18n="btn_re_render" style="background: rgba(255, 255, 255, 0.05); color: #cbd5e1; border: 1px solid var(--border); padding: 8px 14px; border-radius: 6px; font-size: 13px; cursor: pointer;">🔄 Re-render with new settings</button>
           </div>

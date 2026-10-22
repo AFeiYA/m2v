@@ -2313,14 +2313,25 @@ if _FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(_FRONTEND_DIR)), name="local-static")
 
 @app.get("/", response_class=HTMLResponse)
-def root_workspace():
-    ws_file = _FRONTEND_ROOT / "index.html"
-    if ws_file.exists():
-        return HTMLResponse(ws_file.read_text(encoding="utf-8"))
-    index_file = _FRONTEND_DIR / "index.html"
-    if index_file.exists():
-        return HTMLResponse(index_file.read_text(encoding="utf-8"))
-    return HTMLResponse("<h1>index.html 不存在</h1>", status_code=500)
+@app.get("/pricing", response_class=HTMLResponse)
+@app.get("/terms", response_class=HTMLResponse)
+@app.get("/privacy", response_class=HTMLResponse)
+@app.get("/refunds", response_class=HTMLResponse)
+@app.get("/contact", response_class=HTMLResponse)
+@app.get("/app", response_class=HTMLResponse)
+def public_page(request: Request):
+    name = request.url.path.strip("/") or "index"
+    page = _FRONTEND_ROOT / f"{name}.html"
+    if not page.is_file():
+        raise HTTPException(404, "Page not found")
+    return HTMLResponse(page.read_text(encoding="utf-8"))
+
+
+@app.get("/marketing/{asset}")
+def public_asset(asset: str):
+    if asset not in {"site.css", "site.js"}:
+        raise HTTPException(404, "Asset not found")
+    return FileResponse(_FRONTEND_ROOT / "marketing" / asset)
 
 
 @app.get("/dashboard.css")

@@ -66,3 +66,12 @@ test('unsaved lyrics block Motion and switching songs while Library remains avai
  s.send('lyric','M2V_STUDIO_STATE',{dirty:false});
  assert.equal(s.window.m2vCanOpenStudio('motion','song'),true);
 });
+test('completed Motion exports refresh account credits without overwriting editor state',async()=>{
+ const s=setup();let refreshed=0;s.window.m2vRefreshExportState=()=>refreshed++;
+ const editor=s.studios.motion;await editor.activate({songId:'song'});
+ s.send('motion','M2V_STUDIO_LOADED');s.send('motion','M2V_STUDIO_STATE',{dirty:true});
+ assert.equal(s.send('motion','M2V_STUDIO_EXPORTED'),true);assert.equal(refreshed,1);assert.equal(editor.dirty,true);
+ assert.equal(s.send('motion','M2V_STUDIO_EXPORTED',{requestId:'stale'}),false);
+ assert.equal(s.send('motion','M2V_STUDIO_EXPORTED',{songId:'other'}),false);assert.equal(refreshed,1);
+ await s.studios.lyric.activate({songId:'song'});assert.equal(s.send('lyric','M2V_STUDIO_EXPORTED'),false);assert.equal(refreshed,1);
+});

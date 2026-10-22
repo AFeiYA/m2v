@@ -43,3 +43,9 @@ test('failed saves retain the draft and never tell Motion a new version was save
  assert.equal(await saved,false);assert.equal(s.context.state.dirty,true);
  assert.ok(!s.events.some(e=>e[0]==='saved'));assert.equal(s.context.alignmentSaveInFlight,false);
 });
+test('export completion reports the account-scoped song through the current workspace channel',()=>{
+ const messages=[],parent={postMessage:(data,target)=>messages.push({data,target})};
+ const window={parent};vm.runInNewContext(source,{window,document:{documentElement:{dataset:{studio:'motion'}}},location:{origin:'https://app.example',search:'?_workspace=current'},URLSearchParams});
+ window.m2vStudioBridge.loaded('song');window.m2vStudioBridge.exported('song');
+ const {data,target}=messages.at(-1);assert.equal(data.type,'M2V_STUDIO_EXPORTED');assert.equal(data.songId,'song');assert.equal(data.requestId,'current');assert.equal(target,'https://app.example');
+});

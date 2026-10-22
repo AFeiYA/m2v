@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /app
+Disallow: /lyric-editor
+Disallow: /motion-studio
+Disallow: /motion-lab
+Disallow: /rhythm-studio
+Disallow: /api/
+Sitemap: https://mv.fovea.si/sitemap.xml

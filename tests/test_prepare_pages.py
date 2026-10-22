@@ -11,14 +11,16 @@ def frontend(tmp_path, monkeypatch):
     source = root / "frontend"
     source.mkdir(parents=True)
     monkeypatch.setattr(prepare_pages, "__file__", str(root / "scripts/prepare_pages.py"))
-    for name in ("local/motion/studio.js", "local/motion/lab.js", "local/motion/rhythm-studio.js", "local/motion-lab.css"):
+    for name in ("local/motion/studio.js", "local/motion/lab.js", "local/motion/rhythm-studio.js", "local/motion-lab.css", "marketing/site.css", "marketing/site.js"):
         p = source / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("asset")
     (source / "_redirects").write_text(
         (Path(__file__).resolve().parents[1] / "frontend/_redirects").read_text()
     )
-    (source / "index.html").write_text("dashboard")
+    (source / "index.html").write_text("public home")
+    for name in ("app", "pricing", "contact", "terms", "privacy", "refunds"):
+        (source / f"{name}.html").write_text(f"page:{name}")
     (source / "404.html").write_text("not found")
     for name in ("lyric-editor", "gallery", "storyboard", "motion-studio", "motion-lab", "rhythm-studio"):
         (source / "local" / f"{name}.html").write_text(f"page:{name}")
@@ -36,6 +38,9 @@ def test_pages_staging_materializes_canonical_pages(frontend, tmp_path):
     assert (destination / "local/motion/studio.js").read_text() == "asset"
     assert not list((destination / "local").glob("*.html"))
     assert (destination / "404.html").read_text() == "not found"
+    assert (destination / "index.html").read_text() == "public home"
+    assert (destination / "app.html").read_text() == "page:app"
+    assert (destination / "pricing.html").read_text() == "page:pricing"
 
 
 @pytest.mark.parametrize("route", [

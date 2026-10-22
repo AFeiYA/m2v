@@ -163,7 +163,7 @@ function updateAuthUi() {
           alert("Sign-in failed: " + e.message);
         }
       } else {
-        window.location.href = "/";
+        window.location.href = "/app";
       }
     };
   }

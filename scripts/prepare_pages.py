@@ -21,7 +21,7 @@ def validate_redirects(path: Path) -> None:
 
 def prepare(destination: Path) -> None:
     source = Path(__file__).resolve().parents[1] / "frontend"
-    for asset in ("local/motion/studio.js", "local/motion/lab.js", "local/motion/rhythm-studio.js", "local/motion-lab.css", "_redirects"):
+    for asset in ("local/motion/studio.js", "local/motion/lab.js", "local/motion/rhythm-studio.js", "local/motion-lab.css", "marketing/site.css", "marketing/site.js", "_redirects"):
         path = source / asset
         if not path.is_file() or path.stat().st_size == 0:
             raise RuntimeError(f"Missing Pages asset: {asset}")
@@ -37,7 +37,8 @@ def prepare(destination: Path) -> None:
         return set(names) & exclusions
 
     shutil.copytree(source, destination, ignore=ignore)
-    for page in ("lyric-editor.html", "gallery.html", "storyboard.html",
+    for page in ("index.html", "app.html", "pricing.html", "contact.html",
+                 "terms.html", "privacy.html", "refunds.html", "lyric-editor.html", "gallery.html", "storyboard.html",
                  "motion-studio.html", "motion-lab.html", "rhythm-studio.html", "404.html"):
         p = destination / page
         if not p.is_file() or p.stat().st_size == 0:

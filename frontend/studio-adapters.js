@@ -54,6 +54,11 @@
         this.currentSongId=data.songId;frame.dataset.loadedSongId=data.songId;
       }
       if(data.songId!==this.currentSongId)return false;
+      if(data.type==='M2V_STUDIO_EXPORTED'){
+        if(this.name!=='motion')return false;
+        // Refresh from the authenticated API; never trust a child-supplied balance.
+        window.m2vRefreshExportState?.();return true;
+      }
       if(data.type==='M2V_STUDIO_ERROR'){this.fail(data.message||'Unable to load this song. Retry opening the editor.');return true;}
       if(!['M2V_STUDIO_LOADED','M2V_STUDIO_STATE','M2V_STUDIO_SAVED'].includes(data.type))return false;
       this.dirty=Boolean(data.dirty);

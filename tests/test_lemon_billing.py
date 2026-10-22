@@ -119,6 +119,7 @@ def test_checkout_uses_server_product_identity_and_idempotency(billing):
     assert attributes['checkout_data']['variant_quantities']==[{'variant_id':101,'quantity':1}]
     assert attributes['checkout_options']['skip_trial'] is True
     assert attributes['product_options']['enabled_variants']==[101]
+    assert attributes['product_options']['redirect_url']==billing.settings.BILLING_SITE_URL.rstrip('/')+'/app?checkout='+intent.id+'#credits-section'
     invalid=billing.client.post('/api/payments/checkout',headers=headers(),json={'product_id':'pack','idempotency_key':'client-key-123456','credits':9999})
     assert invalid.status_code==422
     assert billing.client.get('/api/payments/checkout/'+intent.id,headers=headers('bob')).status_code==404

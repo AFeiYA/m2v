@@ -1,5 +1,7 @@
 # Lemon Squeezy billing — 2026-10-19
 
+> Merchant setup guide (Chinese, checked 2026-10-22): [开户、收款与订阅上线操作指南](LEMON_SQUEEZY_LAUNCH_GUIDE_ZH.md). Historical branch, catalogue examples and usage-price defaults below are not deployment instructions; verify against current code and deployed settings.
+
 ## Scope and branch
 
 Updated pricing/expiry policy: 2026-10-19.

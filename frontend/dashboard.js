@@ -244,15 +244,15 @@ function initAuth() {
 
 function updateAuthUI() {
   if (isLoginMode) {
-    $("#auth-title").textContent = "🎤 Sign in to M2V";
+    $("#auth-title").textContent = "Sign in to Sonicflow Studio";
     $("#auth-submit").textContent = "Sign in";
-    $("#auth-toggle-text").textContent = "New to M2V?";
+    $("#auth-toggle-text").textContent = "New to Sonicflow Studio?";
     $("#auth-toggle").textContent = "Create an account";
     $("#auth-username").style.display = "none";
     $("#auth-username").required = false;
     $("#auth-password").autocomplete = "current-password";
   } else {
-    $("#auth-title").textContent = "🎤 Create your M2V account";
+    $("#auth-title").textContent = "Create your Sonicflow account";
     $("#auth-submit").textContent = "Create account";
     $("#auth-toggle-text").textContent = "Already have an account?";
     $("#auth-toggle").textContent = "Sign in";
@@ -1443,6 +1443,11 @@ async function loadCredits(page = creditPage) {
     if (currentUser?.id === uid && sequence === creditSequence) $("#credit-summary").textContent = error.message;
   }
 }
+// Called only after StudioAdapter validates the sending frame and navigation.
+window.m2vRefreshExportState = async () => {
+  if (!currentUser?.id) return;
+  await Promise.allSettled([loadCredits(1), loadExports()]);
+};
 function initCredits() {
   $("#btn-refresh-credits")?.addEventListener("click", () => loadCredits());
   $("#credits-prev")?.addEventListener("click", () => loadCredits(creditPage-1));

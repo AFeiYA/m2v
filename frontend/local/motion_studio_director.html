@@ -10,7 +10,7 @@
   <script src="/static/song-picker.js?v=20261016_library2"></script>
 </head>
 <body>
-  <script src="/static/studio-bridge.js?v=20261021"></script>
+  <script src="/static/studio-bridge.js?v=20261022_credits"></script>
   <header>
     <div class="brand">
       <b class="mark">M</b>
@@ -24,7 +24,7 @@
       <button id="poster-sample" data-i18n="ms_btn_poster" data-i18n-title="ms_btn_poster_title">Current Poster</button>
       <button id="focus-preview" data-i18n="ms_btn_focus">Focus Preview</button>
       <a id="rhythm-link" href="/rhythm-studio" style="display: none !important;" data-i18n="ms_nav_rhythm">Rhythm Stage ↗</a>
-      <a id="my-exports" href="/#exports-section" style="display: none !important;" hidden data-i18n="nav_my_exports">My Exports ↗</a>
+      <a id="my-exports" href="/app#exports-section" style="display: none !important;" hidden data-i18n="nav_my_exports">My Exports ↗</a>
       <a href="/gallery" style="display: none !important;" data-i18n="ms_nav_gallery">Gallery ↗</a>
       <a href="/lyric-editor" style="display: none !important;" data-i18n="ms_nav_editor">Lyric Editor ↗</a>
       <a href="/motion-lab" style="display: none !important;" data-i18n="ms_nav_lab">Lab ↗</a>
@@ -357,7 +357,7 @@
           <button id="cancel" hidden data-i18n="ms_btn_cancel_export">Cancel Export</button>
           <p id="export-status" class="help" role="status" aria-live="polite" data-i18n="ms_help_export">Remotion · Current poster layout &amp; original audio · 30fps / H.264.</p>
           <a id="download" hidden download data-i18n="ms_btn_download_video">Download Video ↓</a>
-          <p style="display: none !important;"><a id="my-exports-bottom" href="/#exports-section" style="display: none !important;" hidden data-i18n="nav_my_exports">My Exports ↗</a></p>
+          <p style="display: none !important;"><a id="my-exports-bottom" href="/app#exports-section" style="display: none !important;" hidden data-i18n="nav_my_exports">My Exports ↗</a></p>
           <div id="export-history" class="help"></div>
         </section>
       </div>
@@ -378,7 +378,7 @@
     </div>
   </dialog>
 
-  <script type="module" src="/motion/studio.js?v=20261022_export_feedback"></script>
+  <script type="module" src="/motion/studio.js?v=20261022_credit_refresh"></script>
   <script>
     if (window.parent && window.parent !== window) {
       document.body.classList.add("embedded-studio");
@@ -462,10 +462,10 @@
             new URLSearchParams(location.search).get("project") ||
             "";
           window.parent.postMessage({ type: "M2V_SWITCH_STUDIO", target: "lyric-editor", songId: currentProject }, targetOrigin);
-        } else if (href === "/#exports-section" || href.includes("#exports-section")) {
+        } else if (href === "/app#exports-section" || href.includes("#exports-section")) {
           e.preventDefault();
           window.parent.postMessage({ type: "M2V_NAVIGATE", hash: "exports-section" }, targetOrigin);
-        } else if (href === "/" || href.startsWith("/#")) {
+        } else if (href === "/app" || href.startsWith("/app#") || href === "/" || href.startsWith("/#")) {
           e.preventDefault();
           window.parent.postMessage({ type: "M2V_NAVIGATE", hash: "tasks-section" }, targetOrigin);
         }

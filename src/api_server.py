@@ -877,9 +877,15 @@ if frontend_dir.exists():
     )
 
     @app.get("/", tags=["Frontend"])
-    async def serve_dashboard():
-        """返回仪表板主页"""
-        return FileResponse(frontend_dir / "index.html")
+    @app.get("/pricing", tags=["Frontend"])
+    @app.get("/terms", tags=["Frontend"])
+    @app.get("/privacy", tags=["Frontend"])
+    @app.get("/refunds", tags=["Frontend"])
+    @app.get("/contact", tags=["Frontend"])
+    @app.get("/app", tags=["Frontend"])
+    async def serve_public_page(request: Request):
+        name = request.url.path.strip("/") or "index"
+        return FileResponse(frontend_dir / f"{name}.html")
 
     @app.get("/lyric-editor", tags=["Frontend"])
     @app.get("/lyric-editor/{task_id}", tags=["Frontend"])

@@ -98,7 +98,7 @@ async def checkout(req:CheckoutRequest,user:User=Depends(get_current_user),db=De
         payload={'data':{'type':'checkouts','attributes':{
             'test_mode':settings.LEMONSQUEEZY_TEST_MODE,'expires_at':row.expires_at.isoformat(),
             'product_options':{'enabled_variants':[int(product.variant_id)],
-                'redirect_url':settings.BILLING_SITE_URL.rstrip('/')+'/?checkout='+row.id+'#credits-section'},
+                'redirect_url':settings.BILLING_SITE_URL.rstrip('/')+'/app?checkout='+row.id+'#credits-section'},
             'checkout_options':{'embed':False,'discount':False,'skip_trial':True},
             'checkout_data':{'email':user.email,'custom':{'user_id':user.id,'checkout_id':row.id,'nonce':row.nonce},
                 'variant_quantities':[{'variant_id':int(product.variant_id),'quantity':1}]}},

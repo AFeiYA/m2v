@@ -1,6 +1,6 @@
 /* Hosted billing uses dashboard authentication; client state can never grant credits. */
 (() => {
-  let sequence = 0, page = 1, timer = null, enabled = false, busy = false;
+  let sequence = 0, page = 1, timer = null, enabled = false, busy = false, selectedPlanFocused = false;
   const $ = id => document.getElementById(id);
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money = (amount, currency) => new Intl.NumberFormat('en-US', {style:'currency', currency}).format(amount / 100);
@@ -33,6 +33,14 @@
       if ($('billing-plans-preview')) $('billing-plans-preview').hidden = true;
       $('billing-notice').textContent = (catalog.test_mode ? 'TEST MODE — no real payment. ' : '') + catalog.credit_policy + ' ' + catalog.subscription_policy;
       $('billing-products').innerHTML = catalog.products.map(p => `<article class="billing-product"><span class="billing-kind">${p.kind === 'subscription' ? 'MONTHLY SUBSCRIPTION' : 'ONE-TIME PACK'}</span><h3>${escape(p.name)}</h3><p class="billing-price">${escape(money(p.price_cents, p.currency))}${p.kind === 'subscription' ? '<small> / month</small>' : ''}</p><p>${Number(p.credits).toLocaleString('en-US')} credits${p.kind === 'subscription' ? ' per billing month' : ''}</p><p class="billing-validity">${p.kind === 'subscription' ? 'Unused credits expire at the end of each billing period.' : 'One-time purchase. Credits never expire.'}</p><button class="btn btn-primary" data-billing-buy="${escape(p.id)}">${p.kind === 'subscription' ? 'Subscribe monthly' : 'Buy credits'}</button><small>Taxes may apply. Final amount shown at checkout.</small></article>`).join('');
+      // Public pricing links carry intent only. Payment still requires a deliberate click.
+      const chosen = new URLSearchParams(location.search).get('plan');
+      const chosenProduct = catalog.products.find(p => p.id === chosen);
+      if (chosenProduct && !selectedPlanFocused && !new URLSearchParams(location.search).has('checkout')) {
+        selectedPlanFocused = true;
+        $('billing-return-status').textContent = 'Selected package: ' + chosenProduct.name + '. Review the terms below, then choose Buy credits or Subscribe monthly to continue.';
+        document.querySelector?.('[data-billing-buy="' + chosenProduct.id + '"]')?.focus();
+      }
       $('billing-subscriptions').innerHTML = status.subscriptions.map(s => `<div class="billing-subscription"><span>Subscription: <strong>${escape(s.status)}</strong>${s.ends_at ? ' · Ends ' + escape(new Date(s.ends_at).toLocaleDateString()) : s.renews_at ? ' · Renews ' + escape(new Date(s.renews_at).toLocaleDateString()) : ''}</span><button class="btn btn-sm btn-outline" data-billing-portal="${escape(s.id)}">Manage subscription</button></div>`).join('');
       $('billing-orders').innerHTML = history.orders.length ? `<h3>Payment history</h3><div class="billing-table"><table><thead><tr><th>Date</th><th>Amount</th><th>Status</th><th>Credits</th><th>Receipt</th></tr></thead><tbody>${history.orders.map(o => `<tr><td>${escape(new Date(o.created_at).toLocaleDateString())}</td><td>${escape(money(o.amount_cents,o.currency))}</td><td>${escape(o.status)}${o.refunded_cents ? ' · ' + escape(money(o.refunded_cents,o.currency)) + ' refunded' : ''}</td><td>${Number(o.credits) - Number(o.credits_reversed)}</td><td><button class="btn btn-sm btn-outline" data-billing-receipt="${escape(o.id)}">View receipt</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="section-intro">No confirmed payments yet.</p>';
       $('billing-refresh').hidden = false; $('billing-reconcile').hidden = false;

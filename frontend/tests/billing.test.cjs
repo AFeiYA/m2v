@@ -49,3 +49,11 @@ test('a checkout return URL alone never confirms payment or increases a balance'
  assert.match(s.element('billing-return-status').textContent,/Waiting for payment confirmation/);
  assert.equal(s.context.creditLoads,0);
 });
+
+test('a public pricing selection is displayed without automatically starting checkout',async()=>{
+ const s=setup();s.context.location.search='?plan=monthly';
+ await s.context.window.m2vBilling.refresh();
+ assert.match(s.element('billing-return-status').textContent,/Selected package: Creator/);
+ assert.equal(s.calls.filter(c=>c.url.endsWith('/checkout')).length,0);
+ assert.equal(s.redirects.length,0);
+});
