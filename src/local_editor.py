@@ -2551,7 +2551,7 @@ def motion_styles():
 
 @app.get("/motion/{asset}")
 def motion_asset(asset: str):
-    if asset not in ("lab.js", "studio.js", "rhythm-studio.js", "rhythm-studio.js.LEGAL.txt", "render-entry.js", "lab.js.LEGAL.txt", "studio.js.LEGAL.txt", "render-entry.js.LEGAL.txt"):
+    if asset not in ("marketing-preview.js", "marketing-preview.js.LEGAL.txt", "lab.js", "studio.js", "rhythm-studio.js", "rhythm-studio.js.LEGAL.txt", "render-entry.js", "lab.js.LEGAL.txt", "studio.js.LEGAL.txt", "render-entry.js.LEGAL.txt"):
         raise HTTPException(404, "文件不存在")
     path = _FRONTEND_DIR / "motion" / asset
     if not path.exists(): raise HTTPException(503, "动效前端尚未构建")

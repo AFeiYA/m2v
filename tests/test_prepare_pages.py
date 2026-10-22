@@ -11,7 +11,7 @@ def frontend(tmp_path, monkeypatch):
     source = root / "frontend"
     source.mkdir(parents=True)
     monkeypatch.setattr(prepare_pages, "__file__", str(root / "scripts/prepare_pages.py"))
-    for name in ("local/motion/studio.js", "local/motion/lab.js", "local/motion/rhythm-studio.js", "local/motion-lab.css", "marketing/site.css", "marketing/site.js"):
+    for name in ("local/motion/studio.js", "local/motion/marketing-preview.js", "local/motion/lab.js", "local/motion/rhythm-studio.js", "local/motion-lab.css", "marketing/site.css", "marketing/site.js"):
         p = source / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("asset")

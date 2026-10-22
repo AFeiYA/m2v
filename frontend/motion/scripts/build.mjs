@@ -6,7 +6,7 @@ import { build } from 'esbuild';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 await build({
-  absWorkingDir: root, entryPoints: ['src/lab.ts', 'src/studio.ts', 'src/rhythm-studio.ts', 'src/render-entry.ts'],
+  absWorkingDir: root, entryPoints: ['src/lab.ts', 'src/studio.ts', 'src/rhythm-studio.ts', 'src/marketing-preview.ts', 'src/render-entry.ts'],
   outdir: '../local/motion', bundle: true, format: 'esm', target: 'es2022',
   minify: true, legalComments: 'linked', sourcemap: false,
 });

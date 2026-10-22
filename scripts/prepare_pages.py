@@ -21,7 +21,7 @@ def validate_redirects(path: Path) -> None:
 
 def prepare(destination: Path) -> None:
     source = Path(__file__).resolve().parents[1] / "frontend"
-    for asset in ("local/motion/studio.js", "local/motion/lab.js", "local/motion/rhythm-studio.js", "local/motion-lab.css", "marketing/site.css", "marketing/site.js", "_redirects"):
+    for asset in ("local/motion/studio.js", "local/motion/marketing-preview.js", "local/motion/lab.js", "local/motion/rhythm-studio.js", "local/motion-lab.css", "marketing/site.css", "marketing/site.js", "_redirects"):
         path = source / asset
         if not path.is_file() or path.stat().st_size == 0:
             raise RuntimeError(f"Missing Pages asset: {asset}")

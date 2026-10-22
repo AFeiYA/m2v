@@ -32,10 +32,18 @@ merchant keys, user data or deployed settings. Tests compare advertised packages
 to that template. Production billing remains authoritative; when pricing changes,
 update the server allowlist, merchant variant, template and public site together.
 
-Public layout studies are silent illustrative CSS previews, explicitly labelled;
-they are not customer work or measured renderer output. No private R2 assets were
-published. Replace/add real exported examples only when their publication rights
-and media retention are established.
+Public previews lazy-load `marketing-preview.js`, using the same `RemotionPreview`
+and `LyricVideo` as the studio/export path. `marketing-demo.ts` supplies original
+sample lyrics with explicitly synthetic word timings and no cover, audio or beat
+claims. Portrait scroll is 720×1280, landscape dual-line is 1280×720, and the poster
+sample uses the actual three-stack preset. Fonts, palettes, clipping and entrance
+logic come from the production components, not a separate CSS imitation. Playback
+requires a click; offscreen/hidden previews pause. The public renderer imports no
+authentication, service API, user assets, billing or export functions.
+
+Both Motion build scripts include this browser-only bundle. Pages staging requires
+it, and the local editor asset route explicitly permits it. No GPU job, alignment,
+paid render or private R2 media is needed to view the samples.
 
 ## Before merchant submission
 
@@ -49,8 +57,8 @@ and media retention are established.
   successful transaction acceptance using `LEMON_SQUEEZY_LAUNCH_GUIDE_ZH.md`.
 - Public plan cards do not enable billing if `BILLING_ENABLED` is false. The
   existing workspace explains unavailable checkout rather than promising a sale.
-- Add genuine video examples when ready. The current labelled study prevents
-  presenting generated mockups as real exported demos.
+- Previews show the actual renderer, but are not evidence of AI alignment accuracy.
+  Add authorised song exports separately when an audio demonstration is available.
 
 ## Verification
 

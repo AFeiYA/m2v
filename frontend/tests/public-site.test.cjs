@@ -27,7 +27,7 @@ test('public pages are English, readable without auth and have valid internal li
   }
  }
  assert.match(fs.readFileSync(path.join(root,'app.html'),'utf8'),/id="auth-overlay"/);
- assert.match(fs.readFileSync(path.join(root,'index.html'),'utf8'),/illustrative layout preview/);
+ assert.match(fs.readFileSync(path.join(root,'index.html'),'utf8'),/synthetic word timings/);
 });
 test('published packages match the checked-in official catalogue and enter authenticated billing',()=>{
  const line=fs.readFileSync(path.join(root,'../.env.example'),'utf8').split('\n').find(l=>l.startsWith('BILLING_PRODUCTS_JSON='));
@@ -39,4 +39,16 @@ test('published packages match the checked-in official catalogue and enter authe
   assert.ok(page.includes(product.credits.toLocaleString('en-US')+' credits'));
  }
  assert.doesNotMatch(page,/href="https:\/\/[^\"]*lemonsqueezy\.com\/checkout/);
+});
+
+test('marketing previews share the video renderer rather than CSS lyric animation',()=>{
+ const entry=fs.readFileSync(path.join(root,'motion/src/marketing-preview.ts'),'utf8');
+ const sample=fs.readFileSync(path.join(root,'motion/src/marketing-demo.ts'),'utf8');
+ assert.match(entry,/import \{RemotionPreview\} from '\.\/remotion-preview'/);
+ assert.match(sample,/automaticPoster/);
+ assert.doesNotMatch(entry,/service-api|firebase|archiveBrowserVideo/);
+ const home=fs.readFileSync(path.join(root,'index.html'),'utf8');
+ assert.match(home,/AI automatically aligns/);
+ assert.ok(home.indexOf('Let AI align your lyrics')<home.indexOf('Refine only what needs it'));
+ assert.doesNotMatch(home,/class="demo-lines"|class="poster-copy"/);
 });
