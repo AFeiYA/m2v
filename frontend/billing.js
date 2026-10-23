@@ -25,8 +25,9 @@
     window.location.assign(value.href);
   }
   async function openPaddle(result, uid) {
-    if (result.environment !== 'sandbox' || !/^test_[A-Za-z0-9_]+$/.test(result.client_token || '') ||
-        !/^txn_[a-z0-9]{26}$/.test(result.transaction_id || '')) throw Error('Invalid Paddle sandbox checkout.');
+    const expectedPrefix = {sandbox:'test_',production:'live_'}[result.environment];
+    if (!expectedPrefix || !new RegExp('^' + expectedPrefix + '[A-Za-z0-9_]+$').test(result.client_token || '') ||
+        !/^txn_[a-z0-9]{26}$/.test(result.transaction_id || '')) throw Error('Invalid Paddle checkout environment or token.');
     const success = new URL(result.success_url);
     const local = ['localhost', '127.0.0.1'].includes(success.hostname) && success.protocol === 'http:';
     if ((success.protocol !== 'https:' && !local) || success.username || success.password) throw Error('Invalid billing return URL.');
@@ -42,20 +43,21 @@
     if (currentUser?.id !== uid || seq !== sequence) return;
     if (!window.Paddle) throw Error('Secure checkout did not load. Please retry.');
     paddleOwner = uid;
-    window.Paddle.Environment.set('sandbox');
+    window.Paddle.Environment.set(result.environment);
     const options = {token:result.client_token,eventCallback:event => {
       if (currentUser?.id !== uid || paddleOwner !== uid) return;
       if (event.name === 'checkout.completed') {
         $('billing-return-status').textContent = 'Payment submitted. Waiting for verified payment confirmation.';
-        void checkReturn(result.checkout_id, uid, sequence, 0);
+        if (result.checkout_id) void checkReturn(result.checkout_id, uid, sequence, 0);
+        else { void loadCredits(); void refresh(); }
       } else if (['checkout.error','checkout.payment.error','checkout.payment.failed'].includes(event.name)) {
-        $('billing-return-status').textContent = 'Payment could not be completed. Review your details or try again. No credits have been granted by this page.';
+        $('billing-return-status').textContent = 'Payment could not be completed. Review your details or try again. If you were charged, check payment history or contact support.';
       }
     }};
     if (window.Paddle.Initialized) window.Paddle.Update(options);
     else window.Paddle.Initialize(options);
     window.Paddle.Checkout.open({transactionId:result.transaction_id,
-      settings:{variant:'one-page',theme:'dark',successUrl:success.href}});
+      settings:{variant:'one-page',theme:'dark',locale:'en',allowDiscountRemoval:false,showAddDiscounts:false,successUrl:success.href}});
   }
   async function refresh(nextPage = page) {
     const uid = currentUser?.id, seq = ++sequence;
@@ -77,12 +79,31 @@
         $('billing-return-status').textContent = 'Selected package: ' + chosenProduct.name + '. Review the terms below, then choose Buy credits or Subscribe monthly to continue.';
         document.querySelector?.('[data-billing-buy="' + chosenProduct.id + '"]')?.focus();
       }
-      $('billing-subscriptions').innerHTML = status.subscriptions.map(s => `<div class="billing-subscription"><span>Subscription: <strong>${escape(s.status)}</strong>${s.ends_at ? ' · Ends ' + escape(new Date(s.ends_at).toLocaleDateString()) : s.renews_at ? ' · Renews ' + escape(new Date(s.renews_at).toLocaleDateString()) : ''}</span><button class="btn btn-sm btn-outline" data-billing-portal="${escape(s.id)}">Manage subscription</button></div>`).join('');
+      $('billing-subscriptions').innerHTML = status.subscriptions.map(s => `<div class="billing-subscription"><span>Subscription: <strong>${escape(s.status)}</strong>${s.ends_at ? ' · Ends ' + escape(new Date(s.ends_at).toLocaleDateString()) : s.renews_at ? ' · Renews ' + escape(new Date(s.renews_at).toLocaleDateString()) : ''}</span><button class="btn btn-sm btn-outline" data-billing-portal="${escape(s.id)}">${status.plan_changes_supported === false ? 'Update payment method' : 'Manage subscription'}</button>${status.plan_changes_supported === false && !['canceled','expired'].includes(s.status) && !s.ends_at ? `<button class="btn btn-sm btn-outline" data-billing-portal="${escape(s.id)}" data-billing-action="cancel">Cancel renewal</button>` : ''}</div>`).join('');
       $('billing-orders').innerHTML = history.orders.length ? `<h3>Payment history</h3><div class="billing-table"><table><thead><tr><th>Date</th><th>Amount</th><th>Status</th><th>Credits</th><th>Receipt</th></tr></thead><tbody>${history.orders.map(o => `<tr><td>${escape(new Date(o.created_at).toLocaleDateString())}</td><td>${escape(money(o.amount_cents,o.currency))}</td><td>${escape(o.status)}${o.refunded_cents ? ' · ' + escape(money(o.refunded_cents,o.currency)) + ' refunded' : ''}</td><td>${Number(o.credits) - Number(o.credits_reversed)}</td><td><button class="btn btn-sm btn-outline" data-billing-receipt="${escape(o.id)}">View receipt</button></td></tr>`).join('')}</tbody></table></div>` : '<p class="section-intro">No confirmed payments yet.</p>';
       $('billing-refresh').hidden = false; $('billing-reconcile').hidden = false;
       $('billing-pagination').hidden = history.total <= 20;
       $('billing-page').textContent = 'Page ' + page;
       $('billing-prev').disabled = page <= 1; $('billing-next').disabled = page * 20 >= history.total;
+      const transaction = new URLSearchParams(location.search).get('_ptxn');
+      if (transaction && !busy) {
+        if (!/^txn_[a-z0-9]{26}$/.test(transaction)) throw Error('Invalid payment link. Open billing to start again.');
+        busy = true;
+        try {
+          const result = await json('/paddle/transactions/' + transaction);
+          if (currentUser?.id !== uid || seq !== sequence) return;
+          // SDK can auto-open _ptxn during initialization. Remove it only after
+          // the backend verifies ownership, then open the verified transaction.
+          const clean = new URL(location.href); clean.searchParams.delete('_ptxn');
+          window.history.replaceState(null, '', clean.pathname + clean.search + '#credits-section');
+          if (result.state === 'paid') {
+            $('billing-return-status').textContent = 'This payment is already confirmed. Check your payment history.';
+            await loadCredits();
+          } else await openPaddle(result, uid);
+        } catch (error) {
+          if (currentUser?.id === uid && seq === sequence) $('billing-return-status').textContent = error.message;
+        } finally { busy = false; }
+      }
       const pending = new URLSearchParams(location.search).get('checkout');
       if (pending && /^[a-f0-9]{64}$/.test(pending)) void checkReturn(pending, uid, seq, 0);
     } catch (error) {
@@ -108,6 +129,7 @@
         await loadCredits(); await refresh();
       } else {
         $('billing-return-status').textContent = 'Waiting for payment confirmation. Returning from checkout does not confirm payment. You can leave and check your history later.';
+        if (attempt >= 11) $('billing-return-status').textContent = 'Payment confirmation is taking longer than expected. Refresh billing or contact support before purchasing again.';
         if (attempt < 11) timer = setTimeout(() => checkReturn(id, uid, seq, attempt + 1), 5000);
       }
     } catch (error) { if (currentUser?.id === uid && seq === sequence) $('billing-return-status').textContent = error.message; }
@@ -148,7 +170,7 @@
           throw error;
         }
       } else {
-        const path = button.dataset.billingPortal ? '/portal/' + encodeURIComponent(button.dataset.billingPortal) : '/receipt/' + encodeURIComponent(button.dataset.billingReceipt);
+        const path = button.dataset.billingPortal ? '/portal/' + encodeURIComponent(button.dataset.billingPortal) + (button.dataset.billingAction ? '?action=' + encodeURIComponent(button.dataset.billingAction) : '') : '/receipt/' + encodeURIComponent(button.dataset.billingReceipt);
         const result = await json(path,{method:'POST'});
         if (currentUser?.id === uid) redirect(result.url);
       }

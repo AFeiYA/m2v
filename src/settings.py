@@ -74,10 +74,12 @@ class Settings(BaseSettings):
     BILLING_PROVIDER: str = "lemonsqueezy"
     BILLING_ALLOW_TEST_TRANSACTIONS: bool = False
     PADDLE_ENVIRONMENT: str = "sandbox"
+    PADDLE_LIVE_ENABLED: bool = False
     PADDLE_API_KEY: str = ""
     PADDLE_SANDBOX_API_KEY: str = ""
     PADDLE_CLIENT_TOKEN: str = ""
     PADDLE_WEBHOOK_SECRET: str = ""
+    PADDLE_WEBHOOK_URL: str = ""
     STRIPE_API_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_ACCOUNT_ID: str = ""

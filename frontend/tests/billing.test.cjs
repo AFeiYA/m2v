@@ -78,12 +78,45 @@ test('Paddle opens a sandbox transaction and never grants credits from the brows
  assert.match(s.element('billing-return-status').textContent,/Waiting for payment confirmation/);
 });
 
-test('Paddle refuses a live token in the sandbox UI',async()=>{
+test('Paddle refuses a live token paired with sandbox environment',async()=>{
  const s=setup(),api=s.context.api;
  s.context.api=async(url,options)=>url.endsWith('/checkout')?{ok:true,json:async()=>({provider:'paddle',state:'open',
-  transaction_id:'txn_'+'1'.repeat(26),environment:'production',client_token:'live_fixture'})}:api(url,options);
+  transaction_id:'txn_'+'1'.repeat(26),environment:'sandbox',client_token:'live_fixture'})}:api(url,options);
  await s.context.window.m2vBilling.refresh();
  s.element('billing-panel').handlers.click({target:{closest:()=>({dataset:{billingBuy:'pack'},disabled:false})}});await flush();
- assert.match(s.element('billing-return-status').textContent,/Invalid Paddle sandbox/);
+ assert.match(s.element('billing-return-status').textContent,/Invalid Paddle checkout environment/);
  assert.equal(s.context.creditLoads,0);
+});
+
+test('Paddle uses production SDK mode only with a matching live token',async()=>{
+ const s=setup(),opened=[],modes=[],api=s.context.api;
+ s.context.window.Paddle={Environment:{set:x=>modes.push(x)},Initialize(){},Checkout:{open:x=>opened.push(x)}};
+ s.context.api=async(url,opt)=>url.endsWith('/checkout')?{ok:true,json:async()=>({provider:'paddle',state:'open',
+  checkout_id:'a'.repeat(64),transaction_id:'txn_'+'1'.repeat(26),environment:'production',client_token:'live_fixture',
+  success_url:'https://mv.fovea.si/app?checkout='+'a'.repeat(64)})}:api(url,opt);
+ await s.context.window.m2vBilling.refresh();
+ s.element('billing-panel').handlers.click({target:{closest:()=>({dataset:{billingBuy:'pack'},disabled:false})}});await flush();
+ assert.deepEqual(modes,['production']);assert.equal(opened.length,1);assert.equal(s.context.creditLoads,0);
+});
+
+test('Paddle email transaction links are resolved by the authenticated backend before opening',async()=>{
+ const s=setup(),api=s.context.api,opened=[],history=[];
+ const transaction='txn_'+'3'.repeat(26);s.context.location.search='?_ptxn='+transaction;
+ s.context.location.href='https://mv.fovea.si/app?_ptxn='+transaction;
+ s.context.window.history.replaceState=(_,__,url)=>history.push(url);
+ s.context.window.Paddle={Environment:{set(){}},Initialize(){},Checkout:{open:x=>opened.push(x)}};
+ s.context.api=async(url,opt)=>url.endsWith('/paddle/transactions/'+transaction)?{ok:true,json:async()=>({provider:'paddle',state:'open',
+  checkout_id:'b'.repeat(64),transaction_id:transaction,environment:'sandbox',client_token:'test_fixture',success_url:'https://mv.fovea.si/app'})}:api(url,opt);
+ await s.context.window.m2vBilling.refresh();
+ assert.equal(opened.length,1);assert.equal(opened[0].transactionId,transaction);
+ assert.equal(history[0],'/app#credits-section');assert.equal(s.context.creditLoads,0);
+});
+
+test('An unowned transaction link never loads or opens checkout',async()=>{
+ const s=setup(),api=s.context.api;let opened=false;
+ s.context.location.search='?_ptxn=txn_'+'3'.repeat(26);
+ s.context.window.Paddle={Environment:{set(){}},Initialize(){},Checkout:{open:()=>opened=true}};
+ s.context.api=async(url,opt)=>url.includes('/paddle/transactions/')?{ok:false,status:404,json:async()=>({detail:'Checkout not found'})}:api(url,opt);
+ await s.context.window.m2vBilling.refresh();
+ assert.equal(opened,false);assert.match(s.element('billing-return-status').textContent,/Checkout not found/);
 });

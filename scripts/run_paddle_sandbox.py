@@ -15,7 +15,7 @@ def sandbox_environment(root, inherited, values, port):
             env[name] = ''
     folder = root / 'work' / 'paddle-sandbox'
     env.update(BILLING_ENABLED='true', BILLING_PROVIDER='paddle', BILLING_ALLOW_TEST_TRANSACTIONS='true',
-        PADDLE_ENVIRONMENT='sandbox', DATABASE_URL='sqlite+aiosqlite:///' + str(folder / 'sandbox.db'),
+        PADDLE_ENVIRONMENT='sandbox', PADDLE_LIVE_ENABLED='false', DATABASE_URL='sqlite+aiosqlite:///' + str(folder / 'sandbox.db'),
         STORAGE_BACKEND='local', UPLOAD_DIR=str(folder / 'uploads'), OUTPUT_DIR=str(folder / 'output'),
         HOST='127.0.0.1', PORT=str(port), DEBUG='false', SECRET_KEY=secrets.token_hex(32),
         DRAFT_EXPORT_CREDITS='0', CLIP_EXPORT_CREDITS='0', SEPARATION_CREDITS='0')
@@ -29,6 +29,8 @@ def main():
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
+    # Direct invocation starts Python with scripts/, not the repository, on sys.path.
+    sys.path.insert(0, str(root))
     values = {**dotenv_values(root / '.env'), **dotenv_values(root / args.config)}
     env = sandbox_environment(root, os.environ, values, args.port)
     missing = [name for name in ('PADDLE_CLIENT_TOKEN', 'PADDLE_WEBHOOK_SECRET', 'BILLING_PRODUCTS_JSON') if not env.get(name)]

@@ -2,8 +2,8 @@
 
 ## 当前状态与范围
 
-代码位于 `feat/paddle-sandbox-billing`。默认收费仍关闭；Paddle 只允许 sandbox，
-生产环境参数、live API key、live client token 都不能用于本次接入。
+代码位于 `feat/paddle-sandbox-billing`。默认收费仍关闭；当前代码支持 sandbox 和 production，
+本指南与隔离启动脚本只用于 sandbox。正式环境请看 [上线指南](PADDLE_GO_LIVE_ZH.md)。
 这不是“切到正式账号”，不开始验证，不收真实款，不调整正式账户。
 
 Paddle 官方插件已安装。实现沿用现有 FastAPI、Firebase 登录、SQL 数据库和积分账本，

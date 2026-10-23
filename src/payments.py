@@ -25,7 +25,17 @@ def no_store(response:Response):
     response.headers['Cache-Control']='no-store, private'
 
 
-router=APIRouter(prefix='/api/payments',tags=['Billing'],dependencies=[Depends(no_store)])
+async def paddle_recovery():
+    # Gradio mounts these routes after startup, so the API's lifespan is not run.
+    from src.settings import get_settings
+    settings = get_settings()
+    if settings.BILLING_ENABLED and settings.BILLING_PROVIDER == 'paddle':
+        configured()
+        from src.paddle_inbox import ensure_worker
+        ensure_worker(settings, paddle_payments.async_session)
+
+
+router=APIRouter(prefix='/api/payments',tags=['Billing'],dependencies=[Depends(no_store), Depends(paddle_recovery)])
 EVENTS={
     'order_created':'orders','order_refunded':'orders',
     **{name:'subscriptions' for name in ('subscription_created','subscription_updated','subscription_cancelled',
@@ -60,7 +70,7 @@ def intent_view(row,settings):
 @router.get('/packages')
 async def packages(user:User=Depends(get_current_user)):
     settings,products=configured()
-    return {'provider':settings.BILLING_PROVIDER,'test_mode':True if settings.BILLING_PROVIDER=='paddle' else settings.STRIPE_TEST_MODE if settings.BILLING_PROVIDER=='stripe' else settings.LEMONSQUEEZY_TEST_MODE,'products':[{**p.model_dump(exclude={'variant_id'}),'validity':'billing_period' if p.kind=='subscription' else 'permanent'} for p in products.values()],
+    return {'provider':settings.BILLING_PROVIDER,'test_mode':(settings.PADDLE_ENVIRONMENT=='sandbox') if settings.BILLING_PROVIDER=='paddle' else settings.STRIPE_TEST_MODE if settings.BILLING_PROVIDER=='stripe' else settings.LEMONSQUEEZY_TEST_MODE,'products':[{**p.model_dump(exclude={'variant_id'}),'validity':'billing_period' if p.kind=='subscription' else 'permanent'} for p in products.values()],
             'credit_policy':'Monthly credits expire at the end of each billing period and do not roll over. Permanent credit packs never expire. Monthly credits are used first. Refunds reverse the corresponding credits without deducting expired credits twice.',
             'subscription_policy':'Monthly automatic renewal until cancelled in the billing portal. No unlimited rendering or extra storage is included.'}
 
@@ -223,9 +233,12 @@ async def checkout_status(checkout_id:str,user:User=Depends(get_current_user),db
 
 
 @router.post('/portal/{subscription_id}')
-async def portal(subscription_id:str,user:User=Depends(get_current_user),db=Depends(get_db)):
+async def portal(subscription_id:str,user:User=Depends(get_current_user),db=Depends(get_db),
+        action:str=Query('manage',pattern='^(manage|cancel|payment_method)$')):
     settings,_=configured()
     if adapter(settings):
+        if settings.BILLING_PROVIDER == 'paddle':
+            return await paddle_payments.portal(subscription_id,user,db,settings,action)
         return await adapter(settings).portal(subscription_id,user,db,settings)
     row=await db.get(BillingSubscription,subscription_id)
     if not row or row.user_id!=user.id or not row.id.startswith(service.scope(settings,'sub','')):

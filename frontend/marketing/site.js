@@ -5,7 +5,7 @@
   if (location.pathname === '/') {
     const section = location.hash.slice(1).split('?')[0];
     const query = new URLSearchParams(location.search);
-    if (workspace.has(section) || query.has('checkout') || query.has('redirect')) {
+    if (workspace.has(section) || query.has('checkout') || query.has('_ptxn') || query.has('redirect')) {
       location.replace('/app' + location.search + location.hash);
       return;
     }

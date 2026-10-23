@@ -15,12 +15,12 @@ export const events = ['transaction.completed','transaction.payment_failed','tra
 
 export function matchingPrice(price, product) {
   const cycle = price.billingCycle;
-  return price.status === 'active' && price.unitPrice.amount === String(product.price_cents) && price.unitPrice.currencyCode === 'USD' &&
+  return price.status === 'active' && price.taxMode === 'external' && price.unitPrice.amount === String(product.price_cents) && price.unitPrice.currencyCode === 'USD' &&
     !price.trialPeriod && !price.unitPriceOverrides?.length && price.quantity?.minimum === 1 && price.quantity?.maximum === 1 &&
     (product.kind === 'topup' ? !cycle : cycle?.interval === 'month' && cycle.frequency === 1);
 }
 
-export async function ensureCatalogue(paddle, apply = false) {
+export async function ensureCatalogue(paddle, apply = false, label = 'sandbox') {
   const existing = [];
   for await (const product of paddle.products.list({status:['active'],include:['prices']})) existing.push(product);
   const result = [];
@@ -35,7 +35,7 @@ export async function ensureCatalogue(paddle, apply = false) {
     matches = prices.filter(p => matchingPrice(p, wanted));
     if (matches.length > 1) throw Error('Duplicate matching prices require review: ' + wanted.id);
     let price = matches[0];
-    if (!price && apply) price = await paddle.prices.create({productId:product.id,description:wanted.id + ' USD sandbox',
+    if (!price && apply) price = await paddle.prices.create({productId:product.id,description:wanted.id + ' USD ' + label,
       name:wanted.kind === 'subscription' ? 'Monthly' : 'One-time',taxMode:'external',
       unitPrice:{amount:String(wanted.price_cents),currencyCode:'USD'},quantity:{minimum:1,maximum:1},
       ...(wanted.kind === 'subscription' ? {billingCycle:{interval:'month',frequency:1}} : {})});
@@ -87,7 +87,7 @@ async function main() {
   // credits from made-up simulator payloads; fulfillment re-reads real API resources.
   const config = {
     BILLING_ENABLED:'true',BILLING_PROVIDER:'paddle',BILLING_ALLOW_TEST_TRANSACTIONS:'true',
-    PADDLE_ENVIRONMENT:'sandbox',PADDLE_SANDBOX_API_KEY:key,PADDLE_API_KEY:'',
+    PADDLE_WEBHOOK_URL:destination,PADDLE_LIVE_ENABLED:'false',PADDLE_ENVIRONMENT:'sandbox',PADDLE_SANDBOX_API_KEY:key,PADDLE_API_KEY:'',
     PADDLE_CLIENT_TOKEN:token.token,PADDLE_WEBHOOK_SECRET:notification.endpointSecretKey,
     BILLING_SITE_URL:app.origin,
     BILLING_PRODUCTS_JSON:JSON.stringify(rows.map(({variant_id,product_id,needs_product,needs_price,...p}) => ({...p,variant_id}))),

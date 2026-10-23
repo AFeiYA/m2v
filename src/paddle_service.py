@@ -4,13 +4,16 @@ import hmac
 import json
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import logging
 from fastapi import HTTPException
 from sqlalchemy import select
 from src import credit_lots, credits, paddle_provider as provider
 from src.billing_models import BillingCheckout, BillingEvent, BillingPayment, BillingSubscription
 from src.billing_service import lock, reverse, utc
-from src.paddle_config import PREFIX, STORE, scope
+from src.paddle_config import prefix, store, scope
+
+log = logging.getLogger('m2v')
 
 EVENTS = {
     **{name: 'transactions' for name in ('transaction.completed', 'transaction.payment_failed', 'transaction.past_due', 'transaction.canceled')},
@@ -73,7 +76,7 @@ async def fetch_transactions(settings, subscription_id):
     raise HTTPException(503, 'Subscription history needs operator review')
 
 
-async def find_intent(db, transaction=None, subscription=None, candidates=()):
+async def find_intent(db, transaction=None, subscription=None, candidates=(), settings=None):
     row = None
     if transaction:
         row = (await db.execute(select(BillingCheckout).where(
@@ -90,7 +93,7 @@ async def find_intent(db, transaction=None, subscription=None, candidates=()):
                     row = rows[0]
     if not row:
         raise HTTPException(503, 'Paddle purchase is not linked yet; retry required')
-    if row.store_id != STORE or row.test_mode is not True:
+    if row.store_id != store(settings) or row.test_mode is not (settings.PADDLE_ENVIRONMENT == 'sandbox'):
         raise HTTPException(422, 'Paddle checkout environment does not match')
     return row
 
@@ -131,13 +134,13 @@ def amount(value):
 
 
 async def sync_payment(db, data, intent, subscription=None):
-    check_items(data, intent)
     if data.get('status') != 'completed':
         if data.get('status') == 'canceled' and intent.state != 'paid':
             intent.state = 'expired'
         return
     if data.get('origin') not in ('api', 'subscription_recurring'):
         return  # Prorations, add-on charges, payment-method updates do not buy monthly credits.
+    check_items(data, intent)
     if (data.get('currency_code') != intent.currency or data.get('collection_mode') != 'automatic'
             or data.get('discount_id')):
         raise HTTPException(422, 'Unsupported Paddle payment currency, discount or collection mode')
@@ -176,7 +179,12 @@ async def sync_payment(db, data, intent, subscription=None):
             lot_origin=row.id, expires_at=expiry, source_group=subscription.id if subscription else None, period_start=start)
         row.granted = True
     refund = 0
+    # Paddle returns `null` when a transaction has no adjustments, including
+    # newly completed purchases. Treat that as an empty collection while still
+    # rejecting malformed non-list values.
     adjustments = data.get('adjustments')
+    if adjustments is None:
+        adjustments = []
     if not isinstance(adjustments, list) or len(adjustments) >= 100:
         raise HTTPException(503, 'Paddle adjustments could not be checked')
     seen = set()
@@ -199,11 +207,11 @@ async def sync_payment(db, data, intent, subscription=None):
 
 async def process_inbox(db, eid, settings):
     event = await db.get(BillingEvent, eid, populate_existing=True)
-    if not event or not event.resource_id.startswith(PREFIX):
+    if not event or not event.resource_id.startswith(prefix(settings)):
         raise HTTPException(422, 'Paddle event environment does not match')
     if event.status in ('processed', 'review'):
         return False
-    path = event.resource_id[len(PREFIX):]
+    path = event.resource_id[len(prefix(settings)):]
     try:
         # Fetch before taking the mutation lock; webhook ingestion does no API calls.
         data = await provider.get(settings, path, {'include': 'adjustments'} if path.startswith('transactions/') else None)
@@ -225,22 +233,32 @@ async def process_inbox(db, eid, settings):
         event = await db.get(BillingEvent, eid, populate_existing=True)
         if event.status in ('processed', 'review'):
             return False
-        intent = await find_intent(db, transaction, subscription, candidates)
+        intent = await find_intent(db, transaction, subscription, candidates, settings)
         sub = await sync_subscription(db, subscription, intent) if subscription else None
         if transaction:
             await sync_payment(db, transaction, intent, sub)
         event.status = 'review' if review else 'processed'
         event.last_error = 'Paddle adjustment requires operator review' if review else None
+        event.next_attempt_at = None
+        if review:
+            log.error('Paddle adjustment needs operator review event=%s', eid)
         event.attempts += 1
         await db.commit()
         return True
-    except Exception:
+    except Exception as exc:
         await db.rollback()
         await lock(db)
         event = await db.get(BillingEvent, eid, populate_existing=True)
         if event.status not in ('processed', 'review'):
             event.status = 'pending'
             event.attempts += 1
-            event.last_error = 'Paddle synchronization failed; retry required'
+            # Only our bounded application errors are exposed to operators. Never
+            # persist raw HTTP bodies, SQL exceptions, keys or customer details.
+            event.last_error = (f'HTTP {exc.status_code}: {exc.detail}'[:128]
+                if isinstance(exc, HTTPException) and isinstance(exc.detail, str)
+                else 'Internal synchronization error; operator investigation required')
+            event.next_attempt_at = datetime.now(timezone.utc) + timedelta(seconds=min(21600, 10 * 2 ** min(event.attempts, 12)))
+            if event.attempts >= 5:
+                log.error('Paddle fulfillment delayed event=%s attempts=%s reason=%s', eid, event.attempts, event.last_error)
         await db.commit()
         raise

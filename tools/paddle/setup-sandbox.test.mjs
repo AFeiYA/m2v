@@ -32,3 +32,13 @@ test('ambiguous product match stops before any writes',async()=>{
   await assert.rejects(()=>ensureCatalogue(s.paddle,true),/Duplicate/);
   assert.equal(s.writes.length,0);
 });
+
+test('live catalog provisioning uses production labels and cannot reuse tax-inclusive prices',async()=>{
+  const s=mock();
+  await ensureCatalogue(s.paddle,true,'production');
+  assert.ok(s.rows.every(p=>p.prices.every(price=>price.description.endsWith('production'))));
+  const original=s.rows[0].prices[0];original.taxMode='internal';
+  const plan=await ensureCatalogue(s.paddle,false,'production');
+  assert.equal(plan[0].needs_price,true);
+  assert.equal(s.writes.length,6);
+});
