@@ -265,6 +265,7 @@ function applyVisualTemplate() {
 $('visual-template-select')?.addEventListener('change', action(applyVisualTemplate));
 let cancelExportQueue = false;
 let exportQueueRunning = false;
+let browserUploadController:AbortController|null=null;
 let motionQuote:{projectId:string;cost:number}|null=null;
 let motionPricing = { webcodecs: 10, cloud: 10 };
 const motionRequestIds=new Map<string,string>();
@@ -535,6 +536,7 @@ async function runExportVideo() {
   });
 
   let completedCount = 0;
+  let startedCount = 0;
   const completedRequestKeys:string[]=[];
   const updateSummary = (runningMsg = '') => {
     queueSummary.textContent = `${completedCount}/${tasks.length} ${isZh ? '完成' : 'completed'}${runningMsg ? ' · ' + runningMsg : ''}`;
@@ -550,6 +552,7 @@ async function runExportVideo() {
         break;
       }
       const { task, row, text } = itemRows[i];
+      startedCount=i+1;
 
       const useWebCodecs = typeof isWebCodecsSupported === 'function' && isWebCodecsSupported() && ($<HTMLInputElement>('export-fast-webcodecs')?.checked ?? true);
       if (useWebCodecs && project) {
@@ -585,12 +588,19 @@ async function runExportVideo() {
             mode:'browser',aspect:task.aspect,start:task.start,length:taskLength,
             accepted_cost:acceptedCost,
           },sourceRevision):null;
+          let archived=false;
           retryArchive=async()=>{
+            if(archived)return;
             text.textContent=`${task.title} (${task.aspect}): ${isZh?'正在保存视频…':'Saving video…'}`;
-            await archiveBrowserVideo(blob,{
+            const controller=new AbortController();
+            browserUploadController=controller;
+            if(cancelExportQueue)controller.abort();
+            try{await archiveBrowserVideo(blob,{
               projectId:sourceProject,requestId:browserRequest?.id||'',acceptedCost,
               title:`${exportTitle} · ${task.title}`,aspect:task.aspect,
-            });
+            },{signal:controller.signal});
+            }finally{if(browserUploadController===controller)browserUploadController=null;}
+            archived=true;
             if(cloudService())(window as any).m2vStudioBridge?.exported(sourceProject);
           const blobUrl = URL.createObjectURL(blob);
           const safeTitle = (exportTitle || 'motion').trim().replace(/[/\\?%*:|"<>]/g, '_');
@@ -621,23 +631,26 @@ async function runExportVideo() {
           if(browserRequest)clearMotionRequest(browserRequest.key);
           updateSummary();
           text.textContent=`${task.title} (${task.aspect}): ${isZh?'视频已完成，已发起下载':'Video ready, download started'}`;
-          await loadExports().catch(error=>console.error(error));
+          $('export-status').textContent=`${completedCount}/${tasks.length} ${isZh?'视频已保存到云端，已发起下载':'videos saved to cloud; download started'}`;
+          void loadExports().catch(error=>console.error(error));
           };
           await retryArchive();
           continue;
         } catch (err: any) {
+          if(retryArchive){
+            text.textContent=`${task.title} (${task.aspect}): ${isZh?'上传未确认；本页保留视频，可重试保存':'Upload unconfirmed; video retained on this page. Retry saving.'}`;
+            const retry=document.createElement('button');
+            retry.textContent=isZh?'重试保存视频':'Retry saving video';
+            retry.onclick=()=>{if(exportQueueRunning)return;exportQueueRunning=true;exportBtn.disabled=true;retry.disabled=true;cancelExportQueue=false;cancelBtn.hidden=false;
+              void retryArchive!().then(()=>retry.remove()).catch(error=>{
+              retry.disabled=false;text.textContent=String(error);
+            }).finally(()=>{exportQueueRunning=false;exportBtn.disabled=false;cancelBtn.hidden=true;updateMatrixCount();});};
+            row.append(retry);
+            throw new Error(isZh?'视频已编码，云端保存未确认。请在本页重试保存，确认前不要刷新或关闭页面；其余视频未开始。':'Video encoded; cloud saving is unconfirmed. Retry saving on this page before refreshing or closing it. Remaining videos have not started.');
+          }
           if (cancelExportQueue || err?.message?.includes('cancelled')) {
             text.textContent = `${task.title} (${task.aspect}): ${isZh ? '已取消' : 'Cancelled'}`;
             break;
-          }
-          if(retryArchive){
-            const retry=document.createElement('button');
-            retry.textContent=isZh?'重试保存视频':'Retry saving video';
-            retry.onclick=()=>{retry.disabled=true;void retryArchive!().then(()=>retry.remove()).catch(error=>{
-              retry.disabled=false;text.textContent=String(error);
-            });};
-            row.append(retry);
-            throw new Error(isZh?'本地编码已完成，但保存尚未确认。请重试保存；不会重复渲染。':'Video encoded, but saving is not confirmed. Retry saving this video; it will not be rendered again.');
           }
           console.warn('[MotionStudio] Local WebCodecs export failed, auto-falling back to cloud render:', err);
           text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地压制受限，已自动转入云端通道…' : 'Local export unavailable, auto-switching to cloud render…'}`;
@@ -736,6 +749,9 @@ async function runExportVideo() {
     updateSummary(isZh ? '所有任务已结束' : 'All jobs finished');
     $('export-status').textContent = `${completedCount}/${tasks.length} ${isZh ? '视频导出完成。' : 'videos completed.'}`;
   } finally {
+    for(let i=startedCount;i<itemRows.length;i++){
+      itemRows[i].text.textContent=`${tasks[i].title} (${tasks[i].aspect}): ${cancelExportQueue?(isZh?'已取消':'Cancelled'):(isZh?'未开始：前序任务中断':'Not started: previous export interrupted')}`;
+    }
     jobId='';
     exportBtn.disabled = false;
     cancelBtn.hidden = true;
@@ -821,6 +837,7 @@ window.addEventListener('pointercancel',()=>{resumeAfterScrub=false;void finishS
 $('export').onclick=action(exportVideo);
 $('cancel').onclick=action(async()=>{
   cancelExportQueue=true;
+  browserUploadController?.abort();
   if(jobId)await api('render/'+jobId+'/cancel','POST').catch(()=>{});
 });
 $('export-custom-range')?.addEventListener('change',updateMatrixCount);
