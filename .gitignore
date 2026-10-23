@@ -48,6 +48,7 @@ assets/
 frontend/player/songs/
 work/
 frontend/motion/node_modules
+tools/paddle/node_modules/
 .firebase/
 .wrangler/
 firebase-debug.log

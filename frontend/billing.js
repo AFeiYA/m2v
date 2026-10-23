@@ -1,10 +1,13 @@
 /* Hosted billing uses dashboard authentication; client state can never grant credits. */
 (() => {
   let sequence = 0, page = 1, timer = null, enabled = false, busy = false, selectedPlanFocused = false;
+  let paddleReady = null, paddleOwner = null;
   const $ = id => document.getElementById(id);
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money = (amount, currency) => new Intl.NumberFormat('en-US', {style:'currency', currency}).format(amount / 100);
   function reset() {
+    paddleOwner = null;
+    if (typeof window.Paddle?.Checkout?.close === 'function') window.Paddle.Checkout.close();
     sequence++; clearTimeout(timer); timer = null; page = 1; enabled = false; busy = false;
     for (const id of ['billing-products','billing-subscriptions','billing-orders','billing-return-status']) if ($(id)) $(id).textContent = '';
     for (const id of ['billing-refresh','billing-reconcile','billing-pagination']) if ($(id)) $(id).hidden = true;
@@ -20,6 +23,39 @@
     const value = new URL(url);
     if (value.protocol !== 'https:' || value.username || value.password) throw Error('Invalid billing link.');
     window.location.assign(value.href);
+  }
+  async function openPaddle(result, uid) {
+    if (result.environment !== 'sandbox' || !/^test_[A-Za-z0-9_]+$/.test(result.client_token || '') ||
+        !/^txn_[a-z0-9]{26}$/.test(result.transaction_id || '')) throw Error('Invalid Paddle sandbox checkout.');
+    const success = new URL(result.success_url);
+    const local = ['localhost', '127.0.0.1'].includes(success.hostname) && success.protocol === 'http:';
+    if ((success.protocol !== 'https:' && !local) || success.username || success.password) throw Error('Invalid billing return URL.');
+    paddleReady ||= window.Paddle ? Promise.resolve() : new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.paddle.com/paddle/v2/paddle.js'; script.async = true;
+      script.onload = resolve;
+      script.onerror = () => { paddleReady = null; script.remove(); reject(Error('Unable to load secure checkout. Please retry.')); };
+      document.head.appendChild(script);
+    });
+    const seq = sequence;
+    await paddleReady;
+    if (currentUser?.id !== uid || seq !== sequence) return;
+    if (!window.Paddle) throw Error('Secure checkout did not load. Please retry.');
+    paddleOwner = uid;
+    window.Paddle.Environment.set('sandbox');
+    const options = {token:result.client_token,eventCallback:event => {
+      if (currentUser?.id !== uid || paddleOwner !== uid) return;
+      if (event.name === 'checkout.completed') {
+        $('billing-return-status').textContent = 'Payment submitted. Waiting for verified payment confirmation.';
+        void checkReturn(result.checkout_id, uid, sequence, 0);
+      } else if (['checkout.error','checkout.payment.error','checkout.payment.failed'].includes(event.name)) {
+        $('billing-return-status').textContent = 'Payment could not be completed. Review your details or try again. No credits have been granted by this page.';
+      }
+    }};
+    if (window.Paddle.Initialized) window.Paddle.Update(options);
+    else window.Paddle.Initialize(options);
+    window.Paddle.Checkout.open({transactionId:result.transaction_id,
+      settings:{variant:'one-page',theme:'dark',successUrl:success.href}});
   }
   async function refresh(nextPage = page) {
     const uid = currentUser?.id, seq = ++sequence;
@@ -104,7 +140,8 @@
         try {
           const result = await json('/checkout', {method:'POST',json:{product_id:product,idempotency_key:key}});
           if (currentUser?.id !== uid) return;
-          if (result.url) redirect(result.url);
+          if (result.provider === 'paddle' && result.state !== 'paid') await openPaddle(result, uid);
+          else if (result.url) redirect(result.url);
           else { try { sessionStorage.removeItem(storageKey); } catch (_) {} await loadCredits(); await refresh(); }
         } catch (error) {
           if (error.status === 409 || error.status === 410) { try { sessionStorage.removeItem(storageKey); } catch (_) {} }

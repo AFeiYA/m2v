@@ -57,3 +57,33 @@ test('a public pricing selection is displayed without automatically starting che
  assert.equal(s.calls.filter(c=>c.url.endsWith('/checkout')).length,0);
  assert.equal(s.redirects.length,0);
 });
+
+test('Paddle opens a sandbox transaction and never grants credits from the browser event',async()=>{
+ const s=setup(),opened=[],initialized=[];
+ let callback;
+ s.context.window.Paddle={Environment:{set:value=>assert.equal(value,'sandbox')},
+  Initialize:options=>{initialized.push(options);callback=options.eventCallback},
+  Checkout:{open:value=>opened.push(value)}};
+ const api=s.context.api;
+ s.context.api=async(url,options)=>url.endsWith('/checkout')?{ok:true,json:async()=>({provider:'paddle',state:'open',
+  checkout_id:'a'.repeat(64),transaction_id:'txn_'+'1'.repeat(26),environment:'sandbox',client_token:'test_fixture',
+  success_url:'https://mv.fovea.si/app?checkout='+'a'.repeat(64)})}:api(url,options);
+ await s.context.window.m2vBilling.refresh();
+ const button={dataset:{billingBuy:'pack'},disabled:false};
+ s.element('billing-panel').handlers.click({target:{closest:()=>button}});await flush();
+ assert.equal(opened.length,1);assert.equal(initialized[0].token,'test_fixture');
+ assert.equal(opened[0].transactionId,'txn_'+'1'.repeat(26));
+ callback({name:'checkout.completed'});await flush();
+ assert.equal(s.context.creditLoads,0);assert.equal(s.redirects.length,0);
+ assert.match(s.element('billing-return-status').textContent,/Waiting for payment confirmation/);
+});
+
+test('Paddle refuses a live token in the sandbox UI',async()=>{
+ const s=setup(),api=s.context.api;
+ s.context.api=async(url,options)=>url.endsWith('/checkout')?{ok:true,json:async()=>({provider:'paddle',state:'open',
+  transaction_id:'txn_'+'1'.repeat(26),environment:'production',client_token:'live_fixture'})}:api(url,options);
+ await s.context.window.m2vBilling.refresh();
+ s.element('billing-panel').handlers.click({target:{closest:()=>({dataset:{billingBuy:'pack'},disabled:false})}});await flush();
+ assert.match(s.element('billing-return-status').textContent,/Invalid Paddle sandbox/);
+ assert.equal(s.context.creditLoads,0);
+});

@@ -20,6 +20,9 @@ async def replay(limit=100):
     if settings.BILLING_PROVIDER=='stripe':
         from src.stripe_service import process_inbox as processor
         prefix=f'stripe:0:{settings.STRIPE_ACCOUNT_ID}:'
+    elif settings.BILLING_PROVIDER=='paddle':
+        from src.paddle_service import process_inbox as processor
+        from src.paddle_config import PREFIX as prefix
     async with async_session() as db:
         ids=(await db.execute(select(BillingEvent.id).where(BillingEvent.status=='pending',
             BillingEvent.resource_id.startswith(prefix)).order_by(BillingEvent.created_at).limit(limit))).scalars().all()

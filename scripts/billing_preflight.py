@@ -9,6 +9,16 @@ from src.database import async_session
 
 async def check():
     settings,products=configured()
+    if settings.BILLING_PROVIDER=='paddle':
+        from src.paddle_provider import preflight
+        from src.paddle_config import PREFIX
+        await preflight(settings,products)
+        async with async_session() as db:
+            pending=(await db.execute(select(func.count()).select_from(BillingEvent).where(
+                BillingEvent.resource_id.startswith(PREFIX),BillingEvent.status.in_(['pending','review'])))).scalar_one()
+        print(f'Paddle SANDBOX configuration matches; pending/review events: {pending}')
+        print('Complete sandbox Checkout, webhook, renewal, cancellation and refund acceptance before marking step 4 done.')
+        return
     if settings.BILLING_PROVIDER=='stripe':
         from src.stripe_provider import preflight
         from src.stripe_payments import prefix

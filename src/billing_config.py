@@ -11,7 +11,7 @@ class Product(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     id: str = Field(pattern=r'^[a-z][a-z0-9_-]{0,63}$')
     name: str = Field(min_length=1, max_length=128)
-    variant_id: str = Field(pattern=r'^(?:\d{1,32}|price_[A-Za-z0-9]{1,56})$')
+    variant_id: str = Field(pattern=r'^(?:\d{1,32}|price_[A-Za-z0-9]{1,56}|pri_[a-z0-9]{26})$')
     kind: Literal['topup', 'subscription']
     credits: int = Field(gt=0, le=1000000)
     price_cents: int = Field(gt=0, le=10000000)
@@ -22,6 +22,9 @@ def configured():
     settings = get_settings()
     if not settings.BILLING_ENABLED:
         raise HTTPException(404, 'Billing is not enabled')
+    if settings.BILLING_PROVIDER == 'paddle':
+        from src.paddle_config import configured as paddle_configured
+        return paddle_configured(settings)
     if settings.BILLING_PROVIDER == 'stripe':
         from src.stripe_config import configured as stripe_configured
         return stripe_configured(settings)

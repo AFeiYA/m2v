@@ -96,7 +96,9 @@ async def lifespan(app: FastAPI):
     # 创建数据库表 (开发用；生产应使用 Alembic)
     await create_tables()
     log.info("✅ 数据库就绪")
-    yield
+    from src.paddle_inbox import lifecycle as paddle_inbox_lifecycle
+    async with paddle_inbox_lifecycle():
+        yield
     log.info("👋 M2V API Server 关闭")
 
 
