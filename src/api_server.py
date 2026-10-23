@@ -284,6 +284,7 @@ async def _reserve_import(db: AsyncSession, task: Task) -> None:
     reuse the winner even when only one credit remains.
     """
     from src.credits import reserve
+    task.cost_credits = settings.ALIGNMENT_CREDITS
     db.add(task)
     await db.flush()
     from src.models import AlignmentExecution

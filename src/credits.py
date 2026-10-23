@@ -287,7 +287,7 @@ async def history(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, l
             "monthly_quota": quota_status,
             "total": total, "page": page, "page_size": page_size,
             "pricing": {
-                "alignment": 1,
+                "alignment": settings.ALIGNMENT_CREDITS,
                 "separation": getattr(settings, "SEPARATION_CREDITS", 0),
                 "lyric_export": settings.LYRIC_EXPORT_CREDITS,
                 "motion_export": getattr(settings, "MOTION_EXPORT_CREDITS", 10),

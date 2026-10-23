@@ -302,3 +302,31 @@ def test_new_user_100_permanent_credits_and_monthly_free_quota_after_consumption
     assert claim_res3['granted'] is False
     assert claim_res3['reason'] == 'already_claimed'
 
+
+
+@pytest.mark.parametrize('fails', [False, True])
+@pytest.mark.parametrize('source', ['suno', 'upload'])
+def test_configured_alignment_quote_matches_charge_and_refund(sandbox, monkeypatch, fails, source):
+    monkeypatch.setattr(api_server.settings, 'ALIGNMENT_CREDITS', 20)
+    async def fund():
+        async with sandbox.sessions() as db:
+            (await db.get(User, 'alice')).credits = 50
+            await db.commit()
+    asyncio.run(fund())
+    assert history(sandbox)['pricing']['alignment'] == 20
+    install_pipeline(sandbox, monkeypatch, fails)
+    response = submit(sandbox, monkeypatch, source)
+    assert response.status_code == 200, response.text
+    task_id = response.json()['task_id']
+    data = history(sandbox)
+    assert data['available'] == (50 if fails else 30)
+    assert data['reserved'] == 0
+    assert [e['amount'] for e in data['entries'] if e['event'] == 'reserve'] == [-20]
+    if fails:
+        assert [e['amount'] for e in data['entries'] if e['event'] == 'release'] == [20]
+    monkeypatch.setattr(api_server.settings, 'ALIGNMENT_CREDITS', 7)
+    async def stored_cost():
+        async with sandbox.sessions() as db:
+            return (await db.get(Task, task_id)).cost_credits
+    assert asyncio.run(stored_cost()) == 20
+    assert history(sandbox)['pricing']['alignment'] == 7

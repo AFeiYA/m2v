@@ -286,7 +286,7 @@ async function logout() {
   creditExpiryTimer = null;
   if ($("#credit-history")) $("#credit-history").innerHTML = "";
   if ($("#credit-summary")) $("#credit-summary").textContent = "";
-  if ($("#credit-pricing")) $("#credit-pricing").textContent = "";
+  renderCreditOverview(null);
   renderJobsSequence++;
   if (renderJobsTimer) clearTimeout(renderJobsTimer);
   loadRenderJobs.hadActive = false;
@@ -1388,6 +1388,32 @@ function initExportLibrary() {
 let creditPage = 1;
 let creditSequence = 0;
 let creditExpiryTimer = null;
+function creditRate(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? `${value} ${value === 1 ? 'credit' : 'credits'}` : 'Unavailable';
+}
+function renderCreditOverview(data) {
+  const amount = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString() : '—';
+  for (const [id, value] of [
+    ['#stat-val-available', data?.available],
+    ['#stat-val-monthly', data?.wallet?.subscription_available],
+    ['#stat-val-permanent', data?.wallet?.permanent_available]
+  ]) if ($(id)) $(id).textContent = amount(value);
+  const pricing = data?.pricing;
+  const motionRates = [pricing?.motion_export, pricing?.motion_webcodecs];
+  let motion = 'Unavailable';
+  if (motionRates.every(value => Number.isSafeInteger(value) && value >= 0)) {
+    motion = motionRates[0] === motionRates[1] ? creditRate(motionRates[0]) : `${Math.min(...motionRates)}–${Math.max(...motionRates)} credits`;
+  }
+  for (const [id, text] of [
+    ['#stat-val-alignment-cost', creditRate(pricing?.alignment)],
+    ['#stat-val-export-cost', creditRate(pricing?.lyric_export)],
+    ['#stat-val-motion-cost', motion]
+  ]) if ($(id)) $(id).textContent = text;
+  if ($('#credit-pricing')) $('#credit-pricing').textContent = pricing
+    ? `Lyrics alignment: ${creditRate(pricing.alignment)} per import. Lyric video export: ${creditRate(pricing.lyric_export)} per video. Motion video export: ${motion} per video. Each selected video is charged separately. Review the exact cost before starting. Reusing an unchanged alignment and downloading an existing video are free.`
+    : 'Usage costs are unavailable. Refresh before starting a new task.';
+}
+
 async function loadCredits(page = creditPage) {
   const uid = currentUser?.id, sequence = ++creditSequence;
   if (!uid) return;
@@ -1397,6 +1423,7 @@ async function loadCredits(page = creditPage) {
     const data = await response.json();
     if (currentUser?.id !== uid || sequence !== creditSequence) return;
     creditPage = page;
+    renderCreditOverview(data);
     const available = Number(data.available) || 0, reserved = Number(data.reserved) || 0;
     $("#credit-summary").textContent = `${available} available · ${reserved} reserved. Failed tasks return unused, unexpired credits.`;
     $("#user-credits").textContent = `${available} available`;
@@ -1426,13 +1453,7 @@ async function loadCredits(page = creditPage) {
       $("#credit-summary").textContent += ` Monthly: ${data.wallet.subscription_available} · Permanent: ${data.wallet.permanent_available}${expiry}. Monthly credits are used first; permanent credits never expire.`;
       if ($("#stat-val-monthly")) $("#stat-val-monthly").textContent = Number(data.wallet.subscription_available || 0).toLocaleString();
       if ($("#stat-val-permanent")) $("#stat-val-permanent").textContent = Number(data.wallet.permanent_available || 0).toLocaleString();
-    } else {
-      if ($("#stat-val-monthly")) $("#stat-val-monthly").textContent = available.toLocaleString();
-      if ($("#stat-val-permanent")) $("#stat-val-permanent").textContent = "0";
     }
-    const exportCost = Number(data.pricing?.lyric_export) || 0;
-    if ($("#stat-val-export-cost")) $("#stat-val-export-cost").textContent = exportCost ? `${exportCost} credits` : "Free";
-    $("#credit-pricing").textContent = `Lyrics alignment: ${data.pricing?.alignment ?? 1} credit per task. Lyric video export: ${exportCost ? exportCost + " credits" : "currently free"}. Reusing an unchanged alignment and downloading an existing video are free.`;
     const labels = {opening:"Starting balance",reserve:"Reserved",settle:"Completed",release:"Returned",grant:"Added"};
     const entries = data.entries || [];
     $("#credit-history").innerHTML = entries.length ? `<div class="credit-table-wrap"><table class="credit-table"><thead><tr><th>Date</th><th>Activity</th><th>Credits</th><th>Available after</th></tr></thead><tbody>${entries.map(row => `<tr><td>${escapeHtml(new Date(row.created_at).toLocaleString())}</td><td><span class="credit-badge badge-${escapeHtml(row.event || 'default')}">${escapeHtml(row.description || labels[row.event] || row.event)}</span></td><td><span class="${Number(row.amount) > 0 ? 'delta-pos' : Number(row.amount) < 0 ? 'delta-neg' : 'delta-zero'}">${row.event === "settle" ? "—" : (Number(row.amount)>0 ? "+" : "")+(Number(row.amount)||0)}</span></td><td><strong>${Number(row.balance_after)||0}</strong></td></tr>`).join("")}</tbody></table></div>` : "No credit activity yet.";
@@ -1440,7 +1461,7 @@ async function loadCredits(page = creditPage) {
     $("#credits-prev").disabled = page <= 1;
     $("#credits-next").disabled = page * 20 >= (data.total || 0);
   } catch (error) {
-    if (currentUser?.id === uid && sequence === creditSequence) $("#credit-summary").textContent = error.message;
+    if (currentUser?.id === uid && sequence === creditSequence) { renderCreditOverview(null); $("#credit-summary").textContent = error.message; }
   }
 }
 // Called only after StudioAdapter validates the sending frame and navigation.

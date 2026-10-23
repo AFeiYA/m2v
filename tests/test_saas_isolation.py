@@ -24,6 +24,9 @@ def sandbox(tmp_path, monkeypatch):
     url = f"sqlite+aiosqlite:///{tmp_path}/test.db"
     engine = create_async_engine(url, poolclass=NullPool)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
+    # These accounting fixtures fund each user with five credits and exercise
+    # one-credit operations; production pricing is tested separately.
+    monkeypatch.setattr(api_server.settings, "ALIGNMENT_CREDITS", 1)
     monkeypatch.setattr(worker.settings, "DATABASE_URL", url)
     monkeypatch.setattr(auth.settings, "SECRET_KEY", "isolated-regression-key")
     monkeypatch.setattr(auth, "verify_firebase_id_token", lambda token: None)
