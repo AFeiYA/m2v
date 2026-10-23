@@ -71,7 +71,14 @@ class Settings(BaseSettings):
 
     # Billing is opt-in; test mode must use an isolated deployment/database.
     BILLING_ENABLED: bool = False
+    BILLING_PROVIDER: str = "lemonsqueezy"
     BILLING_ALLOW_TEST_TRANSACTIONS: bool = False
+    STRIPE_API_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_ACCOUNT_ID: str = ""
+    STRIPE_TEST_MODE: bool = True
+    STRIPE_PORTAL_CONFIGURATION_ID: str = ""
+    STRIPE_AUTOMATIC_TAX: bool = False
     LEMONSQUEEZY_API_KEY: str = ""
     LEMONSQUEEZY_WEBHOOK_SECRET: str = ""
     LEMONSQUEEZY_STORE_ID: str = ""

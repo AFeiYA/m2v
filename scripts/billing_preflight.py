@@ -9,6 +9,16 @@ from src.database import async_session
 
 async def check():
     settings,products=configured()
+    if settings.BILLING_PROVIDER=='stripe':
+        from src.stripe_provider import preflight
+        from src.stripe_payments import prefix
+        await preflight(settings,products)
+        async with async_session() as db:
+            review=(await db.execute(select(func.count()).select_from(BillingEvent).where(
+                BillingEvent.resource_id.startswith(prefix(settings)),BillingEvent.status.in_(['pending','review'])))).scalar_one()
+        print(f'Stripe SANDBOX configuration matches; pending/review events: {review}')
+        print('Mock tests do not replace real sandbox Checkout, renewal, refund and Tax acceptance.')
+        return
     for product in products.values():
         await validate_product(settings,product)
         print(f'Product {product.id}: provider configuration matches')

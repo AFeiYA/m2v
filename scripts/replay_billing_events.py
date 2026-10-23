@@ -15,7 +15,11 @@ async def replay(limit=100):
     settings,_=configured()
     from scripts.expire_subscription_credits import expire_due
     await expire_due()
+    processor=process_inbox
     prefix=f'{int(settings.LEMONSQUEEZY_TEST_MODE)}:{settings.LEMONSQUEEZY_STORE_ID}:'
+    if settings.BILLING_PROVIDER=='stripe':
+        from src.stripe_service import process_inbox as processor
+        prefix=f'stripe:0:{settings.STRIPE_ACCOUNT_ID}:'
     async with async_session() as db:
         ids=(await db.execute(select(BillingEvent.id).where(BillingEvent.status=='pending',
             BillingEvent.resource_id.startswith(prefix)).order_by(BillingEvent.created_at).limit(limit))).scalars().all()
@@ -23,7 +27,7 @@ async def replay(limit=100):
     for identifier in ids:
         async with async_session() as db:
             try:
-                completed+=int(await process_inbox(db,identifier,settings))
+                completed+=int(await processor(db,identifier,settings))
             except Exception:
                 failed+=1
     print(f'Billing replay: processed={completed}, pending={failed}')
