@@ -2,6 +2,18 @@
 import asyncio
 
 
+def validate_release_policy(settings, products):
+    """Fail closed when a deployment still carries an older commercial policy."""
+    from fastapi import HTTPException
+    expected = {('subscription', 999, 300), ('subscription', 1999, 800), ('subscription', 2999, 1500)}
+    if len(products) != 3 or {(p.kind, p.price_cents, p.credits) for p in products.values()} != expected:
+        raise HTTPException(503, 'Release requires the current three monthly subscription prices and credit amounts')
+    rates = {'ALIGNMENT_CREDITS': 20, 'MOTION_EXPORT_CREDITS': 10,
+             'MOTION_WEBCODECS_CREDITS': 10, 'NEW_USER_PERMANENT_CREDITS': 60, 'FREE_MONTHLY_QUOTA': 0}
+    if any(getattr(settings, name) != amount for name, amount in rates.items()):
+        raise HTTPException(503, 'Release usage/trial policy mismatch: alignment 20, Motion 10/10, welcome 60, free monthly 0 required')
+
+
 async def check():
     from sqlalchemy import func, select
     from src.billing_config import configured
@@ -10,6 +22,7 @@ async def check():
     from src.database import async_session
     settings,products=configured()
     if settings.BILLING_PROVIDER=='paddle':
+        validate_release_policy(settings, products)
         from src.paddle_provider import preflight
         from src.paddle_config import prefix
         await preflight(settings,products,release=True)

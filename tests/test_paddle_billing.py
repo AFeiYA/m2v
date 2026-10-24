@@ -573,3 +573,25 @@ def test_new_three_subscription_tiers_are_exposed_with_server_prices(billing, mo
     assert response.status_code == 200, response.text
     assert [(p['price_cents'], p['credits']) for p in response.json()['products']] == [
         (999, 300), (1999, 800), (2999, 1500)]
+
+
+def test_release_policy_rejects_old_catalogue_and_stale_trial_settings(billing, monkeypatch):
+    from scripts.billing_preflight import validate_release_policy
+    from src.billing_config import Product
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException):
+        validate_release_policy(billing.settings, {p['id']: Product.model_validate(p) for p in PRODUCTS})
+    current = [dict(PRODUCTS[i], credits=amount, price_cents=price) for i, (price, amount) in
+               enumerate([(999, 300), (1999, 800), (2999, 1500)])]
+    current[0]['kind'] = 'subscription'
+    products = {p['id']: Product.model_validate(p) for p in current}
+    expected = {'ALIGNMENT_CREDITS':20, 'MOTION_EXPORT_CREDITS':10,
+                'MOTION_WEBCODECS_CREDITS':10, 'NEW_USER_PERMANENT_CREDITS':60, 'FREE_MONTHLY_QUOTA':0}
+    for field, amount in expected.items():
+        monkeypatch.setattr(billing.settings, field, amount)
+    validate_release_policy(billing.settings, products)
+    for field, amount in expected.items():
+        monkeypatch.setattr(billing.settings, field, amount + 1)
+        with pytest.raises(HTTPException):
+            validate_release_policy(billing.settings, products)
+        monkeypatch.setattr(billing.settings, field, amount)
