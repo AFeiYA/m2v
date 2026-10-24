@@ -165,8 +165,8 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
 
     # ── 用户配额与积分定价 ──────────────────────────────────
-    FREE_MONTHLY_QUOTA: int = 20         # 免费用户每月免费额度（初始永久积分消耗完毕后）
-    NEW_USER_PERMANENT_CREDITS: int = 100 # 新用户注册赠送永久积分（永久有效不设到期）
+    FREE_MONTHLY_QUOTA: int = 0         # 免费用户每月免费额度（初始永久积分消耗完毕后）
+    NEW_USER_PERMANENT_CREDITS: int = 60 # 新用户注册赠送永久积分（永久有效不设到期）
     # One new alignment costs 20 credits; existing tasks keep their recorded cost.
     ALIGNMENT_CREDITS: int = Field(default=20, ge=0)
     SEPARATION_CREDITS: int = Field(default=0, ge=0)

@@ -69,13 +69,14 @@
       if (currentUser?.id !== uid || seq !== sequence) return;
       enabled = true; page = nextPage;
       $('billing-notice').textContent = (catalog.test_mode ? 'TEST MODE — no real payment. ' : '') + catalog.credit_policy + ' ' + catalog.subscription_policy;
-      $('billing-products').innerHTML = catalog.products.map(p => `<article class="billing-product"><span class="billing-kind">${p.kind === 'subscription' ? 'MONTHLY SUBSCRIPTION' : 'ONE-TIME PACK'}</span><h3>${escape(p.name)}</h3><p class="billing-price">${escape(money(p.price_cents, p.currency))}${p.kind === 'subscription' ? '<small> / month</small>' : ''}</p><p>${Number(p.credits).toLocaleString('en-US')} credits${p.kind === 'subscription' ? ' per billing month' : ''}</p><p class="billing-validity">${p.kind === 'subscription' ? 'Unused credits expire at the end of each billing period.' : 'One-time purchase. Credits never expire.'}</p><button class="btn btn-primary" data-billing-buy="${escape(p.id)}">${p.kind === 'subscription' ? 'Subscribe monthly' : 'Buy credits'}</button><small>Taxes may apply. Final amount shown at checkout.</small></article>`).join('');
+      const hasSubscription = status.subscriptions.some(s => !['canceled','expired','incomplete_expired'].includes(s.status));
+      $('billing-products').innerHTML = catalog.products.filter(p => p.kind === 'subscription').map(p => `<article class="billing-product"><span class="billing-kind">MONTHLY SUBSCRIPTION</span><h3>${escape(p.name)}</h3><p class="billing-price">${escape(money(p.price_cents, p.currency))}<small> / month</small></p><p>${Number(p.credits).toLocaleString('en-US')} credits per billing month</p><p class="billing-validity">Unused credits expire at the end of each billing period.</p><button class="btn btn-primary" data-billing-buy="${escape(p.id)}"${hasSubscription ? ' disabled' : ''}>${hasSubscription ? 'Manage your existing subscription' : 'Subscribe monthly'}</button><small>Taxes may apply. Final amount shown at checkout.</small></article>`).join('');
       // Public pricing links carry intent only. Payment still requires a deliberate click.
       const chosen = new URLSearchParams(location.search).get('plan');
-      const chosenProduct = catalog.products.find(p => p.id === chosen);
+      const chosenProduct = catalog.products.find(p => p.kind === 'subscription' && p.id === chosen);
       if (chosenProduct && !selectedPlanFocused && !new URLSearchParams(location.search).has('checkout')) {
         selectedPlanFocused = true;
-        $('billing-return-status').textContent = 'Selected package: ' + chosenProduct.name + '. Review the terms below, then choose Buy credits or Subscribe monthly to continue.';
+        $('billing-return-status').textContent = 'Selected plan: ' + chosenProduct.name + '. Review the terms below, then choose Subscribe monthly to continue.';
         document.querySelector?.('[data-billing-buy="' + chosenProduct.id + '"]')?.focus();
       }
       $('billing-subscriptions').innerHTML = status.subscriptions.map(s => `<div class="billing-subscription"><span>Subscription: <strong>${escape(s.status)}</strong>${s.ends_at ? ' · Ends ' + escape(new Date(s.ends_at).toLocaleDateString()) : s.renews_at ? ' · Renews ' + escape(new Date(s.renews_at).toLocaleDateString()) : ''}</span><button class="btn btn-sm btn-outline" data-billing-portal="${escape(s.id)}">${status.plan_changes_supported === false ? 'Update payment method' : 'Manage subscription'}</button>${status.plan_changes_supported === false && !['canceled','expired'].includes(s.status) && !s.ends_at ? `<button class="btn btn-sm btn-outline" data-billing-portal="${escape(s.id)}" data-billing-action="cancel">Cancel renewal</button>` : ''}</div>`).join('');
@@ -135,7 +136,7 @@
   async function action(button) {
     const uid = currentUser?.id;
     if (!uid) {
-      const msg = 'Please sign in first to subscribe or buy credits.';
+      const msg = 'Please sign in first to subscribe.';
       if ($('billing-return-status')) $('billing-return-status').textContent = msg;
       if (typeof showStatus === 'function') showStatus(msg, true);
       else if (typeof showAuth === 'function') showAuth();

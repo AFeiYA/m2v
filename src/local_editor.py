@@ -2324,7 +2324,10 @@ def public_page(request: Request):
     page = _FRONTEND_ROOT / f"{name}.html"
     if not page.is_file():
         raise HTTPException(404, "Page not found")
-    return HTMLResponse(page.read_text(encoding="utf-8"))
+    html = page.read_text(encoding="utf-8")
+    if name == "app":
+        html = html.replace("</head>", "<script>window.M2V_API_BASE=window.location.origin;</script></head>")
+    return HTMLResponse(html)
 
 
 @app.get("/marketing/{asset}")

@@ -1,11 +1,20 @@
 # Product direction and delivery plan
 
-Updated: 2026-10-20. Audience: individual Suno creators, initially English-speaking.
+Updated: 2026-10-24. Audience: individual Suno creators, initially English-speaking.
 
 Current module/deployment references: [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md),
-[deployment](../DEPLOY.md), [billing](LEMON_SQUEEZY_BILLING.md). Phase and branch
+[deployment](../DEPLOY.md), [billing](BILLING_POLICY.md), [release TODO](TODO.md). Phase and branch
 notes below are implementation history; they do not override current catalogue
 or runtime configuration.
+
+## Current release status — 2026-10-24
+
+The code offers Creator ($9.99/300), Pro ($19.99/800) and Studio ($29.99/1,500)
+monthly credits. Credits expire at the billing-period end and do not roll over.
+One-time packs are retired. Paddle live account setup and three-tier real checkout
+acceptance remain pending. The branch is `feat/paddle-sandbox-billing`; source changes
+are not proof of production deployment. See [TODO](TODO.md) for the authoritative
+open/completed checklist. Older dated phases below are implementation history.
 
 ## Promise and primary workflow
 
@@ -172,9 +181,8 @@ has passed real-account acceptance.
 
 ### Current implementation references — 2026-10-20
 
-The production catalogue and monthly/permanent credit policy are documented in
-[LEMON_SQUEEZY_BILLING.md](LEMON_SQUEEZY_BILLING.md); that document supersedes the
-older $5/1,000 subscription plan. Backend configuration remains authoritative.
+Current subscription pricing and credit policy are documented in
+[BILLING_POLICY.md](BILLING_POLICY.md). Backend configuration remains authoritative.
 
 The payment adapter is now present on main; branch names in older phase notes are
 historical, not deployment instructions. Merchant activation and live acceptance

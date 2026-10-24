@@ -70,14 +70,20 @@ def intent_view(row,settings):
 @router.get('/packages')
 async def packages(user:User=Depends(get_current_user)):
     settings,products=configured()
-    return {'provider':settings.BILLING_PROVIDER,'test_mode':(settings.PADDLE_ENVIRONMENT=='sandbox') if settings.BILLING_PROVIDER=='paddle' else settings.STRIPE_TEST_MODE if settings.BILLING_PROVIDER=='stripe' else settings.LEMONSQUEEZY_TEST_MODE,'products':[{**p.model_dump(exclude={'variant_id'}),'validity':'billing_period' if p.kind=='subscription' else 'permanent'} for p in products.values()],
-            'credit_policy':'Monthly credits expire at the end of each billing period and do not roll over. Permanent credit packs never expire. Monthly credits are used first. Refunds reverse the corresponding credits without deducting expired credits twice.',
+    return {'provider':settings.BILLING_PROVIDER,'test_mode':(settings.PADDLE_ENVIRONMENT=='sandbox') if settings.BILLING_PROVIDER=='paddle' else settings.STRIPE_TEST_MODE if settings.BILLING_PROVIDER=='stripe' else settings.LEMONSQUEEZY_TEST_MODE,'products':[{**p.model_dump(exclude={'variant_id'}),'validity':'billing_period'} for p in products.values() if p.kind == 'subscription'],
+            'credit_policy':'Subscription credits expire at the end of each billing period and do not roll over. Refunds reverse the corresponding credits without deducting expired credits twice.',
             'subscription_policy':'Monthly automatic renewal until cancelled in the billing portal. No unlimited rendering or extra storage is included.'}
+
+
+def require_subscription(product):
+    if product and product.kind != 'subscription':
+        raise HTTPException(404, 'One-time credit purchases are no longer available')
 
 
 @router.post('/checkout')
 async def checkout(req:CheckoutRequest,user:User=Depends(get_current_user),db=Depends(get_db)):
     settings,products=configured(); product=products.get(req.product_id)
+    require_subscription(product)
     if adapter(settings):
         return await adapter(settings).checkout(req,user,db,settings,products)
     if not product:

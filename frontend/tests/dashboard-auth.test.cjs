@@ -140,3 +140,10 @@ test('API settings are hidden from ordinary users and available in explicit dev 
   disabled.run('initApiConfig()');
   assert.equal(disabled.element('#api-config-login').style.display, 'none');
 });
+
+test('backend-served sandbox uses its injected API even with a saved production endpoint',()=>{
+ const s=setup();
+ s.context.window.M2V_API_BASE='https://sandbox.example.test';
+ s.values.set('m2v_api_base','https://lucazhou-suno2mv-api.hf.space');
+ assert.equal(s.run('resolveApiBase()'),'https://sandbox.example.test');
+});

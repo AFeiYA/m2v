@@ -1,4 +1,6 @@
 """Temporary DB and mocked Stripe transport; no API key, account or live request."""
+from contextlib import nullcontext
+from unittest.mock import patch
 import asyncio
 import copy
 import hashlib
@@ -78,7 +80,9 @@ def billing(sandbox, monkeypatch):
 
 
 def checkout(b, product='pack', uid='alice', key='purchase-test-0001'):
-    r = b.client.post('/api/payments/checkout', headers=headers(uid), json={'product_id': product, 'idempotency_key': key})
+    # Seed a pre-retirement checkout for legacy webhook/refund regression tests.
+    with patch('src.payments.require_subscription') if product == 'pack' else nullcontext():
+        r = b.client.post('/api/payments/checkout', headers=headers(uid), json={'product_id': product, 'idempotency_key': key})
     assert r.status_code == 200, r.text
     async def read():
         async with b.sessions() as db:
@@ -301,7 +305,7 @@ def test_tax_preflight_requires_registration_and_explicit_opt_in(billing, monkey
             data['tax_behavior'] = 'exclusive'
         return data
     monkeypatch.setattr(provider, 'request', tax_request)
-    r = billing.client.post('/api/payments/checkout', headers=headers(), json={'product_id': 'pack', 'idempotency_key': 'tax-checkout-0001'})
+    r = billing.client.post('/api/payments/checkout', headers=headers(), json={'product_id': 'monthly', 'idempotency_key': 'tax-checkout-0001'})
     assert r.status_code == 503
     assert not any(path == 'checkout/sessions' and method == 'post' for method, path, _, _ in billing.calls)
 
@@ -382,3 +386,22 @@ def test_real_sdk_transport_encodes_parameters_pins_version_and_redacts_errors(b
             await REAL_PROVIDER_REQUEST(billing.settings, 'get', 'https://untrusted.test/')
     asyncio.run(run())
     assert len(observed) == 2
+
+
+def test_subscription_only_catalog_and_retired_pack_checkout(billing, monkeypatch):
+    # A legacy deployed catalogue must also stop selling top-ups immediately.
+    response = billing.client.get('/api/payments/packages', headers=headers())
+    assert response.status_code == 200
+    assert len(response.json()['products']) == 2
+    assert all(p['kind'] == 'subscription' for p in response.json()['products'])
+    rejected = billing.client.post('/api/payments/checkout', headers=headers(),
+        json={'product_id': 'pack', 'idempotency_key': 'retired-pack-00001'})
+    assert rejected.status_code == 404
+    assert not billing.calls
+    values = json.loads(billing.settings.BILLING_PRODUCTS_JSON)
+    monkeypatch.setattr(billing.settings, 'BILLING_PRODUCTS_JSON', json.dumps([
+        p for p in values if p['kind'] == 'subscription']))
+    response = billing.client.get('/api/payments/packages', headers=headers())
+    assert response.status_code == 200
+    assert len(response.json()['products']) == 2
+    checkout(billing, product='monthly')

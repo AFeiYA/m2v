@@ -5,9 +5,30 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import path from 'node:path';
 
 export const catalogue = [
-  {id:'topup_200',name:'Credit Top-Up (200 Credits)',kind:'topup',credits:200,price_cents:499,currency:'USD'},
-  {id:'pro_monthly',name:'Creator Pro (600 Credits/mo)',kind:'subscription',credits:600,price_cents:999,currency:'USD'},
-  {id:'studio_monthly',name:'Studio Matrix (2,500 Credits/mo)',kind:'subscription',credits:2500,price_cents:2499,currency:'USD'},
+  {
+    "id": "creator_monthly_v2",
+    "name": "Creator (300 Credits/mo)",
+    "kind": "subscription",
+    "credits": 300,
+    "price_cents": 999,
+    "currency": "USD"
+  },
+  {
+    "id": "pro_monthly_v2",
+    "name": "Pro (800 Credits/mo)",
+    "kind": "subscription",
+    "credits": 800,
+    "price_cents": 1999,
+    "currency": "USD"
+  },
+  {
+    "id": "studio_monthly_v2",
+    "name": "Studio (1,500 Credits/mo)",
+    "kind": "subscription",
+    "credits": 1500,
+    "price_cents": 2999,
+    "currency": "USD"
+  }
 ];
 export const events = ['transaction.completed','transaction.payment_failed','transaction.past_due','transaction.canceled',
   'subscription.created','subscription.activated','subscription.updated','subscription.canceled','subscription.paused',
@@ -36,7 +57,7 @@ export async function ensureCatalogue(paddle, apply = false, label = 'sandbox') 
     if (matches.length > 1) throw Error('Duplicate matching prices require review: ' + wanted.id);
     let price = matches[0];
     if (!price && apply) price = await paddle.prices.create({productId:product.id,description:wanted.id + ' USD ' + label,
-      name:wanted.kind === 'subscription' ? 'Monthly' : 'One-time',taxMode:'external',
+      name:'Monthly',taxMode:'external',
       unitPrice:{amount:String(wanted.price_cents),currencyCode:'USD'},quantity:{minimum:1,maximum:1},
       ...(wanted.kind === 'subscription' ? {billingCycle:{interval:'month',frequency:1}} : {})});
     if (apply) {

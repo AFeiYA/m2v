@@ -1608,3 +1608,10 @@ def test_successful_export_is_not_deleted_when_commit_acknowledgement_is_lost(sa
     access = sandbox.client.get(f'/api/exports/{job_id}/access', headers=headers())
     assert access.status_code == 200
     assert sandbox.client.get(access.json()['url']).content == b'committed-video'
+
+
+def test_backend_workbench_pins_browser_requests_to_its_own_deployment(sandbox):
+    response = sandbox.client.get('/app')
+    assert response.status_code == 200
+    assert 'window.M2V_API_BASE=window.location.origin;' in response.text
+    assert response.text.index('window.M2V_API_BASE=') < response.text.index('src="/dashboard.js')

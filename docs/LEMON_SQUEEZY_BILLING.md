@@ -1,3 +1,5 @@
+> Historical/provider-specific reference. Current commercial rules: [Billing policy](BILLING_POLICY.md). Current launch procedure: [Paddle go-live](PADDLE_GO_LIVE_ZH.md). Older prices and activation steps below are not current release instructions.
+
 # Lemon Squeezy billing — 2026-10-19
 
 > Merchant setup guide (Chinese, checked 2026-10-22): [开户、收款与订阅上线操作指南](LEMON_SQUEEZY_LAUNCH_GUIDE_ZH.md). Historical branch, catalogue examples and usage-price defaults below are not deployment instructions; verify against current code and deployed settings.

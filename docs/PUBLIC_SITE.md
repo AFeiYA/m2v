@@ -5,7 +5,7 @@ Implemented 2026-10-22.
 ## Routes
 
 - `/`: public English marketing page, no Firebase SDK or private API calls.
-- `/pricing`: published credit packages, renewal/expiry terms, FAQs.
+- `/pricing`: three monthly subscription plans, renewal/expiry terms, FAQs.
 - `/app`: existing authenticated workspace, formerly served at `/`.
 - `/contact`, `/privacy`, `/terms`, `/refunds`: public support and policy pages.
 

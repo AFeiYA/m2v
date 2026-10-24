@@ -16,7 +16,7 @@ Paddle 官方插件已安装。实现沿用现有 FastAPI、Firebase 登录、SQ
 | 03 Fulfillment and provisioning | 原始请求体验签、持久化 inbox、后台积分发放、续费与退款处理、恢复重试 |
 | 04 Test your integration | 有自动化模拟测试；真实 Paddle 测试卡付款与回调验收需凭据和可达的测试地址 |
 
-**不能把模拟测试通过说成已经完成 Paddle 真实端到端测试。**
+旧套餐已有真实沙盒首付记录，见 [历史目录与测试证据](PADDLE_SANDBOX_CATALOG.md)。新三档尚未完成真实结账验收。自动化测试不能替代新目录的真实端到端测试。
 初始化与运行工具均不输出密钥；不要把 `.env` 或 `work/paddle-sandbox.env` 发到聊天。
 
 ## 第一步：只需先准备沙盒 API key
@@ -75,9 +75,9 @@ node --env-file-if-exists=.env tools/paddle/setup-sandbox.mjs --apply
 
 | 商品 | 金额 | 积分有效期 |
 |---|---|---|
-| Credit Top-Up | USD 4.99，一次性 | 200 积分，永久 |
-| Creator Pro | USD 9.99，每月 | 600 积分，账期结束到期 |
-| Studio Matrix | USD 24.99，每月 | 2500 积分，账期结束到期 |
+| Creator | USD 9.99，每月 | 300 积分，账期结束到期 |
+| Pro | USD 19.99，每月 | 800 积分，账期结束到期 |
+| Studio | USD 29.99，每月 | 1500 积分，账期结束到期 |
 
 本版不启用试用、折扣、数量修改、套餐升级/降级或按比例补差；变更计费方案先单独设计。
 商品税务分类默认 `saas`（本产品是在线软件服务），税务模式 `external`，
@@ -123,7 +123,7 @@ Gradio/HF 的挂载方式若未启用 API lifespan，需要额外配置这个定
 | 场景 | 预期 |
 |---|---|
 | 首次购买积分包 | 结账显示 USD 4.99 与税费；回调处理后仅增加 200 积分 |
-| 订阅 Creator Pro | 首笔 completed 交易加 600；subscription.created 不额外再加 |
+| 订阅 Creator / Pro / Studio | 首笔 completed 交易分别加 300 / 800 / 1500；subscription.created 不额外再加 |
 | 重发通知 | 相同事件或不同事件指向同一交易，不重复加积分 |
 | 支付失败 | 不增加积分；页面有可重试提示 |
 | Webhook 暂时中断 | 恢复后 pending 可重试，到账后余额只变化一次 |

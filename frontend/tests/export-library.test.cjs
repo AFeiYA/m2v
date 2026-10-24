@@ -82,7 +82,7 @@ test('credit history shows available and reserved balances and escapes descripti
  };
  await s.run('loadCredits()');
  assert.match(s.nodes.get('#credit-summary').textContent,/3 available · 2 reserved/);
- assert.match(s.nodes.get('#credit-pricing').textContent,/Lyric video export: 2 credits/);
+ assert.doesNotMatch(s.nodes.get('#credit-pricing').textContent,/Lyric video export:/);
  assert.match(s.nodes.get('#credit-history').innerHTML,/&lt;export>/);
 });
 
@@ -128,7 +128,7 @@ test('billing overview uses server costs and clears missing prices instead of in
  const s=setup();
  s.run('renderCreditOverview({available:893,wallet:{subscription_available:0,permanent_available:893},pricing:{alignment:20,lyric_export:10,motion_export:30,motion_webcodecs:10}})');
  assert.equal(s.nodes.get('#stat-val-alignment-cost').textContent,'20 credits');
- assert.equal(s.nodes.get('#stat-val-export-cost').textContent,'10 credits');
+ assert.equal(s.nodes.has('#stat-val-export-cost'),false);
  assert.equal(s.nodes.get('#stat-val-motion-cost').textContent,'10–30 credits');
  assert.equal(s.nodes.get('#stat-val-permanent').textContent,'893');
  s.run('renderCreditOverview(null)');

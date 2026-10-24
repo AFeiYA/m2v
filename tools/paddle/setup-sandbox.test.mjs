@@ -14,10 +14,10 @@ function mock() {
   };
   return {paddle,rows,writes};
 }
-test('plan is read-only and names the three agreed packages',async()=>{
+test('plan is read-only and contains only the three monthly subscription plans',async()=>{
   const s=mock();const plan=await ensureCatalogue(s.paddle);
   assert.equal(plan.length,3);assert.equal(s.writes.length,0);
-  assert.deepEqual(plan.map(p=>p.price_cents),[499,999,2499]);
+  assert.deepEqual(plan.map(p=>p.price_cents),[999,1999,2999]);
 });
 test('repeat setup reuses matching products and prices without recreating them',async()=>{
   const s=mock();const first=await ensureCatalogue(s.paddle,true);

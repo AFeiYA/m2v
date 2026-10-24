@@ -50,13 +50,15 @@ def configured(settings):
         raise HTTPException(503, 'Unsupported export surcharges must remain zero')
     try:
         raw = json.loads(settings.BILLING_PRODUCTS_JSON)
-        if not isinstance(raw, list) or len(raw) != 3:
+        if not isinstance(raw, list) or len(raw) not in (2, 3):
             raise ValueError()
         products = [Product.model_validate(p) for p in raw]
-        if (len({p.id for p in products}) != 3 or len({p.variant_id for p in products}) != 3
+        if (len({p.id for p in products}) != len(products) or len({p.variant_id for p in products}) != len(products)
                 or any(not re.fullmatch(r'pri_[a-z0-9]{26}', p.variant_id) for p in products)
                 or {(p.kind, p.price_cents, p.credits) for p in products}
-                != {('topup', 499, 200), ('subscription', 999, 600), ('subscription', 2499, 2500)}):
+                not in ({('subscription', 999, 300), ('subscription', 1999, 800), ('subscription', 2999, 1500)},
+                           {('subscription', 999, 600), ('subscription', 2499, 2500)},
+                           {('topup', 499, 200), ('subscription', 999, 600), ('subscription', 2499, 2500)})):
             raise ValueError()
     except (ValueError, TypeError):
         raise HTTPException(503, 'Invalid Paddle catalogue') from None

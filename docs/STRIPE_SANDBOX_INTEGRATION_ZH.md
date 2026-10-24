@@ -1,3 +1,5 @@
+> Historical/provider-specific reference. Current commercial rules: [Billing policy](BILLING_POLICY.md). Current launch procedure: [Paddle go-live](PADDLE_GO_LIVE_ZH.md). Older prices and activation steps below are not current release instructions.
+
 # Stripe 沙盒接入与验收
 
 ## 当前状态

@@ -1,3 +1,21 @@
+# Current sandbox subscriptions — 2026-10-24
+
+The three current products were created additively with Paddle’s official SDK. Prices were read back and checked for USD, external tax, monthly billing, quantity one and no trial/overrides. No old products or orders were deleted.
+
+| App plan | Paddle price | USD/month | Credits |
+|---|---|---:|---:|
+| `creator_monthly_v2` | `pri_01m5njs2vjk1hc45h72kvb9m9j` | 9.99 | 300 |
+| `pro_monthly_v2` | `pri_01m5njs4ev7c5sv1tdv2bf8v99` | 19.99 | 800 |
+| `studio_monthly_v2` | `pri_01m5njs5h7pyszvmmxw5rct081` | 29.99 | 1500 |
+
+Private credentials and active configuration remain in ignored `work/paddle-sandbox.env`. The sandbox API created a draft checkout for each plan; repeated submissions reused the same checkout. Four new API accounts received 60 credits each, the monthly free allowance was zero, another account could not read the checkouts, and unsigned callbacks were rejected. Real sandbox preflight passed with zero pending/review events.
+
+These are configuration/API checks, not completed test-card payments. Three-tier real payments, renewals and refunds remain open in [TODO](TODO.md). The temporary tunnel is session-specific and must be refreshed if restarted. Live resources are separate.
+
+## Historical catalogue and earlier payment evidence
+
+> Historical sandbox resource IDs and test evidence, not the current catalogue. The old 200-credit pack is retired; 600/2,500-credit subscriptions have been superseded for new sales. Current plans: [Billing policy](BILLING_POLICY.md). New three-tier sandbox IDs must be provisioned and verified separately.
+
 # Verified Paddle sandbox catalog
 
 Verified through the authenticated Paddle sandbox dashboard on 2026-10-23.

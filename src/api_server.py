@@ -43,7 +43,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -888,6 +888,9 @@ if frontend_dir.exists():
     @app.get("/app", tags=["Frontend"])
     async def serve_public_page(request: Request):
         name = request.url.path.strip("/") or "index"
+        if name == "app":
+            html = (frontend_dir / "app.html").read_text(encoding="utf-8")
+            return HTMLResponse(html.replace("</head>", "<script>window.M2V_API_BASE=window.location.origin;</script></head>"))
         return FileResponse(frontend_dir / f"{name}.html")
 
     @app.get("/lyric-editor", tags=["Frontend"])

@@ -236,7 +236,10 @@ def test_alignment_credits_are_returned_when_deliverables_are_missing(sandbox, m
     assert sorted(e['event'] for e in data['entries']) == ['opening','release','reserve']
 
 
-def test_new_user_100_permanent_credits_and_monthly_free_quota_after_consumption(sandbox):
+def test_optional_monthly_free_quota_after_consumption(sandbox, monkeypatch):
+    # Legacy optional configuration; the current product defaults to 60 once.
+    monkeypatch.setattr(api_server.settings, "NEW_USER_PERMANENT_CREDITS", 100)
+    monkeypatch.setattr(api_server.settings, "FREE_MONTHLY_QUOTA", 20)
     from src.models import User, UserPlan
     from src.credits import replenish_free_quota, check_monthly_quota_status
     from src.settings import get_settings
@@ -330,3 +333,28 @@ def test_configured_alignment_quote_matches_charge_and_refund(sandbox, monkeypat
             return (await db.get(Task, task_id)).cost_credits
     assert asyncio.run(stored_cost()) == 20
     assert history(sandbox)['pricing']['alignment'] == 7
+
+
+def test_free_experience_is_sixty_once_and_covers_two_alignments_two_exports(sandbox, monkeypatch):
+    monkeypatch.setattr(api_server.settings, 'ALIGNMENT_CREDITS', 20)
+    monkeypatch.setattr(api_server.settings, 'MOTION_WEBCODECS_CREDITS', 10)
+    response = sandbox.client.post('/api/auth/register', json={
+        'email': 'trial60@example.com', 'username': 'trial60', 'password': 'password123'})
+    assert response.status_code == 200, response.text
+    auth = {'Authorization': 'Bearer ' + response.json()['access_token']}
+    user = sandbox.client.get('/api/auth/me', headers=auth).json()
+    assert user['credits'] == 60
+    async def spend():
+        async with sandbox.sessions() as db:
+            for index, (kind, amount) in enumerate([
+                ('alignment', 20), ('alignment', 20), ('motion_webcodecs', 10), ('motion_webcodecs', 10)]):
+                operation = 'trial-' + str(index)
+                await credits.reserve(db, user['id'], operation, kind, amount)
+                await credits.finish(db, user['id'], operation, kind, True)
+            await db.commit()
+    asyncio.run(spend())
+    data = sandbox.client.get('/api/credits', headers=auth).json()
+    assert data['available'] == 0
+    assert data['monthly_quota']['amount'] == 0
+    assert data['monthly_quota']['eligible'] is False
+    assert sandbox.client.post('/api/credits/claim-monthly-quota', headers=auth).json()['granted'] is False

@@ -1,4 +1,6 @@
 """Paddle sandbox contracts with temporary storage and mocked account responses."""
+from contextlib import nullcontext
+from unittest.mock import patch
 import asyncio
 import copy
 import hashlib
@@ -78,7 +80,9 @@ def billing(sandbox, monkeypatch):
 
 
 def checkout(b, product='pack', uid='alice', key='paddle-purchase-0001'):
-    r = b.client.post('/api/payments/checkout', headers=headers(uid), json={'product_id': product, 'idempotency_key': key})
+    # Seed a pre-retirement checkout for legacy webhook/refund regression tests.
+    with patch('src.payments.require_subscription') if product == 'pack' else nullcontext():
+        r = b.client.post('/api/payments/checkout', headers=headers(uid), json={'product_id': product, 'idempotency_key': key})
     assert r.status_code == 200, r.text
     async def read():
         async with b.sessions() as db:
@@ -536,3 +540,36 @@ def test_payment_method_update_without_charge_items_is_not_a_purchase(billing):
             event=await db.get(BillingEvent,service.event_key(ident('evt',1)))
             assert event.status=='processed'
     asyncio.run(verify())
+
+
+def test_subscription_only_catalog_and_retired_pack_checkout(billing, monkeypatch):
+    # A legacy deployed catalogue must also stop selling top-ups immediately.
+    response = billing.client.get('/api/payments/packages', headers=headers())
+    assert response.status_code == 200
+    assert len(response.json()['products']) == 2
+    assert all(p['kind'] == 'subscription' for p in response.json()['products'])
+    rejected = billing.client.post('/api/payments/checkout', headers=headers(),
+        json={'product_id': 'pack', 'idempotency_key': 'retired-pack-00001'})
+    assert rejected.status_code == 404
+    assert not billing.calls
+    values = json.loads(billing.settings.BILLING_PRODUCTS_JSON)
+    monkeypatch.setattr(billing.settings, 'BILLING_PRODUCTS_JSON', json.dumps([
+        p for p in values if p['kind'] == 'subscription']))
+    response = billing.client.get('/api/payments/packages', headers=headers())
+    assert response.status_code == 200
+    assert len(response.json()['products']) == 2
+    checkout(billing, product='monthly')
+
+
+def test_new_three_subscription_tiers_are_exposed_with_server_prices(billing, monkeypatch):
+    from pathlib import Path
+    line = next(l for l in (Path(__file__).resolve().parents[1] / '.env.example').read_text().splitlines()
+                if l.startswith('BILLING_PRODUCTS_JSON='))
+    products = json.loads(line.split('=', 1)[1])
+    for i, product in enumerate(products):
+        product['variant_id'] = ident('pri', i + 10)
+    monkeypatch.setattr(billing.settings, 'BILLING_PRODUCTS_JSON', json.dumps(products))
+    response = billing.client.get('/api/payments/packages', headers=headers())
+    assert response.status_code == 200, response.text
+    assert [(p['price_cents'], p['credits']) for p in response.json()['products']] == [
+        (999, 300), (1999, 800), (2999, 1500)]

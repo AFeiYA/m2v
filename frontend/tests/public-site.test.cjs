@@ -33,11 +33,12 @@ test('published packages match the checked-in official catalogue and enter authe
  const line=fs.readFileSync(path.join(root,'../.env.example'),'utf8').split('\n').find(l=>l.startsWith('BILLING_PRODUCTS_JSON='));
  const catalog=JSON.parse(line.split('=').slice(1).join('='));
  const page=fs.readFileSync(path.join(root,'pricing.html'),'utf8');
- for(const product of catalog){
+ for(const product of catalog.filter(product=>product.kind==='subscription')){
   assert.ok(page.includes('/app?plan='+product.id+'#credits-section'));
   assert.ok(page.includes('$'+(product.price_cents/100).toFixed(2)));
   assert.ok(page.includes(product.credits.toLocaleString('en-US')+' credits'));
  }
+ assert.doesNotMatch(page,/Credit pack|ONE-TIME PURCHASE|topup_200/);
  assert.doesNotMatch(page,/href="https:\/\/[^\"]*lemonsqueezy\.com\/checkout/);
 });
 

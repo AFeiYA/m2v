@@ -7,14 +7,17 @@
 
 - Firebase 登录，FastAPI 验证身份，SQL 数据库记录订单、订阅、积分账本。
 - Paddle.js 托管结账，后端创建交易，签名通知触发真实 API 核对与积分入账。
-- 充值包：USD 4.99 / 200 永久积分。
-- Creator Pro：USD 9.99 / 月 / 600 积分。
-- Studio Matrix：USD 24.99 / 月 / 2,500 积分。
-- 月积分于 Paddle 对应账期结束时到期，不滚存；永久积分不受取消月订阅影响。
+- 仅提供月订阅；不再出售一次性积分包。历史订单与余额保留在账本中。
+- Creator：USD 9.99 / 月 / 300 积分。
+- Pro：USD 19.99 / 月 / 800 积分。
+- Studio：USD 29.99 / 月 / 1,500 积分。
+- 订阅月积分于 Paddle 对应账期结束时到期，不滚存。历史永久积分仍可使用。
 - 首版统一 USD，税费在结账显示。后台打开币种转换不代表应用支持本地币种。
 - 提供取消续订、更新付款方式、付款历史和收据；不提供应用内升级降级、优惠码或无限生成。
 - 退款由商户/Paddle 处理；批准后同步撤回积分。退款待批准不提前撤回。
 - 争议、退款撤销等超出自动策略的事件进入人工 review，不能在未核对情况下补发积分。
+
+部署时将 `BILLING_PRODUCTS_JSON` 配置为三个订阅商品，使用对应环境真实的 `pri_` 价格 ID。旧三商品配置仅为历史通知兼容：积分包不会展示，也无法发起新结账。新建 Sandbox 和正式商品脚本均只创建三个订阅。
 
 对齐和视频使用费仍取后端 ENV 定价。付款获得积分与生成任务消耗积分是两个独立流程；
 浏览器返回成功页面不能加分，客户端显示价格也不能决定服务端扣费。
@@ -134,7 +137,7 @@ python -m scripts.billing_preflight --config work/paddle-live.env --prepare
 
 - [ ] 正式工作台登录后点击购买，结账金额、税费、是否续费清楚。
 - [ ] 成功后返回工作台，通知核实后积分和订单更新。
-- [ ] 积分包只入账一次，重复通知和重新进入付款链接不重复入账。
+- [ ] 三档订阅各自首付发放 300 / 800 / 1500，重复通知或重新进入付款链接不重复入账。
 - [ ] 月订阅首付入账、账期到期、续费幂等与付款失败处理。
 - [ ] 取消续订与更新付款方式链接正确，取消时间按门户显示生效。
 - [ ] 部分退款、全部退款待批准/已批准，积分回收正确。
@@ -146,7 +149,7 @@ python -m scripts.billing_preflight --config work/paddle-live.env --prepare
 真实月度续费不必等待整月才开始验证：可用模拟场景和时钟回归覆盖状态机，
 但要把“模拟验收”和“真实沙盒自动续费”分别记录，不宣称两者相同。
 
-2026-10-24 已完成的真实沙盒证据：一次性 USD 4.99/200 积分、USD 9.99 月订阅首付/600 积分，
+2026-10-24 已完成的真实沙盒证据（历史商品，现已停售）：一次性 USD 4.99/200 积分、USD 9.99 月订阅首付/600 积分，
 真实通知处理和已知交易重复通知不重复发放。首付在临时结账页进行，不能代替最新版正式工作台浏览器验收。
 
 正式审核通过后，经营者自行完成一笔真实小额付款与必要退款，核对到账、账单和平台处理费；
@@ -182,3 +185,5 @@ python -m scripts.replay_billing_events --event-id 真实事件哈希 --include-
 - https://developer.paddle.com/build/transactions/default-payment-link/
 - https://developer.paddle.com/api-reference/customer-portals/create-customer-portal-session/
 - https://developer.paddle.com/api-reference/transactions/get-transaction/
+
+新三档使用 `creator_monthly_v2`、`pro_monthly_v2`、`studio_monthly_v2` 套餐 ID，避免新额度覆盖旧订阅。正式账户需创建对应的新价格，并更新 BILLING_PRODUCTS_JSON；不会自动迁移既有订阅。

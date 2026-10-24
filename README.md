@@ -71,7 +71,7 @@ Gradio entry point; `src.api_server` also supports standalone API development.
 ## Operations
 
 [Deployment](DEPLOY.md) · [Product direction](docs/PRODUCT_DIRECTION.md) ·
-[Billing](docs/LEMON_SQUEEZY_BILLING.md) · [Storage and rendering](docs/RENDER_ADMISSION_AND_STORAGE.md)
+[Billing](docs/BILLING_POLICY.md) · [Release TODO](docs/TODO.md) · [Storage and rendering](docs/RENDER_ADMISSION_AND_STORAGE.md)
 
 Firebase handles sign-in. SQL stores application records and the credit ledger;
 private object storage holds media. Prices and provider secrets belong on the

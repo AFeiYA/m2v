@@ -51,7 +51,10 @@ def configured():
         expected_official = {('subscription', 999, 600), ('subscription', 2499, 2500), ('topup', 499, 200)}
         expected_fixture = {('subscription', 500, 1000), ('subscription', 1000, 2500), ('topup', 500, 500)}
         actual_catalog = {(p.kind, p.price_cents, p.credits) for p in products}
-        if actual_catalog not in (expected_official, expected_fixture):
+        # Legacy top-up rows are accepted for pending notifications/refunds only.
+        if actual_catalog not in ({('subscription', 999, 300), ('subscription', 1999, 800), ('subscription', 2999, 1500)}, expected_official, expected_fixture,
+                {p for p in expected_official if p[0] == 'subscription'},
+                {p for p in expected_fixture if p[0] == 'subscription'}):
             raise ValueError()
         if len({p.id for p in products}) != len(products) or len({p.variant_id for p in products}) != len(products):
             raise ValueError()

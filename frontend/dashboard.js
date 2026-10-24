@@ -11,6 +11,8 @@ function getDefaultApi() {
 }
 
 function resolveApiBase() {
+  // A backend-served workbench must never reuse another deployment’s API.
+  if (window.M2V_API_BASE) return window.M2V_API_BASE.replace(/\/+$/, "");
   const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
   let saved = (localStorage.getItem("m2v_api_base") || "").trim();
 
@@ -41,7 +43,6 @@ function resolveApiBase() {
   }
 
   if (saved) return saved.replace(/\/+$/, "");
-  if (window.M2V_API_BASE && !isLocal) return window.M2V_API_BASE.replace(/\/+$/, "");
   return getDefaultApi().replace(/\/+$/, "");
 }
 
@@ -1406,11 +1407,10 @@ function renderCreditOverview(data) {
   }
   for (const [id, text] of [
     ['#stat-val-alignment-cost', creditRate(pricing?.alignment)],
-    ['#stat-val-export-cost', creditRate(pricing?.lyric_export)],
     ['#stat-val-motion-cost', motion]
   ]) if ($(id)) $(id).textContent = text;
   if ($('#credit-pricing')) $('#credit-pricing').textContent = pricing
-    ? `Lyrics alignment: ${creditRate(pricing.alignment)} per import. Lyric video export: ${creditRate(pricing.lyric_export)} per video. Motion video export: ${motion} per video. Each selected video is charged separately. Review the exact cost before starting. Reusing an unchanged alignment and downloading an existing video are free.`
+    ? `Lyrics alignment: ${creditRate(pricing.alignment)} per import. Motion video export: ${motion} per video. Each selected video is charged separately. Review the exact cost before starting. Reusing an unchanged alignment and downloading an existing video are free.`
     : 'Usage costs are unavailable. Refresh before starting a new task.';
 }
 
