@@ -130,3 +130,16 @@ test('existing subscriptions disable new purchases while retaining billing manag
  assert.match(s.element('billing-subscriptions').innerHTML,/Cancel renewal/);
  assert.match(s.element('billing-subscriptions').innerHTML,/Update payment method/);
 });
+
+test('sandbox checkout does not redirect a localhost login to its webhook tunnel origin',async()=>{
+ const s=setup(),api=s.context.api,opened=[];
+ s.context.location.href='http://localhost:8896/app#credits-section';
+ s.context.window.Paddle={Environment:{set(){}},Initialize(){},Checkout:{open:x=>opened.push(x)}};
+ s.context.api=async(url,opt)=>url.endsWith('/checkout')?{ok:true,json:async()=>({provider:'paddle',state:'open',
+  checkout_id:'a'.repeat(64),transaction_id:'txn_'+'1'.repeat(26),environment:'sandbox',client_token:'test_fixture',
+  success_url:'https://example-tunnel.trycloudflare.com/app?checkout='+'a'.repeat(64)})}:api(url,opt);
+ await s.context.window.m2vBilling.refresh();
+ s.element('billing-panel').handlers.click({target:{closest:()=>({dataset:{billingBuy:'monthly'},disabled:false})}});await flush();
+ assert.equal(opened.length,1);
+ assert.equal(Object.hasOwn(opened[0].settings,'successUrl'),false);
+});

@@ -56,8 +56,11 @@
     }};
     if (window.Paddle.Initialized) window.Paddle.Update(options);
     else window.Paddle.Initialize(options);
+    // Keep the authenticated workspace when its origin differs from the backend
+    // payment-link domain (for example localhost with a public webhook tunnel).
+    const returnSettings = success.origin === new URL(location.href).origin ? {successUrl:success.href} : {};
     window.Paddle.Checkout.open({transactionId:result.transaction_id,
-      settings:{variant:'one-page',theme:'dark',locale:'en',allowDiscountRemoval:false,showAddDiscounts:false,successUrl:success.href}});
+      settings:{variant:'one-page',theme:'dark',locale:'en',allowDiscountRemoval:false,showAddDiscounts:false,...returnSettings}});
   }
   async function refresh(nextPage = page) {
     const uid = currentUser?.id, seq = ++sequence;
