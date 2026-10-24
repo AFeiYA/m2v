@@ -74,6 +74,12 @@ jobs:
       - name: Test Chrome extension and dashboard authentication
         run: node --test chrome_extension/tests/*.test.cjs frontend/tests/*.test.cjs
 
+      - name: Test Paddle sandbox catalog setup without credentials
+        working-directory: tools/paddle
+        run: |
+          npm ci
+          node --test setup-sandbox.test.mjs
+
       - name: Install system dependencies (ffmpeg)
         run: |
           sudo apt-get update

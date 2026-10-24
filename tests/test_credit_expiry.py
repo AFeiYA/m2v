@@ -50,11 +50,11 @@ def history(b):
     return response.json()
 
 
-def test_fixed_three_prices_and_validities(billing):
+def test_legacy_catalog_only_offers_subscriptions_with_billing_period_validity(billing):
     response=billing.client.get('/api/payments/packages',headers=headers())
     products=response.json()['products']
     assert {(p['kind'],p['price_cents'],p['credits'],p['validity']) for p in products}=={
-        ('subscription',500,1000,'billing_period'),('subscription',1000,2500,'billing_period'),('topup',500,500,'permanent')}
+        ('subscription',500,1000,'billing_period'),('subscription',1000,2500,'billing_period')}
     buy_month(billing,plus=True)
     assert balance(billing)==2505
 

@@ -1,9 +1,15 @@
 # Credit history and reservations
 
-The first billing phase adds accounting, not a payment provider or subscription.
-The existing alignment price remains 1 credit per new task; reuse of a valid,
-unchanged import remains free. `LYRIC_EXPORT_CREDITS` defaults to **0** (free).
-No payment or public balance-adjustment endpoint is exposed.
+Updated: 2026-10-24. This document describes usage accounting. Current subscription
+plans are in [Billing policy](BILLING_POLICY.md); Paddle activation is in
+[Go-live guide](PADDLE_GO_LIVE_ZH.md).
+
+`ALIGNMENT_CREDITS` defaults to **20** per new alignment. Reusing a valid,
+unchanged import remains free. User-facing video export is exclusively in Motion
+Studio; local/cloud exports default to **10** per video. The retired Lyric Editor
+export route and `LYRIC_EXPORT_CREDITS` are compatibility code, not a free export offer. Deployed environment
+values override defaults. Subscription purchases and usage deductions are separate.
+No public endpoint allows arbitrary balance adjustment.
 
 ## Accounting
 
@@ -29,14 +35,14 @@ No payment or public balance-adjustment endpoint is exposed.
 - Legacy task failures retain the existing one-time refund behavior. New imports
   use the alignment execution leases described below. Legacy tasks without leases
   are not failed just because they are old.
-- **Initial Welcome Gift**: New users receive **100 permanent credits** (`NEW_USER_PERMANENT_CREDITS = 100`)
-  upon registration (both Firebase login and email/password signup). These credits are permanent
-  and never expire.
-- **Free User Monthly Quota**: Once the initial 100 permanent credits are consumed (permanent available < 20),
-  free tier accounts receive a monthly quota of **20 credits** (`FREE_MONTHLY_QUOTA = 20`).
-  Monthly quota lots expire at the end of each calendar month (23:59:59 UTC). Unused monthly credits
-  expire via `expire_available()`, and a fresh 20-credit quota is eligible in the subsequent calendar month.
-  Free quota claiming is idempotent via `POST /api/credits/claim-monthly-quota` and auto-claimed in the dashboard.
+- **Free experience**: new accounts receive **60 permanent credits** once
+  (`NEW_USER_PERMANENT_CREDITS=60`). At current default rates this covers two
+  alignments (2×20) and two Motion exports (2×10), not two videos per song.
+- **No recurring free allowance**: `FREE_MONTHLY_QUOTA=0` by default. The legacy
+  optional monthly quota implementation remains available for explicit operator
+  configuration, but is not part of the current product offer.
+- Deployment must update both environment variables; changing a code default does
+  not override an existing server setting or rewrite an existing account balance.
 
 ## Client and API
 
@@ -47,21 +53,19 @@ shows the ledger and export dialog shows the price before submission.
 
 ### Motion Studio Export Pricing
 
-Motion Studio exports support dual execution paths:
-- **Local WebCodecs GPU Fast Export** (`MOTION_WEBCODECS_CREDITS`, defaults to 5 in production):
-  Renders directly inside modern Chromium browsers using client GPU hardware encoders (H.264/MP4)
-  in ~10 seconds with zero server compute. Automatically recorded to My Exports (`render/record_webcodecs`).
-- **Cloud Chromium Headless Render** (`MOTION_EXPORT_CREDITS`, defaults to 30 in production):
-  Server-side Remotion Puppeteer render queue for fallback or background cloud rendering.
-- **Upfront Capability Probing**: Before rendering, the browser executes a silent `<5ms` hardware
-  encoder probe (`VideoEncoder.isConfigSupported`). If WebCodecs is usable, the UI locks the price to 5 credits.
-  If unsupported (e.g. Safari or disabled GPU acceleration), the UI disables the fast option and displays
-  30 credits upfront.
-- **Graceful Fallback Protection**: If client-side WebCodecs encoding encounters an unexpected runtime error,
-  the system halts and explicitly prompts the user (`window.confirm`) before switching to cloud render.
-  It never silently deducts 30 credits without user consent.
+Motion Studio supports local WebCodecs encoding and cloud Chromium rendering.
+`MOTION_WEBCODECS_CREDITS` and `MOTION_EXPORT_CREDITS` both default to 10 per video;
+actual quotes come from the backend. Browser capability detection does not prove
+that a full render will succeed, and export time depends on the device and input.
+A fallback must follow the displayed/accepted price; do not describe fallback as
+an automatic upgrade to a fixed 30-credit charge.
 
-If an administrator later chooses a nonzero LYRIC_EXPORT_CREDITS:
+Browser-rendered files must upload successfully and become a durable VideoExport
+before settlement and appearance in My Exports. A failed save can retry the same
+request/file without rendering again; refresh currently loses an unpublished file
+held only in page memory. See [release TODO](TODO.md) for real-network acceptance.
+
+Legacy API maintenance only (not the current product export workflow):
 
 1. Deploy the updated frontend, backend and worker code together and verify the displayed price. Do not leave old workers modifying balances outside the ledger.
 2. Paid render requests require a UUID `request_id` and matching `accepted_cost`.
@@ -69,7 +73,7 @@ If an administrator later chooses a nonzero LYRIC_EXPORT_CREDITS:
 3. Paid retries require `accepted_cost` matching the original job's cost, displayed
    by `/api/editor/render-jobs`. A deployment must not reprice an existing retry.
 4. Combined import-and-render requests are blocked. Import alignment only, then
-   export through Lyric Editor with a reviewed price. This prevents the old
+   use the supported Motion Studio export workflow. This prevents the old
    pipeline-video route from bypassing export accounting. Local CLI video creation
    is not a cloud credit service and is unaffected.
 5. Native downloads and access-link refreshes never deduct credits.
@@ -88,11 +92,11 @@ This is a trusted CLI, not a public API. Do not directly edit users.credits afte
 ledger adoption: that would bypass history. No real user balances are changed by
 unit tests or by deploying this feature.
 
-Payment-order/webhook idempotency and the approved three-offer pricing are
-implemented on the Lemon Squeezy billing branch. Subscription expiry uses
-`credit_lots` and per-attempt `credit_allocations`. Permanent and legacy credits
-never expire. See LEMON_SQUEEZY_BILLING.md for the fixed three-offer policy and
-billing-period reset behavior.
+Payment-order/webhook idempotency and three monthly subscriptions are implemented
+in the current payment adapters, with Paddle as the selected launch provider.
+Subscription expiry uses `credit_lots` and per-attempt `credit_allocations`.
+Permanent and legacy credits do not expire. See [Billing policy](BILLING_POLICY.md)
+for current plans and [Paddle go-live](PADDLE_GO_LIVE_ZH.md) for activation gates.
 
 ## Alignment preparation and interrupted workers
 

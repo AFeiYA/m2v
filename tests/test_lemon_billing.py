@@ -1,4 +1,6 @@
 """Isolated provider/DB contract tests: never use a payment account or live network."""
+from contextlib import nullcontext
+from unittest.mock import patch
 import asyncio
 import copy
 import hashlib
@@ -58,7 +60,9 @@ def billing(sandbox,monkeypatch):
 
 
 def checkout(billing,product='pack',uid='alice',key='purchase-test-0001'):
-    response=billing.client.post('/api/payments/checkout',headers=headers(uid),json={'product_id':product,'idempotency_key':key})
+    # Seed a pre-retirement checkout for legacy webhook/refund regression tests.
+    with patch('src.payments.require_subscription') if product == 'pack' else nullcontext():
+        response=billing.client.post('/api/payments/checkout',headers=headers(uid),json={'product_id':product,'idempotency_key':key})
     assert response.status_code==200,response.text
     data=response.json()
     async def read():
@@ -269,7 +273,7 @@ def test_provider_outage_is_retryable_and_checkout_failure_does_not_charge(billi
     async def down(*args,**kw):
         raise HTTPException(502,'Provider unavailable')
     monkeypatch.setattr(provider,'request',down)
-    res=billing.client.post('/api/payments/checkout',headers=headers(),json={'product_id':'pack','idempotency_key':'outage-attempt-0001'})
+    res=billing.client.post('/api/payments/checkout',headers=headers(),json={'product_id':'monthly','idempotency_key':'outage-attempt-0001'})
     assert res.status_code==502 and balance(billing)==5
     monkeypatch.setattr(provider,'request',original)
     intent=checkout(billing,key='after-outage-00001')
@@ -376,3 +380,22 @@ def test_subscription_initial_order_refund_does_not_require_invoice_refund_event
     assert balance(billing)==1005  # A refund of the initial order cannot confiscate renewals.
     assert send(billing,'subscription_payment_refunded',invoice(status='refunded',refunded_amount=500)).status_code==200
     assert balance(billing)==1005  # Both objects describe one refund, not two.
+
+
+def test_subscription_only_catalog_and_retired_pack_checkout(billing, monkeypatch):
+    # A legacy deployed catalogue must also stop selling top-ups immediately.
+    response = billing.client.get('/api/payments/packages', headers=headers())
+    assert response.status_code == 200
+    assert len(response.json()['products']) == 2
+    assert all(p['kind'] == 'subscription' for p in response.json()['products'])
+    rejected = billing.client.post('/api/payments/checkout', headers=headers(),
+        json={'product_id': 'pack', 'idempotency_key': 'retired-pack-00001'})
+    assert rejected.status_code == 404
+    assert not billing.calls
+    values = json.loads(billing.settings.BILLING_PRODUCTS_JSON)
+    monkeypatch.setattr(billing.settings, 'BILLING_PRODUCTS_JSON', json.dumps([
+        p for p in values if p['kind'] == 'subscription']))
+    response = billing.client.get('/api/payments/packages', headers=headers())
+    assert response.status_code == 200
+    assert len(response.json()['products']) == 2
+    checkout(billing, product='monthly')

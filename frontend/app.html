@@ -134,7 +134,7 @@
             <span id="sidebar-credits-num">0</span> <span class="quota-total">credits</span>
           </div>
           <a href="#credits-section" data-workspace-link class="quota-upgrade-link">
-            <span>Upgrade / Top up</span>
+            <span>View plans</span>
             <svg class="inline-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 18 6-6-6-6"/></svg>
           </a>
         </div>
@@ -426,8 +426,8 @@
     <section id="credits-section" class="workspace-page" tabindex="-1" hidden>
       <div class="section-header credits-header-wrap">
         <div>
-          <h2>Credits &amp; Subscription</h2>
-          <p class="section-subtitle">Manage your balance, monthly plans, and motion video generation quotas.</p>
+          <h2>Credits &amp; Billing</h2>
+          <p class="section-subtitle">View your balance, current usage costs, subscriptions, and payment history.</p>
         </div>
         <button id="btn-refresh-credits" class="btn btn-sm btn-outline">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
@@ -440,10 +440,10 @@
         <div class="credits-stat-card featured">
           <div class="stat-card-head">
             <span class="stat-card-label">Available Balance</span>
-            <span class="stat-card-badge status-active">Active</span>
+            <span class="stat-card-badge">Balance</span>
           </div>
           <div class="stat-card-val-row">
-            <span id="stat-val-available" class="stat-card-num">3,000</span>
+            <span id="stat-val-available" class="stat-card-num">—</span>
             <span class="stat-card-unit">credits</span>
           </div>
           <p class="stat-card-desc">Total credits ready for video generation &amp; alignment</p>
@@ -451,37 +451,36 @@
 
         <div class="credits-stat-card">
           <div class="stat-card-head">
-            <span class="stat-card-label">Monthly Quota</span>
+            <span class="stat-card-label">Monthly Credits</span>
             <span class="stat-card-badge">Cycle</span>
           </div>
           <div class="stat-card-val-row">
-            <span id="stat-val-monthly" class="stat-card-num">3,000</span>
+            <span id="stat-val-monthly" class="stat-card-num">—</span>
             <span class="stat-card-unit">credits</span>
           </div>
-          <p class="stat-card-desc">Renews on billing date · Used first</p>
+          <p class="stat-card-desc">Used first · Unused credits expire each billing period</p>
         </div>
 
         <div class="credits-stat-card">
           <div class="stat-card-head">
-            <span class="stat-card-label">Permanent Pack</span>
+            <span class="stat-card-label">Permanent Credits</span>
             <span class="stat-card-badge status-perm">No Expiry</span>
           </div>
           <div class="stat-card-val-row">
-            <span id="stat-val-permanent" class="stat-card-num">0</span>
+            <span id="stat-val-permanent" class="stat-card-num">—</span>
             <span class="stat-card-unit">credits</span>
           </div>
-          <p class="stat-card-desc">Booster pack balance · Never expires</p>
+          <p class="stat-card-desc">Remaining permanent credits · Never expire</p>
         </div>
 
         <div class="credits-stat-card">
           <div class="stat-card-head">
-            <span class="stat-card-label">Standard Pricing</span>
+            <span class="stat-card-label">Current Usage Costs</span>
             <span class="stat-card-badge status-rate">Rate</span>
           </div>
           <div class="stat-card-rates">
-            <div class="rate-item"><span>Motion Video</span><strong id="stat-val-export-cost">10 credits</strong></div>
-            <div class="rate-item"><span>Lyrics Alignment</span><strong>1 credit</strong></div>
-            <div class="rate-item"><span>WebCodecs Export</span><strong class="text-success">Free GPU</strong></div>
+            <div class="rate-item"><span>Lyrics alignment</span><strong id="stat-val-alignment-cost">—</strong></div>
+            <div class="rate-item"><span>Motion video export</span><strong id="stat-val-motion-cost">—</strong></div>
           </div>
         </div>
       </div>
@@ -489,88 +488,12 @@
       <!-- 订阅与充值方案面板 -->
       <div id="billing-panel" class="billing-panel">
         <div class="billing-panel-head">
-          <h3>Subscription &amp; Credit Plans</h3>
+          <h3>Monthly subscriptions</h3>
           <p id="billing-notice" role="status">Loading billing options…</p>
         </div>
 
         <!-- 实时后端商品容器 (由 billing.js 动态渲染) -->
         <div id="billing-products" class="billing-products"></div>
-
-        <!-- 订阅方案展示墙 (无论是否开通支付网关，用户均可清晰查看各档套餐与权益) -->
-        <div id="billing-plans-preview" class="billing-plans-preview">
-          <!-- Free Tier -->
-          <article class="billing-plan-card">
-            <div class="plan-card-top">
-              <span class="billing-kind">FREE TIER</span>
-              <h3>Starter</h3>
-              <p class="billing-price">$0 <small>/ month</small></p>
-              <p class="billing-credits-highlight">30 Welcome Credits</p>
-            </div>
-            <ul class="plan-feature-list">
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> 720p Standard Resolution</li>
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> WebCodecs Local GPU Fast Export</li>
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Word-level AI Alignment</li>
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Community Priority Queue</li>
-            </ul>
-            <button class="btn btn-outline plan-cta-btn" disabled>Current Free Plan</button>
-            <small class="plan-footnote">Standard access included for all accounts</small>
-          </article>
-
-          <!-- Creator Pro -->
-          <article class="billing-plan-card is-popular">
-            <span class="plan-badge-popular">MOST POPULAR</span>
-            <div class="plan-card-top">
-              <span class="billing-kind">MONTHLY SUBSCRIPTION</span>
-              <h3>Creator Pro</h3>
-              <p class="billing-price">$9.99 <small>/ month</small></p>
-              <p class="billing-credits-highlight">600 credits / month</p>
-            </div>
-            <ul class="plan-feature-list">
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> <strong>60 Full 1080p Video Exports</strong></li>
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> High-Speed Cloud GPU Acceleration</li>
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> All Visual Templates (Kinetic, Apple, TV)</li>
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Commercial Usage Rights</li>
-            </ul>
-            <button class="btn btn-primary plan-cta-btn" data-billing-buy="monthly">Subscribe monthly</button>
-            <small class="plan-footnote">Auto-renews monthly · Cancel anytime in portal</small>
-          </article>
-
-          <!-- Studio Ultra -->
-          <article class="billing-plan-card">
-            <div class="plan-card-top">
-              <span class="billing-kind">MONTHLY SUBSCRIPTION</span>
-              <h3>Studio Ultra</h3>
-              <p class="billing-price">$24.99 <small>/ month</small></p>
-              <p class="billing-credits-highlight">2,500 credits / month</p>
-            </div>
-            <ul class="plan-feature-list">
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> <strong>250 Full 1080p Video Exports</strong></li>
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> VIP Dedicated ZeroGPU Priority Queue</li>
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Multi-clip Batch Concurrency</li>
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Broadcast &amp; Commercial License</li>
-            </ul>
-            <button class="btn btn-primary plan-cta-btn" data-billing-buy="monthly_plus">Subscribe monthly</button>
-            <small class="plan-footnote">Auto-renews monthly · Maximum render throughput</small>
-          </article>
-
-          <!-- Booster Pack -->
-          <article class="billing-plan-card">
-            <div class="plan-card-top">
-              <span class="billing-kind">ONE-TIME PACK</span>
-              <h3>Credit Booster</h3>
-              <p class="billing-price">$4.99 <small>/ one-time</small></p>
-              <p class="billing-credits-highlight">200 Permanent Credits</p>
-            </div>
-            <ul class="plan-feature-list">
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> <strong>Credits Never Expire</strong></li>
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Instant Balance Top-up</li>
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> 20 Complete Motion Videos</li>
-              <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#b7f34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Stacks with any subscription plan</li>
-            </ul>
-            <button class="btn btn-primary plan-cta-btn" data-billing-buy="pack">Buy credits</button>
-            <small class="plan-footnote">Non-recurring · Permanent render quota</small>
-          </article>
-        </div>
 
         <div id="billing-subscriptions"></div>
         <p id="billing-return-status" role="status"></p>
@@ -582,7 +505,7 @@
       <!-- 积分变动记录区 -->
       <div class="credit-activity-container">
         <div class="credit-activity-head">
-          <h3>Credit Activity &amp; Balance History</h3>
+          <h3>Credit Activity</h3>
           <p id="credit-summary" class="credit-summary-text" role="status"></p>
         </div>
         <p id="credit-pricing" class="credit-pricing-text"></p>
@@ -620,7 +543,7 @@
   <script src="/studio-adapters.js?v=20261022_credits"></script>
   <script src="/media-arbiter.js?v=20261019_arbiter"></script>
   <script src="/workspace.js?v=20261021_navigation"></script>
-  <script src="/dashboard.js?v=20261022_credits"></script>
-  <script src="/billing.js?v=20261022_public_20261020_feedback"></script>
+  <script src="/dashboard.js?v=20261024_motion_only"></script>
+  <script src="/billing.js?v=20261024_checkout_origin"></script>
 </body>
 </html>

@@ -43,7 +43,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -96,7 +96,9 @@ async def lifespan(app: FastAPI):
     # 创建数据库表 (开发用；生产应使用 Alembic)
     await create_tables()
     log.info("✅ 数据库就绪")
-    yield
+    from src.paddle_inbox import lifecycle as paddle_inbox_lifecycle
+    async with paddle_inbox_lifecycle():
+        yield
     log.info("👋 M2V API Server 关闭")
 
 
@@ -282,6 +284,7 @@ async def _reserve_import(db: AsyncSession, task: Task) -> None:
     reuse the winner even when only one credit remains.
     """
     from src.credits import reserve
+    task.cost_credits = settings.ALIGNMENT_CREDITS
     db.add(task)
     await db.flush()
     from src.models import AlignmentExecution
@@ -885,6 +888,9 @@ if frontend_dir.exists():
     @app.get("/app", tags=["Frontend"])
     async def serve_public_page(request: Request):
         name = request.url.path.strip("/") or "index"
+        if name == "app":
+            html = (frontend_dir / "app.html").read_text(encoding="utf-8")
+            return HTMLResponse(html.replace("</head>", "<script>window.M2V_API_BASE=window.location.origin;</script></head>"))
         return FileResponse(frontend_dir / f"{name}.html")
 
     @app.get("/lyric-editor", tags=["Frontend"])

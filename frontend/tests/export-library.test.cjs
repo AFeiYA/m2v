@@ -82,7 +82,7 @@ test('credit history shows available and reserved balances and escapes descripti
  };
  await s.run('loadCredits()');
  assert.match(s.nodes.get('#credit-summary').textContent,/3 available · 2 reserved/);
- assert.match(s.nodes.get('#credit-pricing').textContent,/Lyric video export: 2 credits/);
+ assert.doesNotMatch(s.nodes.get('#credit-pricing').textContent,/Lyric video export:/);
  assert.match(s.nodes.get('#credit-history').innerHTML,/&lt;export>/);
 });
 
@@ -122,4 +122,23 @@ test('credit summary separates monthly and permanent balances and refreshes at e
  expired=true;timers[0].callback();await new Promise(resolve=>setImmediate(resolve));
  assert.match(s.nodes.get('#credit-summary').textContent,/500 available/);
  assert.match(s.nodes.get('#credit-summary').textContent,/Monthly: 0 · Permanent: 500/);
+});
+
+test('billing overview uses server costs and clears missing prices instead of inventing free exports',()=>{
+ const s=setup();
+ s.run('renderCreditOverview({available:893,wallet:{subscription_available:0,permanent_available:893},pricing:{alignment:20,lyric_export:10,motion_export:30,motion_webcodecs:10}})');
+ assert.equal(s.nodes.get('#stat-val-alignment-cost').textContent,'20 credits');
+ assert.equal(s.nodes.has('#stat-val-export-cost'),false);
+ assert.equal(s.nodes.get('#stat-val-motion-cost').textContent,'10–30 credits');
+ assert.equal(s.nodes.get('#stat-val-permanent').textContent,'893');
+ s.run('renderCreditOverview(null)');
+ assert.equal(s.nodes.get('#stat-val-alignment-cost').textContent,'Unavailable');
+ assert.equal(s.nodes.get('#stat-val-motion-cost').textContent,'Unavailable');
+ assert.equal(s.nodes.get('#stat-val-permanent').textContent,'—');
+});
+
+test('account billing page contains only the live catalog, without invented plan entitlements',()=>{
+ const html=fs.readFileSync(path.join(__dirname,'../app.html'),'utf8');
+ assert.match(html,/id="billing-products"/);
+ assert.doesNotMatch(html,/billing-plans-preview|Free GPU|VIP Dedicated|60 Full 1080p|250 Full 1080p/);
 });

@@ -71,7 +71,21 @@ class Settings(BaseSettings):
 
     # Billing is opt-in; test mode must use an isolated deployment/database.
     BILLING_ENABLED: bool = False
+    BILLING_PROVIDER: str = "lemonsqueezy"
     BILLING_ALLOW_TEST_TRANSACTIONS: bool = False
+    PADDLE_ENVIRONMENT: str = "sandbox"
+    PADDLE_LIVE_ENABLED: bool = False
+    PADDLE_API_KEY: str = ""
+    PADDLE_SANDBOX_API_KEY: str = ""
+    PADDLE_CLIENT_TOKEN: str = ""
+    PADDLE_WEBHOOK_SECRET: str = ""
+    PADDLE_WEBHOOK_URL: str = ""
+    STRIPE_API_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_ACCOUNT_ID: str = ""
+    STRIPE_TEST_MODE: bool = True
+    STRIPE_PORTAL_CONFIGURATION_ID: str = ""
+    STRIPE_AUTOMATIC_TAX: bool = False
     LEMONSQUEEZY_API_KEY: str = ""
     LEMONSQUEEZY_WEBHOOK_SECRET: str = ""
     LEMONSQUEEZY_STORE_ID: str = ""
@@ -151,10 +165,12 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
 
     # ── 用户配额与积分定价 ──────────────────────────────────
-    FREE_MONTHLY_QUOTA: int = 20         # 免费用户每月免费额度（初始永久积分消耗完毕后）
-    NEW_USER_PERMANENT_CREDITS: int = 100 # 新用户注册赠送永久积分（永久有效不设到期）
-    # Default to 0 in development/beta to keep exports free unless configured
+    FREE_MONTHLY_QUOTA: int = 0         # 免费用户每月免费额度（初始永久积分消耗完毕后）
+    NEW_USER_PERMANENT_CREDITS: int = 60 # 新用户注册赠送永久积分（永久有效不设到期）
+    # One new alignment costs 20 credits; existing tasks keep their recorded cost.
+    ALIGNMENT_CREDITS: int = Field(default=20, ge=0)
     SEPARATION_CREDITS: int = Field(default=0, ge=0)
+    # Lyric Editor video export; independent of the alignment charge.
     LYRIC_EXPORT_CREDITS: int = Field(default=0, ge=0)
     MOTION_EXPORT_CREDITS: int = Field(default=10, ge=0)
     MOTION_WEBCODECS_CREDITS: int = Field(default=10, ge=0)

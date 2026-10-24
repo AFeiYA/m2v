@@ -1,3 +1,5 @@
+> Historical/provider-specific reference. Current commercial rules: [Billing policy](docs/BILLING_POLICY.md). Current launch procedure: [Paddle go-live](docs/PADDLE_GO_LIVE_ZH.md). Older prices and activation steps below are not current release instructions.
+
 # M2V 用户授权、商业交易与任务状态机架构规范文档
 
 > **版本**：v1.0.0  

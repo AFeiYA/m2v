@@ -1,3 +1,5 @@
+> Historical/provider-specific reference. Current commercial rules: [Billing policy](BILLING_POLICY.md). Current launch procedure: [Paddle go-live](PADDLE_GO_LIVE_ZH.md). Older prices and activation steps below are not current release instructions.
+
 # Sonicflow Studio 开户、收款与订阅上线操作指南
 
 核对日期：2026-10-22。适用项目：`mv.fovea.si`；支付平台：Lemon Squeezy。

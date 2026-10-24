@@ -78,6 +78,11 @@ async def init_db() -> None:
             inspector = inspect(sync_conn)
             tables = inspector.get_table_names()
             is_pg = sync_conn.dialect.name == "postgresql"
+            if "billing_events" in tables:
+                cols = {c["name"] for c in inspector.get_columns("billing_events")}
+                if "next_attempt_at" not in cols:
+                    sql = "ALTER TABLE billing_events ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMP WITH TIME ZONE" if is_pg else "ALTER TABLE billing_events ADD COLUMN next_attempt_at DATETIME"
+                    sync_conn.execute(text(sql))
             if "tasks" in tables:
                 cols = {c["name"] for c in inspector.get_columns("tasks")}
                 if "song_title" not in cols:

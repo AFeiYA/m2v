@@ -41,8 +41,9 @@ alternative container build, not the Gradio Space's startup configuration.
   after a backend restart, including original audio, stems and alignment.
 - Verify backend CORS and Firebase configuration for the actual frontend domain;
   see [Firebase authentication](docs/FIREBASE_AUTH.md).
-- Configure Lemon Squeezy and run its sandbox/live acceptance separately;
-  see [billing](docs/LEMON_SQUEEZY_BILLING.md). A successful code deploy does not
+- Configure Paddle with the three current subscription prices and run sandbox/live
+  acceptance separately; see [billing policy](docs/BILLING_POLICY.md) and
+  [Paddle go-live](docs/PADDLE_GO_LIVE_ZH.md). A successful code deploy does not
   mean merchant onboarding or payments are enabled.
 - Run import → edit/save → export → My Exports → sign out/in → download with a
   test account. Verify a second account cannot access the first account's assets.

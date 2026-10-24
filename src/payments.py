@@ -14,12 +14,28 @@ from src.models import User
 from src.billing_models import BillingCheckout, BillingEvent, BillingPayment, BillingSubscription
 from src.billing_config import configured
 from src import billing_provider as provider, billing_service as service, credits
+from src import stripe_payments
+from src import paddle_payments
+
+
+def adapter(settings):
+    return {'stripe': stripe_payments, 'paddle': paddle_payments}.get(settings.BILLING_PROVIDER)
 
 def no_store(response:Response):
     response.headers['Cache-Control']='no-store, private'
 
 
-router=APIRouter(prefix='/api/payments',tags=['Billing'],dependencies=[Depends(no_store)])
+async def paddle_recovery():
+    # Gradio mounts these routes after startup, so the API's lifespan is not run.
+    from src.settings import get_settings
+    settings = get_settings()
+    if settings.BILLING_ENABLED and settings.BILLING_PROVIDER == 'paddle':
+        configured()
+        from src.paddle_inbox import ensure_worker
+        ensure_worker(settings, paddle_payments.async_session)
+
+
+router=APIRouter(prefix='/api/payments',tags=['Billing'],dependencies=[Depends(no_store), Depends(paddle_recovery)])
 EVENTS={
     'order_created':'orders','order_refunded':'orders',
     **{name:'subscriptions' for name in ('subscription_created','subscription_updated','subscription_cancelled',
@@ -54,14 +70,22 @@ def intent_view(row,settings):
 @router.get('/packages')
 async def packages(user:User=Depends(get_current_user)):
     settings,products=configured()
-    return {'test_mode':settings.LEMONSQUEEZY_TEST_MODE,'products':[{**p.model_dump(exclude={'variant_id'}),'validity':'billing_period' if p.kind=='subscription' else 'permanent'} for p in products.values()],
-            'credit_policy':'Monthly credits expire at the end of each billing period and do not roll over. Permanent credit packs never expire. Monthly credits are used first. Refunds reverse the corresponding credits without deducting expired credits twice.',
+    return {'provider':settings.BILLING_PROVIDER,'test_mode':(settings.PADDLE_ENVIRONMENT=='sandbox') if settings.BILLING_PROVIDER=='paddle' else settings.STRIPE_TEST_MODE if settings.BILLING_PROVIDER=='stripe' else settings.LEMONSQUEEZY_TEST_MODE,'products':[{**p.model_dump(exclude={'variant_id'}),'validity':'billing_period'} for p in products.values() if p.kind == 'subscription'],
+            'credit_policy':'Subscription credits expire at the end of each billing period and do not roll over. Refunds reverse the corresponding credits without deducting expired credits twice.',
             'subscription_policy':'Monthly automatic renewal until cancelled in the billing portal. No unlimited rendering or extra storage is included.'}
+
+
+def require_subscription(product):
+    if product and product.kind != 'subscription':
+        raise HTTPException(404, 'One-time credit purchases are no longer available')
 
 
 @router.post('/checkout')
 async def checkout(req:CheckoutRequest,user:User=Depends(get_current_user),db=Depends(get_db)):
     settings,products=configured(); product=products.get(req.product_id)
+    require_subscription(product)
+    if adapter(settings):
+        return await adapter(settings).checkout(req,user,db,settings,products)
     if not product:
         raise HTTPException(400,'Unknown billing product')
     identifier=credits.key('lemon-checkout',user.id,req.idempotency_key)
@@ -129,6 +153,8 @@ async def checkout(req:CheckoutRequest,user:User=Depends(get_current_user),db=De
 @router.post('/webhook/lemonsqueezy')
 async def webhook(request:Request,x_signature:str|None=Header(None,alias='X-Signature'),db=Depends(get_db)):
     settings,_=configured()
+    if settings.BILLING_PROVIDER!='lemonsqueezy':
+        raise HTTPException(404,'Lemon Squeezy billing is not enabled')
     body=bytearray()
     async for chunk in request.stream():
         body.extend(chunk)
@@ -175,6 +201,8 @@ async def webhook(request:Request,x_signature:str|None=Header(None,alias='X-Sign
 @router.get('/status')
 async def status(user:User=Depends(get_current_user),db=Depends(get_db)):
     settings,_=configured()
+    if adapter(settings):
+        return await adapter(settings).status(user,db,settings)
     mode=f'{int(settings.LEMONSQUEEZY_TEST_MODE)}:{settings.LEMONSQUEEZY_STORE_ID}:'
     subs=(await db.execute(select(BillingSubscription).where(BillingSubscription.user_id==user.id,
         BillingSubscription.id.startswith(mode)).order_by(BillingSubscription.provider_updated_at.desc()))).scalars()
@@ -184,7 +212,10 @@ async def status(user:User=Depends(get_current_user),db=Depends(get_db)):
 
 @router.get('/orders')
 async def orders(user:User=Depends(get_current_user),db=Depends(get_db),page:int=Query(1,ge=1),page_size:int=Query(20,ge=1,le=50)):
-    settings,_=configured(); mode=f'{int(settings.LEMONSQUEEZY_TEST_MODE)}:{settings.LEMONSQUEEZY_STORE_ID}:'
+    settings,_=configured()
+    if adapter(settings):
+        return await adapter(settings).orders(user,db,settings,page,page_size)
+    mode=f'{int(settings.LEMONSQUEEZY_TEST_MODE)}:{settings.LEMONSQUEEZY_STORE_ID}:'
     criteria=(BillingPayment.user_id==user.id,BillingPayment.id.startswith(mode))
     total=(await db.execute(select(func.count()).select_from(BillingPayment).where(*criteria))).scalar_one()
     rows=(await db.execute(select(BillingPayment).where(*criteria).order_by(BillingPayment.created_at.desc(),BillingPayment.id).offset((page-1)*page_size).limit(page_size))).scalars()
@@ -196,6 +227,8 @@ async def orders(user:User=Depends(get_current_user),db=Depends(get_db),page:int
 @router.get('/checkout/{checkout_id}')
 async def checkout_status(checkout_id:str,user:User=Depends(get_current_user),db=Depends(get_db)):
     settings,_=configured()
+    if adapter(settings):
+        return await adapter(settings).checkout_status(checkout_id,user,db,settings)
     row=await db.get(BillingCheckout,checkout_id)
     if not row or row.user_id!=user.id or row.test_mode is not settings.LEMONSQUEEZY_TEST_MODE or row.store_id!=settings.LEMONSQUEEZY_STORE_ID:
         raise HTTPException(404,'Checkout not found')
@@ -206,8 +239,14 @@ async def checkout_status(checkout_id:str,user:User=Depends(get_current_user),db
 
 
 @router.post('/portal/{subscription_id}')
-async def portal(subscription_id:str,user:User=Depends(get_current_user),db=Depends(get_db)):
-    settings,_=configured(); row=await db.get(BillingSubscription,subscription_id)
+async def portal(subscription_id:str,user:User=Depends(get_current_user),db=Depends(get_db),
+        action:str=Query('manage',pattern='^(manage|cancel|payment_method)$')):
+    settings,_=configured()
+    if adapter(settings):
+        if settings.BILLING_PROVIDER == 'paddle':
+            return await paddle_payments.portal(subscription_id,user,db,settings,action)
+        return await adapter(settings).portal(subscription_id,user,db,settings)
+    row=await db.get(BillingSubscription,subscription_id)
     if not row or row.user_id!=user.id or not row.id.startswith(service.scope(settings,'sub','')):
         raise HTTPException(404,'Subscription not found')
     remote=await provider.request(settings,'GET','subscriptions/'+row.provider_id)
@@ -220,7 +259,10 @@ async def portal(subscription_id:str,user:User=Depends(get_current_user),db=Depe
 @router.post('/reconcile')
 async def reconcile(user:User=Depends(get_current_user),db=Depends(get_db)):
     """Owner-triggered recovery of known records only; unknown purchases need webhook replay."""
-    settings,_=configured(); mode=f'{int(settings.LEMONSQUEEZY_TEST_MODE)}:{settings.LEMONSQUEEZY_STORE_ID}:'
+    settings,_=configured()
+    if adapter(settings):
+        return await adapter(settings).reconcile(user,db,settings)
+    mode=f'{int(settings.LEMONSQUEEZY_TEST_MODE)}:{settings.LEMONSQUEEZY_STORE_ID}:'
     rows=(await db.execute(select(BillingPayment).where(BillingPayment.user_id==user.id,
         BillingPayment.id.startswith(mode)).order_by(BillingPayment.created_at.desc()).limit(20))).scalars().all()
     for row in rows:
@@ -238,7 +280,10 @@ async def reconcile(user:User=Depends(get_current_user),db=Depends(get_db)):
 
 @router.post('/receipt/{payment_id}')
 async def receipt(payment_id:str,user:User=Depends(get_current_user),db=Depends(get_db)):
-    settings,_=configured(); row=await db.get(BillingPayment,payment_id)
+    settings,_=configured()
+    if adapter(settings):
+        return await adapter(settings).receipt(payment_id,user,db,settings)
+    row=await db.get(BillingPayment,payment_id)
     if not row or row.user_id!=user.id or not row.id.startswith(f'{int(settings.LEMONSQUEEZY_TEST_MODE)}:{settings.LEMONSQUEEZY_STORE_ID}:'):
         raise HTTPException(404,'Payment not found')
     remote=await provider.request(settings,'GET',row.resource+'/'+row.provider_id)
@@ -248,3 +293,7 @@ async def receipt(payment_id:str,user:User=Depends(get_current_user),db=Depends(
     if not url:
         raise HTTPException(404,'Receipt is not available yet')
     return {'url':provider.safe_url(url,settings)}
+
+
+router.include_router(stripe_payments.router)
+router.include_router(paddle_payments.router)

@@ -74,6 +74,7 @@ class BillingEvent(Base):
     routing_checkout_id: Mapped[str | None] = mapped_column(ForeignKey('billing_checkouts.id'),nullable=True)
     status: Mapped[str] = mapped_column(String(16),default='pending')
     attempts: Mapped[int] = mapped_column(Integer,default=0)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(String(128),nullable=True)
     resource_id: Mapped[str] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
