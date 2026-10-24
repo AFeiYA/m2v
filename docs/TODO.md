@@ -17,7 +17,7 @@
 ## P0：公开收费前完成
 
 - [x] 审阅、提交并推送发布分支 `feat/paddle-sandbox-billing`；草稿 PR #3 已创建，CI 已触发。
-- [ ] 确认 PR #3 的 CI 通过，再按发布流程合并部署（尚未部署 main）。
+- [x] 确认 PR #3 的 CI 通过（commit a18b58c，Cloudflare Pages 及 GitHub Actions 全套通过）；准备按发布流程合并部署。
 - [x] 用户视频导出统一到 Motion Studio；移除 Lyric Editor 旧按钮和旧导出价展示。
 - [x] 隔离沙盒真实 API 确认对齐 20、Motion 本地/云端各 10。
 - [ ] 正式上线环境确认对应使用费，不能用沙盒配置代替。
@@ -69,5 +69,5 @@
 - 浏览器完整工作台停留在登录页，Google 弹窗在完成前关闭；尚未完成本轮真实测试卡支付。
 - 正式配置文件尚未提供；本轮没有启用正式收费或修改生产数据库。
 
-- 草稿 PR：https://github.com/AFeiYA/m2v/pull/3；CI 已触发，结果未确认。
+- PR #3（commit `a18b58c`）CI 自动化套件（GitHub Actions 及 Cloudflare Pages 构建）已全绿通过。
 - 上线预检已加入三档目录及 20/10/10/60/0 使用费与体验规则校验，防止旧 ENV 被误当成新政策；相关 Paddle 套件 34 项通过。
