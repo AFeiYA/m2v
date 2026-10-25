@@ -120,6 +120,8 @@ class CharacterVersioning(BaseModel):
 class CharacterProfile(BaseModel):
     """Complete root model for a Cast Studio character."""
     id: str = Field(..., description="Unique slug ID (e.g. char_golden_0618)")
+    user_id: str = Field(default="default_local", description="Owner user ID or 'system' for official characters")
+    visibility: Literal["private", "public"] = Field(default="private", description="Visibility scope ('private' or 'public')")
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     identity: CharacterIdentity
     face_invariants: CharacterFaceInvariants
@@ -132,6 +134,10 @@ class CharacterProfile(BaseModel):
     assets: CharacterAssets = Field(default_factory=CharacterAssets)
     versioning: CharacterVersioning = Field(default_factory=CharacterVersioning)
     bound_songs: list[str] = Field(default_factory=list, description="Song IDs currently bound to this character")
+
+    @property
+    def is_official(self) -> bool:
+        return self.user_id == "system" or self.visibility == "public"
 
     @property
     def active_outfit(self) -> CharacterOutfit:

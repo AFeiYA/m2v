@@ -120,7 +120,10 @@ test('Cast Studio initializes and registers m2vCastStudio on window', () => {
 test('Cast Studio loads and renders characters roster and detail', async () => {
   const mockChars = [
     {
-      id: 'char_zero',
+      id: 'char_zero_soe_0618',
+      user_id: 'system',
+      visibility: 'public',
+      is_official: true,
       identity: {
         name: 'Zero.SOE',
         alias: '零度',
@@ -130,7 +133,7 @@ test('Cast Studio loads and renders characters roster and detail', async () => {
         tagline: 'Virtual singer from neon district',
       },
       versioning: { version: 1, is_locked: true, confirmed_at: '2026-10-25T00:00:00Z' },
-      assets: { primary_image_url: '/api/characters/char_zero/assets/ref.png', thumbnail_url: '' },
+      assets: { primary_image_url: '/api/characters/char_zero_soe_0618/assets/ref.png', thumbnail_url: '' },
       bound_songs: ['neon_city_echoes'],
     },
   ];
@@ -140,11 +143,13 @@ test('Cast Studio loads and renders characters roster and detail', async () => {
 
   const rosterEl = elements.get('cast-roster-list');
   assert.ok(rosterEl.innerHTML.includes('Zero.SOE'));
+  assert.ok(rosterEl.innerHTML.includes('🌐 Official'));
   assert.ok(rosterEl.innerHTML.includes('16 y/o 🔒'));
   assert.ok(rosterEl.innerHTML.includes('v1 Locked'));
   assert.ok(rosterEl.innerHTML.includes('1 song'));
 
   const detailEl = elements.get('cast-detail-column');
+  assert.ok(detailEl.innerHTML.includes('Official Benchmark Artist'));
   assert.ok(detailEl.innerHTML.includes('Reference Portrait'));
   assert.ok(detailEl.innerHTML.includes('Baseline Version Lock'));
   assert.ok(detailEl.innerHTML.includes('Song Project Binding'));

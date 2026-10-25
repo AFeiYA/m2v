@@ -130,6 +130,7 @@
       const version = c.versioning?.version || 1;
       const avatarUrl = c.assets?.thumbnail_url || c.assets?.primary_image_url || "";
       const boundCount = (c.bound_songs || []).length;
+      const isOfficial = Boolean(c.is_official || c.user_id === "system" || c.id === "char_zero_soe_0618");
 
       const avatarContent = avatarUrl
         ? `<img src="${avatarUrl}" alt="${name}" class="cast-card-avatar">`
@@ -145,6 +146,9 @@
             </div>
             ${tagline ? `<div class="cast-card-tagline">${escapeHtml(tagline)}</div>` : ""}
             <div class="cast-card-badges">
+              <span class="cast-pill ${isOfficial ? "cast-pill-official" : "cast-pill-private"}">
+                ${isOfficial ? "🌐 Official" : "🔒 Private"}
+              </span>
               <span class="cast-pill cast-pill-age">${age} y/o${ageLocked ? " 🔒" : ""}</span>
               <span class="cast-pill ${isLocked ? "cast-pill-locked" : "cast-pill-draft"}">
                 ${isLocked ? `v${version} Locked` : `Draft v${version}`}
@@ -201,6 +205,7 @@
     const promptAnchor = char.prompt_engine?.positive_character_anchor || "";
     const primaryImg = char.assets?.primary_image_url || "";
     const boundSongs = char.bound_songs || [];
+    const isOfficial = Boolean(char.is_official || char.user_id === "system" || char.id === "char_zero_soe_0618");
 
     const availableSongs = getAvailableSongs();
     const activeSong = getActiveSong();
@@ -208,6 +213,12 @@
     container.innerHTML = `
       <!-- Hero Identity Card -->
       <div class="cast-hero-identity-card">
+        ${isOfficial ? `
+          <div class="cast-official-banner">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+            <span><strong>Official Benchmark Artist</strong> · Canonical baseline is permanently locked. Ready to bind and star in your music videos!</span>
+          </div>
+        ` : ""}
         <div class="cast-identity-header-row">
           <div class="cast-identity-main-info">
             <div class="cast-char-title">
@@ -216,6 +227,9 @@
             </div>
             ${tagline ? `<p class="cast-step-desc">${escapeHtml(tagline)}</p>` : ""}
             <div class="cast-identity-meta-row">
+              <span class="cast-pill ${isOfficial ? "cast-pill-official" : "cast-pill-private"}">
+                ${isOfficial ? "🌐 Official System Artist" : "🔒 Private Artist"}
+              </span>
               <span class="cast-pill cast-pill-age">Age: ${age} (Locked Invariant 🔒)</span>
               <span class="cast-pill" style="background:rgba(255,255,255,0.08);color:var(--text);">${escapeHtml(gender)}</span>
               <span class="cast-pill ${isLocked ? "cast-pill-locked" : "cast-pill-draft"}">
@@ -224,9 +238,13 @@
             </div>
           </div>
           <div>
-            <button type="button" id="cast-btn-delete-char" class="btn btn-sm btn-outline" style="color:#ef4444;border-color:rgba(239,68,68,0.4);" title="Delete character">
-              Delete Artist
-            </button>
+            ${isOfficial ? `
+              <span class="cast-pill cast-pill-official" style="font-size:0.75rem;padding:4px 10px;">Read-Only Asset</span>
+            ` : `
+              <button type="button" id="cast-btn-delete-char" class="btn btn-sm btn-outline" style="color:#ef4444;border-color:rgba(239,68,68,0.4);" title="Delete character">
+                Delete Artist
+              </button>
+            `}
           </div>
         </div>
 
@@ -250,7 +268,7 @@
                 <p class="cast-step-desc">Establish canonical visual identity, facial invariants, and hairstyle.</p>
               </div>
             </div>
-            ${primaryImg ? `<span class="cast-pill cast-pill-locked">Portrait Ready</span>` : `<span class="cast-pill cast-pill-draft">Required</span>`}
+            ${isOfficial ? `<span class="cast-pill cast-pill-official">Official Portrait Frozen</span>` : primaryImg ? `<span class="cast-pill cast-pill-locked">Portrait Ready</span>` : `<span class="cast-pill cast-pill-draft">Required</span>`}
           </div>
 
           <div class="cast-portrait-zone">
@@ -266,12 +284,16 @@
             </div>
 
             <div class="cast-portrait-actions">
-              <label for="cast-file-input" class="btn btn-sm btn-primary" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;width:fit-content;">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                <span>${primaryImg ? "Replace Reference Portrait" : "Upload Reference Portrait"}</span>
-              </label>
-              <input type="file" id="cast-file-input" accept="image/png,image/jpeg,image/webp" style="display:none">
-              <span class="cast-form-hint">Supports PNG, JPG, WEBP up to 20MB. Used as the anchor reference for storyboard &amp; video generation.</span>
+              ${isOfficial ? `
+                <span class="cast-form-hint" style="color:#7dd3fc;">Official artist portrait is maintained by the platform. You can bind her directly to any song.</span>
+              ` : `
+                <label for="cast-file-input" class="btn btn-sm btn-primary" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;width:fit-content;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span>${primaryImg ? "Replace Reference Portrait" : "Upload Reference Portrait"}</span>
+                </label>
+                <input type="file" id="cast-file-input" accept="image/png,image/jpeg,image/webp" style="display:none">
+                <span class="cast-form-hint">Supports PNG, JPG, WEBP up to 20MB. Used as the anchor reference for storyboard &amp; video generation.</span>
+              `}
             </div>
           </div>
         </div>
@@ -298,9 +320,13 @@
             </div>
 
             <div>
-              <button type="button" id="cast-btn-confirm-version" class="btn btn-sm ${isLocked ? "btn-outline" : "btn-primary"}">
-                ${isLocked ? "🔒 Re-confirm New Version (v" + (version + 1) + ")" : "🔒 Confirm Baseline (Lock v" + version + ")"}
-              </button>
+              ${isOfficial ? `
+                <span class="cast-pill cast-pill-official">Platform Baseline Verified</span>
+              ` : `
+                <button type="button" id="cast-btn-confirm-version" class="btn btn-sm ${isLocked ? "btn-outline" : "btn-primary"}">
+                  ${isLocked ? "🔒 Re-confirm New Version (v" + (version + 1) + ")" : "🔒 Confirm Baseline (Lock v" + version + ")"}
+                </button>
+              `}
             </div>
           </div>
           <span class="cast-form-hint">Confirming locks the profile schema and tells the AI director engine that this character's facial features and keyframe are canonical.</span>

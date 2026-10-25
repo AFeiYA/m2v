@@ -114,10 +114,12 @@ def test_cast_storage_full_lifecycle(tmp_path: Path):
     assert char.versioning.version == 1
     assert char.versioning.is_locked is False
 
-    # Check listing
+    # Check listing: contains user's character + official Zero.SOE
     char_list = list_characters(storage_dir)
-    assert len(char_list) == 1
-    assert char_list[0]["id"] == char.id
+    assert len(char_list) == 2
+    ids = [c["id"] for c in char_list]
+    assert char.id in ids
+    assert "char_zero_soe_0618" in ids
 
     # 2. Upload Reference Image
     fake_png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
@@ -171,5 +173,12 @@ def test_cast_storage_full_lifecycle(tmp_path: Path):
     deleted = delete_character(char_id=char.id, storage_dir=storage_dir)
     assert deleted is True
     assert get_character(char.id, storage_dir=storage_dir) is None
-    assert len(list_characters(storage_dir)) == 0
+    # Official Zero.SOE remains
+    assert len(list_characters(storage_dir)) == 1
+    assert list_characters(storage_dir)[0]["id"] == "char_zero_soe_0618"
+
+    # 7. System character protection
+    import pytest
+    with pytest.raises(PermissionError):
+        delete_character("char_zero_soe_0618", current_user_id="user_attacker", storage_dir=storage_dir)
 
