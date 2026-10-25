@@ -206,3 +206,27 @@ test('import mode tabs and suno url are hidden by default, visible in dev mode',
   assert.equal(disabled.element('#import-mode-tabs').style.display, 'none');
   assert.equal(disabled.element('#wrap-local-suno-url').style.display, 'none');
 });
+
+test('upload form supports dual-mode lyrics and dropzone toggles', () => {
+  const s = setup();
+  s.run('initUpload()');
+
+  const pillPaste = s.element('#pill-lyrics-paste');
+  const pillUpload = s.element('#pill-lyrics-upload');
+  const wrapPaste = s.element('#wrap-lyrics-paste');
+  const wrapUpload = s.element('#wrap-lyrics-upload');
+
+  // Switch to upload file mode
+  pillUpload.handlers.click();
+  assert.equal(wrapUpload.style.display, '');
+  assert.equal(wrapPaste.style.display, 'none');
+  assert.equal(pillUpload.classList.contains('active'), true);
+  assert.equal(pillPaste.classList.contains('active'), false);
+
+  // Switch back to paste mode
+  pillPaste.handlers.click();
+  assert.equal(wrapPaste.style.display, '');
+  assert.equal(wrapUpload.style.display, 'none');
+  assert.equal(pillPaste.classList.contains('active'), true);
+  assert.equal(pillUpload.classList.contains('active'), false);
+});

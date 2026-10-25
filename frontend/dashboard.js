@@ -661,32 +661,280 @@ function initUpload() {
     });
   }
 
-  // 2. 本地文件上传
+  // 2. Local upload dropzones and dual-mode lyrics
+  function formatFileSize(bytes) {
+    if (!bytes || bytes <= 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB"];
+    const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+    return `${(bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
+  }
+
+  function bindDropzone({
+    dropzoneEl,
+    inputEl,
+    emptyEl,
+    filledEl,
+    nameEl,
+    sizeEl,
+    removeBtn,
+    onFileSelected,
+    onFileCleared,
+  }) {
+    if (!dropzoneEl || !inputEl) return;
+
+    dropzoneEl.addEventListener("click", (e) => {
+      if (e.target && removeBtn && (e.target === removeBtn || removeBtn.contains?.(e.target))) {
+        return;
+      }
+      inputEl.click?.();
+    });
+
+    dropzoneEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        inputEl.click?.();
+      }
+    });
+
+    inputEl.addEventListener("change", () => {
+      const file = inputEl.files?.[0];
+      if (file) {
+        if (nameEl) nameEl.textContent = file.name;
+        if (sizeEl) sizeEl.textContent = formatFileSize(file.size);
+        if (emptyEl) emptyEl.style.display = "none";
+        if (filledEl) filledEl.style.display = "flex";
+        onFileSelected?.(file);
+      }
+    });
+
+    if (removeBtn) {
+      removeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        try { inputEl.value = ""; } catch (_) {}
+        if (emptyEl) emptyEl.style.display = "flex";
+        if (filledEl) filledEl.style.display = "none";
+        onFileCleared?.();
+      });
+    }
+
+    dropzoneEl.addEventListener("dragover", (e) => {
+      e.preventDefault?.();
+      dropzoneEl.classList?.add("dragover");
+    });
+
+    ["dragleave", "dragend"].forEach((evt) => {
+      dropzoneEl.addEventListener(evt, () => {
+        dropzoneEl.classList?.remove("dragover");
+      });
+    });
+
+    dropzoneEl.addEventListener("drop", (e) => {
+      e.preventDefault?.();
+      dropzoneEl.classList?.remove("dragover");
+      const files = e.dataTransfer?.files;
+      if (files && files.length > 0) {
+        try {
+          inputEl.files = files;
+        } catch (_) {}
+        const file = files[0];
+        if (nameEl) nameEl.textContent = file.name;
+        if (sizeEl) sizeEl.textContent = formatFileSize(file.size);
+        if (emptyEl) emptyEl.style.display = "none";
+        if (filledEl) filledEl.style.display = "flex";
+        onFileSelected?.(file);
+      }
+    });
+  }
+
+  // Bind audio dropzone
+  bindDropzone({
+    dropzoneEl: $("#dropzone-mp3"),
+    inputEl: $("#file-mp3"),
+    emptyEl: $("#dropzone-mp3-empty"),
+    filledEl: $("#dropzone-mp3-filled"),
+    nameEl: $("#label-mp3-name"),
+    sizeEl: $("#label-mp3-size"),
+    removeBtn: $("#btn-remove-mp3"),
+    onFileSelected: (file) => {
+      const titleInput = $("#local-song-title");
+      if (titleInput && !titleInput.value?.trim()) {
+        titleInput.value = file.name.replace(/\.[^/.]+$/, "");
+      }
+    },
+    onFileCleared: () => {},
+  });
+
+  // Bind cover image dropzone
+  bindDropzone({
+    dropzoneEl: $("#dropzone-cover"),
+    inputEl: $("#file-cover"),
+    emptyEl: $("#dropzone-cover-empty"),
+    filledEl: $("#dropzone-cover-filled"),
+    nameEl: $("#label-cover-name"),
+    sizeEl: $("#label-cover-size"),
+    removeBtn: $("#btn-remove-cover"),
+    onFileSelected: (file) => {
+      const preview = $("#preview-cover-img");
+      if (preview && typeof window !== "undefined" && window.URL?.createObjectURL) {
+        try {
+          preview.src = window.URL.createObjectURL(file);
+        } catch (_) {}
+      }
+    },
+    onFileCleared: () => {
+      const preview = $("#preview-cover-img");
+      if (preview) preview.src = "";
+    },
+  });
+
+  // Bind lyrics file dropzone
+  bindDropzone({
+    dropzoneEl: $("#dropzone-lyrics"),
+    inputEl: $("#file-lyrics"),
+    emptyEl: $("#dropzone-lyrics-empty"),
+    filledEl: $("#dropzone-lyrics-filled"),
+    nameEl: $("#label-lyrics-name"),
+    sizeEl: $("#label-lyrics-size"),
+    removeBtn: $("#btn-remove-lyrics"),
+    onFileSelected: () => {},
+    onFileCleared: () => {},
+  });
+
+  // Lyrics mode switcher (Paste vs Upload)
+  let lyricsMode = "paste";
+  const pillPaste = $("#pill-lyrics-paste");
+  const pillUpload = $("#pill-lyrics-upload");
+  const wrapPaste = $("#wrap-lyrics-paste");
+  const wrapUpload = $("#wrap-lyrics-upload");
+  const lyricsTextarea = $("#input-lyrics-text");
+
+  if (pillPaste && pillUpload && wrapPaste && wrapUpload) {
+    pillPaste.addEventListener("click", () => {
+      lyricsMode = "paste";
+      pillPaste.classList.add("active");
+      pillPaste.setAttribute?.("aria-selected", "true");
+      pillUpload.classList.remove("active");
+      pillUpload.setAttribute?.("aria-selected", "false");
+      wrapPaste.style.display = "";
+      wrapUpload.style.display = "none";
+    });
+
+    pillUpload.addEventListener("click", () => {
+      lyricsMode = "upload";
+      pillUpload.classList.add("active");
+      pillUpload.setAttribute?.("aria-selected", "true");
+      pillPaste.classList.remove("active");
+      pillPaste.setAttribute?.("aria-selected", "false");
+      wrapUpload.style.display = "";
+      wrapPaste.style.display = "none";
+    });
+  }
+
+  // Textarea drag & drop auto-read
+  if (lyricsTextarea) {
+    lyricsTextarea.addEventListener("dragover", (e) => {
+      e.preventDefault?.();
+      lyricsTextarea.classList?.add("dragover");
+    });
+    ["dragleave", "dragend"].forEach((evt) => {
+      lyricsTextarea.addEventListener(evt, () => {
+        lyricsTextarea.classList?.remove("dragover");
+      });
+    });
+    lyricsTextarea.addEventListener("drop", (e) => {
+      e.preventDefault?.();
+      lyricsTextarea.classList?.remove("dragover");
+      const file = e.dataTransfer?.files?.[0];
+      if (file && typeof FileReader !== "undefined") {
+        const reader = new FileReader();
+        reader.onload = () => {
+          lyricsTextarea.value = reader.result;
+          showStatus(`📄 Loaded lyrics from ${file.name}`);
+        };
+        reader.readAsText(file);
+      }
+    });
+  }
+
+  function resetUploadForm() {
+    if (uploadForm) uploadForm.reset();
+    try {
+      if ($("#file-mp3")) $("#file-mp3").value = "";
+      if ($("#file-cover")) $("#file-cover").value = "";
+      if ($("#file-lyrics")) $("#file-lyrics").value = "";
+    } catch (_) {}
+    if (lyricsTextarea) lyricsTextarea.value = "";
+    if ($("#preview-cover-img")) $("#preview-cover-img").src = "";
+    if ($("#dropzone-mp3-empty")) $("#dropzone-mp3-empty").style.display = "flex";
+    if ($("#dropzone-mp3-filled")) $("#dropzone-mp3-filled").style.display = "none";
+    if ($("#dropzone-cover-empty")) $("#dropzone-cover-empty").style.display = "flex";
+    if ($("#dropzone-cover-filled")) $("#dropzone-cover-filled").style.display = "none";
+    if ($("#dropzone-lyrics-empty")) $("#dropzone-lyrics-empty").style.display = "flex";
+    if ($("#dropzone-lyrics-filled")) $("#dropzone-lyrics-filled").style.display = "none";
+  }
+
+  // Form submit handler
   if (uploadForm) {
     uploadForm.addEventListener("submit", async (e) => {
       e.preventDefault();
 
-      const mp3File = $("#file-mp3").files[0];
-      const lyricsFile = $("#file-lyrics").files[0];
-      if (!mp3File || !lyricsFile) return;
+      const mp3Input = $("#file-mp3");
+      const mp3File = mp3Input?.files?.[0];
+      if (!mp3File) {
+        showStatus("⚠️ Please choose an audio file (MP3, WAV, or FLAC).", true);
+        return;
+      }
+
+      const lyricsTextInput = $("#input-lyrics-text");
+      const lyricsText = lyricsTextInput?.value?.trim() || "";
+      const lyricsFileInput = $("#file-lyrics");
+      let lyricsFile = lyricsFileInput?.files?.[0];
+
+      if (lyricsMode === "paste" || (lyricsText && !lyricsFile)) {
+        if (!lyricsText && !lyricsFile) {
+          showStatus("⚠️ Please paste your song lyrics or upload a lyrics file.", true);
+          lyricsTextInput?.focus?.();
+          return;
+        }
+        if (lyricsText) {
+          try {
+            lyricsFile = new File([lyricsText], "lyrics.txt", { type: "text/plain;charset=utf-8" });
+          } catch (_) {
+            lyricsFile = new Blob([lyricsText], { type: "text/plain;charset=utf-8" });
+          }
+        }
+      } else if (!lyricsFile) {
+        showStatus("⚠️ Please upload a lyrics file (.txt or .lrc) or switch to Paste Lyrics.", true);
+        return;
+      }
+
+      const coverFile = $("#file-cover")?.files?.[0];
 
       const btn = $("#btn-upload");
-      btn.disabled = true;
-      btn.textContent = "⏳ Uploading…";
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "⏳ Uploading…";
+      }
 
       const form = new FormData();
       form.append("mp3", mp3File);
-      form.append("lyrics", lyricsFile);
+      form.append("lyrics", lyricsFile, "lyrics.txt");
+      if (lyricsText) {
+        form.append("lyrics_text", lyricsText);
+      }
+      if (coverFile) {
+        form.append("cover", coverFile);
+      }
 
       // Query params
       const params = new URLSearchParams();
-      params.set("language", $("#opt-lang").value);
+      params.set("language", $("#opt-lang")?.value || "auto");
       params.set("ass_only", "true");
-      if ($("#opt-skip-sep").checked) params.set("skip_separation", "true");
+      if ($("#opt-skip-sep")?.checked) params.set("skip_separation", "true");
       if ($("#opt-beat") ? $("#opt-beat").checked : true) params.set("beat_effects", "true");
 
-      const localSongTitle = $("#local-song-title")?.value.trim();
-      const localSunoUrl = $("#local-suno-url")?.value.trim();
+      const localSongTitle = $("#local-song-title")?.value?.trim();
+      const localSunoUrl = $("#local-suno-url")?.value?.trim();
       if (localSongTitle) params.set("song_title", localSongTitle);
       if (localSunoUrl) params.set("suno_url", localSunoUrl);
 
@@ -699,10 +947,10 @@ function initUpload() {
         if (res.ok) {
           const data = await res.json();
           showStatus(`✅ Project created: ${data.task_id.slice(0, 8)}…`);
-          uploadForm.reset();
+          resetUploadForm();
           loadTasks();
           loadCredits();
-          // 连接 WebSocket 监听进度
+          // Connect WebSocket to track progress
           connectProgressWS(data.task_id);
         } else {
           const err = await res.json();
@@ -711,8 +959,10 @@ function initUpload() {
       } catch (e) {
         showStatus("❌ Network error", true);
       } finally {
-        btn.disabled = false;
-        btn.textContent = "⚡ Upload & align lyrics";
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "⚡ Upload & align lyrics";
+        }
       }
     });
   }

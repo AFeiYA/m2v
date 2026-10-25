@@ -34,6 +34,7 @@ from fastapi import (
     Depends,
     FastAPI,
     File,
+    Form,
     HTTPException,
     Query,
     Request,
@@ -361,19 +362,20 @@ async def _commit_and_dispatch(db: AsyncSession, task: Task) -> None:
 
 @api_router.post("/api/upload", response_model=UploadResponse, tags=["Tasks"])
 async def upload_and_create_task(
-    mp3: UploadFile = File(..., description="MP3 音频文件"),
-
-    lyrics: UploadFile = File(..., description="歌词文件 (.txt / .lrc)"),
-    song_title: str | None = Query(None, description="歌曲名称"),
-    suno_url: str | None = Query(None, description="Suno 歌曲链接"),
-    language: str = Query("auto", description="语言代码，默认自动检测"),
-    skip_separation: bool = Query(False, description="跳过人声分离"),
-    ass_only: bool = Query(False, description="只生成 ASS 与对齐数据"),
-    beat_effects: bool = Query(False, description="节奏动画"),
+    mp3: UploadFile = File(..., description="MP3, WAV, or FLAC audio file"),
+    lyrics: UploadFile | None = File(None, description="Lyrics file (.txt / .lrc)"),
+    cover: UploadFile | None = File(None, description="Optional cover image (.jpg / .png / .webp)"),
+    lyrics_text: str | None = Form(None, description="Pasted lyrics text"),
+    song_title: str | None = Query(None, description="Song title"),
+    suno_url: str | None = Query(None, description="Original song link"),
+    language: str = Query("auto", description="Language code"),
+    skip_separation: bool = Query(False, description="Skip vocal separation"),
+    ass_only: bool = Query(False, description="Generate ASS & alignment data only"),
+    beat_effects: bool = Query(False, description="Rhythm effects"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """上传音频 + 歌词，创建处理任务"""
+    """Upload audio + lyrics, optionally attach cover artwork, and create alignment task."""
     from src.alignment_execution import reconcile
     await reconcile(db, user.id)
     from src.storage_accounting import check_storage_quota
@@ -390,8 +392,21 @@ async def upload_and_create_task(
     # 文件类型校验
     if not mp3.filename or not mp3.filename.lower().endswith((".mp3", ".wav", ".flac")):
         raise HTTPException(400, "Please upload an MP3, WAV, or FLAC audio file.")
-    if not lyrics.filename or not lyrics.filename.lower().endswith((".txt", ".lrc")):
-        raise HTTPException(400, "Please upload a TXT or LRC lyrics file.")
+
+    lyrics_content: bytes = b""
+    lyrics_name = "lyrics.txt"
+    if lyrics and lyrics.filename:
+        if not lyrics.filename.lower().endswith((".txt", ".lrc")):
+            raise HTTPException(400, "Please upload a TXT or LRC lyrics file.")
+        lyrics_content = await lyrics.read()
+        lyrics_name = lyrics.filename
+    elif lyrics_text and lyrics_text.strip():
+        lyrics_content = lyrics_text.strip().encode("utf-8")
+    else:
+        raise HTTPException(400, "Please provide lyrics by uploading a file or pasting text.")
+
+    if len(lyrics_content) > 5 * 1024 * 1024:  # 歌词最大 5MB
+        raise HTTPException(400, "Lyrics file too large (max 5MB).")
 
     # 文件大小校验
     max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
@@ -399,12 +414,23 @@ async def upload_and_create_task(
     if len(mp3_content) > max_size:
         raise HTTPException(400, f"Audio file exceeds {settings.MAX_UPLOAD_SIZE_MB}MB limit.")
 
-    lyrics_content = await lyrics.read()
-    if len(lyrics_content) > 5 * 1024 * 1024:  # 歌词最大 5MB
-        raise HTTPException(400, "Lyrics file too large (max 5MB).")
+    cover_bytes: bytes | None = None
+    if cover and cover.filename:
+        if not cover.filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+            raise HTTPException(400, "Cover image must be a JPG, PNG, or WebP file.")
+        raw_cover = await cover.read()
+        if len(raw_cover) > 10 * 1024 * 1024:
+            raise HTTPException(400, "Cover image exceeds 10MB limit.")
+        from src.song_cover import prepare_cover
+        try:
+            cover_bytes, _, _ = prepare_cover(raw_cover)
+        except ValueError as exc:
+            raise HTTPException(400, f"Invalid cover image: {exc}") from exc
 
     import tempfile
     import re
+    import json
+    from src.song_assets import source_keys
 
     def clean_name(raw, fallback):
         return re.sub(r'[^\w.\-\u4e00-\u9fa5]', '_', Path(raw or fallback).name).strip('.') or fallback
@@ -412,7 +438,8 @@ async def upload_and_create_task(
     task_id = str(uuid.uuid4())
     prefix = f"uploads/{user.id}/{task_id}"
     mp3_key = f"{prefix}/{clean_name(mp3.filename, 'audio.mp3')}"
-    lyrics_key = f"{prefix}/{clean_name(lyrics.filename, 'lyrics.txt')}"
+    lyrics_key = f"{prefix}/{clean_name(lyrics_name, 'lyrics.txt')}"
+    source_json_key, source_cover_key = source_keys(mp3_key)
     final_title = (song_title or "").strip() or Path(mp3.filename).stem
     task = Task(
         id=task_id, user_id=user.id, title=final_title, song_title=final_title,
@@ -423,7 +450,11 @@ async def upload_and_create_task(
     )
     await _reserve_import(db, task)
     storage = get_storage()
-    async with _prepare_import(db, task, storage, [mp3_key, lyrics_key]):
+    cleanup_keys = [mp3_key, lyrics_key]
+    if cover_bytes:
+        cleanup_keys.extend([source_cover_key, source_json_key])
+
+    async with _prepare_import(db, task, storage, cleanup_keys):
         with tempfile.TemporaryDirectory(prefix="m2v-upload-") as directory:
             audio = Path(directory) / ("audio" + Path(mp3.filename).suffix)
             text = Path(directory) / "lyrics.txt"
@@ -431,6 +462,24 @@ async def upload_and_create_task(
             text.write_bytes(lyrics_content)
             await storage.save(mp3_key, audio)
             await storage.save(lyrics_key, text)
+
+            if cover_bytes:
+                cover_path_local = Path(directory) / "source_cover.jpg"
+                cover_path_local.write_bytes(cover_bytes)
+                await storage.save(source_cover_key, cover_path_local)
+
+                meta_path_local = Path(directory) / "source_suno.json"
+                meta = {
+                    "version": "song-source-v1",
+                    "id": task_id,
+                    "title": final_title,
+                    "artist": "",
+                    "image_url": "",
+                    "source_url": suno_url or "",
+                }
+                meta_path_local.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+                await storage.save(source_json_key, meta_path_local)
+
     await _commit_and_dispatch(db, task)
     return UploadResponse(mp3_key=mp3_key, lyrics_key=lyrics_key, task_id=task.id)
 
@@ -449,20 +498,20 @@ async def create_task_from_suno(
     if not req.ass_only and settings.LYRIC_EXPORT_CREDITS:
         raise HTTPException(409, "Import alignment only, then export from Lyric Editor to review the video credit price.")
     if not clean_url:
-        raise HTTPException(400, "请提供有效的 Suno 链接")
+        raise HTTPException(400, "Please provide a valid Suno link")
 
     from src.suno_fetch import fetch_song, download_song
     try:
         song = await asyncio.to_thread(fetch_song, clean_url)
     except Exception as e:
-        raise HTTPException(400, f"提取 Suno 歌曲失败: {e}")
+        raise HTTPException(400, f"Failed to fetch song from link: {e}")
 
     song.id = str(song.id).lower()
     canonical_url = f"https://suno.com/song/{song.id}"
     final_title = (req.song_title or song.title or "Suno_Track").strip()
     lyrics_text = (req.lyrics_text if req.lyrics_text is not None else (song.lyrics or song.raw_prompt or "")).strip()
     if not lyrics_text:
-        raise HTTPException(400, "未能从 Suno 页面提取到有效歌词，请检查该歌曲")
+        raise HTTPException(400, "Unable to extract lyrics from link. Please provide lyrics manually.")
 
     from src.suno_import_identity import alignment_options, lyrics_signature, reusable_import, reusable_audio
     storage = get_storage()
@@ -495,7 +544,7 @@ async def create_task_from_suno(
         if existing:
             return await reuse_response(existing)
     if user.credits <= 0:
-        raise HTTPException(403, "配额不足，请升级套餐")
+        raise HTTPException(403, "Insufficient credits. Please upgrade your plan.")
     claim = sha256(json.dumps([user.id, song.id, signature, alignment_options(options)], sort_keys=True).encode()).hexdigest()
     if req.force_realign:
         claim = sha256(uuid.uuid4().bytes).hexdigest()
@@ -544,16 +593,16 @@ async def create_task_from_suno(
             directory = Path(download_dir)
             if owns_audio:
                 if not (song.audio_url or song.video_url):
-                    raise HTTPException(400, "未能获取 Suno 音频直链")
+                    raise HTTPException(400, "Unable to find direct audio URL for this song.")
                 try:
                     mp3_tmp, _, _, _ = await asyncio.to_thread(
                         download_song, song, directory, song_name="source",
                         save_json=False, allow_local_fallback=False,
                     )
                 except Exception as e:
-                    raise HTTPException(400, f"下载 Suno 音频失败: {e}") from e
+                    raise HTTPException(400, f"Failed to download audio: {e}") from e
                 if mp3_tmp is None:
-                    raise HTTPException(400, "Suno 音频及公开视频音轨均无法读取，请上传有权使用的音频文件")
+                    raise HTTPException(400, "Audio stream cannot be read. Please upload your audio file directly.")
                 mp3_key = f"uploads/{owner_id}/{task_id}/source{mp3_tmp.suffix}"
                 task.input_mp3_key = mp3_key
                 from src.song_assets import save_source, source_keys
@@ -567,7 +616,7 @@ async def create_task_from_suno(
     await _commit_and_dispatch(db, task)
     return UploadResponse(
         mp3_key=mp3_key, lyrics_key=lyrics_key, task_id=task.id,
-        message=f"Suno 歌曲《{final_title}》解析成功，任务已创建",
+        message=f"Successfully imported '{final_title}' and created project.",
     )
 
 
@@ -733,13 +782,13 @@ async def download_file(
 
     key = key_map.get(file_type)
     if not key:
-        raise HTTPException(404, f"文件类型 '{file_type}' 不存在或尚未生成")
+        raise HTTPException(404, f"File type '{file_type}' does not exist or has not been generated yet.")
 
     # 本地存储直接返回文件
     if isinstance(storage, LocalStorage):
         local_path = storage.get_local_path(key)
         if not local_path.exists():
-            raise HTTPException(404, "文件不存在")
+            raise HTTPException(404, "File not found.")
         return FileResponse(
             local_path,
             filename=Path(key).name,
@@ -832,7 +881,7 @@ async def task_progress_ws(websocket: WebSocket, task_id: str):
         try:
             await websocket.send_text(json.dumps({
                 "task_id": task_id,
-                "message": f"实时进度不可用 ({e})，请使用轮询 API",
+                "message": f"Real-time progress is currently unavailable ({e}). Polling is enabled.",
             }))
         except Exception:
             pass
@@ -908,7 +957,7 @@ if frontend_dir.exists():
     @app.get("/local/{rest:path}", tags=["Frontend"])
     async def retired_local_pages(rest: str = ""):
         """Retired public pages must not expose internal HTML source files."""
-        raise HTTPException(404, "页面地址已更新，请从首页进入")
+        raise HTTPException(404, "Page URL has moved. Please navigate from the home page.")
 
     @app.get("/storyboard", tags=["Frontend"])
     async def serve_storyboard():

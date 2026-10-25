@@ -247,21 +247,291 @@ header {
   display: block;
   margin-bottom: 0.5rem;
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
 }
 
-.upload-field input[type="file"] {
-  width: 100%;
-  padding: 0.75rem;
-  border: 2px dashed var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text);
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.field-label-text {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.field-sub-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+.field-badge {
+  font-size: 0.7rem;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.field-badge.required {
+  background: rgba(183, 243, 74, 0.15);
+  color: var(--accent);
+}
+
+.field-badge.optional {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.sr-only-input {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+/* Custom Dropzones */
+.custom-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 124px;
+  padding: 1.1rem 1rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1.5px dashed rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius);
   cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  outline: none;
+  box-sizing: border-box;
 }
 
-.upload-field input[type="file"]:hover {
+.custom-dropzone:hover,
+.custom-dropzone:focus-visible {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(183, 243, 74, 0.6);
+  transform: translateY(-1px);
+}
+
+.custom-dropzone.dragover {
+  background: rgba(183, 243, 74, 0.08);
   border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(183, 243, 74, 0.15);
+}
+
+.dropzone-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.55rem;
+}
+
+.dropzone-icon-circle {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.custom-dropzone:hover .dropzone-icon-circle {
+  transform: scale(1.08);
+  background: rgba(183, 243, 74, 0.15);
+}
+
+.dropzone-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.dropzone-main-text {
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.dropzone-main-text strong {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.dropzone-sub-text {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.dropzone-filled {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+}
+
+.dropzone-file-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dropzone-cover-thumb {
+  width: 46px;
+  height: 46px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.dropzone-file-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.dropzone-file-name {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dropzone-file-meta {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.btn-dropzone-remove {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-dropzone-remove:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* Dual-Mode Lyrics Section */
+.upload-lyrics-wrap {
+  margin-bottom: 1rem;
+}
+
+.lyrics-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.55rem;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.lyrics-mode-pills {
+  display: inline-flex;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 3px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.lyrics-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.lyrics-mode-pill:hover {
+  color: var(--text);
+}
+
+.lyrics-mode-pill.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  box-shadow: 0 1px 6px rgba(183, 243, 74, 0.25);
+}
+
+.custom-lyrics-textarea {
+  width: 100%;
+  min-height: 130px;
+  padding: 0.8rem 1rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  resize: vertical;
+  transition: border-color 0.2s ease, background 0.2s ease;
+  box-sizing: border-box;
+}
+
+.custom-lyrics-textarea:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.custom-lyrics-textarea.dragover {
+  border-color: var(--accent);
+  background: rgba(183, 243, 74, 0.05);
+}
+
+.lyrics-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  margin-top: 0.4rem;
 }
 
 .upload-options {

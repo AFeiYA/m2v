@@ -263,39 +263,166 @@
             </button>
           </form>
 
-          <!-- Mode 2: 本地上传表单 (默认开放) -->
+          <!-- Mode 2: Local Upload Form -->
           <form id="upload-form">
+            <!-- 1. Audio and Optional Cover -->
             <div class="upload-row">
               <div class="upload-field">
-                <label for="file-mp3">Audio file (MP3/WAV/FLAC)</label>
-                <input type="file" id="file-mp3" accept=".mp3,.wav,.flac" required>
+                <div class="field-label-row">
+                  <span class="field-label-text">Audio Track</span>
+                  <span class="field-badge required">Required</span>
+                </div>
+                <input type="file" id="file-mp3" accept=".mp3,.wav,.flac" class="sr-only-input">
+                <div class="custom-dropzone" id="dropzone-mp3" tabindex="0" role="button" aria-label="Upload audio track">
+                  <div class="dropzone-empty" id="dropzone-mp3-empty">
+                    <div class="dropzone-icon-circle">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 18V5l12-2v13"></path>
+                        <circle cx="6" cy="18" r="3"></circle>
+                        <circle cx="18" cy="16" r="3"></circle>
+                      </svg>
+                    </div>
+                    <div class="dropzone-prompt">
+                      <span class="dropzone-main-text"><strong>Choose audio file</strong> or drag &amp; drop</span>
+                      <span class="dropzone-sub-text">MP3, WAV, FLAC · Up to 100MB</span>
+                    </div>
+                  </div>
+                  <div class="dropzone-filled" id="dropzone-mp3-filled" style="display:none">
+                    <div class="dropzone-file-icon">🎵</div>
+                    <div class="dropzone-file-details">
+                      <div class="dropzone-file-name" id="label-mp3-name">audio.mp3</div>
+                      <div class="dropzone-file-meta" id="label-mp3-size">0 MB</div>
+                    </div>
+                    <button type="button" class="btn-dropzone-remove" id="btn-remove-mp3" title="Remove audio file" aria-label="Remove audio file">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                </div>
               </div>
+
               <div class="upload-field">
-                <label for="file-lyrics">Lyrics file (TXT/LRC)</label>
-                <input type="file" id="file-lyrics" accept=".txt,.lrc" required>
+                <div class="field-label-row">
+                  <span class="field-label-text">Cover Artwork</span>
+                  <span class="field-badge optional">Optional</span>
+                </div>
+                <input type="file" id="file-cover" accept=".jpg,.jpeg,.png,.webp" class="sr-only-input">
+                <div class="custom-dropzone" id="dropzone-cover" tabindex="0" role="button" aria-label="Upload cover artwork">
+                  <div class="dropzone-empty" id="dropzone-cover-empty">
+                    <div class="dropzone-icon-circle">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+                        <circle cx="9" cy="9" r="2"/>
+                        <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+                      </svg>
+                    </div>
+                    <div class="dropzone-prompt">
+                      <span class="dropzone-main-text"><strong>Add cover image</strong> or drag &amp; drop</span>
+                      <span class="dropzone-sub-text">JPG, PNG, WebP · High-res artwork</span>
+                    </div>
+                  </div>
+                  <div class="dropzone-filled" id="dropzone-cover-filled" style="display:none">
+                    <img id="preview-cover-img" class="dropzone-cover-thumb" alt="Cover preview" src="">
+                    <div class="dropzone-file-details">
+                      <div class="dropzone-file-name" id="label-cover-name">cover.jpg</div>
+                      <div class="dropzone-file-meta" id="label-cover-size">0 MB</div>
+                    </div>
+                    <button type="button" class="btn-dropzone-remove" id="btn-remove-cover" title="Remove cover image" aria-label="Remove cover image">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
+
+            <!-- 2. Dual-Mode Lyrics Section -->
+            <div class="upload-lyrics-wrap">
+              <div class="lyrics-header-row">
+                <div class="field-label-row" style="margin-bottom:0">
+                  <span class="field-label-text">Song Lyrics</span>
+                  <span class="field-badge required">Required</span>
+                </div>
+                <div class="lyrics-mode-pills" role="tablist" aria-label="Lyrics input mode">
+                  <button type="button" class="lyrics-mode-pill active" id="pill-lyrics-paste" role="tab" aria-selected="true">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    <span>Paste Lyrics</span>
+                  </button>
+                  <button type="button" class="lyrics-mode-pill" id="pill-lyrics-upload" role="tab" aria-selected="false">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+                    <span>Upload File</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Mode A: Paste Textarea (Default) -->
+              <div id="wrap-lyrics-paste" class="lyrics-panel">
+                <textarea id="input-lyrics-text" class="custom-lyrics-textarea" rows="6" placeholder="Paste song lyrics here (plain text or timestamped LRC)...&#10;&#10;[Verse 1]&#10;First line of lyrics&#10;Second line of lyrics"></textarea>
+                <div class="lyrics-hint">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  <span>Supports plain text or timed LRC. You can also drag &amp; drop a .txt/.lrc file directly here.</span>
+                </div>
+              </div>
+
+              <!-- Mode B: File Dropzone -->
+              <div id="wrap-lyrics-upload" class="lyrics-panel" style="display:none">
+                <input type="file" id="file-lyrics" accept=".txt,.lrc" class="sr-only-input">
+                <div class="custom-dropzone" id="dropzone-lyrics" tabindex="0" role="button" aria-label="Upload lyrics file">
+                  <div class="dropzone-empty" id="dropzone-lyrics-empty">
+                    <div class="dropzone-icon-circle">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                      </svg>
+                    </div>
+                    <div class="dropzone-prompt">
+                      <span class="dropzone-main-text"><strong>Choose lyrics file</strong> or drag &amp; drop</span>
+                      <span class="dropzone-sub-text">TXT or LRC format</span>
+                    </div>
+                  </div>
+                  <div class="dropzone-filled" id="dropzone-lyrics-filled" style="display:none">
+                    <div class="dropzone-file-icon">📄</div>
+                    <div class="dropzone-file-details">
+                      <div class="dropzone-file-name" id="label-lyrics-name">lyrics.txt</div>
+                      <div class="dropzone-file-meta" id="label-lyrics-size">0 KB</div>
+                    </div>
+                    <button type="button" class="btn-dropzone-remove" id="btn-remove-lyrics" title="Remove lyrics file" aria-label="Remove lyrics file">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 3. Title & Optional Suno Link -->
             <div class="upload-row">
               <div class="upload-field">
-                <label for="local-song-title">Song title (optional; defaults to filename)</label>
-                <input type="text" id="local-song-title" placeholder="Song title">
+                <label for="local-song-title">Song title <span class="field-sub-label">(optional; defaults to filename)</span></label>
+                <input type="text" id="local-song-title" placeholder="e.g. Bohemian Rhapsody">
               </div>
               <div class="upload-field" id="wrap-local-suno-url" style="display:none">
-                <label for="local-suno-url">Original song link (optional)</label>
-                <input type="url" id="local-suno-url" placeholder="https://...">
+                <label for="local-suno-url">Original song link <span class="field-sub-label">(debug mode only)</span></label>
+                <input type="url" id="local-suno-url" placeholder="https://suno.com/song/...">
               </div>
             </div>
+
+            <!-- 4. Advanced Alignment Options -->
             <div class="upload-options">
               <label><input type="checkbox" id="opt-skip-sep"> Skip vocal separation (audio is already vocals only)</label>
               <label><input type="checkbox" id="opt-beat" checked> Analyze rhythm features</label>
-              <select id="opt-lang">
-                <option value="auto" selected>Auto-detect</option>
-                <option value="zh">Chinese</option>
+              <select id="opt-lang" aria-label="Language selection">
+                <option value="auto" selected>Auto-detect language</option>
                 <option value="en">English</option>
+                <option value="zh">Chinese</option>
                 <option value="ja">Japanese</option>
                 <option value="ko">Korean</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
               </select>
             </div>
+
+            <!-- 5. Submit Button -->
             <button type="submit" id="btn-upload" class="btn btn-hero-primary" style="width:100%;">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
               Upload &amp; Align Lyrics ➔

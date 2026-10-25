@@ -215,6 +215,53 @@ def test_failure_to_start_thread_marks_failed_and_refunds(sandbox, monkeypatch):
     assert tasks[0]["status"] == "failed"
 
 
+def test_upload_with_pasted_lyrics_text(sandbox, monkeypatch, tmp_path):
+    install_pipeline(sandbox, monkeypatch, False)
+    response = sandbox.client.post("/api/upload", headers=headers(), data={
+        "lyrics_text": "Pasted line 1\nPasted line 2",
+    }, files={
+        "mp3": ("my_song.mp3", b"audio-bytes", "audio/mpeg"),
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["task_id"]
+    lyrics_file = tmp_path / "storage" / data["lyrics_key"]
+    assert lyrics_file.exists()
+    assert b"Pasted line 1" in lyrics_file.read_bytes()
+
+
+def test_upload_with_optional_cover_image(sandbox, monkeypatch):
+    from io import BytesIO
+    from PIL import Image
+    from src.song_assets import source_keys
+
+    img = Image.new("RGB", (80, 80), color=(200, 50, 50))
+    buf = BytesIO()
+    img.save(buf, format="JPEG")
+    cover_data = buf.getvalue()
+
+    install_pipeline(sandbox, monkeypatch, False)
+    response = sandbox.client.post("/api/upload", headers=headers(), files={
+        "mp3": ("my_song.mp3", b"audio-bytes", "audio/mpeg"),
+        "lyrics": ("lyrics.txt", b"lyrics text", "text/plain"),
+        "cover": ("artwork.jpg", cover_data, "image/jpeg"),
+    })
+    assert response.status_code == 200
+    data = response.json()
+    source_json_key, source_cover_key = source_keys(data["mp3_key"])
+    storage_inst = storage.get_storage()
+    assert asyncio.run(storage_inst.exists(source_cover_key))
+    assert asyncio.run(storage_inst.exists(source_json_key))
+
+
+def test_upload_without_lyrics_rejects(sandbox, monkeypatch):
+    response = sandbox.client.post("/api/upload", headers=headers(), files={
+        "mp3": ("my_song.mp3", b"audio-bytes", "audio/mpeg"),
+    })
+    assert response.status_code == 400
+    assert "Please provide lyrics" in response.json()["detail"]
+
+
 @pytest.mark.parametrize("initial_status", [TaskStatus.PENDING, TaskStatus.PROCESSING, TaskStatus.COMPLETED])
 def test_failure_claim_refunds_actual_cost_only_once(sandbox, initial_status):
     async def exercise():
