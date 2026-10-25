@@ -6,6 +6,7 @@
   <title>Your workspace · Sonicflow Studio</title>
   <meta name="robots" content="noindex,nofollow">
   <link rel="stylesheet" href="/dashboard.css?v=20261021_navigation">
+  <link rel="stylesheet" href="/cast.css?v=20261025_cast">
   <script>
     window.M2V_API_BASE = "https://lucazhou-suno2mv-api.hf.space";
   </script>
@@ -108,6 +109,18 @@
             <span class="flow-num-badge">4</span>
             <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></svg>
             <span class="tab-text">My Exports</span>
+          </a>
+        </nav>
+      </div>
+
+      <!-- 创意资产库 (虚拟艺人 / 角色设定) -->
+      <div class="sidebar-section-wrap">
+        <p class="sidebar-section-label">STUDIO ASSETS</p>
+        <nav class="sidebar-flow-nav" aria-label="Studio assets">
+          <a href="#cast-section" data-workspace-link class="sidebar-flow-btn studio-tab-btn" id="tab-nav-cast">
+            <span class="flow-num-badge">👤</span>
+            <svg class="sidebar-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span class="tab-text">Cast Studio</span>
           </a>
         </nav>
       </div>
@@ -418,6 +431,44 @@
       </div>
     </section>
 
+    <!-- 虚拟艺人角色引擎 (Cast Studio) -->
+    <section id="cast-section" class="workspace-page" tabindex="-1" hidden>
+      <div class="cast-container">
+        <div class="cast-header">
+          <div class="cast-header-left">
+            <div class="cast-header-title-row">
+              <h2>👤 Cast Studio</h2>
+              <span class="cast-badge-engine">Virtual Artist Engine</span>
+            </div>
+            <p class="cast-header-desc">Design canonical virtual singers, freeze baseline portraits, and bind characters across your songs.</p>
+          </div>
+          <div class="cast-header-actions">
+            <button type="button" id="cast-btn-create-header" class="btn btn-sm btn-primary">
+              + New Character
+            </button>
+          </div>
+        </div>
+
+        <div class="cast-layout-grid">
+          <!-- Left Column: Character Roster -->
+          <div class="cast-roster-column">
+            <div class="cast-roster-search">
+              <svg class="cast-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input type="search" id="cast-search-input" placeholder="Search artists &amp; aliases..." aria-label="Search characters">
+            </div>
+            <div id="cast-roster-list" class="cast-roster-list" aria-live="polite">
+              <!-- Rendered via cast.js -->
+            </div>
+          </div>
+
+          <!-- Right Column: Detail & 3-Step Lifecycle Inspector -->
+          <div id="cast-detail-column" class="cast-detail-column" aria-live="polite">
+            <!-- Rendered via cast.js -->
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section id="trash-section" class="workspace-page" tabindex="-1" hidden>
       <div class="section-header"><h2>Trash</h2></div>
       <p class="section-intro">Restore lyric versions you moved to Trash. Finished videos stay in Exports.</p>
@@ -534,6 +585,55 @@
     </main>
   </div>
 
+  <!-- Modal: Create Character -->
+  <div id="cast-create-modal" class="cast-modal-backdrop" hidden>
+    <div class="cast-modal-card" role="dialog" aria-modal="true" aria-labelledby="cast-modal-title">
+      <div class="cast-modal-header">
+        <h3 id="cast-modal-title">Create Virtual Artist</h3>
+        <button type="button" id="cast-modal-close" class="btn-yt-close" title="Close">✕</button>
+      </div>
+
+      <form id="cast-form-create" class="cast-modal-form">
+        <div class="cast-form-group">
+          <label for="cast-input-name">Character Name *</label>
+          <input type="text" id="cast-input-name" required placeholder="e.g. Zero.SOE" value="Zero.SOE">
+        </div>
+
+        <div class="cast-form-group">
+          <label for="cast-input-alias">Alias / Stage Name</label>
+          <input type="text" id="cast-input-alias" placeholder="e.g. 零度" value="零度">
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="cast-form-group">
+            <label for="cast-input-age">Age (Locked Invariant 🔒)</label>
+            <input type="number" id="cast-input-age" value="16" min="1" max="1000">
+            <span class="cast-form-hint">Canonical age frozen to prevent drift.</span>
+          </div>
+          <div class="cast-form-group">
+            <label for="cast-input-gender">Gender</label>
+            <select id="cast-input-gender">
+              <option value="female" selected>Female</option>
+              <option value="male">Male</option>
+              <option value="non-binary">Non-binary</option>
+              <option value="neutral">Neutral / Android</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="cast-form-group">
+          <label for="cast-input-tagline">Tagline / Concept Description</label>
+          <textarea id="cast-input-tagline" rows="2" placeholder="e.g. Virtual singer from the neon district">Virtual artist from the neon district</textarea>
+        </div>
+
+        <div class="cast-modal-actions">
+          <button type="button" id="cast-modal-cancel" class="btn btn-sm btn-outline">Cancel</button>
+          <button type="submit" id="cast-modal-submit" class="btn btn-sm btn-primary">Create Character</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Firebase SDK & Cache -->
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
@@ -542,6 +642,7 @@
   <script src="/workspace-store.js?v=20261021_navigation"></script>
   <script src="/studio-adapters.js?v=20261022_credits"></script>
   <script src="/media-arbiter.js?v=20261019_arbiter"></script>
+  <script src="/cast.js?v=20261025_cast"></script>
   <script src="/workspace.js?v=20261021_navigation"></script>
   <script src="/dashboard.js?v=20261024_motion_only"></script>
   <script src="/billing.js?v=20261024_checkout_origin"></script>

@@ -2,54 +2,80 @@
 Cast Studio Prompt Engine & Protocol Builder
 --------------------------------------------
 Constructs structured LLM prompts that guide AI models to architect complete,
-consistent character profiles adhering to the CharacterProfile schema.
+consistent character profiles adhering strictly to the CharacterProfile schema.
 """
 from __future__ import annotations
 
 import json
 import re
+import secrets
 from typing import Any
 from src.cast_schema import CharacterProfile
 
 
-CAST_SYSTEM_PROMPT = """你是一位享誉全球的虚拟艺人（Virtual Artist / VTuber）与动漫影视概念总监。
-你的任务是将用户的灵感短语或粗略构想，推演并设计为一个具有深刻戏剧张力、高辨识度视觉基因、且能稳定进行 AI 生图与视频生成的【生产级虚拟角色设定】。
+STYLE_PRESETS: dict[str, str] = {
+    "cinematic": "Realistic Cinematic / Live-Action Film Quality",
+    "anime": "Modern High-End Japanese Anime / Manga Aesthetic",
+    "techwear_cyber": "Cyberpunk Techwear & Geometric Avant-Garde",
+    "indie_retro": "Lo-Fi Indie Musician / 35mm Vintage Film Grain",
+    "pop_idol": "K-Pop / J-Pop High-Gloss Stage Idol Aesthetic",
+    "dark_fantasy": "Gothic Dark Fantasy & Ethereal Mysticism"
+}
 
-### 角色设计的七大黄金法则：
+
+CAST_SYSTEM_PROMPT = """你是一位享誉全球的虚拟艺人（Virtual Artist / VTuber）与动漫影视概念总监。
+你的任务是将用户的灵感构想推演并设计为一个具有深刻戏剧张力、高辨识度视觉基因、解耦造型与演出场景的【生产级虚拟角色档案】。
+
+### 角色设计的五大核心原则：
 1. **反差塑造灵魂 (Contradiction)**：
    不要设计扁平的角色。挖掘角色“外在展现”与“内心渴望/恐惧”的深刻矛盾（例如：表面傲慢追求绝对理性，内心却极度渴望失控的真情；表面毒舌搞笑，唱起歌来却孤注一掷）。
-2. **视觉极度具体，杜绝模糊形容词 (Concrete Visual DNA)**：
-   严禁使用“帅气”、“好看”、“精致”等无效词。必须精确到：
-   - 发色色系与色阶（如：#E6E8EA 浅银白配合冷灰发根阴影）
-   - 瞳孔细节与眼型（如：琥珀金色细长眼、瞳孔中央带有类似时钟或几何刻度的微光）
-   - 面部微小辨识锚点（如：右眼睑下方的单点泪痣、不对称银质长耳坠）
-   - 服饰剪裁与材质（如：不对称高领战术夹克结合反光丝绸内衬）
-3. **色彩基因三段式 (Color DNA)**：
-   主色（60%）、辅色（30%）、高饱和点睛色（10%，如荧光橙、青金石蓝、激光紫）。
-4. **声音与演唱性格 (Vocal Identity)**：
-   具体描述音色（如清亮中音、微带颗粒感沙哑、薄声假音）及咬字特征（如极速念唱、尾音微微上扬）。
-5. **生图提示词引擎 (Prompt Engine)**：
-   必须在 `prompt_engine.positive_character_anchor` 中输出一组高权重的英文关键词，作为后续 Midjourney/Flux/ComfyUI 的必带词头（如 "masterpiece, 1boy, silver layered messy hair, glowing amber eyes, mole under right eye, asymmetrical techwear jacket..."）。
-
-### 输出协议要求：
-你必须【严格仅输出一个符合规范的 JSON 代码块】，不要在前后附带任何闲聊或引言。输出需严格匹配目标 JSON Schema。
+2. **年龄与不可变面容特征严格锁定 (Face Invariants)**：
+   - 年龄必须为具体数字，若用户指定了年龄（如 16 岁），必须严格遵照并设置 `age_locked: true`。
+   - 严禁模糊词汇（如“帅气”、“好看”）。精确描述发型切面、虹膜色调（具体色号 Hex）与不可变识别特征（如眼下泪痣、耳钉）。
+3. **造型与演出场景解耦 (Decoupled Wardrobe & Stage)**：
+   - 将服装放在 `outfits` 列表中（作为一套可更换的穿搭）；
+   - 将演出环境放在 `performance_context` 中（作为针对本首歌的舞台设定，不与角色本体绑死）。
+4. **尊重用户选择的美学风格模板**：
+   根据用户指定的风格模板（如影视电影风、日系动漫风、独立复古风等）调整用词与画面质感，不强加不相关的机能或二次元元素。
+5. **严密格式契约**：
+   输出必须【严格匹配提供的 JSON Schema】，且仅输出一个合法的 JSON 代码块，绝不在代码块外输出任何多余的引言或解释。
 """
 
 
-def build_character_design_prompt(user_idea: str, style_preference: str = "Anime / Techwear Cinematic") -> list[dict[str, str]]:
+def build_character_design_prompt(
+    user_idea: str,
+    character_id: str | None = None,
+    style_key: str = "anime",
+    forced_age: int | None = None,
+) -> list[dict[str, str]]:
     """
     Constructs multi-turn prompt messages for an LLM (Gemini, Claude, GPT)
-    to design a comprehensive character profile.
+    to design a comprehensive character profile, including the exact JSON Schema.
     """
-    user_content = f"""请根据以下灵感构想，为我们设计一个完整的虚拟艺人/角色档案：
+    assigned_id = character_id or f"char_{secrets.token_hex(6)}"
+    style_desc = STYLE_PRESETS.get(style_key, style_key)
+    schema_str = json.dumps(CharacterProfile.model_json_schema(), ensure_ascii=False, indent=2)
+
+    age_instruction = f"- 角色年龄必须严格设为 {forced_age} 岁，且设置 age_locked=true。\n" if forced_age else ""
+
+    user_content = f"""请根据以下灵感构想与设定要求，为我们设计一个完整的虚拟艺人/角色档案：
 
 【用户灵感/要求】：
 {user_idea.strip()}
 
 【整体美学风格偏好】：
-{style_preference.strip()}
+{style_desc}
 
-请遵循 Cast Studio 规范，设计该角色的 identity、visual_dna、expression_sheet、vocal_profile、stage_aesthetic 和 prompt_engine，并以单个 JSON 格式输出。"""
+【前置系统约束】：
+- 角色 ID 已由系统分配为: "{assigned_id}"，请在顶层 "id" 字段填入该值。
+{age_instruction}- 请遵循五大设计原则，生成包含 identity、face_invariants、outfits、expression_sheet、vocal_profile、performance_context 和 prompt_engine 的完整结构。
+
+【必须严格遵守的 JSON Schema】：
+```json
+{schema_str}
+```
+
+请直接输出符合上述 Schema 的单个 JSON 代码块。"""
 
     return [
         {"role": "system", "content": CAST_SYSTEM_PROMPT},
@@ -73,24 +99,25 @@ def parse_character_profile_json(llm_output: str) -> CharacterProfile:
 
 def get_reference_golden_ratio_character() -> CharacterProfile:
     """
-    Returns a built-in benchmark CharacterProfile ('0.618 / 零点六一八')
-    serving as a canonical design example.
+    Returns the canonical benchmark CharacterProfile ('Zero.SOE / 零点六一八')
+    with locked age (16), decoupled outfits, and asset slots.
     """
     raw_data: dict[str, Any] = {
-        "id": "char_golden_0618",
+        "id": "char_zero_soe_0618",
         "created_at": "2026-10-25T02:00:00Z",
         "identity": {
             "name": "零点六一八",
-            "alias": "0.618 / Golden Ratio Boy",
+            "alias": "Zero.SOE / Golden Ratio Boy",
+            "age": 16,
+            "age_locked": True,
+            "gender": "male",
             "tagline": "一个痴迷完美比例，却唱着不完美人生的毒舌少年音乐人",
             "archetype": "Perfectionist Rebel & Satirical Prodigy",
             "core_contradiction": "表面极度自恋且执着用数学丈量万物，其实内心深处最渴望体会无法被公式计算的真情",
-            "personality_traits": ["高智商自恋", "毒舌幽默", "狂放少年感", "微小脆弱", "强秩序感"]
+            "personality_traits": ["高智商自恋", "毒舌幽默", "16岁少年狂气", "隐藏脆弱", "强秩序感"]
         },
-        "visual_dna": {
-            "gender": "male",
-            "age_appearance": "17-18 years old",
-            "silhouette": "slender athletic youth with sharp asymmetrical outer lines",
+        "face_invariants": {
+            "silhouette": "slender athletic 16-year-old youth with sharp asymmetrical outer lines",
             "hair": {
                 "style": "layered messy medium crop with sharp forward fringe",
                 "color": "#E6EAEF metallic silver-white",
@@ -103,25 +130,30 @@ def get_reference_golden_ratio_character() -> CharacterProfile:
                 "pupil_feature": "subtle faint geometric ring pattern in the pupil",
                 "gaze_expression": "piercing, slightly mockingly tilted upward"
             },
-            "facial_marks": ["single dark beauty mark beneath right outer eye corner", "thin silver geometric ear stud on left ear"],
-            "wardrobe": {
+            "facial_marks": ["single dark beauty mark beneath right outer eye corner", "thin silver geometric ear stud on left ear"]
+        },
+        "active_outfit_id": "outfit_debut_blackgold",
+        "outfits": [
+            {
+                "id": "outfit_debut_blackgold",
+                "name": "Debut Black & Gold Techwear",
                 "genre_style": "Avant-garde streetwear meets bespoke tailoring",
                 "signature_outerwear": "Asymmetrical matte black cropped tactical blazer with gold lining",
                 "innerwear": "High-collar crisp white sleeveless mock-neck with thin gold ratio lines",
                 "accessories": ["Single black leather fingerless glove on right hand", "Slender silver measuring chain necklace"],
-                "materials": ["Matte techwear nylon", "Heavy structured wool", "Reflective gold piping"]
-            },
-            "color_palette": {
-                "dominant_hex": "#0D0F12",
-                "dominant_name": "Obsidian Void Black",
-                "secondary_hex": "#E6EAEF",
-                "secondary_name": "Platinum Silver",
-                "accent_hex": "#E5A93B",
-                "accent_name": "Golden Ratio Ochre",
-                "glow_accent": "#F5C869 warm gold pulse"
-            },
-            "signature_prop": "An intricate collapsible brass-and-acrylic golden ratio caliper"
-        },
+                "materials": ["Matte techwear nylon", "Heavy structured wool", "Reflective gold piping"],
+                "color_palette": {
+                    "dominant_hex": "#0D0F12",
+                    "dominant_name": "Obsidian Void Black",
+                    "secondary_hex": "#E6EAEF",
+                    "secondary_name": "Platinum Silver",
+                    "accent_hex": "#E5A93B",
+                    "accent_name": "Golden Ratio Ochre",
+                    "glow_accent": "#F5C869 warm gold pulse"
+                },
+                "signature_prop": "An intricate collapsible brass-and-acrylic golden ratio caliper"
+            }
+        ],
         "expression_sheet": {
             "neutral": "Half-lidded detached calm with lips pressed into a faint calculating line",
             "performance_focus": "Head thrown back, wild bright eyes dilated, intense electric energy",
@@ -134,15 +166,26 @@ def get_reference_golden_ratio_character() -> CharacterProfile:
             "delivery_style": "Rapid rhythmic speech-singing alternating into soaring melodic hooks",
             "signature_audio_tag": "A dry whisper 'Zero point six one eight...' followed by a brief rhythmic chuckle"
         },
-        "stage_aesthetic": {
+        "performance_context": {
             "primary_environment": "A dimly lit digital observatory surrounded by floating luminous geometric wireframes",
             "lighting_atmosphere": "Dramatic high-contrast cold rim lighting with warm golden volumetric light beams",
             "camera_feel": "Cinematic dynamic low-angle tracking with sharp Dutch tilts on rhythm hits"
         },
         "prompt_engine": {
-            "positive_character_anchor": "masterpiece, best quality, 1boy, solo, silver white layered messy hair, glowing amber eyes, mole under right eye, asymmetrical black and gold blazer, techwear, sharp facial features, confident smirk, golden ratio wireframes, cinematic rim lighting, 8k resolution",
-            "negative_prompt_anchor": "worst quality, low quality, blurry, symmetrical generic clothes, flat lighting, deformed anatomy, bad hands, missing fingers, extra limbs, ugly face",
+            "positive_character_anchor": "masterpiece, best quality, 1boy, 16 years old, silver white layered messy hair, glowing amber eyes, mole under right eye, sharp facial features, confident smirk, golden ratio wireframes, cinematic rim lighting, 8k resolution",
+            "negative_prompt_anchor": "worst quality, low quality, blurry, generic clothes, flat lighting, deformed anatomy, bad hands, missing fingers, extra limbs, ugly face, mature adult",
             "recommended_aspect_ratios": ["9:16", "16:9", "1:1"]
-        }
+        },
+        "assets": {
+            "primary_image_url": "/assets/characters/zero_soe/primary.png",
+            "secondary_images": [],
+            "thumbnail_url": "/assets/characters/zero_soe/thumb.png"
+        },
+        "versioning": {
+            "version": 1,
+            "is_locked": True,
+            "confirmed_at": "2026-10-25T02:00:00Z"
+        },
+        "bound_songs": []
     }
     return CharacterProfile.model_validate(raw_data)

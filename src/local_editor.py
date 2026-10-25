@@ -2535,6 +2535,10 @@ app.include_router(youtube_router)
 from src.syndication_manager import syndication_router
 app.include_router(syndication_router)
 
+from src.cast_api import router as cast_router
+app.state.scan_dir = _get_scan_dir
+app.include_router(cast_router)
+
 from src.session_manager import issue_session_token
 
 @app.post("/api/session/init")

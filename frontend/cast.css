@@ -1,0 +1,614 @@
+/* ==========================================================
+   Cast Studio — Virtual Artists & Character Engine Styles
+   ========================================================== */
+
+.cast-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 1380px;
+  margin: 0 auto;
+  padding: 10px 0 40px;
+}
+
+.cast-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cast-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cast-header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cast-header-title-row h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+.cast-badge-engine {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(183, 243, 74, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(183, 243, 74, 0.3);
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.cast-header-desc {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+/* ── Split Layout ────────────────────────────────────────── */
+
+.cast-layout-grid {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .cast-layout-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Left Column: Character Roster ───────────────────────── */
+
+.cast-roster-column {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cast-roster-search {
+  position: relative;
+}
+
+.cast-roster-search input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 8px 12px 8px 34px;
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.cast-roster-search input:focus {
+  border-color: var(--border-focus);
+}
+
+.cast-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.cast-roster-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 280px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.cast-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.cast-card:hover {
+  background: var(--bg-hover);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
+}
+
+.cast-card.active {
+  background: rgba(183, 243, 74, 0.05);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(183, 243, 74, 0.15);
+}
+
+.cast-card-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: #252830;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.cast-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.cast-card-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.cast-card-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cast-card-tagline {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cast-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+.cast-pill {
+  font-size: 0.7rem;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.cast-pill-locked {
+  background: rgba(183, 243, 74, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(183, 243, 74, 0.3);
+}
+
+.cast-pill-draft {
+  background: rgba(240, 180, 75, 0.15);
+  color: var(--yellow);
+  border: 1px solid rgba(240, 180, 75, 0.3);
+}
+
+.cast-pill-age {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.cast-pill-song {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.cast-empty-roster {
+  text-align: center;
+  padding: 30px 10px;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+
+/* ── Right Column: Detail & Workflow Inspector ────────────── */
+
+.cast-detail-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cast-empty-detail {
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.cast-empty-detail h3 {
+  font-size: 1.15rem;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.cast-hero-identity-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cast-identity-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.cast-identity-main-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cast-char-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cast-char-alias {
+  font-size: 0.9rem;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.cast-identity-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.cast-prompt-anchor-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-family: monospace;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.cast-anchor-label {
+  font-size: 0.72rem;
+  color: var(--accent);
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+/* ── Workflow Steps: 3 Primary Actions ────────────────────── */
+
+.cast-workflow-steps {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+
+.cast-step-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+}
+
+.cast-step-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cast-step-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cast-step-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(183, 243, 74, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(183, 243, 74, 0.4);
+  font-size: 0.8rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cast-step-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+
+.cast-step-desc {
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* Step 1: Upload Portrait */
+.cast-portrait-zone {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.cast-portrait-preview-wrap {
+  width: 140px;
+  height: 160px;
+  border-radius: var(--radius-sm);
+  background: #1c1d24;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.cast-portrait-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cast-portrait-placeholder {
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  text-align: center;
+  padding: 10px;
+}
+
+.cast-portrait-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-width: 240px;
+}
+
+/* Step 2: Version Control */
+.cast-version-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.cast-version-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cast-version-num {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Step 3: Song Project Binding */
+.cast-binding-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.cast-song-select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 8px 12px;
+  font-size: 0.88rem;
+  outline: none;
+  min-width: 220px;
+  flex: 1;
+}
+
+.cast-song-select:focus {
+  border-color: var(--border-focus);
+}
+
+.cast-bound-songs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.cast-bound-song-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #93c5fd;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
+.cast-unbind-btn {
+  background: none;
+  border: none;
+  color: #93c5fd;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.cast-unbind-btn:hover {
+  color: #ef4444;
+}
+
+/* ── Modal Dialog: Create Character ──────────────────────── */
+
+.cast-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.cast-modal-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 520px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+}
+
+.cast-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cast-modal-header h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+
+.cast-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cast-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cast-form-group label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.cast-form-group input,
+.cast-form-group select,
+.cast-form-group textarea {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 9px 12px;
+  font-size: 0.88rem;
+  outline: none;
+  font-family: inherit;
+}
+
+.cast-form-group input:focus,
+.cast-form-group select:focus,
+.cast-form-group textarea:focus {
+  border-color: var(--border-focus);
+}
+
+.cast-form-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.cast-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}

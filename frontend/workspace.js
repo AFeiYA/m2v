@@ -7,7 +7,8 @@
     'trash-section',
     'credits-section',
     'lyric-editor-section',
-    'motion-studio-section'
+    'motion-studio-section',
+    'cast-section'
   ]);
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -120,6 +121,7 @@
         'credits-section': 'Credits & Billing',
         'lyric-editor-section': 'Lyric Studio',
         'motion-studio-section': 'Motion Studio',
+        'cast-section': 'Cast Studio · Virtual Artists',
       };
 
       const bc = document.getElementById('bc-current');
@@ -173,6 +175,10 @@
           menu.setAttribute('aria-expanded', 'false');
         }
         document.getElementById(active)?.focus({preventScroll: true});
+      }
+
+      if (active === 'cast-section' && window.m2vCastStudio?.load) {
+        window.m2vCastStudio.load();
       }
 
       // Hash anchors would otherwise scroll the section title under the sticky header.
