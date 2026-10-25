@@ -730,7 +730,7 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   background: var(--bg-hover); color: var(--text); border: 1px solid var(--border);
   padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
 }
-#btn-browse-assets:hover, #btn-asset-sync:hover, #btn-asset-add:hover { background: var(--accent); }
+#btn-browse-assets:hover, #btn-asset-sync:hover, #btn-asset-add:hover { background: var(--accent); color: #10120d; }
 
 #storyboard-list-container { flex: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-panel); }
 #storyboard-table { width: 100%; border-collapse: collapse; font-size: 12px; }

@@ -89,14 +89,16 @@ body {
   border: none;
   border-radius: 8px;
   background: var(--accent);
-  color: white;
+  color: #10120d;
   font-size: 1rem;
+  font-weight: 700;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .auth-card button[type="submit"]:hover {
   background: var(--accent-light);
+  color: #10120d;
 }
 
 .auth-switch {
@@ -155,11 +157,11 @@ header {
 
 .badge {
   background: var(--accent);
-  color: white;
+  color: #10120d;
   padding: 0.25rem 0.75rem;
   border-radius: 20px;
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* ── Buttons ────────────────────────────────────────────── */
@@ -189,13 +191,15 @@ header {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: white;
+  color: #10120d !important;
+  font-weight: 700;
   font-size: 1rem;
   padding: 0.75rem 2rem;
 }
 
 .btn-primary:hover {
   background: var(--accent-light);
+  color: #10120d !important;
 }
 
 .btn-primary:disabled {
@@ -279,8 +283,9 @@ header {
 }
 
 .field-badge.required {
-  background: rgba(183, 243, 74, 0.15);
-  color: var(--accent);
+  background: #b7f34a;
+  color: #10120d;
+  font-weight: 700;
 }
 
 .field-badge.optional {
@@ -652,8 +657,8 @@ header {
   align-items: center;
   justify-content: center;
   font-size: 0.75rem;
-  font-weight: 600;
-  color: white;
+  font-weight: 700;
+  color: #10120d;
   transition: width 0.5s ease;
   min-width: 40px;
 }
@@ -689,7 +694,8 @@ header {
 
 .toast-success {
   background: var(--green);
-  color: white;
+  color: #10120d;
+  font-weight: 700;
 }
 
 .toast-error {
@@ -771,7 +777,8 @@ header {
 
 .tab-btn.active {
   background: var(--accent);
-  color: white;
+  color: #10120d;
+  font-weight: 700;
   border-color: var(--accent);
 }
 
@@ -959,6 +966,7 @@ header {
   transform: translate(-50%, -50%) scale(1);
   background: var(--accent);
   border-color: var(--accent);
+  color: #10120d;
 }
 
 .yt-card-info {
@@ -1088,12 +1096,12 @@ header {
 
 .yt-badge-live {
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.5px;
   padding: 2px 6px;
   border-radius: 4px;
   background: var(--accent);
-  color: #fff;
+  color: #10120d;
   flex-shrink: 0;
 }
 
@@ -1404,6 +1412,7 @@ header {
 }
 .btn-sidebar-create:hover {
   background: #c9ff69 !important;
+  color: #10120d !important;
   transform: translateY(-1px);
   box-shadow: 0 4px 14px rgba(183, 243, 74, 0.35);
 }
@@ -1851,7 +1860,7 @@ header {
 .btn-paste-clip:hover {background:rgba(255,255,255,0.15);color:#fff}
 .suno-input-hint {display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,0.35);margin:10px 0 16px}
 .btn-hero-primary {background:#b7f34a!important;color:#11140d!important;border:none!important;border-radius:12px!important;font-size:14px!important;font-weight:700!important;padding:12px 24px!important;display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;transition:all 0.2s ease;box-shadow:0 4px 16px rgba(183,243,74,0.25)}
-.btn-hero-primary:hover {background:#c9ff69!important;transform:translateY(-1px);box-shadow:0 6px 20px rgba(183,243,74,0.35)}
+.btn-hero-primary:hover {background:#c9ff69!important;color:#11140d!important;transform:translateY(-1px);box-shadow:0 6px 20px rgba(183,243,74,0.35)}
 
 /* Formats Preview Card (Right Column) */
 .content-formats-card {background:#15161a;border:1px solid rgba(255,255,255,0.09);border-radius:20px;padding:22px}
