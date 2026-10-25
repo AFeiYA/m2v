@@ -9,7 +9,7 @@ Pass A: 全局创见与企划导演 (Creative Director & Sequence Planner)
 """
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Optional, List, Any
 from src.storyboard_schema import (
     AlignmentProject,
     AssetBible,
