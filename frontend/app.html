@@ -609,9 +609,9 @@
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="cast-form-group">
-            <label for="cast-input-age">Age (Locked Invariant 🔒)</label>
+            <label for="cast-input-age">Age</label>
             <input type="number" id="cast-input-age" value="16" min="1" max="1000">
-            <span class="cast-form-hint">Canonical age frozen to prevent drift.</span>
+            <span class="cast-form-hint">Character age (editable at any time).</span>
           </div>
           <div class="cast-form-group">
             <label for="cast-input-gender">Gender</label>
@@ -640,6 +640,70 @@
         <div class="cast-modal-actions">
           <button type="button" id="cast-modal-cancel" class="btn btn-sm btn-outline">Cancel</button>
           <button type="submit" id="cast-modal-submit" class="btn btn-sm btn-primary">Create Character</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Edit Character -->
+  <div id="cast-edit-modal" class="cast-modal-backdrop" hidden>
+    <div class="cast-modal-card" role="dialog" aria-modal="true" aria-labelledby="cast-edit-modal-title">
+      <div class="cast-modal-header">
+        <h3 id="cast-edit-modal-title">Edit Virtual Artist</h3>
+        <button type="button" id="cast-edit-modal-close" class="btn-yt-close" title="Close">✕</button>
+      </div>
+
+      <form id="cast-form-edit" class="cast-modal-form">
+        <input type="hidden" id="cast-edit-id" value="">
+        <div class="cast-form-group">
+          <label for="cast-edit-name">Character Name *</label>
+          <input type="text" id="cast-edit-name" required placeholder="e.g. Luna.WAV" value="">
+        </div>
+
+        <div class="cast-form-group">
+          <label for="cast-edit-alias">Alias / Stage Name</label>
+          <input type="text" id="cast-edit-alias" placeholder="e.g. 月音" value="">
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="cast-form-group">
+            <label for="cast-edit-age">Age</label>
+            <input type="number" id="cast-edit-age" value="16" min="1" max="1000">
+            <span class="cast-form-hint">Editable at any time.</span>
+          </div>
+          <div class="cast-form-group">
+            <label for="cast-edit-gender">Gender</label>
+            <select id="cast-edit-gender">
+              <option value="female">Female</option>
+              <option value="male">Male</option>
+              <option value="non-binary">Non-binary</option>
+              <option value="neutral">Neutral / Android</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="cast-form-group">
+          <label for="cast-edit-visibility">Visibility &amp; Privacy</label>
+          <select id="cast-edit-visibility">
+            <option value="private">🔒 Private (Only you can view and use)</option>
+            <option value="public">🌐 Public (Visible to workspace community)</option>
+          </select>
+        </div>
+
+        <div class="cast-form-group">
+          <label for="cast-edit-tagline">Tagline / Concept Description</label>
+          <textarea id="cast-edit-tagline" rows="2" placeholder="e.g. Independent virtual singer &amp; performer"></textarea>
+        </div>
+
+        <div class="cast-form-group">
+          <label for="cast-edit-anchor">Prompt Anchor (Visual DNA)</label>
+          <textarea id="cast-edit-anchor" rows="2" placeholder="e.g. anime aesthetic, teal twin tails, futuristic headphones"></textarea>
+          <span class="cast-form-hint">Canonical tokens injected into AI generation for this character.</span>
+        </div>
+
+        <div class="cast-modal-actions">
+          <button type="button" id="cast-edit-modal-cancel" class="btn btn-sm btn-outline">Cancel</button>
+          <button type="submit" id="cast-edit-modal-submit" class="btn btn-sm btn-primary">Save Changes</button>
         </div>
       </form>
     </div>

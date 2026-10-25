@@ -96,7 +96,10 @@ function setupTestContext(characters = []) {
       },
     },
     fetch: mockFetch,
-    window: {},
+    window: {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    },
     FormData: class FormData {
       append() {}
     },
@@ -144,14 +147,17 @@ test('Cast Studio loads and renders characters roster and detail', async () => {
   const rosterEl = elements.get('cast-roster-list');
   assert.ok(rosterEl.innerHTML.includes('Zero.SOE'));
   assert.ok(rosterEl.innerHTML.includes('🌐 Official'));
-  assert.ok(rosterEl.innerHTML.includes('16 y/o 🔒'));
-  assert.ok(rosterEl.innerHTML.includes('v1 Locked'));
+  assert.ok(rosterEl.innerHTML.includes('16 y/o'));
   assert.ok(rosterEl.innerHTML.includes('1 song'));
 
   const detailEl = elements.get('cast-detail-column');
   assert.ok(detailEl.innerHTML.includes('Official Benchmark Artist'));
   assert.ok(detailEl.innerHTML.includes('Reference Portrait'));
-  assert.ok(detailEl.innerHTML.includes('Baseline Version Lock'));
   assert.ok(detailEl.innerHTML.includes('Song Project Binding'));
   assert.ok(detailEl.innerHTML.includes('neon_city_echoes'));
+
+  // Test clear() resets state on user switch
+  context.window.m2vCastStudio.clear();
+  assert.equal(context.window.m2vCastStudio.state.characters.length, 0);
+  assert.equal(context.window.m2vCastStudio.state.selectedId, null);
 });

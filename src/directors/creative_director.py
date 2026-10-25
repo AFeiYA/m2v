@@ -35,9 +35,15 @@ from src.utils import log
 class CreativeDirector:
     """Pass A: 宏观视听与叙事企划总监"""
 
-    def __init__(self, project: AlignmentProject, analysis: Optional[SongAnalysis] = None):
+    def __init__(
+        self,
+        project: AlignmentProject,
+        analysis: Optional[SongAnalysis] = None,
+        characters_dir: Optional[Any] = None,
+    ):
         self.project = project
         self.analysis = analysis or project.analysis
+        self.characters_dir = characters_dir or getattr(project, "_characters_dir", None)
         self.duration = project.duration or (self.analysis.duration if self.analysis else 0.0)
         if self.duration <= 0 and project.lines:
             self.duration = max(line.end for line in project.lines) + 2.0
@@ -304,6 +310,37 @@ class CreativeDirector:
             visual_style = "neo-noir cinematic realism, anamorphic flare"
             typo_placement = "bottom_center"
             motion_pers = "typewriter"
+
+        # Check if project has a bound character from Cast Studio
+        bound_char_id = getattr(self.project, "character_id", None)
+        if bound_char_id:
+            try:
+                from src.cast_storage import get_character
+                char_profile = get_character(bound_char_id, storage_dir=self.characters_dir)
+                if char_profile:
+                    tokens = [f"{char_profile.identity.age}yo", char_profile.identity.gender]
+                    if char_profile.prompt_engine.positive_character_anchor:
+                        tokens.extend([t.strip() for t in char_profile.prompt_engine.positive_character_anchor.split(",") if t.strip()])
+                    neg_tokens = []
+                    neg_anchor = getattr(char_profile.prompt_engine, "negative_prompt_anchor", None) or getattr(char_profile.prompt_engine, "negative_character_anchor", "")
+                    if neg_anchor:
+                        neg_tokens.extend([t.strip() for t in neg_anchor.split(",") if t.strip()])
+                    keyframes = []
+                    if char_profile.assets.primary_image_url:
+                        keyframes.append(char_profile.assets.primary_image_url)
+
+                    char_lead = CharacterPrefab(
+                        id=char_profile.id,
+                        name=char_profile.identity.name,
+                        role="protagonist",
+                        appearance=f"{char_profile.identity.age}岁, {char_profile.identity.gender}" + (f", {char_profile.identity.tagline}" if char_profile.identity.tagline else ""),
+                        wardrobe=char_profile.identity.tagline or "canonical artist wardrobe",
+                        canonical_tokens=tokens,
+                        forbidden_tokens=neg_tokens,
+                        keyframe_pack=keyframes,
+                    )
+            except Exception as e:
+                log.warning("Failed to load bound character profile '%s': %s", bound_char_id, e)
 
         treatment = DirectorTreatment(
             title=title,

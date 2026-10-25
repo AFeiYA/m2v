@@ -2631,6 +2631,7 @@ app.include_router(syndication_router)
 
 from src.cast_api import router as cast_router
 app.state.scan_dir = _get_scan_dir
+app.state.is_local_mode = True
 app.include_router(cast_router)
 
 from src.session_manager import issue_session_token

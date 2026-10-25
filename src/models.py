@@ -288,4 +288,23 @@ class MotionExportRequest(Base):
     cost: Mapped[int] = mapped_column(Integer)
     state: Mapped[str] = mapped_column(String(16), default="active", index=True)
     lease_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class CharacterEntity(Base):
+    """Durable cloud database entity for Cast Studio character profiles."""
+    __tablename__ = "characters"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    alias: Mapped[str] = mapped_column(String(128), default="")
+    age: Mapped[int] = mapped_column(Integer, default=16)
+    gender: Mapped[str] = mapped_column(String(32), default="neutral")
+    tagline: Mapped[str] = mapped_column(String(256), default="")
+    visibility: Mapped[str] = mapped_column(String(32), default="private", index=True)
+    primary_image_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    profile_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

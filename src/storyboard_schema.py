@@ -737,6 +737,7 @@ class AlignmentProject(BaseModel):
     visual_bible: VisualBible | None = Field(default=None, description="视觉圣经设定")
 
     # 新版模块化引擎产物
+    character_id: str | None = Field(default=None, description="绑定角色 ID (Cast Studio)")
     analysis: SongAnalysis | None = Field(default=None, description="音乐智能与切点分析")
     treatment: DirectorTreatment | None = Field(default=None, description="AI 导演方案")
     timeline: list[NLEClip] | MultiTrackTimeline = Field(default_factory=list, description="非线性剪辑时间线序列")

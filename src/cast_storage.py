@@ -10,9 +10,11 @@ import json
 import os
 import shutil
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 import secrets
+from PIL import Image
 
 from src.cast_schema import (
     CharacterProfile,
@@ -27,7 +29,6 @@ from src.cast_schema import (
     PerformanceContext,
     PromptEngine,
     CharacterAssets,
-    CharacterVersioning,
 )
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -109,10 +110,9 @@ def list_characters(
                 "tagline": profile.identity.tagline,
                 "primary_image_url": profile.assets.primary_image_url,
                 "thumbnail_url": profile.assets.thumbnail_url or profile.assets.primary_image_url,
-                "version": profile.versioning.version,
-                "is_locked": profile.versioning.is_locked,
                 "bound_songs_count": len(profile.bound_songs),
                 "created_at": profile.created_at,
+                "updated_at": getattr(profile, "updated_at", profile.created_at),
             })
         except Exception:
             continue
@@ -169,7 +169,6 @@ def create_character(
             name=name.strip(),
             alias=alias.strip() or name.strip(),
             age=age,
-            age_locked=True,
             gender=gender,
             tagline=tagline.strip() or "Independent Virtual Artist",
             archetype=archetype,
@@ -226,7 +225,6 @@ def create_character(
             recommended_aspect_ratios=["9:16", "16:9", "1:1"]
         ),
         assets=CharacterAssets(),
-        versioning=CharacterVersioning(version=1, is_locked=False),
         bound_songs=[]
     )
 
@@ -247,6 +245,7 @@ def save_character(
         existing = CharacterProfile.load_file(profile_file)
         verify_character_ownership(existing, current_user_id)
 
+    profile.updated_at = datetime.now(timezone.utc).isoformat()
     char_folder.mkdir(parents=True, exist_ok=True)
     profile.save_file(profile_file)
     return profile
@@ -262,7 +261,7 @@ def upload_reference_image(
 ) -> tuple[CharacterProfile, str]:
     """
     Saves an uploaded reference image to the character's images directory,
-    ensuring caller is owner before modifying.
+    validating real image magic bytes, format, and dimensions.
     """
     base = get_characters_dir(storage_dir)
     char_folder = base / char_id
@@ -273,14 +272,29 @@ def upload_reference_image(
     profile = CharacterProfile.load_file(profile_file)
     verify_character_ownership(profile, current_user_id)
 
+    if len(image_bytes) < 10:
+        raise ValueError("Uploaded image file is empty")
+    if len(image_bytes) > 20 * 1024 * 1024:
+        raise ValueError("Image file exceeds 20MB limit")
+
+    try:
+        with Image.open(BytesIO(image_bytes)) as img:
+            img_format = (img.format or "").upper()
+            if img_format not in ("PNG", "JPEG", "JPG", "WEBP"):
+                raise ValueError(f"Unsupported image format: {img_format}. Allowed: PNG, JPEG, WEBP")
+            width, height = img.size
+            if width < 32 or height < 32:
+                raise ValueError(f"Image dimensions too small ({width}x{height}). Minimum is 32x32")
+            ext = ".png" if img_format == "PNG" else (".webp" if img_format == "WEBP" else ".jpg")
+    except Exception as e:
+        if isinstance(e, ValueError):
+            raise
+        raise ValueError(f"Corrupt or invalid image data: {e}")
+
     images_dir = char_folder / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
 
-    # Sanitize extension
-    suffix = Path(filename).suffix.lower()
-    if suffix not in (".png", ".jpg", ".jpeg", ".webp"):
-        suffix = ".png"
-    safe_name = f"ref_{secrets.token_hex(4)}{suffix}"
+    safe_name = f"ref_{secrets.token_hex(4)}{ext}"
     dest_path = images_dir / safe_name
     dest_path.write_bytes(image_bytes)
 
@@ -293,6 +307,7 @@ def upload_reference_image(
     else:
         profile.assets.secondary_images.append(rel_url)
 
+    profile.updated_at = datetime.now(timezone.utc).isoformat()
     profile.save_file(profile_file)
     return profile, rel_url
 
@@ -302,10 +317,7 @@ def confirm_character_version(
     current_user_id: str | None = None,
     storage_dir: Path | str | None = None,
 ) -> CharacterProfile:
-    """
-    Locks the character baseline version (e.g. v1) so it cannot be accidentally
-    overwritten or drift during future prompt executions.
-    """
+    """Deprecated: keeps profile updated without strict version freezing."""
     base = get_characters_dir(storage_dir)
     char_folder = base / char_id
     profile_file = char_folder / "profile.json"
@@ -314,13 +326,7 @@ def confirm_character_version(
 
     profile = CharacterProfile.load_file(profile_file)
     verify_character_ownership(profile, current_user_id)
-
-    if profile.versioning.is_locked:
-        # Increment to next version if re-confirming an already locked version
-        profile.versioning.version += 1
-
-    profile.versioning.is_locked = True
-    profile.versioning.confirmed_at = datetime.now(timezone.utc).isoformat()
+    profile.updated_at = datetime.now(timezone.utc).isoformat()
     profile.save_file(profile_file)
     return profile
 
@@ -334,8 +340,8 @@ def bind_character_to_song(
 ) -> CharacterProfile:
     """
     Binds a character to a song project, persisting character_id into
-    the song's alignment/project JSON. Users can bind their own characters
-    or official public characters to their songs.
+    the song's alignment project JSON. Automatically cleans up old character
+    association if song was previously bound to another character.
     """
     base = get_characters_dir(storage_dir)
     profile_file = base / char_id / "profile.json"
@@ -355,22 +361,38 @@ def bind_character_to_song(
 
     # Update song JSON if scan_dir is present
     if scan_dir:
-        resolved_scan_dir = scan_dir() if callable(scan_dir) else scan_dir
-        s_dir = Path(resolved_scan_dir) / song_folder_name
-        if s_dir.is_dir():
-            for jf in s_dir.glob("*_alignment.json"):
-                try:
-                    data = json.loads(jf.read_text(encoding="utf-8"))
-                    data["character_id"] = profile.id
-                    data["character_version"] = profile.versioning.version
-                    jf.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-                except Exception:
-                    pass
+        resolved_scan_dir = Path(scan_dir() if callable(scan_dir) else scan_dir)
+        s_dir = resolved_scan_dir / song_folder_name
+        if not s_dir.is_dir():
+            raise FileNotFoundError(f"Song folder '{song_folder_name}' not found")
+
+        alignment_files = list(s_dir.glob("*_alignment.json"))
+        if not alignment_files:
+            raise FileNotFoundError(f"No alignment project found for song '{song_folder_name}'")
+
+        for jf in alignment_files:
+            data = json.loads(jf.read_text(encoding="utf-8"))
+            old_char_id = data.get("character_id")
+            if old_char_id and old_char_id != char_id:
+                # Unbind song from old character profile
+                old_profile_file = base / old_char_id / "profile.json"
+                if old_profile_file.is_file():
+                    try:
+                        old_profile = CharacterProfile.load_file(old_profile_file)
+                        if song_folder_name in old_profile.bound_songs:
+                            old_profile.bound_songs.remove(song_folder_name)
+                            old_profile.save_file(old_profile_file)
+                    except Exception:
+                        pass
+            data["character_id"] = profile.id
+            data.pop("character_version", None)
+            jf.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     # Record on character profile only if user owns it (system profile is not mutated per song)
     if profile.user_id != "system":
         if song_folder_name not in profile.bound_songs:
             profile.bound_songs.append(song_folder_name)
+            profile.updated_at = datetime.now(timezone.utc).isoformat()
             profile.save_file(profile_file)
 
     return profile
@@ -392,8 +414,8 @@ def unbind_character_from_song(
     profile = CharacterProfile.load_file(profile_file)
 
     if scan_dir:
-        resolved_scan_dir = scan_dir() if callable(scan_dir) else scan_dir
-        s_dir = Path(resolved_scan_dir) / song_folder_name
+        resolved_scan_dir = Path(scan_dir() if callable(scan_dir) else scan_dir)
+        s_dir = resolved_scan_dir / song_folder_name
         if s_dir.is_dir():
             for jf in s_dir.glob("*_alignment.json"):
                 try:
@@ -408,6 +430,7 @@ def unbind_character_from_song(
     if profile.user_id != "system":
         if song_folder_name in profile.bound_songs:
             profile.bound_songs.remove(song_folder_name)
+            profile.updated_at = datetime.now(timezone.utc).isoformat()
             profile.save_file(profile_file)
 
     return profile
@@ -416,9 +439,10 @@ def unbind_character_from_song(
 def delete_character(
     char_id: str,
     current_user_id: str | None = None,
+    scan_dir: Path | str | None = None,
     storage_dir: Path | str | None = None,
 ) -> bool:
-    """Permanently deletes a character folder after verifying caller ownership."""
+    """Permanently deletes a character folder after verifying caller ownership, cascading song unbinding."""
     base = get_characters_dir(storage_dir)
     char_folder = base / char_id
     profile_file = char_folder / "profile.json"
@@ -427,6 +451,22 @@ def delete_character(
 
     profile = CharacterProfile.load_file(profile_file)
     verify_character_ownership(profile, current_user_id)
+
+    # Cascade unbind from all bound songs
+    if scan_dir:
+        resolved_scan_dir = Path(scan_dir() if callable(scan_dir) else scan_dir)
+        for song_folder in list(profile.bound_songs):
+            try:
+                s_dir = resolved_scan_dir / song_folder
+                if s_dir.is_dir():
+                    for jf in s_dir.glob("*_alignment.json"):
+                        data = json.loads(jf.read_text(encoding="utf-8"))
+                        if data.get("character_id") == char_id:
+                            data.pop("character_id", None)
+                            data.pop("character_version", None)
+                            jf.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                pass
 
     if char_folder.is_dir():
         shutil.rmtree(char_folder, ignore_errors=True)

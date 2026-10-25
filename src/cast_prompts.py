@@ -29,8 +29,8 @@ CAST_SYSTEM_PROMPT = """你是一位享誉全球的虚拟艺人（Virtual Artist
 ### 角色设计的五大核心原则：
 1. **反差塑造灵魂 (Contradiction)**：
    不要设计扁平的角色。挖掘角色“外在展现”与“内心渴望/恐惧”的深刻矛盾（例如：表面傲慢追求绝对理性，内心却极度渴望失控的真情；表面毒舌搞笑，唱起歌来却孤注一掷）。
-2. **年龄与不可变面容特征严格锁定 (Face Invariants)**：
-   - 年龄必须为具体数字，若用户指定了年龄（如 16 岁），必须严格遵照并设置 `age_locked: true`。
+2. **明确年龄与面容视觉特征 (Face Invariants)**：
+   - 年龄填入具体数字（如用户指定则遵照用户设定，否则默认 16 岁）。
    - 严禁模糊词汇（如“帅气”、“好看”）。精确描述发型切面、虹膜色调（具体色号 Hex）与不可变识别特征（如眼下泪痣、耳钉）。
 3. **造型与演出场景解耦 (Decoupled Wardrobe & Stage)**：
    - 将服装放在 `outfits` 列表中（作为一套可更换的穿搭）；
@@ -56,7 +56,7 @@ def build_character_design_prompt(
     style_desc = STYLE_PRESETS.get(style_key, style_key)
     schema_str = json.dumps(CharacterProfile.model_json_schema(), ensure_ascii=False, indent=2)
 
-    age_instruction = f"- 角色年龄必须严格设为 {forced_age} 岁，且设置 age_locked=true。\n" if forced_age else ""
+    age_instruction = f"- 角色年龄设为 {forced_age} 岁。\n" if forced_age else ""
 
     user_content = f"""请根据以下灵感构想与设定要求，为我们设计一个完整的虚拟艺人/角色档案：
 
@@ -111,7 +111,6 @@ def get_reference_golden_ratio_character() -> CharacterProfile:
             "name": "零点六一八",
             "alias": "Zero.SOE / Golden Ratio Boy",
             "age": 16,
-            "age_locked": True,
             "gender": "male",
             "tagline": "一个痴迷完美比例，却唱着不完美人生的毒舌少年音乐人",
             "archetype": "Perfectionist Rebel & Satirical Prodigy",
@@ -182,11 +181,6 @@ def get_reference_golden_ratio_character() -> CharacterProfile:
             "primary_image_url": "/assets/characters/zero_soe/primary.png",
             "secondary_images": [],
             "thumbnail_url": "/assets/characters/zero_soe/thumb.png"
-        },
-        "versioning": {
-            "version": 1,
-            "is_locked": True,
-            "confirmed_at": "2026-10-25T02:00:00Z"
         },
         "bound_songs": []
     }

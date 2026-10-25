@@ -16,15 +16,15 @@ from src.storyboard_schema import CharacterPrefab
 
 
 class CharacterIdentity(BaseModel):
-    """Core character conceptual identity and invariants."""
+    """Core character conceptual identity."""
+    model_config = {"extra": "ignore"}
     name: str = Field(..., description="Character primary name")
-    alias: str = Field(..., description="Stage name, alias, or codename")
-    age: int = Field(16, ge=1, le=1000, description="Canonical character age")
-    age_locked: bool = Field(True, description="Locks age from accidental prompt drift")
-    gender: str = Field(..., description="Gender presentation")
-    tagline: str = Field(..., description="One-line defining concept")
-    archetype: str = Field(..., description="Character archetype")
-    core_contradiction: str = Field(..., description="Internal contradiction / dramatic tension")
+    alias: str = Field("", description="Stage name, alias, or codename")
+    age: int = Field(16, ge=1, le=1000, description="Character age (can be modified at any time)")
+    gender: str = Field("neutral", description="Gender presentation")
+    tagline: str = Field("", description="One-line defining concept")
+    archetype: str = Field("Original Artist", description="Character archetype")
+    core_contradiction: str = Field("", description="Internal contradiction / dramatic tension")
     personality_traits: list[str] = Field(default_factory=list, description="Key personality keywords")
 
 
@@ -111,18 +111,21 @@ class CharacterAssets(BaseModel):
 
 
 class CharacterVersioning(BaseModel):
-    """Explicit version control preventing prompt overwrite or unconfirmed drift."""
-    version: int = Field(1, ge=1, description="Sequential version counter (e.g. 1 for v1)")
-    is_locked: bool = Field(False, description="Whether the baseline is confirmed and protected against overwrite")
-    confirmed_at: str | None = Field(None, description="ISO timestamp of baseline confirmation")
+    """Deprecated: retained for backward compatibility with existing profile.json files."""
+    model_config = {"extra": "ignore"}
+    version: int = 1
+    is_locked: bool = False
+    confirmed_at: str | None = None
 
 
 class CharacterProfile(BaseModel):
     """Complete root model for a Cast Studio character."""
+    model_config = {"extra": "ignore"}
     id: str = Field(..., description="Unique slug ID (e.g. char_golden_0618)")
     user_id: str = Field(default="default_local", description="Owner user ID or 'system' for official characters")
     visibility: Literal["private", "public"] = Field(default="private", description="Visibility scope ('private' or 'public')")
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     identity: CharacterIdentity
     face_invariants: CharacterFaceInvariants
     active_outfit_id: str = Field(default="outfit_default")
@@ -132,12 +135,12 @@ class CharacterProfile(BaseModel):
     performance_context: PerformanceContext
     prompt_engine: PromptEngine
     assets: CharacterAssets = Field(default_factory=CharacterAssets)
-    versioning: CharacterVersioning = Field(default_factory=CharacterVersioning)
+    versioning: CharacterVersioning | None = Field(default=None, description="Deprecated version metadata")
     bound_songs: list[str] = Field(default_factory=list, description="Song IDs currently bound to this character")
 
     @property
     def is_official(self) -> bool:
-        return self.user_id == "system" or self.visibility == "public"
+        return self.user_id == "system"
 
     @property
     def active_outfit(self) -> CharacterOutfit:

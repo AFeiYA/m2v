@@ -131,10 +131,7 @@
       const name = c.identity?.name || c.name || "Unnamed";
       const alias = c.identity?.alias || c.alias || "";
       const age = c.identity?.age || 16;
-      const ageLocked = c.identity?.age_locked !== false;
       const tagline = c.identity?.tagline || c.tagline || "";
-      const isLocked = Boolean(c.versioning?.is_locked);
-      const version = c.versioning?.version || 1;
       const avatarUrl = c.assets?.thumbnail_url || c.assets?.primary_image_url || "";
       const boundCount = (c.bound_songs || []).length;
       const isOfficial = Boolean(c.is_official || c.user_id === "system");
@@ -156,10 +153,7 @@
               <span class="cast-pill ${isOfficial ? "cast-pill-official" : "cast-pill-private"}">
                 ${isOfficial ? "🌐 Official" : "🔒 Private"}
               </span>
-              <span class="cast-pill cast-pill-age">${age} y/o${ageLocked ? " 🔒" : ""}</span>
-              <span class="cast-pill ${isLocked ? "cast-pill-locked" : "cast-pill-draft"}">
-                ${isLocked ? `v${version} Locked` : `Draft v${version}`}
-              </span>
+              <span class="cast-pill cast-pill-age">${age} y/o</span>
               ${boundCount > 0 ? `<span class="cast-pill cast-pill-song">🎵 ${boundCount} song${boundCount > 1 ? "s" : ""}</span>` : ""}
             </div>
           </div>
@@ -206,9 +200,6 @@
     const age = char.identity?.age || 16;
     const gender = char.identity?.gender || "neutral";
     const tagline = char.identity?.tagline || "";
-    const version = char.versioning?.version || 1;
-    const isLocked = Boolean(char.versioning?.is_locked);
-    const confirmedAt = char.versioning?.confirmed_at;
     const promptAnchor = char.prompt_engine?.positive_character_anchor || "";
     const primaryImg = char.assets?.primary_image_url || "";
     const boundSongs = char.bound_songs || [];
@@ -237,17 +228,17 @@
               <span class="cast-pill ${isOfficial ? "cast-pill-official" : "cast-pill-private"}">
                 ${isOfficial ? "🌐 Official System Artist" : "🔒 Private Artist"}
               </span>
-              <span class="cast-pill cast-pill-age">Age: ${age} (Locked Invariant 🔒)</span>
+              <span class="cast-pill cast-pill-age">Age: ${age}</span>
               <span class="cast-pill" style="background:rgba(255,255,255,0.08);color:var(--text);">${escapeHtml(gender)}</span>
-              <span class="cast-pill ${isLocked ? "cast-pill-locked" : "cast-pill-draft"}">
-                ${isLocked ? `✅ Baseline v${version} Locked` : `Draft v${version}`}
-              </span>
             </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;">
             ${isOfficial ? `
               <span class="cast-pill cast-pill-official" style="font-size:0.75rem;padding:4px 10px;">Official Read-Only</span>
             ` : `
+              <button type="button" id="cast-btn-edit-char" class="btn btn-sm btn-primary" title="Edit character profile">
+                ✏️ Edit Profile
+              </button>
               <button type="button" id="cast-btn-toggle-visibility" class="btn btn-sm btn-outline" title="Change character visibility">
                 ${char.visibility === "public" ? "🔒 Make Private" : "🌐 Make Public"}
               </button>
@@ -266,7 +257,7 @@
         ` : ""}
       </div>
 
-      <!-- 3 Primary Actions Flow -->
+      <!-- 2 Primary Actions Flow -->
       <div class="cast-workflow-steps">
         <!-- Step 1: Upload Reference Portrait -->
         <div class="cast-step-card">
@@ -312,45 +303,11 @@
           </div>
         </div>
 
-        <!-- Step 2: Version Baseline Confirmation -->
+        <!-- Step 2: Song Project Binding -->
         <div class="cast-step-card">
           <div class="cast-step-header">
             <div class="cast-step-title-group">
               <span class="cast-step-num">2</span>
-              <div>
-                <h3 class="cast-step-title">Baseline Version Lock (确认版本)</h3>
-                <p class="cast-step-desc">Lock this version to freeze face invariants and prevent visual drift across shots.</p>
-              </div>
-            </div>
-          </div>
-
-          <div class="cast-version-status-row">
-            <div class="cast-version-indicator">
-              <span class="cast-version-num">Version v${version}</span>
-              <span class="cast-pill ${isLocked ? "cast-pill-locked" : "cast-pill-draft"}">
-                ${isLocked ? "🔒 Locked Baseline" : "Draft (Editable)"}
-              </span>
-              ${confirmedAt ? `<span class="cast-form-hint">Confirmed at ${new Date(confirmedAt).toLocaleDateString()}</span>` : ""}
-            </div>
-
-            <div>
-              ${isOfficial ? `
-                <span class="cast-pill cast-pill-official">Platform Baseline Verified</span>
-              ` : `
-                <button type="button" id="cast-btn-confirm-version" class="btn btn-sm ${isLocked ? "btn-outline" : "btn-primary"}">
-                  ${isLocked ? "🔒 Re-confirm New Version (v" + (version + 1) + ")" : "🔒 Confirm Baseline (Lock v" + version + ")"}
-                </button>
-              `}
-            </div>
-          </div>
-          <span class="cast-form-hint">Confirming locks the profile schema and tells the AI director engine that this character's facial features and keyframe are canonical.</span>
-        </div>
-
-        <!-- Step 3: Song Project Binding -->
-        <div class="cast-step-card">
-          <div class="cast-step-header">
-            <div class="cast-step-title-group">
-              <span class="cast-step-num">3</span>
               <div>
                 <h3 class="cast-step-title">Song Project Binding (绑定歌曲)</h3>
                 <p class="cast-step-desc">Bind this virtual singer to songs in your library to inject character DNA into Storyboard &amp; Motion Studio.</p>
@@ -405,9 +362,9 @@
       await uploadReferencePortrait(char.id, file);
     });
 
-    // 2. Confirm Version
-    document.getElementById("cast-btn-confirm-version")?.addEventListener("click", async () => {
-      await confirmCharacterVersion(char.id);
+    // 2. Edit Profile
+    document.getElementById("cast-btn-edit-char")?.addEventListener("click", () => {
+      openEditModal(char);
     });
 
     // 3. Bind Active Song
@@ -627,6 +584,25 @@
     }
   }
 
+  // API Action: Update character
+  async function updateCharacter(charId, payload) {
+    try {
+      const updated = await castApi(`/api/characters/${charId}`, {
+        method: "PUT",
+        json: payload,
+      });
+      const idx = state.characters.findIndex(c => c.id === charId);
+      if (idx !== -1) {
+        state.characters[idx] = updated;
+      }
+      closeEditModal();
+      renderRoster();
+      renderDetail();
+    } catch (err) {
+      alert("Failed to update character: " + err.message);
+    }
+  }
+
   // Modal helpers
   function openCreateModal() {
     const modal = document.getElementById("cast-create-modal");
@@ -654,6 +630,45 @@
   function closeCreateModal() {
     const modal = document.getElementById("cast-create-modal");
     if (modal) modal.hidden = true;
+  }
+
+  function openEditModal(char) {
+    const modal = document.getElementById("cast-edit-modal");
+    if (!modal || !char) return;
+
+    const idInput = document.getElementById("cast-edit-id");
+    const nameInput = document.getElementById("cast-edit-name");
+    const aliasInput = document.getElementById("cast-edit-alias");
+    const ageInput = document.getElementById("cast-edit-age");
+    const genderInput = document.getElementById("cast-edit-gender");
+    const visInput = document.getElementById("cast-edit-visibility");
+    const taglineInput = document.getElementById("cast-edit-tagline");
+    const anchorInput = document.getElementById("cast-edit-anchor");
+
+    if (idInput) idInput.value = char.id;
+    if (nameInput) nameInput.value = char.identity?.name || "";
+    if (aliasInput) aliasInput.value = char.identity?.alias || "";
+    if (ageInput) ageInput.value = char.identity?.age ?? 16;
+    if (genderInput) genderInput.value = char.identity?.gender || "neutral";
+    if (visInput) visInput.value = char.visibility || "private";
+    if (taglineInput) taglineInput.value = char.identity?.tagline || "";
+    if (anchorInput) anchorInput.value = char.prompt_engine?.positive_character_anchor || "";
+
+    modal.hidden = false;
+    nameInput?.focus();
+  }
+
+  function closeEditModal() {
+    const modal = document.getElementById("cast-edit-modal");
+    if (modal) modal.hidden = true;
+  }
+
+  function clear() {
+    state.characters = [];
+    state.selectedId = null;
+    state.searchQuery = "";
+    renderRoster();
+    renderDetail();
   }
 
   function escapeHtml(str) {
@@ -686,6 +701,13 @@
       if (e.target.id === "cast-create-modal") closeCreateModal();
     });
 
+    // Edit Modal Cancel / Close
+    document.getElementById("cast-edit-modal-cancel")?.addEventListener("click", closeEditModal);
+    document.getElementById("cast-edit-modal-close")?.addEventListener("click", closeEditModal);
+    document.getElementById("cast-edit-modal")?.addEventListener("click", (e) => {
+      if (e.target.id === "cast-edit-modal") closeEditModal();
+    });
+
     // Create Form Submit
     document.getElementById("cast-form-create")?.addEventListener("submit", (e) => {
       e.preventDefault();
@@ -710,6 +732,52 @@
         visibility,
       });
     });
+
+    // Edit Form Submit
+    document.getElementById("cast-form-edit")?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const id = document.getElementById("cast-edit-id")?.value;
+      const name = document.getElementById("cast-edit-name")?.value.trim();
+      const alias = document.getElementById("cast-edit-alias")?.value.trim() || "";
+      const age = parseInt(document.getElementById("cast-edit-age")?.value || "16", 10);
+      const gender = document.getElementById("cast-edit-gender")?.value || "neutral";
+      const visibility = document.getElementById("cast-edit-visibility")?.value || "private";
+      const tagline = document.getElementById("cast-edit-tagline")?.value.trim() || "";
+      const anchor = document.getElementById("cast-edit-anchor")?.value.trim() || "";
+
+      if (!id) return;
+      if (!name) {
+        alert("Character name is required");
+        return;
+      }
+
+      updateCharacter(id, {
+        identity: {
+          name,
+          alias,
+          age: isNaN(age) ? 16 : age,
+          gender,
+          tagline,
+        },
+        visibility,
+        prompt_engine: {
+          positive_character_anchor: anchor,
+        },
+      });
+    });
+
+    // Account switch / logout clearing
+    if (typeof window !== "undefined") {
+      window.addEventListener("storage", (e) => {
+        if (e.key === "m2v_token" && !e.newValue) {
+          clear();
+        }
+      });
+      window.addEventListener("m2v_user_changed", () => {
+        clear();
+        loadCharacters();
+      });
+    }
   }
 
   // Export module to window
@@ -717,6 +785,7 @@
     init,
     load: loadCharacters,
     select: selectCharacter,
+    clear,
     state,
   };
 

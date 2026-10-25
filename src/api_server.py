@@ -864,6 +864,7 @@ app.include_router(editor_router)
 from src.motion_cloud import router as cloud_motion_router
 app.include_router(cloud_motion_router)
 from src.cast_api import router as cast_router
+app.state.is_local_mode = False
 app.include_router(cast_router)
 
 
