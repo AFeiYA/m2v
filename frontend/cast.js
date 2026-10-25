@@ -130,11 +130,11 @@
       const version = c.versioning?.version || 1;
       const avatarUrl = c.assets?.thumbnail_url || c.assets?.primary_image_url || "";
       const boundCount = (c.bound_songs || []).length;
-      const isOfficial = Boolean(c.is_official || c.user_id === "system" || c.id === "char_zero_soe_0618");
+      const isOfficial = Boolean(c.is_official || c.user_id === "system");
 
       const avatarContent = avatarUrl
-        ? `<img src="${avatarUrl}" alt="${name}" class="cast-card-avatar">`
-        : `<div class="cast-card-avatar">${name.charAt(0).toUpperCase()}</div>`;
+        ? `<img src="${avatarUrl}" alt="${escapeHtml(name)}" class="cast-card-avatar" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"><div class="cast-card-avatar" style="display:none;">${escapeHtml(name.charAt(0).toUpperCase())}</div>`
+        : `<div class="cast-card-avatar">${escapeHtml(name.charAt(0).toUpperCase())}</div>`;
 
       return `
         <div class="cast-card ${isActive ? "active" : ""}" data-char-id="${c.id}" role="button" tabindex="0">
@@ -205,7 +205,7 @@
     const promptAnchor = char.prompt_engine?.positive_character_anchor || "";
     const primaryImg = char.assets?.primary_image_url || "";
     const boundSongs = char.bound_songs || [];
-    const isOfficial = Boolean(char.is_official || char.user_id === "system" || char.id === "char_zero_soe_0618");
+    const isOfficial = Boolean(char.is_official || char.user_id === "system");
 
     const availableSongs = getAvailableSongs();
     const activeSong = getActiveSong();
@@ -277,7 +277,11 @@
           <div class="cast-portrait-zone">
             <div class="cast-portrait-preview-wrap">
               ${primaryImg ? `
-                <img src="${primaryImg}" alt="${name} Portrait" class="cast-portrait-preview-img">
+                <img src="${primaryImg}" alt="${escapeHtml(name)} Portrait" class="cast-portrait-preview-img" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                <div class="cast-portrait-placeholder" style="display:none;">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  <span>No reference portrait uploaded</span>
+                </div>
               ` : `
                 <div class="cast-portrait-placeholder">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
