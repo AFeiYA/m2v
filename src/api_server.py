@@ -135,7 +135,7 @@ async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if existing.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="邮箱或用户名已被注册",
+            detail="Email or username is already registered.",
         )
 
     user = User(
@@ -162,7 +162,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     if user is None or not verify_password(req.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="邮箱或密码错误",
+            detail="Incorrect email or password.",
         )
 
     user.last_login_at = datetime.now(timezone.utc)
@@ -178,13 +178,13 @@ async def refresh_token(req: RefreshRequest, db: AsyncSession = Depends(get_db))
     """刷新访问令牌"""
     payload = decode_token(req.refresh_token)
     if payload.get("type") != "refresh":
-        raise HTTPException(400, "需要 refresh_token")
+        raise HTTPException(400, "refresh_token is required.")
 
     user_id = payload.get("sub")
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user or not user.is_active:
-        raise HTTPException(401, "用户不存在或已禁用")
+        raise HTTPException(401, "User does not exist or has been disabled.")
 
     return TokenResponse(
         access_token=create_access_token(user.id),
@@ -220,7 +220,7 @@ async def update_me(
     if req.display_name is not None:
         cleaned = req.display_name.strip()
         if len(cleaned) > 64:
-            raise HTTPException(400, "昵称不能超过 64 个字符")
+            raise HTTPException(400, "Display name cannot exceed 64 characters.")
         user.display_name = cleaned or None
         await db.commit()
         await db.refresh(user)
@@ -352,7 +352,7 @@ async def _commit_and_dispatch(db: AsyncSession, task: Task) -> None:
         await db.rollback()
         await fail_task_and_refund(db, task_id, str(exc))
         await db.commit()
-        raise HTTPException(503, "任务无法启动，已退还额度，请稍后重试") from exc
+        raise HTTPException(503, "Unable to start task. Credits have been refunded. Please try again later.") from exc
 
 
 # ======================================================================
@@ -384,24 +384,24 @@ async def upload_and_create_task(
     if user.credits <= 0:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="配额不足，请升级套餐",
+            detail="Insufficient credits. Please upgrade your plan.",
         )
 
     # 文件类型校验
     if not mp3.filename or not mp3.filename.lower().endswith((".mp3", ".wav", ".flac")):
-        raise HTTPException(400, "请上传 MP3/WAV/FLAC 音频文件")
+        raise HTTPException(400, "Please upload an MP3, WAV, or FLAC audio file.")
     if not lyrics.filename or not lyrics.filename.lower().endswith((".txt", ".lrc")):
-        raise HTTPException(400, "请上传 TXT 或 LRC 歌词文件")
+        raise HTTPException(400, "Please upload a TXT or LRC lyrics file.")
 
     # 文件大小校验
     max_size = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
     mp3_content = await mp3.read()
     if len(mp3_content) > max_size:
-        raise HTTPException(400, f"音频文件超过 {settings.MAX_UPLOAD_SIZE_MB}MB 限制")
+        raise HTTPException(400, f"Audio file exceeds {settings.MAX_UPLOAD_SIZE_MB}MB limit.")
 
     lyrics_content = await lyrics.read()
     if len(lyrics_content) > 5 * 1024 * 1024:  # 歌词最大 5MB
-        raise HTTPException(400, "歌词文件过大")
+        raise HTTPException(400, "Lyrics file too large (max 5MB).")
 
     import tempfile
     import re
@@ -677,7 +677,7 @@ async def delete_task(
     from src.models import AlignmentExecution
     await db.execute(delete(AlignmentExecution).where(AlignmentExecution.task_id == task.id))
     await db.delete(task)
-    return MessageResponse(message="任务已删除")
+    return MessageResponse(message="Task deleted successfully.")
 
 
 # ======================================================================
@@ -702,7 +702,7 @@ async def download_file(
     # 动态即时生成 ASS 字幕：永远基于最新的 alignment.json，服务端无需持久化冗余的 .ass 文件
     if file_type == "ass":
         if not task.alignment_json_key and not task.output_ass_key:
-            raise HTTPException(404, "该任务尚未生成对齐数据")
+            raise HTTPException(404, "Alignment data has not been generated for this task.")
         if task.alignment_json_key:
             import tempfile
             from src.aligner import AlignmentResult
@@ -959,7 +959,7 @@ async def _get_user_task(db: AsyncSession, user_id: str, task_id: str) -> Task:
     )
     task = result.scalar_one_or_none()
     if task is None:
-        raise HTTPException(404, "任务不存在")
+        raise HTTPException(404, "Task not found.")
     return task
 
 

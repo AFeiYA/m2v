@@ -887,7 +887,7 @@ function renderTask(task) {
 
   const statusText = statusMap[task.status] || task.status;
   const stepText = stepMap[task.current_step] || task.current_step;
-  const date = new Date(task.created_at).toLocaleString("zh-CN");
+  const date = new Date(task.created_at).toLocaleString();
 
   let progressBar = "";
   if (task.status === "processing") {
