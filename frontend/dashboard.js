@@ -5,15 +5,25 @@
 const DEFAULT_CLOUD_API = "https://lucazhou-suno2mv-api.hf.space";
 const DEFAULT_LOCAL_API = "http://localhost:8000";
 
+function isLocalEnvironment() {
+  return (
+    location.hostname === "localhost" ||
+    location.hostname === "127.0.0.1" ||
+    Boolean(window.IS_LOCAL_EDITOR)
+  );
+}
+
 function getDefaultApi() {
-  const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-  return isLocal ? DEFAULT_LOCAL_API : DEFAULT_CLOUD_API;
+  return isLocalEnvironment() ? DEFAULT_LOCAL_API : DEFAULT_CLOUD_API;
 }
 
 function resolveApiBase() {
+  const isLocal = isLocalEnvironment();
+  if (isLocal) {
+    return (window.location.origin || DEFAULT_LOCAL_API).replace(/\/+$/, "");
+  }
   // A backend-served workbench must never reuse another deployment’s API.
   if (window.M2V_API_BASE) return window.M2V_API_BASE.replace(/\/+$/, "");
-  const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
   let saved = (localStorage.getItem("m2v_api_base") || "").trim();
 
   const isStaticCloud =
@@ -335,10 +345,28 @@ async function logout() {
       console.warn("Firebase logout error:", e);
     }
   }
+  if (isLocalEnvironment()) {
+    currentUser = {
+      id: "default_local",
+      username: "Local Creator",
+      display_name: "Local Creator",
+      email: "local@localhost",
+      credits: 999999,
+      is_local: true,
+    };
+    if (window.m2vStore) window.m2vStore.setUser(currentUser, "local");
+    showApp();
+    return;
+  }
   showAuth();
 }
 
 function showAuth() {
+  if (isLocalEnvironment()) {
+    $("#auth-overlay").style.display = "none";
+    $("#app").style.display = "";
+    return;
+  }
   $("#auth-overlay").style.display = "flex";
   $("#app").style.display = "none";
   if (pollTimer) clearInterval(pollTimer);
@@ -1132,6 +1160,28 @@ document.addEventListener("DOMContentLoaded", async () => {
       else localStorage.removeItem("m2v_token");
       syncAuthCookie(token);
     }
+  }
+
+  // 本地免登录：localhost / 127.0.0.1 / 本地编辑器环境下，自动以本地创作者身份进入工作台
+  if (isLocalEnvironment()) {
+    currentUser = {
+      id: "default_local",
+      username: "Local Creator",
+      display_name: "Local Creator",
+      email: "local@localhost",
+      credits: 999999,
+      is_local: true,
+    };
+    if (window.m2vStore) window.m2vStore.setUser(currentUser, "local");
+    const displayName = currentUser.display_name;
+    if ($("#user-info")) $("#user-info").textContent = displayName;
+    if ($("#user-email-label")) $("#user-email-label").textContent = "Local Mode · 免登录";
+    if ($("#user-credits")) $("#user-credits").textContent = "Unlimited";
+    if ($("#header-username-label")) $("#header-username-label").textContent = displayName;
+    document.querySelectorAll?.(".avatar-circle")?.forEach?.(el => el.textContent = "L");
+    if ($("#sidebar-credits-num")) $("#sidebar-credits-num").textContent = "∞";
+    showApp();
+    return;
   }
 
   // 已登录？

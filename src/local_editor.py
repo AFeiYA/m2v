@@ -2321,13 +2321,18 @@ if _FRONTEND_DIR.exists():
 @app.get("/app", response_class=HTMLResponse)
 def public_page(request: Request):
     name = request.url.path.strip("/") or "index"
+    if name in ("app", "index"):
+        page = _FRONTEND_ROOT / "app.html"
+        html = page.read_text(encoding="utf-8")
+        html = html.replace(
+            "<head>",
+            "<head><script>window.IS_LOCAL_EDITOR=true;window.M2V_API_BASE=window.location.origin;</script>",
+        )
+        return HTMLResponse(html)
     page = _FRONTEND_ROOT / f"{name}.html"
     if not page.is_file():
         raise HTTPException(404, "Page not found")
-    html = page.read_text(encoding="utf-8")
-    if name == "app":
-        html = html.replace("</head>", "<script>window.M2V_API_BASE=window.location.origin;</script></head>")
-    return HTMLResponse(html)
+    return HTMLResponse(page.read_text(encoding="utf-8"))
 
 
 @app.get("/marketing/{asset}")
@@ -2345,6 +2350,8 @@ def public_asset(asset: str):
 @app.get("/media-arbiter.js")
 @app.get("/billing.js")
 @app.get("/firebase-config.js")
+@app.get("/cast.css")
+@app.get("/cast.js")
 def serve_root_asset(request: Request):
     path_name = request.url.path.lstrip("/")
     file_path = _FRONTEND_ROOT / path_name
@@ -2352,6 +2359,93 @@ def serve_root_asset(request: Request):
         media_type = "text/css" if path_name.endswith(".css") else "application/javascript"
         return FileResponse(file_path, media_type=media_type)
     raise HTTPException(404, f"{path_name} not found")
+
+
+# ── 本地免登录与工作台数据适配接口 ────────────────────────────
+@app.get("/api/auth/me")
+def local_auth_me():
+    return {
+        "id": "default_local",
+        "username": "Local Creator",
+        "display_name": "Local Creator",
+        "email": "local@localhost",
+        "credits": 999999,
+        "is_active": True,
+    }
+
+
+@app.get("/api/songs")
+def local_list_songs(page: int = 1, page_size: int = 12, q: str = ""):
+    scan_dir = _get_scan_dir()
+    sub_files = list(scan_dir.glob("*/*_alignment.json"))
+    seen_stems = set()
+    songs = []
+    from datetime import datetime, timezone
+    for f in sorted(sub_files, key=lambda x: x.stat().st_mtime, reverse=True):
+        stem = f.stem.replace("_alignment", "")
+        if stem in seen_stems:
+            continue
+        seen_stems.add(stem)
+        title = stem
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            title = data.get("title") or stem
+        except Exception:
+            pass
+        if q and q.lower() not in title.lower() and q.lower() not in stem.lower():
+            continue
+        created_str = datetime.fromtimestamp(f.stat().st_ctime, tz=timezone.utc).isoformat()
+        updated_str = datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc).isoformat()
+        songs.append({
+            "id": stem,
+            "title": title,
+            "status": "ready",
+            "created_at": created_str,
+            "updated_at": updated_str,
+            "is_favorite": False,
+            "versions": [{
+                "id": stem,
+                "title": title,
+                "status": "ready",
+                "created_at": created_str,
+            }],
+        })
+    total = len(songs)
+    start = (page - 1) * page_size
+    end = start + page_size
+    return {
+        "songs": songs[start:end],
+        "total": total,
+        "total_songs": total,
+        "page": page,
+        "page_size": page_size,
+        "active_count": 0,
+    }
+
+
+@app.get("/api/credits")
+def local_credits():
+    return {
+        "available": 999999,
+        "reserved": 0,
+        "history": [],
+        "monthly_quota": {"eligible": False, "claimed": True},
+    }
+
+
+@app.get("/api/editor/render-jobs")
+def local_render_jobs():
+    return {"jobs": []}
+
+
+@app.get("/api/exports")
+def local_exports():
+    return {"exports": [], "total": 0}
+
+
+@app.get("/api/songs/versions/trash")
+def local_songs_trash():
+    return {"versions": []}
 
 
 @app.get("/lyric-editor", response_class=HTMLResponse)
