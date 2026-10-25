@@ -485,11 +485,35 @@ async function loadUser() {
 // Upload
 // ======================================================================
 
+function isDevMode() {
+  const params = new URLSearchParams(location.search);
+  let enabled = params.get("dev") === "1" || params.get("debug") === "1" || params.get("mode") === "dev";
+  try { enabled ||= localStorage.getItem("suno2mv_dev_mode") === "true"; } catch (_) {}
+  return Boolean(enabled);
+}
+
 function initUpload() {
+  const isDev = isDevMode();
   const tabSuno = $("#tab-suno");
   const tabLocal = $("#tab-local");
   const sunoForm = $("#suno-form");
   const uploadForm = $("#upload-form");
+  const modeTabs = $("#import-mode-tabs");
+  const wrapLocalSunoUrl = $("#wrap-local-suno-url");
+
+  if (isDev) {
+    if (tabSuno) tabSuno.style.display = "";
+    if (modeTabs) modeTabs.style.display = "";
+    if (wrapLocalSunoUrl) wrapLocalSunoUrl.style.display = "";
+  } else {
+    if (tabSuno) tabSuno.style.display = "none";
+    if (modeTabs) modeTabs.style.display = "none";
+    if (wrapLocalSunoUrl) wrapLocalSunoUrl.style.display = "none";
+    if (sunoForm) sunoForm.style.display = "none";
+    if (uploadForm) uploadForm.style.display = "";
+    if (tabLocal) tabLocal.classList.add("active");
+    if (tabSuno) tabSuno.classList.remove("active");
+  }
 
   if (tabSuno && tabLocal && sunoForm && uploadForm) {
     tabSuno.addEventListener("click", () => {
@@ -810,8 +834,8 @@ function renderTask(task) {
   actions += `<button class="btn btn-sm btn-danger" data-action="delete" data-task="${task.id}">🗑️</button>`;
 
   const displayTitle = task.song_title || task.title || "Untitled";
-  const sunoLink = task.suno_url
-    ? `<div class="task-suno-link"><a href="${escapeHtml(task.suno_url)}" target="_blank" rel="noopener noreferrer">🔗 Original song on Suno</a></div>`
+  const sunoLink = (task.suno_url && isDevMode())
+    ? `<div class="task-suno-link"><a href="${escapeHtml(task.suno_url)}" target="_blank" rel="noopener noreferrer">🔗 Original song link</a></div>`
     : "";
 
   return `

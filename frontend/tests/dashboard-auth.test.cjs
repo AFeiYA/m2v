@@ -11,7 +11,14 @@ function setup({firebaseUser = true, failRefresh = false, provider = null} = {})
   let sdkCalls = 0, downloads = 0, logoutCalls = 0;
   function element(selector) {
     if (!elements.has(selector)) elements.set(selector, {
-      style: {}, handlers: {}, addEventListener(event, handler) { this.handlers[event] = handler; },
+      style: {}, handlers: {},
+      classList: {
+        _classes: new Set(),
+        add(c) { this._classes.add(c); },
+        remove(c) { this._classes.delete(c); },
+        contains(c) { return this._classes.has(c); },
+      },
+      addEventListener(event, handler) { this.handlers[event] = handler; },
     });
     return elements.get(selector);
   }
@@ -146,4 +153,36 @@ test('backend-served sandbox uses its injected API even with a saved production 
  s.context.window.M2V_API_BASE='https://sandbox.example.test';
  s.values.set('m2v_api_base','https://lucazhou-suno2mv-api.hf.space');
  assert.equal(s.run('resolveApiBase()'),'https://sandbox.example.test');
+});
+
+test('import mode tabs and suno url are hidden by default, visible in dev mode', () => {
+  const normal = setup();
+  normal.run('initUpload()');
+  assert.equal(normal.element('#tab-suno').style.display, 'none');
+  assert.equal(normal.element('#import-mode-tabs').style.display, 'none');
+  assert.equal(normal.element('#wrap-local-suno-url').style.display, 'none');
+  assert.equal(normal.element('#suno-form').style.display, 'none');
+  assert.equal(normal.element('#upload-form').style.display, '');
+
+  const taskHtml = normal.run('renderTask({id: "t1", status: "completed", suno_url: "https://suno.com/song/123", created_at: "2026-01-01T00:00:00Z"})');
+  assert.ok(!taskHtml.includes('Original song link'), 'normal user should not see original song link');
+
+  for (const query of ['?dev=1', '?debug=1', '?mode=dev']) {
+    const dev = setup();
+    dev.context.location.search = query;
+    dev.run('initUpload()');
+    assert.equal(dev.element('#tab-suno').style.display, '');
+    assert.equal(dev.element('#import-mode-tabs').style.display, '');
+    assert.equal(dev.element('#wrap-local-suno-url').style.display, '');
+
+    const devTaskHtml = dev.run('renderTask({id: "t1", status: "completed", suno_url: "https://suno.com/song/123", created_at: "2026-01-01T00:00:00Z"})');
+    assert.ok(devTaskHtml.includes('Original song link'), 'dev mode should see original song link');
+  }
+
+  const devLocal = setup();
+  devLocal.values.set('suno2mv_dev_mode', 'true');
+  devLocal.run('initUpload()');
+  assert.equal(devLocal.element('#tab-suno').style.display, '');
+  assert.equal(devLocal.element('#import-mode-tabs').style.display, '');
+  assert.equal(devLocal.element('#wrap-local-suno-url').style.display, '');
 });

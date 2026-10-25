@@ -200,7 +200,7 @@
         <div class="upload-hero-text">
           <p class="hero-eyebrow">QUICK START</p>
           <h1 class="hero-title">Turn music into content<span class="hero-dot">.</span></h1>
-          <p class="hero-subtitle">Paste a Suno song to automatically align lyrics, generate motion posters, and export full-platform videos.</p>
+          <p class="hero-subtitle">Upload your audio file to automatically align lyrics, generate motion posters, and export full-platform videos.</p>
         </div>
         <a href="/lyric-editor" class="hero-guide-btn" target="_blank" rel="noopener">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
@@ -216,33 +216,33 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></svg>
               </div>
               <div>
-                <h2>Import Suno Song</h2>
-                <p class="import-subtitle">Start your video project from a single link</p>
+                <h2>Import Song</h2>
+                <p class="import-subtitle">Upload your audio file and lyrics to start your video project</p>
               </div>
             </div>
             <span class="step-badge">STEP 01</span>
           </div>
 
-          <div class="mode-tabs">
-            <button type="button" class="tab-btn active" id="tab-suno">🔗 Suno link</button>
-            <button type="button" class="tab-btn" id="tab-local">📁 Upload files</button>
+          <div class="mode-tabs" id="import-mode-tabs" style="display:none">
+            <button type="button" class="tab-btn active" id="tab-local">📁 Upload audio</button>
+            <button type="button" class="tab-btn" id="tab-suno" style="display:none">🔗 Import from link</button>
           </div>
 
-          <!-- Mode 1: Suno 链接表单 -->
-          <form id="suno-form">
+          <!-- Mode 1: 链接表单 (仅开发模式可用) -->
+          <form id="suno-form" style="display:none">
             <div class="suno-input-box">
               <svg class="suno-link-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-              <input type="url" id="input-suno-url" placeholder="Paste Suno song link, e.g. https://suno.com/song/..." required>
+              <input type="url" id="input-suno-url" placeholder="Paste song link, e.g. https://suno.com/song/..." required>
               <button type="button" id="btn-paste-suno" class="btn-paste-clip" title="Paste from clipboard">Paste</button>
             </div>
             <div class="suno-input-hint">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
-              <span>Supports public Suno song URLs</span>
+              <span>Developer mode only: paste song link for testing</span>
             </div>
 
             <details class="import-options"><summary>Advanced import settings</summary>
             <div class="upload-field" style="margin-bottom: 1rem;">
-              <label for="input-suno-title">Song title (optional; fetched from Suno if blank)</label>
+              <label for="input-suno-title">Song title (optional)</label>
               <input type="text" id="input-suno-title" placeholder="Song title">
             </div>
             <div class="upload-options">
@@ -263,8 +263,8 @@
             </button>
           </form>
 
-          <!-- Mode 2: 本地上传表单 -->
-          <form id="upload-form" style="display:none">
+          <!-- Mode 2: 本地上传表单 (默认开放) -->
+          <form id="upload-form">
             <div class="upload-row">
               <div class="upload-field">
                 <label for="file-mp3">Audio file (MP3/WAV/FLAC)</label>
@@ -280,9 +280,9 @@
                 <label for="local-song-title">Song title (optional; defaults to filename)</label>
                 <input type="text" id="local-song-title" placeholder="Song title">
               </div>
-              <div class="upload-field">
-                <label for="local-suno-url">Original Suno link (optional)</label>
-                <input type="url" id="local-suno-url" placeholder="https://suno.com/song/...">
+              <div class="upload-field" id="wrap-local-suno-url" style="display:none">
+                <label for="local-suno-url">Original song link (optional)</label>
+                <input type="url" id="local-suno-url" placeholder="https://...">
               </div>
             </div>
             <div class="upload-options">
