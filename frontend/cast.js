@@ -3,10 +3,17 @@
    ========================================================== */
 (() => {
   function getApiBase() {
-    if (window.M2V_API_BASE) return window.M2V_API_BASE.replace(/\/+$/, "");
-    const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-    if (isLocal) return "http://localhost:8000";
-    return location.origin;
+    const isLocal =
+      location.hostname === "localhost" ||
+      location.hostname === "127.0.0.1" ||
+      Boolean(typeof window !== "undefined" && window.IS_LOCAL_EDITOR);
+    if (isLocal) {
+      const origin = (typeof window !== "undefined" && window.location?.origin) || location.origin || "http://localhost:8000";
+      return origin.replace(/\/+$/, "");
+    }
+    if (typeof window !== "undefined" && window.m2vWorkspaceApi) return window.m2vWorkspaceApi().replace(/\/+$/, "");
+    if (typeof window !== "undefined" && window.M2V_API_BASE) return window.M2V_API_BASE.replace(/\/+$/, "");
+    return (location.origin || "http://localhost:8000").replace(/\/+$/, "");
   }
 
   function getAuthToken() {

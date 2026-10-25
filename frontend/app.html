@@ -8,7 +8,10 @@
   <link rel="stylesheet" href="/dashboard.css?v=20261021_navigation">
   <link rel="stylesheet" href="/cast.css?v=20261025_cast">
   <script>
-    window.M2V_API_BASE = "https://lucazhou-suno2mv-api.hf.space";
+    if (!window.M2V_API_BASE) {
+      const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+      window.M2V_API_BASE = isLocal ? location.origin : "https://lucazhou-suno2mv-api.hf.space";
+    }
   </script>
 </head>
 <body>
