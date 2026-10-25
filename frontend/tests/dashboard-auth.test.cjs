@@ -29,7 +29,7 @@ function setup({firebaseUser = true, failRefresh = false, provider = null} = {})
     return 'fresh-B';
   }};
   const context = {
-    window: {location, m2vAuth: {
+    window: {location, addEventListener() {}, m2vAuth: {
       logout: async () => {logoutCalls++;},
       loginWithGoogle: async () => ({user, idToken: 'google-B'}),
       getIdToken: async () => values.get('m2v_token'),
@@ -167,7 +167,19 @@ test('import mode tabs and suno url are hidden by default, visible in dev mode',
   const taskHtml = normal.run('renderTask({id: "t1", status: "completed", suno_url: "https://suno.com/song/123", created_at: "2026-01-01T00:00:00Z"})');
   assert.ok(!taskHtml.includes('Original song link'), 'normal user should not see original song link');
 
-  for (const query of ['?dev=1', '?debug=1', '?mode=dev']) {
+  // Toggle debug mode dynamically via toggleDebugMode()
+  normal.run('window.toggleDebugMode()');
+  assert.equal(normal.element('#tab-suno').style.display, '');
+  assert.equal(normal.element('#import-mode-tabs').style.display, '');
+  assert.equal(normal.element('#wrap-local-suno-url').style.display, '');
+
+  // Toggle off again
+  normal.run('window.toggleDebugMode()');
+  assert.equal(normal.element('#tab-suno').style.display, 'none');
+  assert.equal(normal.element('#import-mode-tabs').style.display, 'none');
+  assert.equal(normal.element('#wrap-local-suno-url').style.display, 'none');
+
+  for (const query of ['?dev=1', '?debug=1', '?debug', '?mode=dev']) {
     const dev = setup();
     dev.context.location.search = query;
     dev.run('initUpload()');
@@ -185,4 +197,12 @@ test('import mode tabs and suno url are hidden by default, visible in dev mode',
   assert.equal(devLocal.element('#tab-suno').style.display, '');
   assert.equal(devLocal.element('#import-mode-tabs').style.display, '');
   assert.equal(devLocal.element('#wrap-local-suno-url').style.display, '');
+
+  const disabled = setup();
+  disabled.context.location.search = '?debug=0';
+  disabled.values.set('suno2mv_dev_mode', 'true');
+  disabled.run('initUpload()');
+  assert.equal(disabled.element('#tab-suno').style.display, 'none');
+  assert.equal(disabled.element('#import-mode-tabs').style.display, 'none');
+  assert.equal(disabled.element('#wrap-local-suno-url').style.display, 'none');
 });

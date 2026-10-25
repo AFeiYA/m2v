@@ -1419,7 +1419,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const titleEl = document.querySelector("header h1");
   if (titleEl) {
     titleEl.style.cursor = "pointer";
-    titleEl.title = window.t ? t("header_title_title") : "三击标题可显示/隐藏开发者调试选项（音频分析、分镜制作）";
+    titleEl.title = window.t ? t("header_title_title") : "三击标题可显示/隐藏调试选项（链接导入、音频分析、分镜制作）";
     titleEl.addEventListener("click", () => {
       clickCount++;
       clearTimeout(clickTimer);
@@ -1508,12 +1508,20 @@ window.addEventListener("languagechange", () => {
 // ---------------------------------------------------------------------------
 function checkAndApplyDevMode() {
   const params = new URLSearchParams(window.location.search);
-  const isDev = params.has("dev") ||
-                params.has("debug") ||
-                params.get("dev") === "1" ||
+  const isDev = (params.get("dev") === "1" ||
                 params.get("debug") === "1" ||
                 params.get("mode") === "dev" ||
-                localStorage.getItem("suno2mv_dev_mode") === "true";
+                (params.has("debug") && params.get("debug") !== "0" && params.get("debug") !== "false") ||
+                (params.has("dev") && params.get("dev") !== "0" && params.get("dev") !== "false") ||
+                localStorage.getItem("suno2mv_dev_mode") === "true" ||
+                localStorage.getItem("suno2mv_debug_mode") === "true") &&
+                params.get("dev") !== "0" && params.get("debug") !== "0";
+
+  // 快捷链接导入栏（Debug 模式控制，默认隐藏，三击标题或 Ctrl+Shift+D 显示）
+  const sunoQuickBar = document.getElementById("suno-quick-bar");
+  if (sunoQuickBar) {
+    sunoQuickBar.style.display = isDev ? "flex" : "none";
+  }
 
   // 分析音频与分镜制作（Debug 模式，默认隐藏，三击标题显示）
   const analyzeBtn = document.getElementById("btn-analyze-audio");
@@ -1529,37 +1537,50 @@ function checkAndApplyDevMode() {
     audioSummary.style.display = isDev ? "block" : "none";
   }
 
-  // 导入对齐与仅下 MP3 均为默认常驻可见操作按钮
   const quickMp3Btn = document.getElementById("btn-quick-download-mp3");
   if (quickMp3Btn) {
-    quickMp3Btn.style.display = "inline-block";
+    quickMp3Btn.style.display = isDev ? "inline-block" : "none";
   }
   const importBtn = document.getElementById("btn-start-suno-import");
   if (importBtn) {
-    importBtn.style.display = "inline-block";
+    importBtn.style.display = isDev ? "inline-block" : "none";
   }
   return isDev;
 }
 
 window.toggleDevMode = function(forceState) {
-  const current = localStorage.getItem("suno2mv_dev_mode") === "true";
+  const current = localStorage.getItem("suno2mv_dev_mode") === "true" || localStorage.getItem("suno2mv_debug_mode") === "true";
   const next = typeof forceState === "boolean" ? forceState : !current;
   localStorage.setItem("suno2mv_dev_mode", next ? "true" : "false");
+  localStorage.setItem("suno2mv_debug_mode", next ? "true" : "false");
   checkAndApplyDevMode();
-  console.log(`[Suno2MV] 开发者调试模式已${next ? "开启" : "关闭"}`);
+  console.log(`[Suno2MV] 调试模式已${next ? "开启" : "关闭"}`);
   if (typeof status === "function") {
     status(next
-      ? (window.t ? t("msg_dev_enabled") : "🛠 已开启开发者调试模式（已显示音频分析、分镜制作）")
-      : (window.t ? t("msg_dev_disabled") : "🛠 已隐藏开发者调试选项"));
+      ? (window.t ? t("msg_dev_enabled") : "🛠 已开启调试模式（链接导入、音频分析、分镜制作）")
+      : (window.t ? t("msg_dev_disabled") : "🛠 已隐藏调试选项"));
   }
   return next;
 };
+window.toggleDebugMode = window.toggleDevMode;
 
-// 快捷键 Ctrl+Shift+D / Cmd+Shift+D (Mac) 切换开发模式
+// 快捷键 Ctrl+Shift+D / Cmd+Shift+D (Mac) 切换开发/调试模式
 window.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "D" || e.key === "d")) {
     e.preventDefault();
     window.toggleDevMode();
+  }
+});
+
+window.addEventListener("message", (e) => {
+  if (e.data && (e.data.type === "toggle_dev_mode" || e.data.type === "toggle_debug_mode")) {
+    checkAndApplyDevMode();
+  }
+});
+
+window.addEventListener("storage", (e) => {
+  if (e.key === "suno2mv_dev_mode" || e.key === "suno2mv_debug_mode") {
+    checkAndApplyDevMode();
   }
 });
 

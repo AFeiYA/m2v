@@ -55,11 +55,11 @@
   <header class="editor-header">
     <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
       <h1 class="editor-header-title" data-i18n="header_title" data-i18n-title="header_title_title" style="cursor: pointer;">🎤 M2V Lyrics</h1>
-      <!-- 快捷 Suno 导入栏 -->
-      <div id="suno-quick-bar" class="suno-quick-bar">
+      <!-- 快捷 Suno 导入栏 (Debug 模式控制，默认隐藏) -->
+      <div id="suno-quick-bar" class="suno-quick-bar" style="display: none;">
         <input id="suno-url-input" type="text" placeholder="Paste Suno / NetEase song link or iframe..." data-i18n-placeholder="url_placeholder"
                onkeydown="if(event.key==='Enter') handleSunoImport()" />
-        <!-- 默认可见操作按钮：仅下 MP3 与 导入对齐 -->
+        <!-- 默认操作按钮：仅下 MP3 与 导入对齐 -->
         <button id="btn-quick-download-mp3" onclick="downloadOriginalAudio()" title="Download original MP3 only (skip vocal separation &amp; alignment)" data-i18n="btn_quick_mp3" data-i18n-title="btn_quick_mp3_title">⬇ MP3 Only</button>
         <button id="btn-start-suno-import" onclick="handleSunoImport()" title="One-click fetch and word-level alignment" data-i18n="btn_import" data-i18n-title="btn_import_title">⚡ Import &amp; Align</button>
       </div>

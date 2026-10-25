@@ -487,13 +487,22 @@ async function loadUser() {
 
 function isDevMode() {
   const params = new URLSearchParams(location.search);
-  let enabled = params.get("dev") === "1" || params.get("debug") === "1" || params.get("mode") === "dev";
-  try { enabled ||= localStorage.getItem("suno2mv_dev_mode") === "true"; } catch (_) {}
+  let enabled = (params.get("dev") === "1" ||
+                params.get("debug") === "1" ||
+                params.get("mode") === "dev" ||
+                (params.has("debug") && params.get("debug") !== "0" && params.get("debug") !== "false") ||
+                (params.has("dev") && params.get("dev") !== "0" && params.get("dev") !== "false"));
+  try {
+    enabled ||= localStorage.getItem("suno2mv_dev_mode") === "true" ||
+                localStorage.getItem("suno2mv_debug_mode") === "true";
+  } catch (_) {}
+  if (params.get("dev") === "0" || params.get("debug") === "0") {
+    enabled = false;
+  }
   return Boolean(enabled);
 }
 
-function initUpload() {
-  const isDev = isDevMode();
+function applyDevMode(isDev) {
   const tabSuno = $("#tab-suno");
   const tabLocal = $("#tab-local");
   const sunoForm = $("#suno-form");
@@ -514,6 +523,81 @@ function initUpload() {
     if (tabLocal) tabLocal.classList.add("active");
     if (tabSuno) tabSuno.classList.remove("active");
   }
+
+  if (typeof initApiConfig === "function") initApiConfig();
+
+  document.querySelectorAll(".task-suno-link").forEach((el) => {
+    el.style.display = isDev ? "" : "none";
+  });
+}
+
+window.toggleDevMode = function(forceState) {
+  const current = isDevMode();
+  const next = typeof forceState === "boolean" ? forceState : !current;
+  try {
+    localStorage.setItem("suno2mv_dev_mode", next ? "true" : "false");
+    localStorage.setItem("suno2mv_debug_mode", next ? "true" : "false");
+  } catch (_) {}
+  applyDevMode(next);
+  if (typeof showStatus === "function") {
+    showStatus(next
+      ? "🛠 Debug mode enabled: link import & dev tools unlocked"
+      : "🛠 Debug mode disabled: link import hidden");
+  }
+  try {
+    document.querySelectorAll("iframe").forEach((frame) => {
+      frame.contentWindow?.postMessage?.({ type: "toggle_dev_mode", enabled: next }, "*");
+    });
+  } catch (_) {}
+  return next;
+};
+window.toggleDebugMode = window.toggleDevMode;
+
+function setupTripleClickDebug(el) {
+  if (!el) return;
+  let count = 0;
+  let timer = null;
+  el.style.cursor = "pointer";
+  el.title = "Triple-click to toggle debug mode (Ctrl+Shift+D)";
+  el.addEventListener("click", () => {
+    count++;
+    clearTimeout(timer);
+    if (count >= 3) {
+      count = 0;
+      window.toggleDevMode();
+    } else {
+      timer = setTimeout(() => { count = 0; }, 500);
+    }
+  });
+}
+
+// 快捷键 Ctrl+Shift+D / Cmd+Shift+D (Mac) 切换调试模式
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "D" || e.key === "d")) {
+      e.preventDefault();
+      window.toggleDevMode();
+    }
+  });
+
+  // 监听跨页面/iframe 同步
+  window.addEventListener("storage", (e) => {
+    if (e.key === "suno2mv_dev_mode" || e.key === "suno2mv_debug_mode") {
+      applyDevMode(isDevMode());
+    }
+  });
+}
+
+function initUpload() {
+  applyDevMode(isDevMode());
+  setupTripleClickDebug($(".workspace-brand"));
+  setupTripleClickDebug($(".hero-title"));
+  setupTripleClickDebug($("#auth-title"));
+
+  const tabSuno = $("#tab-suno");
+  const tabLocal = $("#tab-local");
+  const sunoForm = $("#suno-form");
+  const uploadForm = $("#upload-form");
 
   if (tabSuno && tabLocal && sunoForm && uploadForm) {
     tabSuno.addEventListener("click", () => {
@@ -1019,9 +1103,7 @@ function escapeHtml(str) {
 
 
 function initApiConfig() {
-  const params = new URLSearchParams(location.search);
-  let enabled = params.get("dev") === "1" || params.get("debug") === "1" || params.get("mode") === "dev";
-  try { enabled ||= localStorage.getItem("suno2mv_dev_mode") === "true"; } catch (_) {}
+  const enabled = isDevMode();
   for (const selector of ["#api-config-login", "#btn-config-api-app"]) {
     const element = $(selector);
     if (element) element.style.display = enabled ? "" : "none";
