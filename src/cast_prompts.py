@@ -104,8 +104,8 @@ def get_reference_golden_ratio_character() -> CharacterProfile:
     """
     raw_data: dict[str, Any] = {
         "id": "char_zero_soe_0618",
-        "user_id": "system",
-        "visibility": "public",
+        "user_id": "default_local",
+        "visibility": "private",
         "created_at": "2026-10-25T02:00:00Z",
         "identity": {
             "name": "零点六一八",

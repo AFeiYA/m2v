@@ -24,6 +24,7 @@ from src.cast_storage import (
     bind_character_to_song,
     unbind_character_from_song,
     delete_character,
+    verify_character_ownership,
     get_characters_dir,
 )
 
@@ -68,6 +69,10 @@ class SongBindingRequest(BaseModel):
     song_id: str = Field(..., min_length=1)
 
 
+class UpdateVisibilityRequest(BaseModel):
+    visibility: Literal["private", "public"]
+
+
 @router.get("")
 async def api_list_characters(request: Request):
     """Lists summary cards for all characters visible to current caller."""
@@ -110,11 +115,12 @@ async def api_update_character(char_id: str, data: dict[str, Any], request: Requ
     """Updates character profile with ownership validation."""
     storage_dir = getattr(request.app.state, "characters_dir", None)
     user_id = await get_cast_user_id(request)
-    existing = get_character(char_id, storage_dir, current_user_id=user_id)
+    existing = get_character(char_id, storage_dir, current_user_id=None)
     if not existing:
         raise HTTPException(status_code=404, detail="Character not found")
 
     try:
+        verify_character_ownership(existing, current_user_id=user_id)
         data["id"] = char_id  # Enforce ID immutable
         data["user_id"] = existing.user_id  # Preserve original creator
         profile = CharacterProfile.model_validate(data)
@@ -222,6 +228,23 @@ async def api_unbind_song(char_id: str, req: SongBindingRequest, request: Reques
         raise HTTPException(status_code=403, detail=str(pe))
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Character not found")
+
+
+@router.post("/{char_id}/visibility")
+async def api_update_character_visibility(char_id: str, req: UpdateVisibilityRequest, request: Request):
+    """Updates character visibility (private/public) with ownership validation."""
+    storage_dir = getattr(request.app.state, "characters_dir", None)
+    user_id = await get_cast_user_id(request)
+    profile = get_character(char_id, storage_dir, current_user_id=None)
+    if not profile:
+        raise HTTPException(status_code=404, detail="Character not found")
+    try:
+        verify_character_ownership(profile, current_user_id=user_id)
+        profile.visibility = req.visibility
+        save_character(profile, current_user_id=user_id, storage_dir=storage_dir)
+        return {"status": "ok", "visibility": profile.visibility, "character": profile.model_dump()}
+    except PermissionError as pe:
+        raise HTTPException(status_code=403, detail=str(pe))
 
 
 @router.delete("/{char_id}")

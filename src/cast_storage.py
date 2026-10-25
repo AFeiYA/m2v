@@ -59,7 +59,10 @@ def verify_character_ownership(profile: CharacterProfile, current_user_id: str |
         return
     if profile.user_id == "system":
         raise PermissionError("Official system character is read-only and cannot be modified or deleted")
-    if profile.user_id != current_user_id and profile.user_id != "default_local":
+    allowed = (profile.user_id == current_user_id) or (
+        current_user_id == "default_local" and profile.user_id == "default_local"
+    )
+    if not allowed:
         raise PermissionError("Permission denied: You do not have ownership of this character")
 
 
@@ -87,7 +90,7 @@ def list_characters(
             is_owner = (
                 current_user_id is None
                 or profile.user_id == current_user_id
-                or profile.user_id == "default_local"
+                or (current_user_id == "default_local" and profile.user_id == "default_local")
             )
             is_visible = profile.visibility == "public" or is_owner
             if not is_visible:
@@ -133,7 +136,7 @@ def get_character(
     is_owner = (
         current_user_id is None
         or profile.user_id == current_user_id
-        or profile.user_id == "default_local"
+        or (current_user_id == "default_local" and profile.user_id == "default_local")
     )
     if profile.visibility == "private" and not is_owner:
         return None
@@ -345,7 +348,7 @@ def bind_character_to_song(
     is_owner = (
         current_user_id is None
         or profile.user_id == current_user_id
-        or profile.user_id == "default_local"
+        or (current_user_id == "default_local" and profile.user_id == "default_local")
     )
     if profile.visibility == "private" and not is_owner:
         raise PermissionError("Cannot bind a private character you do not own")

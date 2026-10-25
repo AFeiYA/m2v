@@ -19,7 +19,7 @@ class CharacterIdentity(BaseModel):
     """Core character conceptual identity and invariants."""
     name: str = Field(..., description="Character primary name")
     alias: str = Field(..., description="Stage name, alias, or codename")
-    age: int = Field(16, ge=1, le=1000, description="Canonical character age (e.g. 16 for Zero.SOE)")
+    age: int = Field(16, ge=1, le=1000, description="Canonical character age")
     age_locked: bool = Field(True, description="Locks age from accidental prompt drift")
     gender: str = Field(..., description="Gender presentation")
     tagline: str = Field(..., description="One-line defining concept")

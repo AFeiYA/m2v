@@ -1,18 +1,18 @@
 """
 Cast Studio API Integration Tests
 Tests HTTP endpoints:
-- Initial state: includes pre-seeded official public Zero.SOE
-- POST /api/characters (Create with ownership)
-- GET /api/characters (List filtered by visibility and ownership)
-- GET /api/characters/{char_id} (Retrieve with privacy check)
-- POST /api/characters/{char_id}/upload-reference (Multipart image upload)
-- GET /api/characters/{char_id}/assets/{filename} (Asset serving)
-- POST /api/characters/{char_id}/confirm-version (Lock baseline version)
-- POST /api/characters/{char_id}/bind-song (Bind character to song alignment project)
+- Initial state: Zero.SOE is private (not leaked to arbitrary users like Alice or Bob)
+- POST /api/characters (Create private character)
+- Privacy enforcement: Bob cannot see Alice's private character
+- POST /api/characters/{id}/visibility (Toggle between private & public)
+- Visibility update enforcement: Bob can see when public, cannot see when private
+- Permission check: Bob cannot change visibility of Alice's character (HTTP 403)
+- POST /api/characters/{id}/upload-reference (Multipart image upload)
+- POST /api/characters/{id}/confirm-version (Lock baseline version)
+- POST /api/characters/{id}/bind-song (Bind character to song alignment project)
 - Multi-tenant isolation: User B cannot delete/edit User A's character (HTTP 403)
-- System character protection: User B cannot delete official Zero.SOE (HTTP 403)
-- POST /api/characters/{char_id}/unbind-song (Unbind)
-- DELETE /api/characters/{char_id} (Delete)
+- POST /api/characters/{id}/unbind-song (Unbind)
+- DELETE /api/characters/{id} (Delete)
 """
 import io
 import json
@@ -47,15 +47,12 @@ def test_cast_api_full_lifecycle_and_ownership(client_with_tmp_env):
     headers_alice = {"Authorization": f"Bearer {token_alice}"}
     headers_bob = {"Authorization": f"Bearer {token_bob}"}
 
-    # 1. Initial list characters: contains official public benchmark artist Zero.SOE
+    # 1. Initial list characters: Zero.SOE is private to owner/local, so Alice sees empty list
     res = client.get("/api/characters", headers=headers_alice)
     assert res.status_code == 200
     initial_chars = res.json()["characters"]
-    assert len(initial_chars) >= 1
-    assert any(c["id"] == "char_zero_soe_0618" for c in initial_chars)
-    zero_char = next(c for c in initial_chars if c["id"] == "char_zero_soe_0618")
-    assert zero_char["is_official"] is True
-    assert zero_char["visibility"] == "public"
+    # Alice does not see private benchmark character
+    assert not any(c["id"] == "char_zero_soe_0618" for c in initial_chars)
 
     # 2. User Alice creates private character "Luna.WAV"
     create_payload = {
@@ -77,19 +74,42 @@ def test_cast_api_full_lifecycle_and_ownership(client_with_tmp_env):
     assert char_data["identity"]["age"] == 16
     assert char_data["identity"]["age_locked"] is True
 
-    # 3. Privacy check: User Bob lists characters -> Bob sees Zero.SOE, but DOES NOT see Alice's Luna.WAV
+    # 3. Privacy check: User Bob lists characters -> Bob DOES NOT see Alice's private Luna.WAV
     res = client.get("/api/characters", headers=headers_bob)
     assert res.status_code == 200
     bob_chars = res.json()["characters"]
     bob_ids = [c["id"] for c in bob_chars]
-    assert "char_zero_soe_0618" in bob_ids
     assert char_id not in bob_ids
 
     # User Bob cannot fetch Luna.WAV by ID (404 / access denied)
     res = client.get(f"/api/characters/{char_id}", headers=headers_bob)
     assert res.status_code == 404
 
-    # 4. User Alice uploads reference portrait
+    # 4. Visibility toggle: Bob attempts to change Alice's visibility -> 403 Forbidden
+    res = client.post(f"/api/characters/{char_id}/visibility", json={"visibility": "public"}, headers=headers_bob)
+    assert res.status_code == 403
+
+    # Alice toggles Luna.WAV to public
+    res = client.post(f"/api/characters/{char_id}/visibility", json={"visibility": "public"}, headers=headers_alice)
+    assert res.status_code == 200
+    assert res.json()["visibility"] == "public"
+
+    # Now Bob CAN see Luna.WAV in list
+    res = client.get("/api/characters", headers=headers_bob)
+    assert res.status_code == 200
+    assert any(c["id"] == char_id for c in res.json()["characters"])
+
+    # Alice toggles Luna.WAV back to private
+    res = client.post(f"/api/characters/{char_id}/visibility", json={"visibility": "private"}, headers=headers_alice)
+    assert res.status_code == 200
+    assert res.json()["visibility"] == "private"
+
+    # Now Bob CANNOT see Luna.WAV in list again
+    res = client.get("/api/characters", headers=headers_bob)
+    assert res.status_code == 200
+    assert not any(c["id"] == char_id for c in res.json()["characters"])
+
+    # 5. User Alice uploads reference portrait
     dummy_png = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4"
     files = {"file": ("luna_reference.png", io.BytesIO(dummy_png), "image/png")}
     res = client.post(f"/api/characters/{char_id}/upload-reference", files=files, headers=headers_alice)
@@ -104,7 +124,7 @@ def test_cast_api_full_lifecycle_and_ownership(client_with_tmp_env):
     res = client.post(f"/api/characters/{char_id}/upload-reference", files=files_bob, headers=headers_bob)
     assert res.status_code == 403
 
-    # 5. User Alice confirms baseline version (v1 lock)
+    # 6. User Alice confirms baseline version (v1 lock)
     res = client.post(f"/api/characters/{char_id}/confirm-version", headers=headers_alice)
     assert res.status_code == 200
     confirm_res = res.json()
@@ -115,7 +135,7 @@ def test_cast_api_full_lifecycle_and_ownership(client_with_tmp_env):
     res = client.post(f"/api/characters/{char_id}/confirm-version", headers=headers_bob)
     assert res.status_code == 403
 
-    # 6. Song binding
+    # 7. Song binding
     song_folder = "cyberpunk_echoes"
     song_dir = scan_dir / song_folder
     song_dir.mkdir(parents=True)
@@ -133,12 +153,8 @@ def test_cast_api_full_lifecycle_and_ownership(client_with_tmp_env):
     assert res.status_code == 200
     assert song_folder in res.json()["bound_songs"]
 
-    # Bob CAN bind the official Zero.SOE character to Bob's song
-    res = client.post("/api/characters/char_zero_soe_0618/bind-song", json={"song_id": song_folder}, headers=headers_bob)
-    assert res.status_code == 200
-
-    # 7. System character protection: Bob cannot delete official Zero.SOE -> 403 Forbidden
-    res = client.delete("/api/characters/char_zero_soe_0618", headers=headers_bob)
+    # Bob cannot bind Alice's private character -> 403 Forbidden
+    res = client.post(f"/api/characters/{char_id}/bind-song", json={"song_id": song_folder}, headers=headers_bob)
     assert res.status_code == 403
 
     # Bob cannot delete Alice's character -> 403 Forbidden

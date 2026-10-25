@@ -237,10 +237,13 @@
               </span>
             </div>
           </div>
-          <div>
+          <div style="display:flex;gap:8px;align-items:center;">
             ${isOfficial ? `
-              <span class="cast-pill cast-pill-official" style="font-size:0.75rem;padding:4px 10px;">Read-Only Asset</span>
+              <span class="cast-pill cast-pill-official" style="font-size:0.75rem;padding:4px 10px;">Official Read-Only</span>
             ` : `
+              <button type="button" id="cast-btn-toggle-visibility" class="btn btn-sm btn-outline" title="Change character visibility">
+                ${char.visibility === "public" ? "🔒 Make Private" : "🌐 Make Public"}
+              </button>
               <button type="button" id="cast-btn-delete-char" class="btn btn-sm btn-outline" style="color:#ef4444;border-color:rgba(239,68,68,0.4);" title="Delete character">
                 Delete Artist
               </button>
@@ -431,6 +434,12 @@
         await deleteCharacter(char.id);
       }
     });
+
+    // 7. Toggle Visibility
+    document.getElementById("cast-btn-toggle-visibility")?.addEventListener("click", async () => {
+      const nextVis = char.visibility === "public" ? "private" : "public";
+      await toggleVisibility(char.id, nextVis);
+    });
   }
 
   // API Action: Load all characters
@@ -574,6 +583,24 @@
     }
   }
 
+  // API Action: Toggle Visibility
+  async function toggleVisibility(charId, visibility) {
+    try {
+      const res = await castApi(`/api/characters/${charId}/visibility`, {
+        method: "POST",
+        json: { visibility },
+      });
+      if (res.character) {
+        const idx = state.characters.findIndex(c => c.id === charId);
+        if (idx !== -1) state.characters[idx] = res.character;
+        renderRoster();
+        renderDetail();
+      }
+    } catch (err) {
+      alert("Failed to update visibility: " + err.message);
+    }
+  }
+
   // API Action: Delete character
   async function deleteCharacter(charId) {
     try {
@@ -595,18 +622,20 @@
     if (!modal) return;
     modal.hidden = false;
 
-    // Default values (Zero.SOE preset ready)
+    // Reset fields to clean state
     const nameInput = document.getElementById("cast-input-name");
     const aliasInput = document.getElementById("cast-input-alias");
     const ageInput = document.getElementById("cast-input-age");
     const genderInput = document.getElementById("cast-input-gender");
     const taglineInput = document.getElementById("cast-input-tagline");
+    const visInput = document.getElementById("cast-input-visibility");
 
-    if (nameInput && !nameInput.value) nameInput.value = "Zero.SOE";
-    if (aliasInput && !aliasInput.value) aliasInput.value = "零度";
-    if (ageInput && !ageInput.value) ageInput.value = "16";
-    if (genderInput && !genderInput.value) genderInput.value = "female";
-    if (taglineInput && !taglineInput.value) taglineInput.value = "Virtual artist from the neon district";
+    if (nameInput) nameInput.value = "";
+    if (aliasInput) aliasInput.value = "";
+    if (ageInput) ageInput.value = "16";
+    if (genderInput) genderInput.value = "female";
+    if (taglineInput) taglineInput.value = "";
+    if (visInput) visInput.value = "private";
 
     nameInput?.focus();
   }
@@ -654,6 +683,7 @@
       const age = parseInt(document.getElementById("cast-input-age")?.value || "16", 10);
       const gender = document.getElementById("cast-input-gender")?.value || "neutral";
       const tagline = document.getElementById("cast-input-tagline")?.value.trim() || "";
+      const visibility = document.getElementById("cast-input-visibility")?.value || "private";
 
       if (!name) {
         alert("Character name is required");
@@ -666,6 +696,7 @@
         age: isNaN(age) ? 16 : age,
         gender,
         tagline,
+        visibility,
       });
     });
   }

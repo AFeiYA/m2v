@@ -596,12 +596,12 @@
       <form id="cast-form-create" class="cast-modal-form">
         <div class="cast-form-group">
           <label for="cast-input-name">Character Name *</label>
-          <input type="text" id="cast-input-name" required placeholder="e.g. Zero.SOE" value="Zero.SOE">
+          <input type="text" id="cast-input-name" required placeholder="e.g. Luna.WAV" value="">
         </div>
 
         <div class="cast-form-group">
           <label for="cast-input-alias">Alias / Stage Name</label>
-          <input type="text" id="cast-input-alias" placeholder="e.g. 零度" value="零度">
+          <input type="text" id="cast-input-alias" placeholder="e.g. 月音" value="">
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -622,8 +622,16 @@
         </div>
 
         <div class="cast-form-group">
+          <label for="cast-input-visibility">Visibility &amp; Privacy</label>
+          <select id="cast-input-visibility">
+            <option value="private" selected>🔒 Private (Only you can view and use)</option>
+            <option value="public">🌐 Public (Visible to workspace community)</option>
+          </select>
+        </div>
+
+        <div class="cast-form-group">
           <label for="cast-input-tagline">Tagline / Concept Description</label>
-          <textarea id="cast-input-tagline" rows="2" placeholder="e.g. Virtual singer from the neon district">Virtual artist from the neon district</textarea>
+          <textarea id="cast-input-tagline" rows="2" placeholder="e.g. Independent virtual singer &amp; performer"></textarea>
         </div>
 
         <div class="cast-modal-actions">
