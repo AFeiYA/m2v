@@ -230,3 +230,27 @@ test('upload form supports dual-mode lyrics and dropzone toggles', () => {
   assert.equal(pillPaste.classList.contains('active'), true);
   assert.equal(pillUpload.classList.contains('active'), false);
 });
+
+
+test('brand triple click toggles debug without navigating, single click still navigates', () => {
+  const s = setup(), timers = new Map(), navigations = [];
+  let timerId = 0, prevented = 0;
+  s.context.setTimeout = fn => { timers.set(++timerId, fn); return timerId; };
+  s.context.clearTimeout = id => timers.delete(id);
+  s.context.window.location.assign = url => navigations.push(url);
+  const brand = s.element('.workspace-brand');
+  brand.href = 'https://mv.fovea.si/';
+  brand.closest = () => brand;
+  s.run("setupTripleClickDebug(document.querySelector('.workspace-brand'))");
+  const click = () => brand.handlers.click({button: 0, preventDefault() { prevented++; }});
+  click(); click(); click();
+  assert.equal(prevented, 3);
+  for (const fn of [...timers.values()]) fn();
+  timers.clear();
+  assert.equal(s.values.get('suno2mv_debug_mode'), 'true');
+  assert.deepEqual(navigations, []);
+  click();
+  for (const fn of [...timers.values()]) fn();
+  assert.deepEqual(navigations, [brand.href]);
+  brand.handlers.click({button: 0, metaKey: true, preventDefault() { throw Error('Modified click was intercepted'); }});
+});

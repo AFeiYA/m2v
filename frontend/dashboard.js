@@ -559,14 +559,22 @@ function setupTripleClickDebug(el) {
   let timer = null;
   el.style.cursor = "pointer";
   el.title = "Triple-click to toggle debug mode (Ctrl+Shift+D)";
-  el.addEventListener("click", () => {
+  el.addEventListener("click", (event) => {
+    // A brand link must not navigate away before the third click arrives.
+    // Preserve modified clicks, including opening the link in a new tab.
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || (event.button != null && event.button !== 0)) return;
+    const link = el.closest?.("a[href]");
+    if (link) event.preventDefault();
     count++;
     clearTimeout(timer);
     if (count >= 3) {
       count = 0;
       window.toggleDevMode();
     } else {
-      timer = setTimeout(() => { count = 0; }, 500);
+      timer = setTimeout(() => {
+        count = 0;
+        if (link) window.location.assign(link.href);
+      }, 500);
     }
   });
 }
