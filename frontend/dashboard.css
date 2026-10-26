@@ -1211,7 +1211,7 @@ header {
 @media(max-width:600px) {#credits-section {padding:0 16px} #credit-history {padding:0 4px}}
 
 #tasks-section {max-width:1100px;margin:32px auto;padding:0 24px}
-.section-intro,#songs-status,.song-updated,.song-version p {color:var(--text-muted);font-size:13px;line-height:1.6}
+.section-intro,#songs-status,.song-updated {color:var(--text-muted);font-size:13px;line-height:1.6}
 .song-toolbar {display:flex;gap:10px;margin:20px 0 12px;flex-wrap:wrap}
 .song-toolbar input,.song-toolbar select {padding:11px 12px;border:1px solid var(--border);border-radius:9px;background:var(--bg-card);color:var(--text)}
 .song-toolbar input {flex:1;min-width:200px}
@@ -1221,15 +1221,13 @@ header {
 .song-heading h3 {font-size:17px;line-height:1.45;margin:0;overflow-wrap:anywhere}.song-heading p {margin:4px 0 0;font-size:12px;color:var(--text-muted)}
 .song-initial {display:grid;place-items:center;width:46px;height:46px;border-radius:12px;background:var(--bg);color:var(--accent-light);font-size:23px;flex-shrink:0}
 .song-star {border:0;background:transparent;color:var(--text-muted);font-size:26px;cursor:pointer}.song-star[aria-pressed=true] {color:#e6b84e}
-.song-state {font-size:13px;margin:20px 0 4px}.song-updated {margin:0 0 16px}.song-versions {margin-top:18px;border-top:1px solid var(--border);padding-top:14px}
-.song-versions summary {cursor:pointer;color:var(--text-muted);font-size:13px}.song-version {padding:16px 0;border-bottom:1px solid var(--border)}.song-version:last-child {border-bottom:0}
+.song-state {font-size:13px;margin:20px 0 4px}.song-updated {margin:0 0 16px}
 .song-pagination {display:flex;gap:12px;align-items:center;justify-content:center;margin:22px 0}
 @media(max-width:720px){.song-grid {grid-template-columns:1fr}#tasks-section {padding:0 16px}.song-card {padding:18px}.song-toolbar select {flex:1}}
 .creation-guide {font-size:14px;color:var(--text-muted);line-height:1.8;margin:10px 0 22px}.creation-guide span {padding:0 8px;color:var(--accent-light)}
 .import-options {margin:0 0 18px;color:var(--text-muted);font-size:13px}.import-options summary {cursor:pointer;margin:10px 0}.import-options[open] summary {margin-bottom:16px}
 .song-card .task-actions .btn {display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:8px 12px;font-size:13px}
 .song-initial {position:relative;overflow:hidden}.song-initial img {position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.song-artist {font-size:12px;color:var(--text-muted)}
-#version-trash {padding:14px 0;color:var(--text-muted);font-size:13px}#version-trash summary {cursor:pointer}#version-trash-list {max-height:350px;overflow:auto}
 
 /* Studio shell: left drawer navigation, 0 vertical header space, content-first. */
 .workspace-header {
@@ -1892,7 +1890,6 @@ header {
 .workspace-content .song-toolbar {margin-top:0;justify-content:flex-end}
 .workspace-content .song-toolbar select {border-radius:20px;padding:8px 14px;border:1px solid rgba(255,255,255,0.1);background:#15161a}
 
-#trash-section #version-trash {margin-top:26px;padding:20px;background:#15161a;border:1px solid var(--border);border-radius:12px}
 :root .workspace-header #user-credits:empty {display:none}
 :focus-visible {outline:2px solid var(--accent);outline-offset:3px}
 @media(min-width:1800px){.workspace-content {padding-left:48px;padding-right:48px}}

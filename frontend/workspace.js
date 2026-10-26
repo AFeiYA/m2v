@@ -4,7 +4,6 @@
     'tasks-section',
     'exports-section',
     'upload-section',
-    'trash-section',
     'credits-section',
     'lyric-editor-section',
     'motion-studio-section'
@@ -116,7 +115,6 @@
         'tasks-section': 'My Library',
         'exports-section': 'My Exports',
         'upload-section': 'New Project',
-        'trash-section': 'Trash',
         'credits-section': 'Credits & Billing',
         'lyric-editor-section': 'Lyric Studio',
         'motion-studio-section': 'Motion Studio',
@@ -164,7 +162,6 @@
       }
 
       if (active === 'credits-section') window.m2vBilling?.refresh();
-      if (active === 'trash-section') document.getElementById('version-trash').open = true;
       if (active !== 'exports-section') document.getElementById('btn-close-export-preview')?.click();
 
       if (focus) {

@@ -70,8 +70,8 @@ async def library(db, uid):
                                     if t.created_at.tzinfo is None else t.created_at, t.id), reverse=True)
         preference = preferences.get(song_id)
         editable = [t for t in versions if t.status == TaskStatus.COMPLETED and t.alignment_json_key]
-        current = next((t for t in editable if preference and t.id == preference.preferred_task_id), None)
-        current = current or (editable[0] if editable else None)
+        # The library always opens the newest usable lyrics, ignoring legacy selections.
+        current = editable[0] if editable else None
         latest = versions[0]
         songs.append({"id": song_id, "title": (current or latest).song_title or (current or latest).title or "Untitled",
                       "artist": ((current or latest).config_snapshot or {}).get('library_artist',''),
@@ -129,8 +129,8 @@ async def change_song(song_id: str, change: LibraryChange,
     if any(values.get(k) is None for k in ('starred', 'archived') if k in values):
         raise HTTPException(422, 'Library flags must be true or false')
     preferred = values.get('preferred_task_id')
-    if preferred is not None and not any(v['id'] == preferred and v['editable'] for v in song['versions']):
-        raise HTTPException(409, 'Choose a completed version of this song')
+    if preferred is not None and preferred != song['current_task_id']:
+        raise HTTPException(409, 'Songs always use their latest available lyrics')
     if values:
         if db.bind.dialect.name == 'postgresql':
             from sqlalchemy.dialects.postgresql import insert

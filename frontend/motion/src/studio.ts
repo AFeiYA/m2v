@@ -18,7 +18,6 @@ let audioObjectUrl='';
 let audioReady=false;
 let loadSequence=0;
 let project:Project|null=null,plan:MotionPlan|null=null,engine:RemotionPreview|null=null,selected='',currentCue='',dirty=false,jobId='',playing=false;
-let activeSongPicker:any=null;
 audio.addEventListener('pause',()=>{playing=false;$('play').textContent='▶';});
 let identityDirty=false,settingsDirty=false,saving=false;
 let ruleSeed:MotionPlan|null=null;
@@ -148,9 +147,6 @@ async function load(id:string){
     opt.textContent=project.title||id;
    }
    select.value=id;
-  }
-  if(activeSongPicker&&project.title){
-   try{activeSongPicker.setTitle(project.title);}catch(_){}
   }
   $('track-name').textContent=project.title||select?.selectedOptions?.[0]?.text||'';
   $<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';
@@ -885,12 +881,9 @@ window.addEventListener('beforeunload',event=>{if(dirty||identityDirty||settings
 (async()=>{try{
  const select=$<HTMLSelectElement>('project-select');
  const rows: {id:string;name:string}[]=cloudService()
-  ? ((await serviceJson('/api/songs?view=all&page_size=50'))?.songs||[]).filter((s:any)=>s.current_task_id).map((s:any)=>({id:s.current_task_id,name:s.title}))
+  ? (await window.m2vSongSelect.load(serviceJson)).map((s:any)=>({id:s.current_task_id,name:s.title}))
   : await api('projects');
  for(const row of rows){const item=document.createElement('option');item.value=row.id;item.textContent=row.name;select.append(item);}
- if(window.m2vSongPicker){
-  activeSongPicker = window.m2vSongPicker.mount(select,serviceJson,async id=>{await load(id);return selected===id;});
- }
  const params=new URLSearchParams(location.search),wanted=params.get('project')||params.get('song');
  const chosen=wanted?rows.find((row:{id:string;name:string})=>row.id===wanted||row.name===wanted):(rows.length===1?rows[0]:null);
  if(chosen){select.value=chosen.id;await load(chosen.id);}else if(wanted){await load(wanted);}

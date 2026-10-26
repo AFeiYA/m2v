@@ -13,11 +13,11 @@ function setup(){
  vm.createContext(context);vm.runInContext(source,context);vm.runInContext('currentUser={id:"alice"}',context);
  return {nodes,calls,context,row,run:s=>vm.runInContext(s,context)};
 }
-test('song cards group versions, escape text and keep an editable version after failure',async()=>{
+test('song cards expose latest available lyrics without history controls',async()=>{
  const s=setup();await s.run('loadTasks()');
  assert.match(s.calls[0].url,/api\/songs\?/);assert.match(s.calls[0].url,/page_size=12/);
  const html=s.nodes.get('#tasks-list').innerHTML;
- assert.match(html,/&lt;Rabbit hole>/);assert.match(html,/Versions &amp; history \(2\)/);
+ assert.match(html,/&lt;Rabbit hole>/);assert.doesNotMatch(html,/Versions &amp; history|Use this version|Move to Trash/);
  assert.match(html,/lyric-editor\/version-a/);assert.match(html,/Latest import failed/);assert.match(html,/&lt;error>/);
  assert.equal(s.nodes.get('#songs-next').disabled,false);
  assert.equal(s.calls.some(c=>c.url.includes('/align')||c.url.includes('/audio')),false);

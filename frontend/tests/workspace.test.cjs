@@ -19,9 +19,9 @@ test('library is the default; deep links and back navigation show exactly one pa
  assert.equal(s.node('btn-close-export-preview').clicked,true);
  assert.equal(s.node('link-exports-section').attrs['aria-current'],undefined);
 });
-test('Trash opens recoverable versions and search returns from exports to library',()=>{
- const s=setup('#trash-section');assert.equal(s.node('version-trash').open,true);
- assert.equal(s.node('trash-section').hidden,false);
+test('retired version trash links fall back to the song library',()=>{
+ const s=setup('#trash-section');
+ assert.equal(s.node('tasks-section').hidden,false);
  s.node('song-search').handlers.input();assert.equal(s.context.location.hash,'tasks-section');
 });
 test('mobile navigation starts closed, can open, and closes after selecting a page',()=>{

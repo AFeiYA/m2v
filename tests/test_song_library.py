@@ -63,8 +63,9 @@ def test_preferences_persist_and_never_touch_other_users_or_credit_balance(sandb
     assert sandbox.client.patch(endpoint,headers=headers(),json={'preferred_task_id':'bob-old'}).status_code == 409
     assert sandbox.client.patch(endpoint,headers=headers(),json={'preferred_task_id':'alice-bad'}).status_code == 409
     for _ in range(2):
-        assert sandbox.client.patch(endpoint,headers=headers(),json={'starred':True,'preferred_task_id':'alice-old'}).status_code == 200
-    assert song(sandbox)['current_task_id'] == 'alice-old'
+        assert sandbox.client.patch(endpoint,headers=headers(),json={'starred':True}).status_code == 200
+    assert sandbox.client.patch(endpoint,headers=headers(),json={'preferred_task_id':'alice-old'}).status_code == 409
+    assert song(sandbox)['current_task_id'] == 'alice-new'
     starred = sandbox.client.get('/api/songs?view=starred',headers=headers()).json()
     assert starred['total'] == 1
     assert sandbox.client.patch(endpoint,headers=headers(),json={'archived':True}).status_code == 200
@@ -131,3 +132,18 @@ def test_editing_old_version_does_not_hide_latest_import_failure(sandbox):
     assert group['status'] == 'failed'
     assert group['current_task_id'] == 'alice-new'
     assert group['updated_at'].startswith('2026-10-16')
+
+
+def test_legacy_selection_cannot_override_latest_usable_lyrics(sandbox):
+    from src.models import SongPreference
+    seed(sandbox)
+    group = song(sandbox)
+    async def remember_old_selection():
+        async with sandbox.sessions() as db:
+            db.add(SongPreference(id=group['id'], user_id='alice', preferred_task_id='alice-old'))
+            await db.commit()
+    asyncio.run(remember_old_selection())
+    latest = song(sandbox)
+    assert latest['current_task_id'] == 'alice-new'
+    assert latest['latest_task_id'] == 'alice-bad'
+    assert latest['export_count'] == 1

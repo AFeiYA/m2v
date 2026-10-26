@@ -166,10 +166,7 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></svg>
               <span>Credit history</span>
             </a>
-            <a href="#trash-section" class="account-menu-item" role="menuitem" data-workspace-link>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-              <span>Trash</span>
-            </a>
+
             <button type="button" id="btn-copy-plugin-token" class="account-menu-item" role="menuitem" title="Copy extension sign-in token">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-1.5 1.5L14 9l-1.5-1.5-3 3L8 9 6.5 10.5 8 12l-5 5v5h5l5-5 1.5 1.5 1.5-1.5-1.5-1.5 3.5-3.5 1.5 1.5 2-2z"/></svg>
               <span>Extension token</span>
@@ -484,7 +481,7 @@
         <h2>My Library</h2>
         <button id="btn-refresh" class="btn btn-sm">🔄 Refresh</button>
       </div>
-      <p class="section-intro">Your songs, lyric versions and finished videos — together in one library.</p>
+      <p class="section-intro">Your songs, latest lyrics and finished videos — together in one library.</p>
       <div class="song-toolbar">
 
         <select id="song-view" aria-label="Song view"><option value="active">My songs</option><option value="starred">Favorites</option><option value="archived">Archived</option><option value="all">All songs</option></select>
@@ -545,11 +542,6 @@
       </div>
     </section>
 
-    <section id="trash-section" class="workspace-page" tabindex="-1" hidden>
-      <div class="section-header"><h2>Trash</h2></div>
-      <p class="section-intro">Restore lyric versions you moved to Trash. Finished videos stay in Exports.</p>
-      <details id="version-trash"><summary>Version Trash · finished videos are kept</summary><div id="version-trash-list"></div></details>
-    </section>
     <section id="credits-section" class="workspace-page" tabindex="-1" hidden>
       <div class="section-header credits-header-wrap">
         <div>
@@ -669,8 +661,8 @@
   <script src="/workspace-store.js?v=20261021_navigation"></script>
   <script src="/studio-adapters.js?v=20261022_credits"></script>
   <script src="/media-arbiter.js?v=20261019_arbiter"></script>
-  <script src="/workspace.js?v=20261021_navigation"></script>
-  <script src="/dashboard.js?v=20261026_debug_click"></script>
+  <script src="/workspace.js?v=20261027_latest_lyrics"></script>
+  <script src="/dashboard.js?v=20261027_latest_lyrics"></script>
   <script src="/billing.js?v=20261024_checkout_origin"></script>
 </body>
 </html>

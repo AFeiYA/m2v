@@ -7,6 +7,14 @@ Current module/deployment references: [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.m
 notes below are implementation history; they do not override current catalogue
 or runtime configuration.
 
+## Lyrics workflow — 2026-10-27
+
+Each song opens its latest successfully aligned lyrics. User-facing lyric version
+selection, version history and version trash are retired. A failed or pending
+replacement import does not discard the last usable alignment. Legacy task records
+remain available internally for credit accounting and existing video exports;
+previous preferred-task selections no longer affect which lyrics open.
+
 ## Current release status — 2026-10-24
 
 The code offers Creator ($9.99/300), Pro ($19.99/800) and Studio ($29.99/1,500)
@@ -194,3 +202,5 @@ Browser encoding and upload/publication are separate stages. Only an actual,
 verified MP4 can enter My Exports. Archive and credit settlement commit together;
 a save retry reuses the same request ID and file. Metadata-only cloud recording
 returns 410 and must not produce a downloadable video or charge credits.
+
+Song switching uses the existing native dropdown in Lyric Editor and Motion Studio. The duplicate chooser dialog is removed; dropdown options include all library pages and open the latest available lyrics. Unsaved changes still require confirmation before switching songs.

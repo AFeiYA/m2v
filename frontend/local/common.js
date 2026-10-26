@@ -554,24 +554,18 @@ async function loadFileList(preferredTitle) {
   try {
     let files = [];
     if (isCloudMode()) {
-      const r = await apiFetch('/api/songs?view=all&page_size=50'+(preferredTitle?'&q='+encodeURIComponent(preferredTitle):''));
-      if (!r.ok) throw new Error('Unable to load your songs. Please sign in and retry.');
-      const data=await r.json();
-      files=data.songs.filter(s=>s.current_task_id).map(s=>cloudSongFile({task_id:s.current_task_id,name:s.title}));
+      const songs = await window.m2vSongSelect.load(async path => {
+        const response = await apiFetch(path);
+        if (!response.ok) throw Error('Unable to load your songs. Please sign in and retry.');
+        return response.json();
+      });
+      files=songs.map(s=>cloudSongFile({task_id:s.current_task_id,name:s.title}));
       const params=new URLSearchParams(window.location.search);
       const target=params.get('task_id')||(window.location.pathname.match(/\/lyric-editor\/([0-9a-fA-F-]+)/)||[])[1];
       if(target&&!files.some(f=>f.task_id===target)){
         const response=await apiFetch('/api/editor/tasks/'+encodeURIComponent(target)+'/info');
         if(response.ok)files.push(cloudSongFile(await response.json()));
       }
-      if(window.m2vSongPicker)window.m2vSongPicker.mount(dom.songSelect,async path=>{
-        const response=await apiFetch(path);if(!response.ok)throw Error('Unable to load songs. Please retry.');return response.json();
-      },async id=>{
-        if(state.dirty&&!confirm('Switch versions and discard unsaved lyric changes?'))return false;
-        let index=state.allFiles.findIndex(f=>f.task_id===id);
-        if(index<0){state.allFiles.push(cloudSongFile({task_id:id,name:'Song'}));index=state.allFiles.length-1;}
-        await loadSong(index);return state.currentFile?.task_id===id;
-      });
     } else {
       const r = await apiFetch("/api/files");
       if (r.status === 403) {
@@ -601,7 +595,7 @@ async function loadFileList(preferredTitle) {
       const idx = state.allFiles.findIndex(f => f.task_id === targetTaskId);
       if (idx >= 0) loadSong(idx);
       else {
-        status('The requested song is unavailable. Choose it from My Songs or restore it from Trash.',true);
+        status('The requested song is unavailable. Choose another song from your library.',true);
         window.m2vStudioBridge?.error(targetTaskId,'The requested song is unavailable.');
       }
       return;
@@ -634,7 +628,10 @@ let lyricEditRevision = 0;
 let alignmentSaveInFlight = false;
 async function loadSong(idx) {
   const nextFile=state.allFiles[idx];
-  if(state.dirty&&nextFile&&nextFile!==state.currentFile&&!confirm('Switch songs and discard unsaved lyric changes?'))return;
+  if(state.dirty&&nextFile&&nextFile!==state.currentFile&&!confirm('Switch songs and discard unsaved lyric changes?')){
+    if(dom.songSelect)dom.songSelect.value=String(state.allFiles.indexOf(state.currentFile));
+    return;
+  }
 
   const loadSequence = ++songLoadSequence;
   const loadOwner = window.m2vCache?.getCurrentUid();
@@ -643,7 +640,7 @@ async function loadSong(idx) {
   if (!file) return;
   if(file.is_saas&&!file.details_loaded){
     const response=await apiFetch(`/api/editor/tasks/${file.task_id}/info`);
-    if(!response.ok){status('Unable to open this version. Restore it from Trash if needed.',true);window.m2vStudioBridge?.error(file.task_id,'Unable to open this song. Check sign-in or restore it from Trash.');return;}
+    if(!response.ok){status('Unable to open this song. Please refresh your library.',true);window.m2vStudioBridge?.error(file.task_id,'Unable to open this song. Please check your sign-in and refresh your library.');return;}
     const info = await response.json();
     if (!isCurrentLoad()) return;
     Object.assign(file,cloudSongFile(info));
