@@ -766,24 +766,125 @@ async function directorPrompt(single:boolean){
 }
 $('director-input').onclick=action(()=>directorPrompt(false));$('line-director-input').onclick=action(()=>directorPrompt(true));
 let aiJob='',aiBaseline='',aiBusy=false;
-async function loadAIConfig(){try{const config=await api('director/config');$('ai-config-status').textContent=config.configured?`Connected to ${config.model}${config.fallback_model?` · Quota fallback: ${config.fallback_model}`:''} · Sends only lyrics, timing, and audio analysis`:'Gemini is not configured. Set GEMINI_API_KEY on the backend.';for(const id of ['ai-line','ai-song'])$<HTMLButtonElement>(id).disabled=!config.configured;}catch{$('ai-config-status').textContent='Unable to load model settings';}}
-async function aiDirector(single:boolean){
- if(aiBusy)return;if(!selected)throw new Error('Select a song first.');if(single&&!currentCue)throw new Error('Generate a base plan and select a lyric line first.');requireSaved();
- aiBusy=true;aiJob='';$('ai-apply').hidden=true;for(const id of ['ai-line','ai-song'])$<HTMLButtonElement>(id).disabled=true;
- const projectId=selected;aiBaseline=JSON.stringify(plan);
- try{
-  const request=await api('director/generate','POST',{project_id:projectId,line_id:single?currentCue:null,style:$<HTMLSelectElement>('preset').value,instruction:$<HTMLTextAreaElement>('director-instruction').value});
-  aiJob=request.id;
-  for(;;){const job=await api('director/jobs/'+aiJob);$('ai-job-status').textContent=({queued:'Waiting for Gemini…',running:'Gemini is designing posters and animation…',validating:'Validating lyrics, hierarchy, and locked lines…',repairing:'Validation failed. Attempting one automatic repair…',ready:'Validated. Apply to preview, then save.',failed:'Generation failed: '+job.error} as Record<string,string>)[job.status]||job.status;
-   if(job.fallback_used)$('ai-job-status').textContent+=` · Rate or quota limit reached. Switched to ${job.model}`;
-   if(job.status==='failed')throw new Error(job.error);
-   if(job.status==='ready'){if(selected!==projectId)throw new Error('Song changed. Return to the original song to regenerate.');$('ai-apply').hidden=false;break;}
-   await new Promise(resolve=>setTimeout(resolve,1000));
+function isChineseLocale(): boolean {
+  try {
+    const docLang = typeof document !== 'undefined' && document?.documentElement?.lang;
+    const winLang = typeof window !== 'undefined' && (window as unknown as { currentLocale?: string })?.currentLocale;
+    return Boolean((docLang || winLang || '').toLowerCase().startsWith('zh'));
+  } catch {
+    return false;
   }
- }finally{aiBusy=false;for(const id of ['ai-line','ai-song'])$<HTMLButtonElement>(id).disabled=false;}
 }
+
+async function loadAIConfig(){
+  try{
+    const config=await api('director/config');
+    const isZh=isChineseLocale();
+    $('ai-config-status').textContent=config.configured
+      ?(isZh?`已连接到 ${config.model}${config.fallback_model?` · 备用模型: ${config.fallback_model}`:''} · 仅传输歌词、时间戳及节拍数据`:`Connected to ${config.model}${config.fallback_model?` · Quota fallback: ${config.fallback_model}`:''} · Sends only lyrics, timing, and audio analysis`)
+      :(isZh?'未检测到 Gemini 配置。请在后端设置 GEMINI_API_KEY。':'Gemini is not configured. Set GEMINI_API_KEY on the backend.');
+    for(const id of ['ai-line','ai-song'])$<HTMLButtonElement>(id).disabled=!config.configured;
+  }catch{
+    $('ai-config-status').textContent=isChineseLocale()?'无法获取模型配置':'Unable to load model settings';
+  }
+}
+
+async function aiDirector(single:boolean){
+  if(aiBusy)return;
+  if(!selected)throw new Error('Select a song first.');
+  if(single&&!currentCue)throw new Error('Generate a base plan and select a lyric line first.');
+  requireSaved();
+
+  const isZh=isChineseLocale();
+  const targetId=single?'ai-line':'ai-song';
+  const otherId=single?'ai-song':'ai-line';
+  const targetBtn=$<HTMLButtonElement>(targetId);
+  const otherBtn=$<HTMLButtonElement>(otherId);
+  const originalText=targetBtn.textContent||'';
+
+  aiBusy=true;
+  aiJob='';
+  $('ai-apply').hidden=true;
+  $('ai-apply').classList.remove('pulse-highlight');
+
+  targetBtn.classList.add('is-loading');
+  targetBtn.disabled=true;
+  targetBtn.textContent=single
+    ?(isZh?'⏳ 正在设计当前句…':'⏳ Directing Line…')
+    :(isZh?'⏳ 正在设计整曲方案…':'⏳ Directing Song…');
+  otherBtn.disabled=true;
+
+  const projectId=selected;
+  aiBaseline=JSON.stringify(plan);
+
+  const statusMapZh: Record<string, string> = {
+    queued: '⏳ 排队中，正在等待 Gemini 响应…',
+    running: '✨ Gemini 正在设计海报版式与动效方案…',
+    validating: '🔍 正在校验歌词完整性、层级结构与锁定行…',
+    repairing: '🛠 校验微调中，自动优化版式…',
+    ready: '✅ 方案已就绪！请点击下方【应用 Gemini 方案到预览】',
+    failed: '❌ 生成失败: ',
+  };
+  const statusMapEn: Record<string, string> = {
+    queued: 'Waiting for Gemini…',
+    running: 'Gemini is designing posters and animation…',
+    validating: 'Validating lyrics, hierarchy, and locked lines…',
+    repairing: 'Validation failed. Attempting one automatic repair…',
+    ready: 'Validated. Click "Preview Gemini Plan" below to preview, then save.',
+    failed: 'Generation failed: ',
+  };
+
+  try{
+    const request=await api('director/generate','POST',{project_id:projectId,line_id:single?currentCue:null,style:$<HTMLSelectElement>('preset').value,instruction:$<HTMLTextAreaElement>('director-instruction').value});
+    aiJob=request.id;
+    for(;;){
+      const job=await api('director/jobs/'+aiJob);
+      const map=isChineseLocale()?statusMapZh:statusMapEn;
+      const statusText=job.status==='failed'?(map.failed+job.error):(map[job.status]||job.status);
+      $('ai-job-status').textContent=statusText;
+      if(job.fallback_used){
+        $('ai-job-status').textContent+=isChineseLocale()?` · 主模型超限，已切换到备用模型 ${job.model}`:` · Rate or quota limit reached. Switched to ${job.model}`;
+      }
+      if(job.status==='failed')throw new Error(job.error);
+      if(job.status==='ready'){
+        if(selected!==projectId)throw new Error('Song changed. Return to the original song to regenerate.');
+        $('ai-apply').hidden=false;
+        $('ai-apply').classList.add('pulse-highlight');
+        $('ai-apply').scrollIntoView({behavior:'smooth',block:'nearest'});
+        break;
+      }
+      await new Promise(resolve=>setTimeout(resolve,1000));
+    }
+  }finally{
+    aiBusy=false;
+    targetBtn.classList.remove('is-loading');
+    const key=targetBtn.getAttribute('data-i18n');
+    if(key&&typeof (window as unknown as {t?:(k:string)=>string}).t==='function'){
+      targetBtn.textContent=(window as unknown as {t:(k:string)=>string}).t(key)||originalText;
+    }else{
+      targetBtn.textContent=originalText;
+    }
+    targetBtn.disabled=false;
+    otherBtn.disabled=false;
+  }
+}
+
 $('ai-line').onclick=action(()=>aiDirector(true));$('ai-song').onclick=action(()=>aiDirector(false));
-$('ai-apply').onclick=action(async()=>{if(dirty||JSON.stringify(plan)!==aiBaseline)throw new Error('The local plan changed. Save before requesting a new Gemini plan.');const id=selected,sequence=loadSequence;const result=await api('director/jobs/'+aiJob+'/apply?preview=true','POST');if(selected!==id||sequence!==loadSequence||dirty||JSON.stringify(plan)!==aiBaseline)throw new Error('Preview changed. Apply again; your current edits are preserved.');plan=preserveHighlight(result.plan,plan,($<HTMLSelectElement>('highlight-mode').value||'none') as HighlightMode);dirty=true;$('ai-apply').hidden=true;refresh();listCues();$('ai-job-status').textContent='Gemini plan applied locally. Save to sync.';status('Local preview updated. Save when ready.');});
+$('ai-apply').onclick=action(async()=>{
+  if(dirty||JSON.stringify(plan)!==aiBaseline)throw new Error('The local plan changed. Save before requesting a new Gemini plan.');
+  const id=selected,sequence=loadSequence;
+  const result=await api('director/jobs/'+aiJob+'/apply?preview=true','POST');
+  if(selected!==id||sequence!==loadSequence||dirty||JSON.stringify(plan)!==aiBaseline)throw new Error('Preview changed. Apply again; your current edits are preserved.');
+  plan=preserveHighlight(result.plan,plan,($<HTMLSelectElement>('highlight-mode').value||'none') as HighlightMode);
+  dirty=true;
+  $('ai-apply').hidden=true;
+  $('ai-apply').classList.remove('pulse-highlight');
+  refresh();
+  listCues();
+  const isZh=isChineseLocale();
+  $('ai-job-status').textContent=isZh?'Gemini 方案已应用到本地预览，请点击上方保存以同步。':'Gemini plan applied locally. Save to sync.';
+  status(isZh?'本地预览已更新，确认满意后请保存。':'Local preview updated. Save when ready.');
+});
 new MutationObserver(()=>{updateSaveState();populateExportMatrix();}).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
 void loadAIConfig();
 async function returnedPlan(apply:boolean){
