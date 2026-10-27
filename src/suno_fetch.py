@@ -40,6 +40,7 @@ except Exception:
     pass
 
 from src.utils import is_valid_audio_file, log
+from src.suno_audio_cache import remember_audio, temporary_path, verified_audio, write_if_changed
 
 
 
@@ -630,7 +631,7 @@ def enrich_alignment_sections(
 
 
 def download_song(
-    url_or_id: str,
+    url_or_id: str | SunoSong,
     output_dir: Path,
     *,
     song_name: str | None = None,
@@ -662,35 +663,36 @@ def download_song(
     json_path = output_dir / f"{name}_suno.json"
     lyrics_path = output_dir / f"{name}.txt"
 
+    # Metadata can change independently of the audio. Never infer provenance
+    # from a same-title file or from metadata about to be overwritten.
+    audio_path = None
+    extensions = (".mp3", ".wav", ".m4a", ".flac")
+    candidates = [output_dir / f"{name}{extension}" for extension in extensions]
+    # A title change must not force another download of this same UUID.
+    candidates.extend(path for path in sorted(output_dir.iterdir()) if path.suffix.lower() in extensions)
+    for candidate in dict.fromkeys(candidates):
+        if verified_audio(candidate, song.id) and is_valid_audio_file(candidate):
+            audio_path = candidate
+            log.info("歌曲 UUID 匹配且音频校验通过: %s (%s)，复用原音频", song.id, candidate.name)
+            break
+
     # 1. 写入完整 JSON 元数据
     if save_json:
-        json_path.write_text(
-            json.dumps(song.raw_clip, ensure_ascii=False, indent=2),
-            encoding="utf-8"
-        )
-        log.info("元数据 JSON 已保存: %s", json_path.name)
+        if write_if_changed(json_path, json.dumps(song.raw_clip, ensure_ascii=False, indent=2)):
+            log.info("元数据 JSON 已更新: %s", json_path.name)
 
     # 2. 写入清洗后歌词
-    if song.lyrics:
-        lyrics_path.write_text(song.lyrics, encoding="utf-8")
-        log.info("歌词已保存: %s (%d 行)", lyrics_path.name, song.lyrics.count('\n') + 1)
-    else:
-        lyrics_path.write_text(song.raw_prompt, encoding="utf-8")
+    lyrics_text = song.lyrics or song.raw_prompt
+    if write_if_changed(lyrics_path, lyrics_text):
+        log.info("歌词已更新: %s (%d 行)，原音频按歌曲 UUID 独立判断", lyrics_path.name, lyrics_text.count('\n') + 1)
+    if not song.lyrics:
         log.warning("未检测到标准歌词段，已保存原始 prompt")
-
-    # 2.5 检查是否已有完整有效音频文件（直接秒级复用）
-    audio_path = None
-    for ext_cand in [".mp3", ".wav", ".m4a"]:
-        cand = output_dir / f"{name}{ext_cand}"
-        if cand.exists() and is_valid_audio_file(cand):
-            log.info("检测到已存在有效音频文件: %s (%.2fMB)，直接复用", cand.name, cand.stat().st_size / 1024 / 1024)
-            audio_path = cand
-            break
 
     # 3. 尝试下载音频 (优先 mp3)
     if not audio_path and song.audio_url and "forbidden" not in song.audio_url:
         ext = ".mp3" if ".mp3" in song.audio_url.lower() else (".m4a" if ".m4a" in song.audio_url.lower() else ".mp3")
         dest_audio = output_dir / f"{name}{ext}"
+        pending_audio = temporary_path(dest_audio)
         log.info("下载音频: %s → %s", song.audio_url, dest_audio.name)
         try:
             req_headers = {
@@ -708,28 +710,30 @@ def download_song(
 
             resp = requests.get(song.audio_url, stream=True, timeout=120, headers=req_headers)
             if resp.status_code == 200:
-                with open(dest_audio, 'wb') as f:
+                with pending_audio.open('wb') as f:
                     for chunk in resp.iter_content(chunk_size=8192):
                         f.write(chunk)
-                file_size_mb = dest_audio.stat().st_size / 1024 / 1024
+                file_size_mb = pending_audio.stat().st_size / 1024 / 1024
                 # 严格校验音频有效性 (防止防盗链空壳、截断或无 moov atom 的混淆流)
-                if is_valid_audio_file(dest_audio):
+                if is_valid_audio_file(pending_audio):
+                    pending_audio.replace(dest_audio)
+                    remember_audio(dest_audio, song.id)
                     log.info("音频下载并验证完成: %.2fMB (%s)", file_size_mb, dest_audio.name)
                     audio_path = dest_audio
                 else:
                     log.warning("下载的文件并非可解码的有效音频 (如缺少 moov atom 或防盗链混淆)，自动清除: %s", dest_audio.name)
-                    dest_audio.unlink(missing_ok=True)
             else:
                 log.warning("音频流不可直接下载 (HTTP %d)，跳过网络直链下载", resp.status_code)
         except Exception as e:
             log.warning("音频下载异常: %s", e)
-            if dest_audio.exists():
-                dest_audio.unlink(missing_ok=True)
+        finally:
+            pending_audio.unlink(missing_ok=True)
 
 
     # 4. 若音频直链不可用 (如 403 或加密)，自动从 Suno 官方公开视频直链提取高质量音频 (mp4 内含未加密的高清音轨)
     if (not audio_path or not audio_path.exists() or not is_valid_audio_file(audio_path)) and song.video_url:
         dest_audio = output_dir / f"{name}.mp3"
+        pending_audio = temporary_path(dest_audio)
         log.info("音频直链受限，自动从 Suno 视频流提取高品质音频: %s → %s", song.video_url, dest_audio.name)
         try:
             import subprocess
@@ -741,23 +745,23 @@ def download_song(
                 "-vn",
                 "-c:a", "libmp3lame",
                 "-b:a", "192k",
-                str(dest_audio),
+                str(pending_audio),
             ]
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-            if res.returncode == 0 and is_valid_audio_file(dest_audio):
+            if res.returncode == 0 and is_valid_audio_file(pending_audio):
+                pending_audio.replace(dest_audio)
+                remember_audio(dest_audio, song.id)
                 file_size_mb = dest_audio.stat().st_size / 1024 / 1024
                 log.info("🎯 成功从视频直链提取高品质 MP3: %.2fMB (%s)", file_size_mb, dest_audio.name)
                 audio_path = dest_audio
             else:
                 log.warning("从视频流提取音频未完成: %s", res.stderr[-200:] if res.stderr else "未知错误")
-                if dest_audio.exists():
-                    dest_audio.unlink(missing_ok=True)
         except Exception as e:
             log.warning("从视频流提取音频异常: %s", e)
-            if dest_audio.exists():
-                dest_audio.unlink(missing_ok=True)
+        finally:
+            pending_audio.unlink(missing_ok=True)
 
-    # 5. 若下载失败或流不可用，自动从本地环境/系统 Downloads 智能查找已下载的音频 (优先 .mp3)
+    # 5. Local fallback still requires UUID evidence; never match by title alone.
     if allow_local_fallback and (not audio_path or not audio_path.exists() or not is_valid_audio_file(audio_path)):
         alt_titles = []
         if song.title and song.title != name:
@@ -778,118 +782,46 @@ def resolve_or_find_audio(
     input_dir: Path,
     alt_titles: list[str] | None = None,
 ) -> Path | None:
-    """
-    智能定位歌曲的有效音频文件 (全面优先使用标准 MP3)：
-    1. 首先清理 input_dir 中可能存在的损坏/不可解码旧音频文件 (如防盗链破损 m4a)。
-    2. 检查 input_dir 中是否已有标准 .mp3 / .wav / .flac。
-    3. 检查系统下载目录 (~/Downloads)：
-       - 用户在 Suno 网页点击【Download -> Audio (MP3)】后，浏览器会自动下载到该目录。
-       - 自动检索精确匹配 {title}.mp3、模糊匹配 *{title}*.mp3 及 UUID 匹配。
-       - 验证音频解码完整性后自动复制并规范命名到 input_dir，无需用户任何手动干预。
-    4. 回退检查 input_dir 及 Downloads 中有效的 .m4a 文件。
+    """Find audio proven to belong to this UUID; a title is never identity.
+
+    Legacy title-only downloads require explicit user selection instead of fuzzy
+    adoption. Keep those files untouched, including potentially unrelated audio.
     """
     import shutil
+    from src.suno_audio_cache import provenance_path, source_directory, source_id
+
+    identity = source_id(song_id)
     input_dir = Path(input_dir).resolve()
-    candidate_titles = [title]
-    if alt_titles:
-        for t in alt_titles:
-            clean_t = _sanitize_filename(t)
-            if clean_t and clean_t not in candidate_titles:
-                candidate_titles.append(clean_t)
-            if t and t not in candidate_titles:
-                candidate_titles.append(t)
-
-    # 步骤 1: 扫描并清理 input_dir 中已有的损坏音频文件
-    for ext in ['.mp3', '.wav', '.flac', '.m4a']:
-        for t in candidate_titles:
-            cand = input_dir / f"{t}{ext}"
-            if cand.exists() and not is_valid_audio_file(cand):
-                log.warning("检测到损坏或不可解码的音频文件 (%s)，自动移除以防阻塞处理", cand.name)
-                cand.unlink(missing_ok=True)
-
-    # 步骤 2: 优先检查 input_dir 中已存在的有效 MP3/WAV/FLAC
-    for ext in ['.mp3', '.wav', '.flac']:
-        for t in candidate_titles:
-            cand = input_dir / f"{t}{ext}"
-            if cand.exists() and is_valid_audio_file(cand):
-                return cand
-
-    # 步骤 3: 智能从系统 Downloads 扫描并自动同步 (全面优先 .mp3)
-    dl = Path.home() / "Downloads"
-    if dl.exists():
-        # 3.1 优先查找 MP3 格式
-        # A. 精确匹配
-        for t in candidate_titles:
-            cand_mp3 = dl / f"{t}.mp3"
-            if cand_mp3.exists() and is_valid_audio_file(cand_mp3):
-                dst = input_dir / f"{title}.mp3"
-                shutil.copy2(cand_mp3, dst)
-                log.info("🎯 从系统 Downloads 自动发现并导入 MP3: %s → %s", cand_mp3.name, dst.name)
-                return dst
-
-        # B. 模糊匹配 (包含歌名的 MP3)
-        for t in candidate_titles:
-            mp3_matches = [
-                f for f in dl.glob(f"*{t}*.mp3")
-                if f.is_file() and is_valid_audio_file(f)
-            ]
-            if mp3_matches:
-                newest = max(mp3_matches, key=lambda f: f.stat().st_mtime)
-                dst = input_dir / f"{title}.mp3"
-                shutil.copy2(newest, dst)
-                log.info("🎯 从系统 Downloads 自动匹配并导入最新 MP3: %s → %s", newest.name, dst.name)
-                return dst
-
-        # C. 歌曲 UUID 匹配 MP3
-        if song_id:
-            uuid_mp3 = [
-                f for f in dl.glob(f"*{song_id}*.mp3")
-                if f.is_file() and is_valid_audio_file(f)
-            ]
-            if uuid_mp3:
-                newest = max(uuid_mp3, key=lambda f: f.stat().st_mtime)
-                dst = input_dir / f"{title}.mp3"
-                shutil.copy2(newest, dst)
-                log.info("🎯 根据 UUID 从 Downloads 导入 MP3: %s → %s", newest.name, dst.name)
-                return dst
-
-        # 3.2 查找其他无损/高质格式 (.wav, .flac)
-        for ext in ['.wav', '.flac']:
-            cand = dl / f"{title}{ext}"
-            if cand.exists() and is_valid_audio_file(cand):
-                dst = input_dir / f"{title}{ext}"
-                shutil.copy2(cand, dst)
-                log.info("🎯 从系统 Downloads 导入音频: %s → %s", cand.name, dst.name)
-                return dst
-            matches = [f for f in dl.glob(f"*{title}*{ext}") if f.is_file() and is_valid_audio_file(f)]
-            if matches:
-                newest = max(matches, key=lambda f: f.stat().st_mtime)
-                dst = input_dir / f"{title}{ext}"
-                shutil.copy2(newest, dst)
-                log.info("🎯 从系统 Downloads 导入最新音频: %s → %s", newest.name, dst.name)
-                return dst
-
-    # 步骤 4: 回退检查 input_dir 是否有有效的 .m4a
-    cand_m4a = input_dir / f"{title}.m4a"
-    if cand_m4a.exists() and is_valid_audio_file(cand_m4a):
-        return cand_m4a
-
-    # 步骤 5: 最后回退检查 Downloads 是否有有效的 .m4a
-    if dl.exists():
-        cand_dl_m4a = dl / f"{title}.m4a"
-        if cand_dl_m4a.exists() and is_valid_audio_file(cand_dl_m4a):
-            dst = input_dir / f"{title}.m4a"
-            shutil.copy2(cand_dl_m4a, dst)
-            log.info("从系统 Downloads 导入备用音频: %s → %s", cand_dl_m4a.name, dst.name)
-            return dst
-        m4a_matches = [f for f in dl.glob(f"*{title}*.m4a") if f.is_file() and is_valid_audio_file(f)]
-        if m4a_matches:
-            newest = max(m4a_matches, key=lambda f: f.stat().st_mtime)
-            dst = input_dir / f"{title}.m4a"
-            shutil.copy2(newest, dst)
-            log.info("从系统 Downloads 导入备用音频: %s → %s", newest.name, dst.name)
-            return dst
-
+    identity_dir = source_directory(input_dir, identity)
+    extensions = ('.mp3', '.wav', '.flac', '.m4a')
+    uuid_name = re.compile(r'(?<![a-z0-9])' + re.escape(identity) + r'(?![a-z0-9])', re.I)
+    for folder in dict.fromkeys((input_dir, identity_dir, Path.home() / 'Downloads')):
+        if not folder.is_dir():
+            continue
+        for extension in extensions:
+            for candidate in sorted(folder.iterdir()):
+                if not candidate.is_file() or candidate.suffix.lower() != extension:
+                    continue
+                verified = verified_audio(candidate, identity)
+                if not verified and (provenance_path(candidate).exists() or not uuid_name.search(candidate.stem)):
+                    continue
+                if not is_valid_audio_file(candidate):
+                    continue
+                if folder != Path.home() / 'Downloads':
+                    if not verified:
+                        remember_audio(candidate, identity)
+                    return candidate
+                identity_dir.mkdir(parents=True, exist_ok=True)
+                destination = identity_dir / f"{_sanitize_filename(title) or identity}{extension}"
+                pending = temporary_path(destination)
+                try:
+                    shutil.copy2(candidate, pending)
+                    pending.replace(destination)
+                    remember_audio(destination, identity)
+                finally:
+                    pending.unlink(missing_ok=True)
+                log.info("根据歌曲 UUID 从 Downloads 导入音频: %s → %s", identity, destination)
+                return destination
     return None
 
 
@@ -1008,7 +940,8 @@ def auto_process_suno(
             f"未找到歌曲 [{song_name}] 的可用音频文件。\n"
             f"已成功拉取歌词与元数据！\n"
             f"💡 极简获取方式：在 Suno 歌曲页面点击【Download】选择【Audio (MP3)】下载。\n"
-            f"下载完成后重新执行本导入，系统将自动从「下载」目录秒级接管并导入，无需手动复制或重命名！\n"
+            f"为避免同名歌曲混用，自动导入的下载文件名需包含完整歌曲 UUID：{song.id}。\n"
+            f"也可以在编辑器手动上传正确音频；仅凭歌名不会自动选择本地文件。\n"
             f"（高级选项：亦可在 .env 配置 SUNO_COOKIE 实现私密歌曲全自动静默下载）"
         )
 

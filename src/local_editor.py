@@ -1482,6 +1482,8 @@ def api_suno_download_mp3(url: str):
     不进行耗时的 Demucs 人声分离和 WhisperX 字符级对齐。
     """
     from src.suno_fetch import SongNotPublishedError
+    from src.suno_audio_cache import source_directory, temporary_path, verified_audio, remember_audio
+    from src.utils import is_valid_audio_file
     url = url.strip()
     if not url:
         raise HTTPException(400, "请输入 Suno 歌曲链接")
@@ -1517,11 +1519,12 @@ def api_suno_download_mp3(url: str):
             log.info(">>> [仅下 MP3] 开始从 Suno 提取歌曲: %s", url)
             song = fetch_song(url)
             song_name = _sanitize_filename(song.title) or song.id
-            song_input_dir = input_dir / song_name
+            # A title is presentation. The resolved UUID owns the source files.
+            song_input_dir = source_directory(input_dir, song.id)
             song_input_dir.mkdir(parents=True, exist_ok=True)
 
             audio_path, lyrics_path, json_path, song = download_song(
-                url, song_input_dir, song_name=song_name, save_json=True
+                song, song_input_dir, song_name=song_name, save_json=True
             )
 
             if not audio_path or not audio_path.exists():
@@ -1531,12 +1534,13 @@ def api_suno_download_mp3(url: str):
         target_mp3 = audio_path
         if audio_path.suffix.lower() != ".mp3":
             cached_mp3 = audio_path.parent / f"{song_name}.mp3"
-            if cached_mp3.exists() and cached_mp3.stat().st_size > 1024:
+            if (cached_mp3.exists() and is_valid_audio_file(cached_mp3)
+                    and (is_netease or verified_audio(cached_mp3, song.id))):
                 target_mp3 = cached_mp3
             else:
                 from src.utils import get_ffmpeg_binary
                 ffmpeg_bin = get_ffmpeg_binary()
-                temp_mp3 = audio_path.parent / f"{song_name}.mp3"
+                temp_mp3 = temporary_path(cached_mp3)
                 cmd = [
                     ffmpeg_bin, "-y",
                     "-i", str(audio_path),
@@ -1546,9 +1550,16 @@ def api_suno_download_mp3(url: str):
                     str(temp_mp3)
                 ]
                 import subprocess
-                res = subprocess.run(cmd, capture_output=True, text=True)
-                if res.returncode == 0 and temp_mp3.exists() and temp_mp3.stat().st_size > 1024:
-                    target_mp3 = temp_mp3
+                try:
+                    res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+                    if res.returncode or not is_valid_audio_file(temp_mp3):
+                        raise HTTPException(502, "Audio could not be converted to a valid MP3. Please retry.")
+                    temp_mp3.replace(cached_mp3)
+                    if not is_netease:
+                        remember_audio(cached_mp3, song.id)
+                    target_mp3 = cached_mp3
+                finally:
+                    temp_mp3.unlink(missing_ok=True)
 
         from urllib.parse import quote
         filename = f"{song_name}.mp3"

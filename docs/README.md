@@ -7,6 +7,7 @@ Current operating references:
 - [Deployment](../DEPLOY.md): Pages frontend, Gradio backend and CI assets.
 - [Frontend routes](FRONTEND_ROUTES.md): supported URLs and private media access.
 - [Alignment maintenance](ALIGNMENT_PROCESS_AND_MAINTENANCE.md): evidence and timing rules.
+- [Suno audio cache](SUNO_AUDIO_CACHE.md): UUID identity, audio reuse and legacy files.
 - [Firebase authentication](FIREBASE_AUTH.md): sign-in integration.
 - [Release TODO](TODO.md): completed work, remaining verification and launch gates.
 - [Billing policy](BILLING_POLICY.md): current three subscriptions and usage costs.

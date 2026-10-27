@@ -74,7 +74,7 @@ def test_fetch_song_skips_m4a_opus_and_picks_mp3():
         assert song.audio_url == "https://cdn.example.com/good.mp3"
 
 
-def test_resolve_or_find_audio_cleans_corrupt_m4a_and_imports_mp3(tmp_path):
+def test_resolve_or_find_audio_uses_uuid_and_preserves_unrelated_files(tmp_path):
     input_dir = tmp_path / "input"
     downloads_dir = tmp_path / "Downloads"
     input_dir.mkdir(parents=True)
@@ -85,7 +85,7 @@ def test_resolve_or_find_audio_cleans_corrupt_m4a_and_imports_mp3(tmp_path):
     bad_m4a.write_bytes(b"corrupt header without moov atom")
 
     # 2. Downloads 目录下有用户在网页点击下载的标准 mp3
-    valid_mp3 = downloads_dir / "好听的歌.mp3"
+    valid_mp3 = downloads_dir / "好听的歌_song-uuid-123.mp3"
     valid_mp3.write_bytes(b"ID3" + b"\x00" * 2000)
 
     with patch("pathlib.Path.home", return_value=tmp_path):
@@ -99,26 +99,25 @@ def test_resolve_or_find_audio_cleans_corrupt_m4a_and_imports_mp3(tmp_path):
             assert res is not None
             assert res.name == "好听的歌.mp3"
             assert res.exists()
-            # 损坏的 m4a 应该已被清理
-            assert not bad_m4a.exists()
+            # Unidentified legacy files must never be deleted or claimed for this UUID.
+            assert bad_m4a.exists()
 
 
-def test_resolve_or_find_audio_fuzzy_match_mp3(tmp_path):
+def test_resolve_or_find_audio_rejects_title_only_fuzzy_match(tmp_path):
     input_dir = tmp_path / "input"
     downloads_dir = tmp_path / "Downloads"
     input_dir.mkdir(parents=True)
     downloads_dir.mkdir(parents=True)
 
-    # 用户下载的文件名可能包含序号或后缀，例如 "Suno_好听的歌_final.mp3"
+    # A title and suffix cannot distinguish two different songs with that title.
     dl_mp3 = downloads_dir / "Suno_好听的歌_final.mp3"
     dl_mp3.write_bytes(b"ID3" + b"\x00" * 2000)
 
     with patch("pathlib.Path.home", return_value=tmp_path):
         with patch("src.suno_fetch.is_valid_audio_file", return_value=True):
             res = resolve_or_find_audio("好听的歌", "song-uuid-123", input_dir)
-            assert res is not None
-            assert res.name == "好听的歌.mp3"
-            assert res.exists()
+            assert res is None
+            assert dl_mp3.exists()
 
 
 def test_auto_process_suno_pipeline_config_and_flow(tmp_path):
@@ -137,6 +136,7 @@ def test_auto_process_suno_pipeline_config_and_flow(tmp_path):
     )
 
     with patch("src.suno_fetch.fetch_song", return_value=fake_song), \
+         patch("src.suno_fetch.requests.get", return_value=MagicMock(status_code=403)), \
          patch("src.suno_fetch.resolve_or_find_audio", return_value=tmp_path / "test.mp3"), \
          patch("src.suno_fetch.is_valid_audio_file", return_value=True), \
          patch("src.main.process_one") as mock_process_one:
