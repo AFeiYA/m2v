@@ -1,6 +1,6 @@
 # Paddle 上线操作与验收
 
-更新：2026-10-24。当前实现支持 sandbox / production；默认不开启收费。
+更新：2026-10-27。当前实现支持 sandbox / production；默认不开启收费。
 本文是本项目当前上线依据，替代早期只支持沙盒的迁移评估。
 
 ## 1. 当前交付范围
@@ -27,13 +27,25 @@
 1. 在 Paddle 正式账户完成身份、经营信息及收款资料验证。
 2. 提交并确认 **mv.fovea.si 这个具体子域名**已批准；不要假定根域名批准自动覆盖。
 3. 核对公开首页、定价、联系、条款、隐私与退款政策，以及真实经营者资料。
-   支持邮箱为 nafeiya@gmail.com。法定经营者名称需本人提供，不能拿昵称代替。
+   支持邮箱为 support@fovea.si。法定经营者名称需本人提供，不能拿昵称代替。
 4. 创建正式后端 API Key、正式客户端 Token 与正式通知签名 secret，安全放入后端 Secrets。
    不把服务端 API Key、签名 secret 或数据库连接串写进 Pages 变量、浏览器或 Git。
 5. 若 Paddle 门户开放套餐变更，先在商户设置关闭；本应用只链接到取消与付款方式页面。
    不能把“应用没有升级按钮”当作已限制了第三方门户。
 
 上述审核状态需要在真实商户账户确认，代码或沙盒测试不能证明审核通过。
+
+### 客服邮箱更新
+
+- 网站 Contact、页脚和隐私页面，以及生成来源 `scripts/build_marketing.py`，统一使用 `support@fovea.si`。
+- 在 Paddle 的 Account Settings 核对联系邮箱；该邮箱可能作为买家的支持联系方式，也接收 Paddle 的账户及结算通知。仅更改网站不会同步修改 Paddle。
+- Sandbox 与 production 是独立账户配置，需要分别核对。不要把 API 的账户联系邮箱与买家自己的付款邮箱混淆。
+- 邮箱更名不需要重建商品、价格、订阅、API Key、客户端 Token 或 Webhook，不需要修改现有价格 ID。
+- 使用外部邮箱给新地址发信，确认能够收到并回复；如果仅配置了转发，还需确认发信服务能够以新地址回复。
+
+官方参考：[账户邮箱字段](https://developer.paddle.com/api-reference/account/patch-account/)、[订单邮件与支持联系信息](https://www.paddle.com/help/start/set-up-paddle/editing-the-styling-of-invoicesemails)。
+
+2026-10-27 只读复核：网站源码已使用新邮箱，Paddle sandbox 的账户邮箱仍为旧 Gmail；默认付款链接及两个启用的通知目标仍使用早期 `trycloudflare.com` 临时隧道。恢复沙盒端到端测试前，应先确定当前独立测试站点和后端地址，再更新对应配置并验证回调送达；不要直接把测试回调指向正式数据库。本次未更改 Paddle 账户或通知配置。
 
 ## 3. 环境必须分开
 

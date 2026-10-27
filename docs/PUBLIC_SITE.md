@@ -47,14 +47,16 @@ paid render or private R2 media is needed to view the samples.
 
 ## Before merchant submission
 
-- Support email confirmed by the operator: `nafeiya@gmail.com`. Contact page and
+- Support email confirmed by the operator: `support@fovea.si`. Contact page and
   footer use this address for private account, billing, refund and privacy help.
-  GitHub remains a secondary channel for public technical issues. A domain mailbox
-  is optional. Confirm the required operator/business identity before submission.
+  GitHub remains a secondary channel for public technical issues. Confirm incoming
+  messages and replies work for this mailbox. Update the Paddle account contact
+  separately in sandbox and production; the website does not synchronize it.
+  Confirm the required operator/business identity before submission.
 - Review the policy copy against actual operations and applicable requirements;
   the pages are starting copy, not a certification of legal compliance.
 - Confirm store approval, live variants, API/signing keys, Webhook delivery and
-  successful transaction acceptance using `LEMON_SQUEEZY_LAUNCH_GUIDE_ZH.md`.
+  successful transaction acceptance using `PADDLE_GO_LIVE_ZH.md`.
 - Public plan cards do not enable billing if `BILLING_ENABLED` is false. The
   existing workspace explains unavailable checkout rather than promising a sale.
 - Previews show the actual renderer, but are not evidence of AI alignment accuracy.

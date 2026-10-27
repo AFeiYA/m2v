@@ -11,7 +11,7 @@ def frontend(tmp_path, monkeypatch):
     source = root / "frontend"
     source.mkdir(parents=True)
     monkeypatch.setattr(prepare_pages, "__file__", str(root / "scripts/prepare_pages.py"))
-    for name in ("local/motion/studio.js", "local/motion/marketing-preview.js", "local/motion/lab.js", "local/motion/rhythm-studio.js", "local/motion-lab.css", "marketing/site.css", "marketing/site.js"):
+    for name in ("local/motion/studio.js", "local/motion/marketing-preview.js", "local/motion/lab.js", "local/motion/rhythm-studio.js", "local/song-select.js", "local/motion-lab.css", "marketing/site.css", "marketing/site.js"):
         p = source / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("asset")
@@ -36,6 +36,7 @@ def test_pages_staging_materializes_canonical_pages(frontend, tmp_path):
         assert not page.is_symlink()
         assert page.read_text() == f"page:{name}"
     assert (destination / "local/motion/studio.js").read_text() == "asset"
+    assert (destination / "local/song-select.js").read_text() == "asset"
     assert not list((destination / "local").glob("*.html"))
     assert (destination / "404.html").read_text() == "not found"
     assert (destination / "index.html").read_text() == "public home"
@@ -63,7 +64,7 @@ def test_pages_staging_requires_motion_lab_page(frontend, tmp_path):
         prepare_pages.prepare(tmp_path / "pages")
 
 
-def test_canonical_editors_include_shared_picker_and_motion_boot_controls():
+def test_canonical_editors_include_native_song_select_and_motion_boot_controls():
     """The deployed director entry differs from the historical laboratory page."""
     from html.parser import HTMLParser
 
@@ -83,7 +84,13 @@ def test_canonical_editors_include_shared_picker_and_motion_boot_controls():
     root = Path(__file__).resolve().parents[1] / 'frontend'
     for name in ('lyric-editor.html', 'motion-studio.html'):
         page = Page((root / name).read_text())
-        assert '/static/song-picker.js' in page.scripts
+        assert '/static/song-select.js' in page.scripts
+        assert '/static/song-picker.js' not in page.scripts
+        assert (root / 'local/song-select.js').is_file()
         if name == 'motion-studio.html':
             assert {'project-select', 'highlight-mode', 'save-design', 'my-exports'} <= page.ids
             assert '/motion/studio.js' in page.scripts
+            assert page.scripts.index('/static/song-select.js') < page.scripts.index('/motion/studio.js')
+        else:
+            assert 'song-select' in page.ids
+            assert page.scripts.index('/static/song-select.js') < page.scripts.index('/static/common.js')
