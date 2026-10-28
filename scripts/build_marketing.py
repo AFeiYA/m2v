@@ -7,6 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / 'frontend'
 
 
+BRAND_MARK = '<span class="brand-mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><circle cx="19" cy="19" r="2" fill="currentColor"/></svg></span>'
+BRAND_HTML = '<span class="brand-name">Fovea <span class="brand-tag">STUDIO</span></span>'
+
+
 def shell(title, description, content, *, page='home'):
     nav = lambda name, url, key: f'<a href="{url}"'+(' aria-current="page"' if page == key else '')+f'>{name}</a>'
     return f'''<!doctype html>
@@ -14,12 +18,12 @@ def shell(title, description, content, *, page='home'):
 <title>{html.escape(title)} · Fovea Studio</title><meta name="description" content="{html.escape(description)}">
 <meta name="theme-color" content="#11130e"><meta property="og:title" content="{html.escape(title)} · Fovea Studio"><meta property="og:description" content="{html.escape(description)}">
 <link rel="canonical" href="https://mv.fovea.si{'/' if page=='home' else '/'+page}">
-<link rel="stylesheet" href="/marketing/site.css?v=20261025_fovea"><script src="/marketing/site.js?v=20261022_actual_renderer" defer></script></head>
+<link rel="stylesheet" href="/marketing/site.css?v=20261028_fovea_brand"><script src="/marketing/site.js?v=20261022_actual_renderer" defer></script></head>
 <body><a class="skip" href="#main">Skip to content</a>
-<header class="site-header"><a class="brand" href="/" aria-label="Fovea Studio home"><span class="brand-mark" aria-hidden="true">✳</span><span>fovea <small>STUDIO</small></span></a>
+<header class="site-header"><a class="brand" href="/" aria-label="Fovea Studio home">{BRAND_MARK}{BRAND_HTML}</a>
 <nav aria-label="Main navigation">{nav('How it works','/#how-it-works','how')}{nav('Pricing','/pricing','pricing')}<a class="sign-in" href="/app">Sign in <span aria-hidden="true">↗</span></a></nav></header>
 <main id="main">{content}</main>
-<footer class="site-footer"><div><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">✳</span>fovea <small>STUDIO</small></a><p>Where your characters and music become a world.</p><p class="fine">Independent creative software. Not affiliated with Suno.</p></div>
+<footer class="site-footer"><div><a class="brand" href="/" aria-label="Fovea Studio home">{BRAND_MARK}{BRAND_HTML}</a><p>Where your characters and music become a world.</p><p class="fine">Independent creative software. Not affiliated with Suno.</p></div>
 <nav aria-label="Footer"><a href="/pricing">Pricing</a><a href="/contact">Contact & support</a><a href="mailto:support@fovea.si">Email support</a><a href="/terms">Terms of service</a><a href="/privacy">Privacy policy</a><a href="/refunds">Refund policy</a></nav><p class="copyright">© 2026 Fovea Studio</p></footer></body></html>'''
 
 
