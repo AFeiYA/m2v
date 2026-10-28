@@ -4,7 +4,7 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const path=require('node:path');
 const esbuild=require('../motion/node_modules/esbuild');
-const source=fs.readFileSync(path.join(__dirname,'../motion/src/studio.ts'),'utf8')+'\nexport {load,refreshSourceInfo,rules,previewPalette,saveAll,editIdentity,exportVideo,refreshMotionPrice,updateMatrixCount}; export const getDraft=()=>plan;';
+const source=fs.readFileSync(path.join(__dirname,'../motion/src/studio.ts'),'utf8')+'\nexport {load,refreshSourceInfo,rules,previewPalette,saveAll,editIdentity,exportVideo,refreshMotionPrice,updateMatrixCount,applyVisualTemplate,designSnapshot}; export const getDraft=()=>plan;';
 const code=esbuild.transformSync(source,{loader:'ts',format:'cjs',target:'es2022'}).code;
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};}
 function setup(){
@@ -28,7 +28,9 @@ function setup(){
  }};
  const compiled=esbuild.buildSync({entryPoints:[path.join(__dirname,'../motion/src/local-design.ts')],bundle:true,platform:'node',format:'cjs',write:false}).outputFiles[0].text;
  const design={exports:{}};new Function('module','exports',compiled)(design,design.exports);
- const requireStub=name=>name.includes('local-design')?design.exports:name.includes('service-api')?service:name.includes('remotion-preview')?{RemotionPreview}:name.includes('webcodecs-exporter')?{isWebCodecsSupported:()=>false,exportMotionWebCodecs:async()=>new Blob()}:name.includes('/model')?{defaults:{},normalizeProject:p=>p,renderSize:()=>({width:720,height:1280}),buildExportClips:()=>[{id:'full',title:'Full song',available:true,start_time:0,end_time:null},{id:'chorus',title:'Chorus',available:true,start_time:20,end_time:35}],resolveVisualMode:(m,a)=>m==='tv'?(a==='16:9'?'tv':'apple'):m==='apple'?(a==='9:16'?'apple':'tv'):'kinetic'}:{};
+ const modeCode=esbuild.buildSync({entryPoints:[path.join(__dirname,'../motion/src/motion-design.ts')],bundle:true,platform:'node',format:'cjs',write:false}).outputFiles[0].text;
+ const modeModule={exports:{}};new Function('module','exports',modeCode)(modeModule,modeModule.exports);
+ const requireStub=name=>name.includes('motion-design')?modeModule.exports:name.includes('local-design')?design.exports:name.includes('service-api')?service:name.includes('remotion-preview')?{RemotionPreview}:name.includes('webcodecs-exporter')?{isWebCodecsSupported:()=>false,exportMotionWebCodecs:async()=>new Blob()}:name.includes('/model')?{defaults:{},normalizeProject:p=>p,renderSize:()=>({width:720,height:1280}),buildExportClips:()=>[{id:'full',title:'Full song',available:true,start_time:0,end_time:null},{id:'chorus',title:'Chorus',available:true,start_time:20,end_time:35}],resolveVisualMode:m=>m||'kinetic'}:{};
  const context={module:{exports:{}},require:requireStub,document,window:{addEventListener(){},confirm:()=>false,alert:message=>alerts.push(message)},MutationObserver:class{observe(){}},Audio,structuredClone,
   URL,URLSearchParams,Blob,FormData,setTimeout,requestAnimationFrame(){},console,location:{search:''}};
  vm.createContext(context);vm.runInContext(code,context);
@@ -64,23 +66,23 @@ async function loaded(){
 test('local rule generation and themes preview without any write, until Save',async()=>{
  const s=await loaded();s.api.rules();s.nodes.get('preset').value='neon';s.api.previewPalette();
  assert.equal(s.writes.length,0);assert.equal(s.nodes.get('save-state').dataset.dirty,'true');
- const save=s.api.saveAll();assert.deepEqual(s.writes.map(w=>w.name).sort(),['plan','settings']);
- s.saves.forEach((d,i)=>d.resolve(s.writes[i].body.plan||{}));await save;
+ const save=s.api.saveAll();assert.deepEqual(s.writes.map(w=>w.name).sort(),['design']);
+ s.saves.forEach((d,i)=>d.resolve({design:s.writes[i].body.design}));await save;
  assert.equal(s.nodes.get('save-state').dataset.dirty,'false');
 });
 test('edits during Save remain unsaved and survive the older response',async()=>{
- const s=await loaded();s.api.rules();const first=s.api.saveAll();
+ const s=await loaded();s.context.window.confirm=()=>true;s.api.rules();const first=s.api.saveAll();
  s.nodes.get('preset').value='neon';s.api.previewPalette();s.api.getDraft().seed=77;
- s.saves.forEach((d,i)=>d.resolve(s.writes[i].body.plan||{}));await first;
+ s.saves.forEach((d,i)=>d.resolve({design:s.writes[i].body.design}));await first;
  assert.equal(s.nodes.get('save-state').dataset.dirty,'true');
- const second=s.api.saveAll();assert.equal(s.writes.length,4);assert.equal(s.writes[2].body.plan.seed,77);assert.equal(s.writes[3].body.settings.palette,'neon');
- s.saves[2].resolve(s.writes[2].body.plan);s.saves[3].resolve({});await second;assert.equal(s.nodes.get('save-state').dataset.dirty,'false');
+ const second=s.api.saveAll();assert.equal(s.writes.length,2);assert.equal(s.writes[1].body.design.modes.kinetic.plan.seed,77);assert.equal(s.writes[1].body.design.modes.kinetic.theme.palette,'neon');
+ s.saves[1].resolve({design:s.writes[1].body.design});await second;assert.equal(s.nodes.get('save-state').dataset.dirty,'false');
 });
 test('a failed save preserves the draft and permits retry',async()=>{
- const s=await loaded();s.api.rules();const first=s.api.saveAll();
- s.saves[0].reject(Error('network unavailable'));s.saves[1].resolve({});
+ const s=await loaded();s.context.window.confirm=()=>true;s.api.rules();const first=s.api.saveAll();
+ s.saves[0].reject(Error('network unavailable'));
  await assert.rejects(first,/network/);assert.equal(s.nodes.get('save-state').dataset.dirty,'true');
- const retry=s.api.saveAll();assert.equal(s.writes[2].name,'plan');s.saves[2].resolve(s.writes[2].body.plan);await retry;
+ const retry=s.api.saveAll();assert.equal(s.writes[1].name,'design');s.saves[1].resolve({design:s.writes[1].body.design});await retry;
  assert.equal(s.nodes.get('save-state').dataset.dirty,'false');
 });
 test('switching and exporting never silently save an unfinished preview',async()=>{
@@ -96,8 +98,8 @@ test('format and signature edits use the same explicit save',async()=>{
  const s=await loaded();s.nodes.get('aspect').value='9:16';s.nodes.get('aspect').input();
  s.nodes.get('song-title').value='New title';s.nodes.get('song-artist').value='New artist';s.api.editIdentity();
  assert.equal(s.writes.length,0);const save=s.api.saveAll();
- assert.deepEqual(s.writes.map(w=>w.name).sort(),['identity','settings']);
- for(let i=0;i<s.saves.length;i++)s.saves[i].resolve(s.writes[i].name==='identity'?{identity:s.writes[i].body.identity}:{});
+ assert.deepEqual(s.writes.map(w=>w.name).sort(),['design','identity']);
+ for(let i=0;i<s.saves.length;i++)s.saves[i].resolve(s.writes[i].name==='identity'?{identity:s.writes[i].body.identity}:{design:s.writes[i].body.design});
  await save;assert.equal(s.nodes.get('save-state').dataset.dirty,'false');
 });
 test('changing theme preserves semantic nodes, animations, seeds and locked cues',()=>{
@@ -111,7 +113,7 @@ test('Motion Studio exportVideo submits matrix items sequentially and polls unti
  const s = await loaded();
  s.api.rules();
  const save = s.api.saveAll();
- s.saves.forEach((d,i)=>d.resolve(s.writes[i].body.plan||{}));
+ s.saves.forEach((d,i)=>d.resolve({design:s.writes[i].body.design}));
  await save;
 
  const box1 = { checked: true, disabled: false, dataset: { clipId: 'full', ratio: '9:16' } };
@@ -132,7 +134,7 @@ test('Motion Studio exportVideo supports custom range override', async () => {
  const s = await loaded();
  s.api.rules();
  const save = s.api.saveAll();
- s.saves.forEach((d,i)=>d.resolve(s.writes[i].body.plan||{}));
+ s.saves.forEach((d,i)=>d.resolve({design:s.writes[i].body.design}));
  await save;
 
  s.nodes.get('export-custom-range').checked = true;
@@ -146,7 +148,7 @@ test('Motion Studio exportVideo supports custom range override', async () => {
 });
 
 async function savedMotion(){
- const s=await loaded();s.api.rules();const save=s.api.saveAll();s.saves.forEach((d,i)=>d.resolve(s.writes[i].body.plan||{}));await save;return s;
+ const s=await loaded();s.api.rules();const save=s.api.saveAll();s.saves.forEach((d,i)=>d.resolve({design:s.writes[i].body.design}));await save;return s;
 }
 function selectFull(s){s.context.document.querySelectorAll=()=>[{checked:true,disabled:false,dataset:{clipId:'full',ratio:'9:16'}}];}
 function paidService(s,cost=2){
@@ -210,6 +212,31 @@ test('workspace pause reaches Motion audio and resets the playback button',()=>{
  s.nodes.get('play').textContent='Ⅱ';
  audio.pause();
  assert.equal(s.nodes.get('play').textContent,'▶');
+});
+
+test('mode switching, explicit save and reload preserve custom posters and per-mode preferences',async()=>{
+ const s=await loaded();s.api.rules();
+ s.api.getDraft().cues.push({line_id:'custom',locked:true,template:'phrase-rise',layout:'left',palette:'violet',intensity:.4,emphasis:'',poster:{layout:'staggered',highlight:'none',nodes:[{text:'My design',entrance:'slide-left'}]}});
+ const poster=JSON.stringify(s.api.getDraft());
+ for(const mode of ['apple','tv','kinetic']){
+  s.nodes.get('visual-template-select').value=mode;s.api.applyVisualTemplate();
+  assert.equal(JSON.stringify(s.api.getDraft()),poster);
+  if(mode==='apple'){
+   s.nodes.get('aspect').value='16:9';s.nodes.get('aspect').input();
+   assert.equal(s.api.designSnapshot().active_mode,'apple');
+   s.nodes.get('preset').value='neon';s.api.previewPalette();
+  }
+ }
+ s.nodes.get('visual-template-select').value='apple';s.api.applyVisualTemplate();
+ assert.equal(s.nodes.get('aspect').value,'16:9');assert.equal(s.nodes.get('preset').value,'neon');
+ const save=s.api.saveAll();s.saves[0].resolve({design:s.writes[0].body.design});await save;
+ assert.equal(s.writes.length,1);assert.equal(s.writes[0].name,'design');
+ const response=s.result('Song');response.design=structuredClone(s.writes[0].body.design);
+ const request=s.request('song'),reload=s.api.load('song');request.resolve(response);await reload;
+ assert.equal(s.nodes.get('visual-template-select').value,'apple');assert.equal(s.nodes.get('aspect').value,'16:9');
+ assert.equal(JSON.stringify(s.api.getDraft()),poster);
+ const other=s.request('other'),loading=s.api.load('other');other.resolve(s.result('Other'));await loading;
+ assert.equal(s.nodes.get('visual-template-select').value,'kinetic');assert.equal(s.api.getDraft(),null);
 });
 
 test('export credit units follow the selected locale',async()=>{

@@ -1,4 +1,5 @@
 import {archiveBrowserVideo} from './browser-export';
+import {createMotionDesign,modeOptions,modeTheme,selectMode,changeTheme,visualModes,type MotionDesign} from './motion-design';
 import type {HighlightMode} from './karaoke';
 import {localRulePlan,localPalette,preserveHighlight} from './local-design';
 import {compileSongLayout,paintSongLayout,paintCoverBackground} from './song-layout';
@@ -25,12 +26,12 @@ let coverPending:Promise<void>|null=null;
 let scrubbing=false,resumeAfterScrub=false;
 let posterPreview:CompiledPoster|null=null,clipEnd:number|null=null,clipReviewTime=0,reviewHandover=false;
 const options:Options={...defaults,height:720};
-const initialSettings=settingsSnapshot();
+let design=createMotionDesign();
 const status=(text:string)=>{$('status').textContent=text;updateSaveState();};
 function download(name:string,data:string,type='application/json'){const url=URL.createObjectURL(new Blob([data],{type})),link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-function refresh(){updateSaveState();if(!project)return;project.motion_plan=plan||undefined;const {width,height}=renderSize(options),canvas=$<HTMLCanvasElement>('stage');engine?.dispose();canvas.width=width;canvas.height=height;canvas.style.aspectRatio=`${width}/${height}`;$('stage-box').style.aspectRatio=`${width}/${height}`;const previewId=selected;engine=new RemotionPreview(canvas,project,options,width,height,error=>{if(selected!==previewId)return;status('Preview unavailable: '+error.message);(window as any).m2vStudioBridge?.error(selected,'Preview unavailable: '+error.message);});engine.renderAt(audio.currentTime||0);$('stage-meta').textContent=`Remotion · ${options.aspect} · ${width}×${height}`;}
+function refresh(){updateSaveState();if(!project)return;project.motion_plan=plan||undefined;project.motion_design=designSnapshot();const {width,height}=renderSize(options),canvas=$<HTMLCanvasElement>('stage');engine?.dispose();canvas.width=width;canvas.height=height;canvas.style.aspectRatio=`${width}/${height}`;$('stage-box').style.aspectRatio=`${width}/${height}`;const previewId=selected;engine=new RemotionPreview(canvas,project,options,width,height,error=>{if(selected!==previewId)return;status('Preview unavailable: '+error.message);(window as any).m2vStudioBridge?.error(selected,'Preview unavailable: '+error.message);});engine.renderAt(audio.currentTime||0);$('stage-meta').textContent=`Remotion · ${options.aspect} · ${width}×${height}`;}
 function listCues(){const select=$<HTMLSelectElement>('cue-select');select.replaceChildren();for(const cue of plan?.cues||[]){const line=project?.lines.find(l=>l.id===cue.line_id),item=document.createElement('option');item.value=cue.line_id;item.textContent=(cue.locked?'🔒 ':'')+(line?.text||cue.line_id);select.append(item);}if(plan?.cues.some(c=>c.line_id===currentCue))select.value=currentCue;else currentCue=plan?.cues[0]?.line_id||'';showCue(false);}
-function showCue(seek=true){const cue=plan?.cues.find(c=>c.line_id===currentCue);if(!cue)return;
+function showCue(seek=true){if(design.active_mode!=='kinetic')return;const cue=plan?.cues.find(c=>c.line_id===currentCue);if(!cue)return;
  const line=project?.lines.find(l=>l.id===currentCue);
  $<HTMLSelectElement>('poster-layout').value=cue.poster?.layout||'hero-stack';$('poster-design-status').textContent=cue.poster?(dirty?'Local preview design · Unsaved':'Saved director poster design'):'Automatic layout. You can import an AI poster design.';
  if($('cue-layout-preset')){
@@ -67,26 +68,41 @@ function updateSaveState(){
  $('save-state').dataset.dirty=String(changed);
  (window as any).m2vStudioBridge?.state(selected,changed,saving);
 }
-function settingsSnapshot(){return {aspect:options.aspect,height:options.height,post:options.post,bloom:options.bloom,shake:options.shake,
- palette:$<HTMLSelectElement>('preset').value,background:$<HTMLSelectElement>('theme-bg').value,layout:$<HTMLSelectElement>('default-layout-preset').value,highlight:$<HTMLSelectElement>('highlight-mode').value||'none'};}
-async function savePlan(){
- if(!dirty||!plan||!selected)return;
- const id=selected,sequence=loadSequence,snapshot=JSON.stringify(plan),value=JSON.parse(snapshot);
- const result=await api('plan','PUT',{project_id:id,plan:value,from_llm:false});
- if(selected===id&&sequence===loadSequence&&JSON.stringify(plan)===snapshot){plan=result;dirty=false;}
+function designSnapshot():MotionDesign {
+ const value=structuredClone(design);value.modes.kinetic.plan=plan?structuredClone(plan):null;return value;
 }
-async function saveSettings(){
- if(!settingsDirty||!selected)return;
- const id=selected,sequence=loadSequence,value=settingsSnapshot(),snapshot=JSON.stringify(value);
- await api('settings','PUT',{project_id:id,settings:value});
- if(selected===id&&sequence===loadSequence&&JSON.stringify(settingsSnapshot())===snapshot)settingsDirty=false;
+function syncModeControls(){
+ Object.assign(options,modeOptions(design));
+ for(const key of ['aspect','resolution','post','bloom','shake']){const node=$<HTMLInputElement>(key);if(key==='post')node.checked=options.post;else node.value=String(key==='resolution'?options.height:options[key as 'aspect'|'bloom'|'shake']);}
+ const theme=modeTheme(design);
+ $<HTMLSelectElement>('visual-template-select').value=design.active_mode;
+ $<HTMLSelectElement>('preset').value=theme.palette;$<HTMLSelectElement>('theme-bg').value=theme.background;
+ $<HTMLSelectElement>('default-layout-preset').value=design.modes.kinetic.layout;
+ $<HTMLSelectElement>('highlight-mode').value=design.modes.kinetic.highlight;
+ const kinetic=design.active_mode==='kinetic';
+ for(const id of ['kinetic-design-controls','kinetic-line-controls'])if($(id))$(id).hidden=!kinetic;
+ if($('stream-design-controls'))$('stream-design-controls').hidden=kinetic;
+ if($('poster-sample'))$('poster-sample').hidden=!kinetic;
+ if(!kinetic){
+  $<HTMLInputElement>('stream-font-scale').value=String(design.modes[design.active_mode as 'apple'|'tv'].font_scale);
+  $('apple-mode-controls').hidden=design.active_mode!=='apple';$('karaoke-mode-controls').hidden=design.active_mode!=='tv';
+  $<HTMLInputElement>('apple-focus-y').value=String(design.modes.apple.focus_y);
+  $<HTMLInputElement>('karaoke-preview-seconds').value=String(design.modes.tv.preview_seconds);
+ }
+ if($('mode-state-hint'))$('mode-state-hint').textContent=visualModes[design.active_mode].label+' · Changes are kept separately for each mode.';
+}
+async function saveDesign(){
+ if((!dirty&&!settingsDirty)||!selected)return;
+ const id=selected,sequence=loadSequence,value=designSnapshot(),snapshot=JSON.stringify(value);
+ const result=await api('design','PUT',{project_id:id,design:value});
+ if(selected===id&&sequence===loadSequence&&JSON.stringify(designSnapshot())===snapshot){design=result.design;plan=design.modes.kinetic.plan;dirty=false;settingsDirty=false;}
 }
 async function saveAll(){
  if(exportQueueRunning)throw Error('Finish or cancel the export queue before saving a new design.');
  if(!selected||saving)return;
  const id=selected;saving=true;updateSaveState();
  try{
-  const results=await Promise.allSettled([savePlan(),saveIdentity(),saveSettings()]);
+  const results=await Promise.allSettled([saveDesign(),saveIdentity()]);
   const failure=results.find(r=>r.status==='rejected') as PromiseRejectedResult|undefined;
   if(failure)throw failure.reason;
   if(id===selected)(window as any).m2vStudioBridge?.saved(id,dirty||identityDirty||settingsDirty);
@@ -105,13 +121,9 @@ async function load(id:string){
   const result=await api('project?project_id='+encodeURIComponent(id));
   if(sequence!==loadSequence)return;
   if(exportQueueRunning&&id!==selected){$<HTMLSelectElement>('project-select').value=selected;return;}
-  project=normalizeProject(result.project);plan=result.plan;ruleSeed=result.rule_seed||null;selected=id;dirty=false;identityDirty=false;settingsDirty=false;
-  {const v=result.settings||initialSettings;Object.assign(options,{aspect:v.aspect,height:v.height,post:v.post,bloom:v.bloom,shake:v.shake});
-   for(const key of ['aspect','resolution','post','bloom','shake']){const node=$<HTMLInputElement>(key);if(key==='post')node.checked=options.post;else node.value=String(key==='resolution'?options.height:options[key as 'aspect'|'bloom'|'shake']);}
-   $<HTMLSelectElement>('highlight-mode').value=v.highlight||'none';$<HTMLSelectElement>('preset').value=v.palette;$<HTMLSelectElement>('theme-bg').value=v.background;$<HTMLSelectElement>('default-layout-preset').value=v.layout;
-   const tplSelect=$<HTMLSelectElement>('visual-template-select');
-   if(tplSelect)options.visualMode=(tplSelect.value as any)||(options.aspect==='9:16'?'apple':'kinetic');
-  }
+  project=normalizeProject(result.project);design=result.design?structuredClone(result.design):createMotionDesign();
+  plan=design.modes.kinetic.plan;ruleSeed=result.rule_seed||null;selected=id;dirty=false;identityDirty=false;settingsDirty=false;
+  syncModeControls();
   audioReady=false;audio.src='';audio.currentTime=0;
   showIdentity();showCover();$<HTMLAnchorElement>('rhythm-link').href='/rhythm-studio?project='+encodeURIComponent(id);coverPending=cacheSunoCover(id);
   $('track-name').textContent=project.title;
@@ -155,7 +167,7 @@ async function load(id:string){
   void loadExports().catch(err => console.warn('[MotionStudio] loadExports failed:', err));
   motionQuote=null;
   if(cloudService())void refreshMotionPrice().catch(error=>{if($('motion-credit-price'))$('motion-credit-price').textContent=error.message;});
-  if(sequence===loadSequence)status(result.plan_error||((plan?'Saved director plan loaded':'Choose a style and generate a director plan')+(audioCached?' · Audio loaded from local cache':'')));
+  if(sequence===loadSequence)status(result.plan_error||((design.active_mode==='kinetic'?(plan?'Saved poster design loaded':'Choose a style and generate a poster design'):visualModes[design.active_mode].label+' ready')+(audioCached?' · Audio loaded from local cache':'')));
  }catch(error:any){
   if(sequence===loadSequence){
    console.error('[MotionStudio] Error loading song:', error);
@@ -165,8 +177,11 @@ async function load(id:string){
  }
 }
 function rules(onlyCurrent=false){
+ if(design.active_mode!=='kinetic')throw Error('Switch to Kinetic Posters to regenerate poster designs.');
  if(!project||!selected)throw new Error('Select a song first.');
  if(onlyCurrent&&!currentCue)throw new Error('Select a lyric line first.');
+ if(plan&&!window.confirm(onlyCurrent?'Regenerate this poster? Its unlocked design will be replaced.':'Regenerate all unlocked posters? Existing unlocked designs will be replaced.')){syncModeControls();return;}
+ design.modes.kinetic.layout=$<HTMLSelectElement>('default-layout-preset').value as typeof design.modes.kinetic.layout;
  const base=plan||ruleSeed;if(!base)throw new Error('Refresh the page to load layout data.');
  plan=localRulePlan(project,base,$<HTMLSelectElement>(onlyCurrent?'cue-palette':'preset').value,$<HTMLSelectElement>(onlyCurrent?'cue-layout-preset':'default-layout-preset').value as DefaultLayoutPreset,
   $<HTMLSelectElement>('theme-bg').value as 'auto'|'light'|'dark',onlyCurrent?currentCue:undefined);
@@ -175,12 +190,16 @@ function rules(onlyCurrent=false){
 }
 function previewPalette(){
  if(!project||!selected)return;
- if(!plan){rules();return;}
- plan=localPalette(plan,$<HTMLSelectElement>('preset').value,$<HTMLSelectElement>('theme-bg').value as 'auto'|'light'|'dark');
- dirty=true;settingsDirty=true;refresh();showCue(false);status('Theme updated locally. Save when ready.');
+ const theme={palette:$<HTMLSelectElement>('preset').value,background:$<HTMLSelectElement>('theme-bg').value as 'auto'|'light'|'dark'};
+ const scope=$<HTMLSelectElement>('theme-scope')?.value==='all'?'all':'mode';
+ design=changeTheme(designSnapshot(),theme,scope);
+ if(plan&&(design.active_mode==='kinetic'||scope==='all')){plan=localPalette(plan,theme.palette,theme.background);dirty=true;}
+ settingsDirty=true;refresh();showCue(false);status('Theme updated locally. Save when ready.');
 }
 $('preset').onchange=action(previewPalette);$('theme-bg').onchange=action(previewPalette);$('default-layout-preset').onchange=action(()=>rules());
 function previewHighlight(single=false){
+ if(design.active_mode!=='kinetic')return;
+ if(!single)design.modes.kinetic.highlight=$<HTMLSelectElement>('highlight-mode').value as HighlightMode;
  if(!project||!selected)return;
  if(!plan){rules();return;}
  const mode=$<HTMLSelectElement>(single?'cue-highlight':'highlight-mode').value as HighlightMode;
@@ -190,73 +209,12 @@ function previewHighlight(single=false){
 $('highlight-mode').onchange=action(()=>previewHighlight());$('cue-highlight').onchange=action(()=>previewHighlight(true));
 
 function applyVisualTemplate() {
-  if (!project || !selected) return;
-  const tpl = $<HTMLSelectElement>('visual-template-select')?.value || 'kinetic';
-  const isZh = (window as any).currentLocale === 'zh';
-  const aspectSelect = $<HTMLSelectElement>('aspect');
-  const base = plan || ruleSeed;
-  if (!base) return;
-
-  if (tpl === 'apple') {
-    options.aspect = '9:16';
-    options.visualMode = 'apple';
-    if (aspectSelect) aspectSelect.value = '9:16';
-    if ($('highlight-mode')) $<HTMLSelectElement>('highlight-mode').value = 'sweep';
-    if ($('default-layout-preset')) $<HTMLSelectElement>('default-layout-preset').value = 'single';
-    plan = localRulePlan(project, base, $<HTMLSelectElement>('preset')?.value || 'impact', 'single',
-      $<HTMLSelectElement>('theme-bg')?.value as any || 'auto');
-    for (const cue of plan.cues) {
-      if (!cue.locked && cue.poster) {
-        cue.poster.layout = 'center-stack';
-        cue.poster.highlight = 'sweep';
-        cue.poster.transition_out = 'fade';
-      }
-    }
-    if (project.song_identity) {
-      project.song_identity.style = 'editorial';
-    }
-    dirty = true;
-    settingsDirty = true;
-    refresh();
-    listCues();
-    populateExportMatrix();
-    status(isZh ? '已应用「灵动流式歌词」模版 (9:16 竖屏 · Apple 逐字扫光)' : 'Applied "Apple Scroll" template (9:16 Portrait · Smooth sweep)');
-  } else if (tpl === 'tv') {
-    options.aspect = '16:9';
-    options.visualMode = 'tv';
-    if (aspectSelect) aspectSelect.value = '16:9';
-    if ($('highlight-mode')) $<HTMLSelectElement>('highlight-mode').value = 'sweep';
-    if ($('default-layout-preset')) $<HTMLSelectElement>('default-layout-preset').value = 'two-stack';
-    plan = localRulePlan(project, base, $<HTMLSelectElement>('preset')?.value || 'impact', 'two-stack',
-      $<HTMLSelectElement>('theme-bg')?.value as any || 'auto');
-    for (const cue of plan.cues) {
-      if (!cue.locked && cue.poster) {
-        cue.poster.layout = 'hero-stack';
-        cue.poster.highlight = 'sweep';
-        cue.poster.transition_out = 'cut';
-      }
-    }
-    if (project.song_identity) {
-      project.song_identity.style = 'editorial';
-    }
-    dirty = true;
-    settingsDirty = true;
-    refresh();
-    listCues();
-    populateExportMatrix();
-    status(isZh ? '已应用「经典双行卡拉OK」模版 (16:9 横屏 · 双行交替扫光)' : 'Applied "TV Karaoke" template (16:9 Landscape · Dual-line sweep)');
-  } else {
-    options.visualMode = 'kinetic';
-    if ($('default-layout-preset')) $<HTMLSelectElement>('default-layout-preset').value = 'smart';
-    plan = localRulePlan(project, base, $<HTMLSelectElement>('preset')?.value || 'impact', 'smart',
-      $<HTMLSelectElement>('theme-bg')?.value as any || 'auto');
-    dirty = true;
-    settingsDirty = true;
-    refresh();
-    listCues();
-    populateExportMatrix();
-    status(isZh ? '已应用「动态海报分镜」模版 (多段卡点 · 视觉冲击)' : 'Applied "Kinetic Posters" template (Dynamic layout & punchy beats)');
-  }
+ if(!project||!selected)return;
+ const mode=$<HTMLSelectElement>('visual-template-select').value as keyof typeof visualModes;
+ if(!(mode in visualModes))throw Error('Unknown visual mode');
+ design=selectMode(designSnapshot(),mode);
+ settingsDirty=true;syncModeControls();refresh();listCues();populateExportMatrix();
+ status(visualModes[mode].label+' selected. Your other mode designs are preserved.');
 }
 $('visual-template-select')?.addEventListener('change', action(applyVisualTemplate));
 let cancelExportQueue = false;
@@ -303,14 +261,7 @@ async function motionRequestId(projectId:string,body:object,revision:string){
  if(!id){id=window.crypto.randomUUID();motionRequestIds.set(key,id);try{localStorage.setItem(key,id);}catch{}}
  return {id,key};
 }
-function safeResolveVisualMode(mode: any, aspect: '16:9' | '9:16'): 'tv' | 'apple' | 'kinetic' {
-  if (typeof resolveVisualMode === 'function') {
-    return resolveVisualMode(mode, aspect);
-  }
-  if (mode === 'tv') return aspect === '16:9' ? 'tv' : 'apple';
-  if (mode === 'apple') return aspect === '9:16' ? 'apple' : 'tv';
-  return 'kinetic';
-}
+function safeResolveVisualMode(mode:Options['visualMode'],aspect:Options['aspect']){return resolveVisualMode(mode,aspect);}
 
 function clearMotionRequest(key:string){motionRequestIds.delete(key);try{localStorage.removeItem(key);}catch{}}
 
@@ -322,16 +273,8 @@ function populateExportMatrix() {
   const clips = typeof buildExportClips === 'function' ? buildExportClips(project, isZh ? 'zh' : 'en') : [];
   const visualMode = options.visualMode || 'kinetic';
 
-  let pLabel = isZh ? '9:16 竖屏' : '9:16 Portrait';
-  let lLabel = isZh ? '16:9 横屏' : '16:9 Landscape';
-
-  if (visualMode === 'tv' || visualMode === 'apple') {
-    pLabel = isZh ? '9:16 Apple Music' : '9:16 Apple Music';
-    lLabel = isZh ? '16:9 KTV 双行' : '16:9 KTV Dual';
-  } else {
-    pLabel = isZh ? '9:16 动效海报' : '9:16 Poster';
-    lLabel = isZh ? '16:9 动效海报' : '16:9 Poster';
-  }
+  const pLabel=visualModes[visualMode].label+' · 9:16';
+  const lLabel=visualModes[visualMode].label+' · 16:9';
 
   const headings = [
     isZh ? '片段' : 'Clip',
@@ -371,11 +314,10 @@ function populateExportMatrix() {
       check.className = 'matrix-clip-check';
       check.dataset.clipId = clip.id;
       check.dataset.ratio = ratio;
+      check.dataset.visualMode=visualMode;
       check.checked = clip.id === 'full' && ratio === (options.aspect || '9:16');
       check.disabled = !clip.available;
-      const formatDesc = (visualMode === 'tv' || visualMode === 'apple')
-        ? (ratio === '9:16' ? 'Apple Music' : 'KTV')
-        : 'Poster';
+      const formatDesc=visualModes[visualMode].label;
       check.setAttribute?.('aria-label', `${clip.title} ${ratio} ${formatDesc}`);
       check.addEventListener('change', () => {
         updateMatrixCount();
@@ -394,15 +336,7 @@ function populateExportMatrix() {
     hintEl.style.cssText = 'font-size:11px; color:#8ba090; margin-top:6px; line-height:1.4;';
     container.parentNode?.insertBefore(hintEl, container.nextSibling);
   }
-  if (visualMode === 'tv' || visualMode === 'apple') {
-    hintEl.textContent = isZh
-      ? '💡 智能双格式就绪：勾选 9:16 导出 Apple Music 灵动流式，勾选 16:9 导出 KTV 双行交替，支持批量导出。'
-      : '💡 Dual-format ready: 9:16 exports Apple Music scroll, 16:9 exports KTV dual lines. Batch export supported.';
-  } else {
-    hintEl.textContent = isZh
-      ? '💡 动效海报模式：9:16 导出竖屏海报分镜，16:9 导出横屏海报分镜。'
-      : '💡 Kinetic Poster mode: 9:16 exports portrait poster, 16:9 exports landscape poster.';
-  }
+  hintEl.textContent='Each selected video uses '+visualModes[visualMode].label+'. Changing aspect ratio keeps this mode.';
 
   updateMatrixCount();
 }
@@ -459,11 +393,11 @@ async function exportVideo() {
 }
 
 async function runExportVideo() {
-  if (!selected || !plan) throw new Error('Generate a director plan first.');
+  if(!selected||(design.active_mode==='kinetic'&&!plan))throw new Error('Generate a poster design first, or select Apple Scroll / Dual-line Karaoke.');
   requireSaved();
   if (coverPending) await coverPending;
   requireSaved();
-  const sourceProject=selected,sourceOptions={...options},sourceRevision=JSON.stringify([project,plan]);
+  const sourceProject=selected,sourceOptions={...options},sourceRevision=JSON.stringify([project,designSnapshot()]),exportProject=structuredClone(project!);
   const acceptedCost=await refreshMotionPrice(true);
 
   const customRange = Boolean($<HTMLInputElement>('export-custom-range')?.checked);
@@ -488,7 +422,7 @@ async function runExportVideo() {
   }] : selectedBoxes.map(box => {
     const clip = clips.find(c => c.id === box.dataset.clipId)!;
     const aspect = (box.dataset.ratio || options.aspect) as '16:9' | '9:16';
-    const visualMode = safeResolveVisualMode(sourceOptions.visualMode, aspect);
+    const visualMode = safeResolveVisualMode((box.dataset.visualMode||sourceOptions.visualMode) as Options['visualMode'], aspect);
     const start = clip.start_time;
     const length = clip.end_time == null ? null : Math.max(0.1, clip.end_time - clip.start_time);
     return { title: clip.title, aspect, visualMode, start, length };
@@ -560,7 +494,7 @@ async function runExportVideo() {
         let retryArchive:(()=>Promise<void>)|null=null;
         try {
           const blob = await exportMotionWebCodecs({
-            project,
+            project:exportProject,
             range: {
               title: task.title,
               aspect: task.aspect,
@@ -911,17 +845,15 @@ for(const id of ['aspect','resolution','post','bloom','shake'])$(id).addEventLis
   options.post=$<HTMLInputElement>('post').checked;
   options.bloom=Number($<HTMLInputElement>('bloom').value);
   options.shake=Number($<HTMLInputElement>('shake').value);
-  if(id==='aspect'){
-    const tplSelect=$<HTMLSelectElement>('visual-template-select');
-    if(options.aspect==='9:16'&&options.visualMode==='tv'){
-      options.visualMode='apple';
-      if(tplSelect)tplSelect.value='apple';
-    }else if(options.aspect==='16:9'&&options.visualMode==='apple'){
-      options.visualMode='tv';
-      if(tplSelect)tplSelect.value='tv';
-    }
-  }
-  settingsDirty=true;refresh();status('Format and display settings updated locally. Save to sync.');
+  const mode=design.modes[design.active_mode];mode.aspect=options.aspect;mode.post=options.post;mode.bloom=options.bloom;mode.shake=options.shake;design.height=options.height||720;
+  settingsDirty=true;refresh();if(id==='aspect')populateExportMatrix();status('Format and display settings updated locally. Save to sync.');
+});
+for(const id of ['stream-font-scale','apple-focus-y','karaoke-preview-seconds'])$(id)?.addEventListener('input',()=>{
+ if(design.active_mode==='kinetic')return;
+ if(id==='stream-font-scale')design.modes[design.active_mode].font_scale=Number($<HTMLInputElement>(id).value);
+ if(id==='apple-focus-y')design.modes.apple.focus_y=Number($<HTMLInputElement>(id).value);
+ if(id==='karaoke-preview-seconds')design.modes.tv.preview_seconds=Number($<HTMLInputElement>(id).value);
+ settingsDirty=true;refresh();status('Mode settings updated locally. Save when ready.');
 });
 $('play').onclick=action(async()=>{if(!project)return;if(!audioReady)throw new Error('Audio is loading. You can preview posters while waiting.');clipEnd=null;if(playing){audio.pause();playing=false;$('play').textContent='▶';}else{await audio.play();playing=true;$('play').textContent='Ⅱ';}});const seek=$<HTMLInputElement>('seek');
 function beginScrub(){if(scrubbing)return;scrubbing=true;resumeAfterScrub=playing;audio.pause();playing=false;$('play').textContent='▶';clipEnd=null;}
@@ -1120,13 +1052,13 @@ function renderPosterNodes(line:import('./model').Line,cue:import('./model').Cue
 }
 
 function showIdentity(){const v=project?.song_identity;if(!v)return;
- $<HTMLInputElement>('song-title').value=v.title;$<HTMLInputElement>('song-artist').value=v.artist;$<HTMLSelectElement>('song-style').value=v.style;$<HTMLSelectElement>('song-theme').value=v.visual_theme||'director';
+ $<HTMLInputElement>('song-title').value=v.title;$<HTMLInputElement>('song-artist').value=v.artist;$<HTMLSelectElement>('song-style').value=v.style;
  $<HTMLSelectElement>('cover-mode').value=v.cover_mode||'background';$<HTMLInputElement>('cover-x').value=String(v.cover_x??50);$<HTMLInputElement>('cover-y').value=String(v.cover_y??50);$<HTMLInputElement>('cover-zoom').value=String(v.cover_zoom??1);
  for(const [id,key] of [['intro','show_intro'],['signature','show_signature'],['section','show_section'],['outro','show_outro']] as const)$<HTMLInputElement>('song-'+id).checked=v[key];
  $('identity-source').textContent=v.source==='suno-cache'?`Suno source: ${v.source_title||v.title} · ${v.source_artist||'Artist unavailable'}. Edit freely; Reset restores the original credits.`:'Existing project. Suno artist details are unavailable; enter them manually.';
 }
 function editIdentity(){if(!project?.song_identity)return;
- Object.assign(project.song_identity,{visual_theme:$<HTMLSelectElement>('song-theme').value,cover_mode:$<HTMLSelectElement>('cover-mode').value,cover_x:Number($<HTMLInputElement>('cover-x').value),cover_y:Number($<HTMLInputElement>('cover-y').value),cover_zoom:Number($<HTMLInputElement>('cover-zoom').value),title:$<HTMLInputElement>('song-title').value.trim(),artist:$<HTMLInputElement>('song-artist').value.trim(),style:$<HTMLSelectElement>('song-style').value,show_intro:$<HTMLInputElement>('song-intro').checked,show_signature:$<HTMLInputElement>('song-signature').checked,show_section:$<HTMLInputElement>('song-section').checked,show_outro:$<HTMLInputElement>('song-outro').checked});
+ Object.assign(project.song_identity,{cover_mode:$<HTMLSelectElement>('cover-mode').value,cover_x:Number($<HTMLInputElement>('cover-x').value),cover_y:Number($<HTMLInputElement>('cover-y').value),cover_zoom:Number($<HTMLInputElement>('cover-zoom').value),title:$<HTMLInputElement>('song-title').value.trim(),artist:$<HTMLInputElement>('song-artist').value.trim(),style:$<HTMLSelectElement>('song-style').value,show_intro:$<HTMLInputElement>('song-intro').checked,show_signature:$<HTMLInputElement>('song-signature').checked,show_section:$<HTMLInputElement>('song-section').checked,show_outro:$<HTMLInputElement>('song-outro').checked});
  project.title=project.song_identity.title;project.artist=project.song_identity.artist;identityDirty=true;$('track-name').textContent=project.title;refresh();status('Song layout preview updated. Save before exporting.');
 }
 async function saveIdentity(){
@@ -1153,7 +1085,7 @@ async function refreshSourceInfo(){
  }finally{button.disabled=false;}
 }
 $('refresh-source').onclick=action(refreshSourceInfo);
-for(const id of ['song-title','song-artist','song-theme','song-style','song-intro','song-signature','song-section','song-outro','cover-mode','cover-x','cover-y','cover-zoom'])$(id).onchange=editIdentity;
+for(const id of ['song-title','song-artist','song-style','song-intro','song-signature','song-section','song-outro','cover-mode','cover-x','cover-y','cover-zoom'])$(id).onchange=editIdentity;
 $('save-identity').onclick=action(saveAll);
 $('reset-identity').onclick=()=>{const v=project?.song_identity;if(!v)return;$<HTMLInputElement>('song-title').value=v.source_title||v.title;$<HTMLInputElement>('song-artist').value=v.source_artist||'';editIdentity();};
 

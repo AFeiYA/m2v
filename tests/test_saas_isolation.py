@@ -743,8 +743,8 @@ def test_cloud_motion_plan_persists_and_survives_workspace_restart(sandbox):
     plan["cues"][0]["locked"] = True
     saved = sandbox.client.put(base + "/plan", json={"project_id": "alice_motion", "plan": plan, "from_llm": False}, headers=headers())
     assert saved.status_code == 200, saved.text
-    key = motion_cloud.task_prefix("alice", "alice_motion") + "source_motion_plan.json"
-    assert json.loads(sandbox.storage.get_local_path(key).read_text())["cues"][0]["locked"]
+    key = motion_cloud.task_prefix("alice", "alice_motion") + "source_motion_design.json"
+    assert json.loads(sandbox.storage.get_local_path(key).read_text())["modes"]["kinetic"]["plan"]["cues"][0]["locked"]
     assert "motion_plan" not in json.loads(sandbox.storage.get_local_path("results/alice_motion/source_alignment.json").read_text())
     motion_cloud._workspaces.pop((id(sandbox.storage), "alice"))
     loaded = sandbox.client.get(base + "/project", params={"project_id": "alice_motion"}, headers=headers())
@@ -1060,16 +1060,20 @@ def test_cloud_plugin_cannot_reopen_shared_local_video_routes(sandbox):
 
 def test_cloud_motion_settings_are_owned_and_survive_restart(sandbox):
     from src import motion_cloud
+    from src.motion_design import MotionDesign
     seed_cloud_motion(sandbox)
-    settings = {'aspect':'9:16', 'height':360, 'palette':'neon', 'layout':'three-stack', 'highlight':'sweep'}
-    denied = sandbox.client.put('/api/cloud-motion/settings', json={'project_id':'bob_motion', 'settings':settings}, headers=headers())
-    assert denied.status_code == 404
-    saved = sandbox.client.put('/api/cloud-motion/settings', json={'project_id':'alice_motion', 'settings':settings}, headers=headers())
-    assert saved.status_code == 200, saved.text
+    design=MotionDesign().model_dump()
+    design.update(active_mode='apple',height=360)
+    design['modes']['apple'].update(theme={'palette':'neon','background':'light'},focus_y=.5)
+    denied=sandbox.client.put('/api/cloud-motion/design',json={'project_id':'bob_motion','design':design},headers=headers())
+    assert denied.status_code==404
+    saved=sandbox.client.put('/api/cloud-motion/design',json={'project_id':'alice_motion','design':design},headers=headers())
+    assert saved.status_code==200,saved.text
     motion_cloud._workspaces.clear()
-    restored = sandbox.client.get('/api/cloud-motion/project', params={'project_id':'alice_motion'}, headers=headers())
-    assert restored.status_code == 200, restored.text
-    assert restored.json()['settings'] == saved.json()['settings']
+    restored=sandbox.client.get('/api/cloud-motion/project',params={'project_id':'alice_motion'},headers=headers())
+    assert restored.status_code==200,restored.text
+    assert restored.json()['design']==saved.json()['design']
+    assert restored.json()['design']['modes']['kinetic']['plan'] is None
 
 
 def test_rhythm_settings_are_private_and_persist_without_a_poster(sandbox):

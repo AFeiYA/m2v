@@ -36,7 +36,7 @@ export interface KtvLineCompiled {
 }
 
 export interface KtvDualCompiled {
-  aspect: '16:9';
+  aspect: '16:9' | '9:16';
   width: number;
   height: number;
   uniformFontSize: number;
@@ -49,11 +49,13 @@ export function compileKtvDualLayout(
   width: number,
   height: number,
   measure: TextMeasure,
-  palette: StreamPalette
+  palette: StreamPalette,
+  options?: {font_scale?:number;preview_seconds?:number}
 ): KtvDualCompiled {
   const lines = project.lines || [];
-  const maxWidth = Math.round(width * 0.65);
-  const baseFontSize = Math.round(width * 0.038); // ~72px on 1920
+  const maxWidth = Math.round(width * 0.68);
+  const baseFontSize = Math.round(Math.min(width,height*1.5) * 0.038 * (options?.font_scale||1));
+  const previewSeconds = options?.preview_seconds ?? 2.5;
 
   // 1. 预先测量全曲所有歌词单句在基准字号下的宽度，找出最长句
   let maxMeasured = 1.0;
@@ -92,20 +94,20 @@ export function compileKtvDualLayout(
     // 严格槽位衔接：同槽位上一句驻留结束时间 = 同槽位下一句预读开始时间
     let previewStart = 0;
     if (i === 0) {
-      previewStart = Math.max(0, line.start - 2.5);
+      previewStart = Math.max(0, line.start - previewSeconds);
     } else if (i === 1) {
       previewStart = Math.max(0, lines[0].start);
     } else {
       // 距离本句开唱前 2.5 秒，且不早于同槽位前一句 (i-2) 唱完时间
-      previewStart = Math.max(lines[i - 2].end, line.start - 2.5);
+      previewStart = Math.max(lines[i - 2].end, line.start - previewSeconds);
     }
     const activeStart = line.start;
     const activeEnd = Math.max(activeStart + 0.5, line.end);
 
     // 唱完常驻：保持高亮，直到同槽位下一句 (i+2) 进入 preview
-    let stayEnd = activeEnd + 2.5;
+    let stayEnd = activeEnd + previewSeconds;
     if (i + 2 < lines.length) {
-      stayEnd = Math.max(activeEnd, lines[i + 2].start - 2.5);
+      stayEnd = Math.max(activeEnd, lines[i + 2].start - previewSeconds);
     }
 
     // 编译单句高亮区间
@@ -138,7 +140,7 @@ export function compileKtvDualLayout(
   }
 
   return {
-    aspect: '16:9',
+    aspect: height>width?'9:16':'16:9',
     width,
     height,
     uniformFontSize,
@@ -336,7 +338,8 @@ export interface AppleLineCompiled {
 }
 
 export interface AppleScrollCompiled {
-  aspect: '9:16';
+  focusY?: number;
+  aspect: '16:9' | '9:16';
   width: number;
   height: number;
   startX: number;
@@ -355,13 +358,14 @@ export function compileAppleScrollLayout(
   width: number,
   height: number,
   measure: TextMeasure,
-  palette: StreamPalette
+  palette: StreamPalette,
+  options?: {font_scale?:number;focus_y?:number}
 ): AppleScrollCompiled {
   const lines = project.lines || [];
   // Apple Music 移动端规范：左边距安全边距约 8%，给歌词留出 84% 舒适阅读宽度
   const startX = Math.round(width * 0.08);
   const maxWidth = width - startX * 2;
-  const activeFontSize = Math.round(width * 0.052); // ~56px on 1080w
+  const activeFontSize = Math.round(Math.min(width,height*.9) * 0.052 * (options?.font_scale||1));
   const contextFontSize = Math.round(activeFontSize * 0.72);
   const rowLineHeight = Math.round(activeFontSize * 1.34);
   // 句子间距舒展留白：设为字号的 1.9x，营造优雅呼吸感
@@ -415,7 +419,8 @@ export function compileAppleScrollLayout(
   }
 
   return {
-    aspect: '9:16',
+    aspect: height>width?'9:16':'16:9',
+    focusY: options?.focus_y ?? .42,
     width,
     height,
     startX,
@@ -491,7 +496,7 @@ export function appleScrollStateAt(
   }
 
   // Apple Music 移动端光学焦点约在视口高 42% 偏上方，留给下方预读更多空间
-  const focalCenterY = Math.round(layout.height * 0.42);
+  const focalCenterY = Math.round(layout.height * (layout.focusY ?? .42));
   const focalWorldY = currentLine.centerY + (nextLine ? (nextLine.centerY - currentLine.centerY) * scrollFraction : 0);
   const continuousIndex = activeIndex + scrollFraction;
 
@@ -588,7 +593,7 @@ export function paintAppleScrollCanvas(
   // 1. 绘制焦点区域轻微的环境氛围晕光 (Ambient Glow)
   if (typeof ctx.createRadialGradient === 'function') {
     ctx.save();
-    const focalCenterY = Math.round(layout.height * 0.42);
+    const focalCenterY = Math.round(layout.height * (layout.focusY ?? .42));
     const glow = ctx.createRadialGradient(
       layout.width * 0.38,
       focalCenterY,

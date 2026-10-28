@@ -237,7 +237,7 @@ class Workspace:
                 await self.storage.load(key, destination)
             self.loaded.add(task_id)
         else:
-            for name in ("source_motion_plan.json", "source_motion_identity.json", "source_motion_settings.json", "source_rhythm_settings.json"):
+            for name in ("source_motion_design.json", "source_motion_identity.json", "source_rhythm_settings.json"):
                 if await self.storage.exists(prefix + name):
                     await self.storage.load(prefix + name, path.parent / name)
                 else:

@@ -1,10 +1,11 @@
 import {highlightState} from './karaoke';
+import {compileRenderPlan} from './render-plan';
 import React, {useEffect,useState,useId} from 'react';
 import {AbsoluteFill,Img,useCurrentFrame,useVideoConfig,useDelayRender} from 'remotion';
 import {featuresAt,type Project,type Options} from './model';
-import {compileSongPosters,stageAt,visiblePosterAt,canvasMeasure,POSTER_FONT,posterNodeState,posterHoldState,posterExitOpacity,posterRings,compileIntroTitle,introTitleState,resolvePaletteColors,type CompiledPoster,type CompiledIntroTitle} from './poster-layout';
-import {compileSongLayout,songLayoutAt,songTextColor,coverPlacement,coverOpacityAt,type SongLayout} from './song-layout';
-import {compileKtvDualLayout,ktvDualStateAt,type KtvDualCompiled,compileAppleScrollLayout,appleScrollStateAt,type AppleScrollCompiled} from './stream-layout';
+import {stageAt,visiblePosterAt,canvasMeasure,POSTER_FONT,posterNodeState,posterHoldState,posterExitOpacity,posterRings,introTitleState,type CompiledPoster,type CompiledIntroTitle} from './poster-layout';
+import {songLayoutAt,songTextColor,coverPlacement,coverOpacityAt,type SongLayout} from './song-layout';
+import {ktvDualStateAt,type KtvDualCompiled,appleScrollStateAt,type AppleScrollCompiled} from './stream-layout';
 
 export type VideoProps={project:Project;options:Options;timeOffset?:number;renderLength?:number;transparent?:boolean;surface?:{width:number;height:number}};
 
@@ -24,26 +25,9 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
  useEffect(()=>{let active=true;(async()=>{await document.fonts.ready;if(!active)return;
   const context=document.createElement('canvas').getContext('2d')!;
   const measure=canvasMeasure(context);
-  const basePaletteName = project.motion_plan?.cues?.[0]?.palette || 'impact';
-  const palette = resolvePaletteColors(basePaletteName, 'auto');
-
-  if (activeVisualMode === 'tv') {
-    setKtvLayout(compileKtvDualLayout(project, width, height, measure, palette));
-    setLayouts(null);
-    setAppleLayout(null);
-  } else if (activeVisualMode === 'apple') {
-    setAppleLayout(compileAppleScrollLayout(project, width, height, measure, palette));
-    setLayouts(null);
-    setKtvLayout(null);
-  } else {
-    setLayouts(compileSongPosters(project, width, height, measure));
-    setKtvLayout(null);
-    setAppleLayout(null);
-  }
-
-  const introResult=project.song_identity?null:compileIntroTitle(project,width,height,measure);
-  setSongLayout(compileSongLayout(project,width,height,measure));
-  setIntro(introResult);
+  const compiled=compileRenderPlan(project,options,width,height,measure);
+  setLayouts(compiled.layouts);setKtvLayout(compiled.ktvLayout);setAppleLayout(compiled.appleLayout);
+  setSongLayout(compiled.songLayout);setIntro(compiled.intro);
   continueRender(handle);
  })().catch(cancelRender);return()=>{active=false;};},[project,activeVisualMode,width,height,handle,continueRender,cancelRender]);
 

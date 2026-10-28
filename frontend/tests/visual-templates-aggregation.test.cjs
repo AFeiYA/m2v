@@ -17,6 +17,8 @@ test('motion studio html files contain visual template selector with kinetic, ap
     assert.ok(html.includes('value="kinetic"'), `${filename} must have kinetic option`);
     assert.ok(html.includes('value="apple"'), `${filename} must have apple option`);
     assert.ok(html.includes('value="tv"'), `${filename} must have tv option`);
+    const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(match=>match[1]);
+    assert.equal(ids.length,new Set(ids).size,`${filename} must not have duplicate control IDs`);
   }
 });
 
@@ -29,11 +31,9 @@ test('i18n contains translations for visual template selector and open motion st
   assert.ok(i18nSource.includes('ms_lbl_visual_template:'), 'Chinese ms_lbl_visual_template exists');
 });
 
-test('studio.ts implements applyVisualTemplate with apple (9:16) and tv (16:9)', () => {
-  const studioSource = fs.readFileSync(path.join(__dirname, '../motion/src/studio.ts'), 'utf8');
-  assert.ok(studioSource.includes('applyVisualTemplate'), 'applyVisualTemplate function must be defined');
-  assert.ok(studioSource.includes("visual-template-select"), 'visual-template-select must be wired');
-  assert.ok(studioSource.includes("options.aspect = '9:16'"), 'apple must switch aspect to 9:16');
-  assert.ok(studioSource.includes("options.aspect = '16:9'"), 'tv must switch aspect to 16:9');
-  assert.ok(studioSource.includes("cue.poster.highlight = 'sweep'"), 'must apply karaoke sweep highlight');
+test('studio uses non-destructive mode selection', () => {
+ const code=fs.readFileSync(path.join(__dirname,'../motion/src/studio.ts'),'utf8');
+ const switcher=code.slice(code.indexOf('function applyVisualTemplate()'),code.indexOf("$('visual-template-select')?.addEventListener"));
+ assert.ok(switcher.includes('selectMode'));
+ assert.doesNotMatch(switcher,/localRulePlan|poster\.highlight|song_identity/);
 });

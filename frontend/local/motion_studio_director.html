@@ -113,14 +113,6 @@
           <label for="cover-zoom" data-i18n="ms_lbl_cover_zoom">Cover Zoom</label>
           <input id="cover-zoom" type="range" min="1" max="2" step="0.05" value="1">
           <p class="help" data-i18n="ms_help_cover">Cover is shown clearly in intro/outro and dimmed during singing to maintain lyric focus.</p>
-          <label for="song-theme" data-i18n="ms_lbl_song_theme">Visual Theme</label>
-          <select id="song-theme">
-            <option value="director" data-i18n="ms_opt_theme_director">Follow Director Design</option>
-            <option value="editorial" data-i18n="ms_opt_theme_editorial">Editorial B&amp;W · Restrained</option>
-            <option value="neon" data-i18n="ms_opt_theme_neon">Neon Stage · Accent Rings</option>
-            <option value="paper" data-i18n="ms_opt_theme_paper">Warm Paper · Light &amp; Warm</option>
-          </select>
-          <p class="help" data-i18n="ms_help_theme">Unifies palette across cover and lyrics without altering rhythm alignment.</p>
           <label for="song-style" data-i18n="ms_lbl_song_style">Song Layout</label>
           <select id="song-style">
             <option value="editorial" data-i18n="ms_opt_style_editorial">Poster · Signature &amp; Hairline</option>
@@ -141,10 +133,13 @@
           <label for="visual-template-select" data-i18n="ms_lbl_visual_template" style="color:#b9ff70; font-weight:700;">Visual Template</label>
           <select id="visual-template-select" style="border:1px solid #365334; background:#141f17; font-weight:600; color:#e7eee7;">
             <option value="kinetic" data-i18n="ms_tpl_kinetic">🌟 Kinetic Posters (Dynamic &amp; Punchy)</option>
-            <option value="apple" data-i18n="ms_tpl_apple">📱 Apple Scroll (Smooth 9:16 Lyrics Flow)</option>
-            <option value="tv" data-i18n="ms_tpl_tv">📺 TV Karaoke (Classic 16:9 Dual-line)</option>
+            <option value="apple" data-i18n="ms_tpl_apple">📱 Apple Scroll</option>
+            <option value="tv" data-i18n="ms_tpl_tv">📺 Dual-line Karaoke</option>
           </select>
-          <p class="help" data-i18n="ms_help_visual_template" style="margin-top:2px; margin-bottom:12px; font-size:11px; color:#788f7e;">Integrated export templates: Portrait scroll for TikTok/Reels, landscape dual-line for TV/KTV, and kinetic posters for dynamic impact.</p>
+          <p class="help" data-i18n="ms_help_visual_template" style="margin-top:2px; margin-bottom:12px; font-size:11px; color:#788f7e;">Each mode keeps its own design. Switching preserves your work; aspect ratio is independent.</p>
+          <p id="mode-state-hint" class="help"></p>
+          <label for="theme-scope" data-i18n="ms_theme_scope">Apply theme to</label>
+          <select id="theme-scope"><option value="mode" data-i18n="ms_theme_mode">This mode only</option><option value="all" data-i18n="ms_theme_all">All modes</option></select>
           <h3 data-i18n="ms_group_style">Overall Style · Theme Colors</h3>
           <label for="preset" data-i18n="ms_lbl_preset">Preferred Palette Theme</label>
           <select id="preset">
@@ -163,6 +158,12 @@
             <option value="dark" data-i18n="ms_opt_bg_dark">Dark Night (High Contrast · Recommended)</option>
             <option value="light" data-i18n="ms_opt_bg_light">Light Paper (Clean Bright)</option>
           </select>
+          <div id="stream-design-controls" hidden>
+            <label for="stream-font-scale" data-i18n="ms_stream_size">Lyric size</label><input id="stream-font-scale" type="range" min="0.7" max="1.4" step="0.05" value="1">
+            <div id="apple-mode-controls"><label for="apple-focus-y" data-i18n="ms_apple_focus">Active line position</label><input id="apple-focus-y" type="range" min="0.3" max="0.6" step="0.01" value="0.42"></div>
+            <div id="karaoke-mode-controls"><label for="karaoke-preview-seconds" data-i18n="ms_karaoke_preview">Preview lyrics before singing (seconds)</label><input id="karaoke-preview-seconds" type="number" min="0" max="8" step="0.5" value="2.5"></div>
+          </div>
+          <div id="kinetic-design-controls">
           <h3 data-i18n="ms_group_line">Line · Grouping &amp; Layout</h3>
           <label for="default-layout-preset" data-i18n="ms_lbl_layout_preset">Default Layout Preset (Rule-based)</label>
           <select id="default-layout-preset">
@@ -208,9 +209,10 @@
             <p id="director-validation" class="help"></p>
           </details>
           <button id="download-plan" class="secondary" data-i18n="ms_btn_dl_plan">Download Plan JSON</button>
+          </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" id="kinetic-line-controls">
           <h2 data-i18n="ms_sec3_title">03 / Line-by-Line Tuning</h2>
           <label for="cue-select" data-i18n="ms_lbl_cue_select">Lyric Line</label>
           <select id="cue-select"></select>
@@ -377,7 +379,7 @@
     </div>
   </dialog>
 
-  <script type="module" src="/motion/studio.js?v=20261027_dropdown"></script>
+  <script type="module" src="/motion/studio.js?v=20261029_motion_design"></script>
   <script>
     if (window.parent && window.parent !== window) {
       document.body.classList.add("embedded-studio");

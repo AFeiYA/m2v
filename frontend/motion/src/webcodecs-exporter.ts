@@ -1,20 +1,17 @@
 import {decodeExportAudio} from './export-audio';
+import {compileRenderPlan} from './render-plan';
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 import {
-  compileSongPosters,
   canvasMeasure,
   paintCompiledPoster,
-  compileIntroTitle,
   introTitleState,
   visiblePosterAt,
   stageAt,
   POSTER_FONT,
-  resolvePaletteColors,
   type CompiledPoster,
   type CompiledIntroTitle,
 } from './poster-layout';
 import {
-  compileSongLayout,
   songLayoutAt,
   coverPlacement,
   coverOpacityAt,
@@ -23,10 +20,8 @@ import {
 } from './song-layout';
 import { featuresAt, resolveVisualMode, type Project, type Options, type VisualMode } from './model';
 import {
-  compileKtvDualLayout,
   paintKtvDualCanvas,
   type KtvDualCompiled,
-  compileAppleScrollLayout,
   paintAppleScrollCanvas,
   type AppleScrollCompiled,
 } from './stream-layout';
@@ -200,23 +195,7 @@ export async function exportMotionWebCodecs(params: {
   const measure = canvasMeasure(measureCtx);
 
   const visualMode = resolveVisualMode(range.visualMode, range.aspect);
-  const basePaletteName = project.motion_plan?.cues?.[0]?.palette || 'impact';
-  const palette = resolvePaletteColors(basePaletteName, 'auto');
-
-  let layouts: CompiledPoster[] | null = null;
-  let ktvLayout: KtvDualCompiled | null = null;
-  let appleLayout: AppleScrollCompiled | null = null;
-
-  if (visualMode === 'tv') {
-    ktvLayout = compileKtvDualLayout(project, width, height, measure, palette);
-  } else if (visualMode === 'apple') {
-    appleLayout = compileAppleScrollLayout(project, width, height, measure, palette);
-  } else {
-    layouts = compileSongPosters(project, width, height, measure);
-  }
-
-  const songLayout = compileSongLayout(project, width, height, measure);
-  const intro = project.song_identity ? null : compileIntroTitle(project, width, height, measure);
+  const {layouts,ktvLayout,appleLayout,songLayout,intro}=compileRenderPlan(project,{visualMode},width,height,measure);
 
   // Preload cover image if available
   let coverImage: HTMLImageElement | null = null;

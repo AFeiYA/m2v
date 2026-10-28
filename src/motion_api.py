@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from src.session_manager import resolve_session_id
 from src.motion_director import validate_plan, rule_plan, llm_prompt, director_input, line_prompt_bundle, line_response, cue_signature, source_signature
 from src.r2_storage import r2_storage
+from src.motion_design import MotionDesign
 
 from src.song_cover import resolve_cover, prepare_cover, cover_path, MAX_BYTES
 from src.song_identity import SongIdentity, identity_path, resolve_identity
@@ -43,20 +44,9 @@ class IdentityRequest(BaseModel):
     project_id: str
     identity: SongIdentity
 
-class StudioSettings(BaseModel):
-    aspect: Literal['16:9', '9:16'] = '16:9'
-    height: Literal[360, 720] = 720
-    post: bool = True
-    bloom: float = Field(default=.7, ge=0, le=1.4, allow_inf_nan=False)
-    shake: float = Field(default=.65, ge=0, le=1.5, allow_inf_nan=False)
-    palette: str = Field(default='impact', max_length=64)
-    background: Literal['auto', 'dark', 'light'] = 'auto'
-    layout: Literal['smart', 'random', 'single', 'two-stack', 'three-stack', 'word-by-word'] = 'smart'
-    highlight: Literal['none', 'word', 'sweep'] = 'none'
-
-class SettingsRequest(BaseModel):
+class DesignRequest(BaseModel):
     project_id: str
-    settings: StudioSettings
+    design: MotionDesign
 
 class LineInputRequest(ProjectRequest):
     line_id: str
@@ -148,12 +138,21 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
         return path, payload
 
     def plan_path(path):
-        return path.with_name(path.stem.removesuffix('_alignment').removesuffix('_project') + '_motion_plan.json')
+        return path.with_name(path.stem.removesuffix('_alignment').removesuffix('_project') + '_motion_design.json')
+
+    def design_document(path):
+        p = plan_path(path)
+        try:
+            return MotionDesign.model_validate_json(p.read_text()) if p.exists() else MotionDesign()
+        except (ValueError, OSError) as exc:
+            raise HTTPException(422, 'Motion design cannot be read. Restore the document before editing.') from exc
 
     def previous(path, payload=None):
         p = plan_path(path)
         if not p.exists(): return None
-        data = json.loads(p.read_text(encoding='utf-8'))
+        plan = design_document(path).modes.kinetic.plan
+        if plan is None: return None
+        data = plan.model_dump()
         if payload is not None:
             try: validate_plan(payload, data)
             except ValueError: return None
@@ -161,6 +160,12 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
 
     def atomic_write(path, data):
         import tempfile
+        if path.name.endswith('_motion_design.json') and data.get('version') == 'motion-plan-v1':
+            # Director tools edit only the kinetic namespace, preserving all modes.
+            from src.motion_director import MotionPlan
+            document = MotionDesign.model_validate_json(path.read_text()) if path.exists() else MotionDesign()
+            document.modes.kinetic.plan = MotionPlan.model_validate(data)
+            data = document.model_dump()
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as stream:
             temp = Path(stream.name)
             json.dump(data, stream, ensure_ascii=False, indent=2)
@@ -185,12 +190,10 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
         if saved:
             try: validate_plan(payload, saved)
             except ValueError as exc: saved, error = None, str(exc)
-        settings_file = path.with_name(path.stem.removesuffix('_alignment').removesuffix('_project') + '_motion_settings.json')
-        settings = None
-        if settings_file.exists():
-            try: settings = StudioSettings.model_validate_json(settings_file.read_text()).model_dump()
-            except (ValueError, OSError): error = error or '显示设置无法读取，已使用默认值；导演方案未改变'
-        return {'project': payload, 'plan': saved, 'plan_error': error, 'settings': settings,
+        design = design_document(path).model_dump()
+        design['modes']['kinetic']['plan'] = saved
+        payload['motion_design'] = design
+        return {'project': payload, 'plan': saved, 'plan_error': error, 'design': design,
                 'rule_seed': rule_plan(payload, saved).model_dump(),
                 'audio_url': (audio_url(project_id) if audio_url is not None else
                               '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(audio))) if audio_url is not None or audio else None}
@@ -212,12 +215,16 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
             atomic_write(rhythm_path(path), req.settings.model_dump())
         return {'settings': req.settings.model_dump()}
 
-    @router.put('/settings')
-    def save_settings(req: SettingsRequest):
-        path = project_path(req.project_id)
-        destination = path.with_name(path.stem.removesuffix('_alignment').removesuffix('_project') + '_motion_settings.json')
-        atomic_write(destination, req.settings.model_dump())
-        return {'settings': req.settings.model_dump()}
+    @router.put('/design')
+    def save_design(req: DesignRequest):
+        with plan_lock:
+            path, payload = read(req.project_id)
+            document = req.design.model_copy(deep=True)
+            if document.modes.kinetic.plan is not None:
+                try: document.modes.kinetic.plan = validate_plan(payload, document.modes.kinetic.plan.model_dump())
+                except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+            atomic_write(plan_path(path), document.model_dump())
+        return {'design': document.model_dump()}
 
     @router.put('/identity')
     def save_identity(req: IdentityRequest):
@@ -505,9 +512,12 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
             plan = None
         else:
             saved = previous(path)
-            if not saved: raise HTTPException(422, '请先生成并保存动效导演方案')
-            try: plan = validate_plan(payload, saved).model_dump()
-            except ValueError as exc: raise HTTPException(422, str(exc))
+            if req.visual_mode == 'kinetic' and not saved: raise HTTPException(422, '请先生成并保存动效导演方案')
+            if req.visual_mode == 'kinetic':
+                try: plan = validate_plan(payload, saved).model_dump()
+                except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+            else:
+                plan = saved  # Streaming modes never depend on poster validity.
         audio = find_audio(path.stem.removesuffix('_alignment').removesuffix('_project'), song_output_dir=path.parent)
         if not audio: raise HTTPException(404, '没有原曲音频，无法输出带音乐的 MP4')
         audio = validate_path(audio)
@@ -547,8 +557,15 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                 outdir.mkdir(exist_ok=True)
                 payload['duration'] = duration
                 payload['motion_plan'] = plan
+                if req.scene != 'rhythm':
+                    design = design_document(path).model_dump()
+                    design['modes']['kinetic']['plan'] = plan
+                    payload['motion_design'] = design
+                    mode_settings = design['modes'][req.visual_mode]
+                else:
+                    mode_settings = {'bloom': req.bloom, 'shake': req.shake, 'post': req.post}
                 options = {'aspect': req.aspect, 'height': req.height, 'mode': 'phrase', 'preset': req.style,
-                           'bloom': req.bloom, 'grain': .035, 'shake': req.shake, 'punch': .7, 'post': req.post,
+                           'bloom': mode_settings['bloom'], 'grain': .035, 'shake': mode_settings['shake'], 'punch': .7, 'post': mode_settings['post'],
                            'visualMode': req.visual_mode}
                 atomic_write(snapshot, {'project': payload, 'options': options, 'scene': req.scene, 'rhythm': rhythm, 'audioPath': str(audio), 'start': req.start, 'length': length})
                 jobs[job_id] = {'id': job_id, 'scene': req.scene, 'session_id': sid, 'status': 'queued', 'frames': 0, 'total': round(length*30), 'error': '', 'created_at': time.time(), 'width': round(req.height*16/9) if req.aspect == '16:9' else req.height, 'height': req.height if req.aspect == '16:9' else round(req.height*16/9), 'output': str(out)}

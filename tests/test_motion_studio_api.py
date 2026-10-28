@@ -96,11 +96,11 @@ def test_single_line_validate_apply_conflict_and_other_cues(song):
         bundle=client.post('/api/motion/director/line/input',json=request).json()
         response=bundle['response_example'];response['cue']['intent']='邀请听见'
         body={**request,'response':response}
-        before=path.with_name('test_motion_plan.json').read_text()
+        before=path.with_name('test_motion_design.json').read_text()
         checked=client.post('/api/motion/director/line/validate',json=body)
         assert checked.status_code==200,checked.text
         assert checked.json()['compiled_groups'][0]['start']==.2
-        assert path.with_name('test_motion_plan.json').read_text()==before
+        assert path.with_name('test_motion_design.json').read_text()==before
         # Another line changed after prompt creation: merge must preserve its new state.
         plan['cues'][1]['intensity']=.15
         client.put('/api/motion/plan',json={'project_id':id,'plan':plan,'from_llm':False})
@@ -417,16 +417,19 @@ def test_local_preview_seed_does_not_write_and_settings_restore(song):
     with TestClient(app) as client:
         payload = client.get('/api/motion/project', params={'project_id':id}).json()
         assert payload['plan'] is None and payload['rule_seed']['source_signature']
-        assert not path.with_name('test_motion_plan.json').exists()
-        settings = {'aspect':'9:16', 'height':360, 'palette':'neon', 'layout':'three-stack', 'background':'dark'}
-        saved = client.put('/api/motion/settings', json={'project_id':id, 'settings':settings})
+        assert not path.with_name('test_motion_design.json').exists()
+        from src.motion_design import MotionDesign
+        settings = MotionDesign().model_dump()
+        settings.update(active_mode='apple',height=360)
+        settings['modes']['apple'].update(aspect='9:16',theme={'palette':'neon','background':'dark'})
+        saved = client.put('/api/motion/design', json={'project_id':id, 'design':settings})
         assert saved.status_code == 200, saved.text
         restored = client.get('/api/motion/project', params={'project_id':id}).json()
-        assert restored['settings'] == saved.json()['settings']
-        assert restored['settings']['aspect'] == '9:16'
+        assert restored['design'] == saved.json()['design']
+        assert restored['design']['modes']['apple']['aspect'] == '9:16'
         assert restored['plan'] is None
-        assert client.put('/api/motion/settings', json={'project_id':'../other', 'settings':settings}).status_code == 400
-        assert client.put('/api/motion/settings', json={'project_id':id, 'settings':{**settings, 'height':999}}).status_code == 422
+        assert client.put('/api/motion/design', json={'project_id':'../other', 'design':settings}).status_code == 400
+        assert client.put('/api/motion/design', json={'project_id':id, 'design':{**settings, 'height':999}}).status_code == 422
 
 
 def test_gemini_preview_requires_explicit_plan_save(song, monkeypatch):
@@ -509,7 +512,7 @@ def test_rhythm_settings_are_independent_of_poster_and_render_requires_evidence(
         settings = {**initial.json()['settings'], 'seed':17, 'aspect':'9:16', 'density':'dense'}
         assert client.put('/api/motion/rhythm', json={'project_id':id,'settings':settings}).status_code == 200
         assert client.get('/api/motion/rhythm', params={'project_id':id}).json()['settings'] == settings
-        assert not path.with_name('test_motion_plan.json').exists()
+        assert not path.with_name('test_motion_design.json').exists()
         invalid = client.put('/api/motion/rhythm', json={'project_id':id,'settings':{**settings,'approach':99}})
         assert invalid.status_code == 422
         missing = client.post('/api/motion/render', json={'project_id':id,'scene':'rhythm','length':1})

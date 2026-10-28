@@ -1,3 +1,4 @@
+import type {MotionDesign} from './motion-design';
 export type Word = { word: string; start: number; end: number };
 export type PhrasePlan = {text:string;word_indices:number[];action:'reveal'|'push'|'settle'|'hold';emphasis:string;intensity:number};
 export type PosterRelation = {kind:'guidance'|'contrast'|'negation'|'repetition'|'spatial';node_indices:number[];intent:string};
@@ -8,7 +9,7 @@ export type Line = { id:string; text: string; start: number; end: number; words:
 export type SongIdentity = {version:'motion-song-identity-v1';title:string;artist:string;style:'editorial'|'minimal'|'none';show_intro:boolean;show_signature:boolean;show_section:boolean;show_outro:boolean;visual_theme?:'director'|'editorial'|'neon'|'paper';cover_mode?:'background'|'none';cover_x?:number;cover_y?:number;cover_zoom?:number;source_title?:string;source_artist?:string;source?:string};
 export type Project = {
   sections?:{name:string;start:number;end:number}[];
-  title: string; song_cover?:{data_url:string;width:number;height:number;source:string;source_url?:string}; artist?:string; song_identity?:SongIdentity; duration: number; lines: Line[]; motion_plan?:MotionPlan;
+  title: string; song_cover?:{data_url:string;width:number;height:number;source:string;source_url?:string}; artist?:string; song_identity?:SongIdentity; duration: number; lines: Line[]; motion_plan?:MotionPlan; motion_design?:MotionDesign;
   analysis: { bpm: number; beats: number[]; drum_hits: {time: number; type: string}[]; energy_curve: {time: number; energy: number}[] };
 };
 export type VisualMode = 'kinetic' | 'tv' | 'apple';
@@ -24,13 +25,7 @@ export function resolveVisualMode(
   requestedMode: VisualMode | undefined,
   aspect: '16:9' | '9:16'
 ): VisualMode {
-  if (requestedMode === 'tv') {
-    return aspect === '16:9' ? 'tv' : 'apple';
-  }
-  if (requestedMode === 'apple') {
-    return aspect === '9:16' ? 'apple' : 'tv';
-  }
-  return 'kinetic';
+  return requestedMode || 'kinetic';
 }
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 export function normalizeProject(input: any): Project {
@@ -55,7 +50,7 @@ export function normalizeProject(input: any): Project {
   const beats = Array.from(new Set<number>((a.beats || []).filter((n: any) => finite(n) && n >= 0))).sort((a,b) => a-b);
   return {
     sections: (Array.isArray(input.sections) ? input.sections : []).filter((s:any)=>typeof s.name==='string'&&finite(s.start)&&finite(s.end)&&s.start>=0&&s.end>s.start).map((s:any)=>({name:s.name,start:s.start,end:s.end})),
-    song_cover:input.song_cover, motion_plan: input.motion_plan, artist: String(input.song_identity?.artist ?? input.artist ?? ''), song_identity: input.song_identity ? {...input.song_identity, title:String(input.song_identity.title||input.title||'未命名歌曲'), artist:String(input.song_identity.artist||'')} : undefined, title: String(input.song_identity?.title || input.title || input.meta?.title || '未命名歌曲'),
+    song_cover:input.song_cover, motion_plan: input.motion_plan, motion_design:input.motion_design, artist: String(input.song_identity?.artist ?? input.artist ?? ''), song_identity: input.song_identity ? {...input.song_identity, title:String(input.song_identity.title||input.title||'未命名歌曲'), artist:String(input.song_identity.artist||'')} : undefined, title: String(input.song_identity?.title || input.title || input.meta?.title || '未命名歌曲'),
     duration: Math.max(finite(input.duration) ? input.duration : 0, ...lines.map(l => l.end)), lines,
     analysis: {
       bpm: finite(a.bpm) && a.bpm > 0 ? a.bpm : 0, beats,
