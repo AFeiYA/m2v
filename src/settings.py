@@ -71,7 +71,7 @@ class Settings(BaseSettings):
 
     # Billing is opt-in; test mode must use an isolated deployment/database.
     BILLING_ENABLED: bool = False
-    BILLING_PROVIDER: str = "lemonsqueezy"
+    BILLING_PROVIDER: str = "paddle"
     BILLING_ALLOW_TEST_TRANSACTIONS: bool = False
     PADDLE_ENVIRONMENT: str = "sandbox"
     PADDLE_LIVE_ENABLED: bool = False
