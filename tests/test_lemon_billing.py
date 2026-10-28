@@ -27,7 +27,7 @@ PRODUCTS=[{'id':'pack','name':'Permanent credits','variant_id':'101','kind':'top
 @pytest.fixture
 def billing(sandbox,monkeypatch):
     settings=get_settings()
-    for k,v in {'BILLING_ENABLED':True,'BILLING_ALLOW_TEST_TRANSACTIONS':True,'LEMONSQUEEZY_API_KEY':'test-not-a-real-key',
+    for k,v in {'BILLING_ENABLED':True,'BILLING_PROVIDER':'lemonsqueezy','BILLING_ALLOW_TEST_TRANSACTIONS':True,'LEMONSQUEEZY_API_KEY':'test-not-a-real-key',
         'LEMONSQUEEZY_WEBHOOK_SECRET':'isolated-test-signing-secret','LEMONSQUEEZY_STORE_ID':'42',
         'LEMONSQUEEZY_TEST_MODE':True,'LEMONSQUEEZY_ALLOWED_HOSTS':'demo.lemonsqueezy.com',
         'BILLING_PRODUCTS_JSON':json.dumps(PRODUCTS)}.items():
