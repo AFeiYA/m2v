@@ -279,3 +279,38 @@ git push origin main
 3. 找到 **Deployments** 列表。
 4. 找到上一次运行良好的部署版本，点击右侧的 **Rollback to this deployment**。
 5. 全球边缘节点将在 **10 秒内**完成前端瞬间回滚！
+
+---
+
+## 9. 双环境研发与发布工作流规则 (Git-Flow SOP)
+
+为杜绝任何“开发中未经验收的代码直接污染正式生产”的风险，自 2026-10-29 起全面确立**测试服先行（Staging-First）研发规范**：
+
+### 9.1 分支与环境绝对隔离规则
+
+| Git 分支 | 关联 CI 动作 | 目标后端部署 | 目标前端部署 | 支付模式与数据库 | 规则与约束 |
+|---|---|---|---|---|---|
+| **`staging`** | 触发全量 CI 测试 | `LucaZhou/suno2mv-api-staging` | Cloudflare Pages 分支预览端 | Paddle **沙盒测试模式** (`test_mode: true`)，独立测试库 | **日常开发主干**：所有功能开发、bug 修复必须首先合并并推送到该分支自测 |
+| **`main`** | 触发全量 CI 测试 | `LucaZhou/suno2mv-api` | `https://mv.fovea.si` 生产正式端 | Paddle **真实收费模式** (`test_mode: false`)，生产 PostgreSQL | **生产稳定主干**：严禁直接在 main 上做实验性修改；只有在 staging 验收通过后方可合入 |
+
+### 9.2 标准日常开发流程
+1. **本地开发**：
+   ```bash
+   git checkout staging
+   git pull origin staging
+   # 在本地完成编码与测试验证
+   ```
+2. **发布至测试服验证**：
+   ```bash
+   git push origin staging
+   ```
+   * GitHub Actions 自动运行完整测试套件，通过后自动将代码部署至测试服 `suno2mv-api-staging`；
+   * 开发人员打开测试服，使用 Paddle 沙盒测试卡完成端到端点验（充值测试、分离测试、视频导出测试）。
+3. **晋级正式服（生产发布）**：
+   ```bash
+   git checkout main
+   git merge staging
+   git push origin main
+   ```
+   * GitHub Actions 自动构建并将验证完毕的镜像发布至正式服 `suno2mv-api` 与生产前端 `mv.fovea.si`。
+

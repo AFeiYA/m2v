@@ -2,9 +2,9 @@ name: Suno2MV CI/CD Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, staging ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, staging ]
   workflow_dispatch:
     inputs:
       run_render_tests:
@@ -126,7 +126,7 @@ jobs:
   deploy-to-hf:
     name: Auto Deploy to Hugging Face Spaces
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -158,19 +158,26 @@ jobs:
             echo "❌ 错误: 未检测到 HF_TOKEN Secret，请在 GitHub 仓库 Settings -> Secrets 中添加！"
             exit 1
           fi
-          echo "🚀 正在向 Hugging Face Spaces 镜像同步最新代码..."
-          git push --force "https://LucaZhou:$HF_TOKEN@huggingface.co/spaces/LucaZhou/suno2mv-api" HEAD:refs/heads/main
-          echo "✅ 代码与动效资源已同步；请检查 HF 构建与运行日志。"
+          if [ "${{ github.ref_name }}" = "staging" ]; then
+            TARGET_SPACE="LucaZhou/suno2mv-api-staging"
+            ENV_LABEL="测试服 (Staging)"
+          else
+            TARGET_SPACE="LucaZhou/suno2mv-api"
+            ENV_LABEL="正式服 (Production)"
+          fi
+          echo "🚀 正在向 $ENV_LABEL 镜像同步最新代码 ($TARGET_SPACE)..."
+          git push --force "https://LucaZhou:$HF_TOKEN@huggingface.co/spaces/$TARGET_SPACE" HEAD:refs/heads/main
+          echo "✅ $ENV_LABEL 代码与动效资源已同步；请检查 HF 构建与运行日志。"
 
 
 
   deploy-to-pages:
     name: Deploy verified frontend to Cloudflare Pages
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CLOUDFLARE_PAGES_PROJECT_NAME != ''
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging') && vars.CLOUDFLARE_PAGES_PROJECT_NAME != ''
     runs-on: ubuntu-latest
     concurrency:
-      group: cloudflare-pages-production
+      group: cloudflare-pages-${{ github.ref_name }}
       cancel-in-progress: false
     steps:
       - name: Checkout code
@@ -202,4 +209,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ${{ runner.temp }}/pages --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }} --branch=main
+          command: pages deploy ${{ runner.temp }}/pages --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }} --branch=${{ github.ref_name }}
