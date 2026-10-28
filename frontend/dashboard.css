@@ -1319,15 +1319,22 @@ header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 14px;
   padding: 0 4px;
 }
 .workspace-brand {
-  display: flex;
+  display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  white-space: nowrap;
+  border-radius: 8px;
   text-decoration: none;
   color: var(--text);
+}
+.workspace-brand:hover {
+  background: rgba(255, 255, 255, 0.04);
 }
 .brand-badge-icon {
   width: 32px;
@@ -1339,29 +1346,25 @@ header {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: 0 0 14px rgba(183, 243, 74, 0.35);
+  box-shadow: 0 0 8px rgba(183, 243, 74, 0.15);
 }
 .brand-name {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
-  font-size: 15.5px;
-  font-weight: 750;
+  font-size: 18px;
+  font-weight: 700;
   letter-spacing: -0.02em;
   color: #fff;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.brand-tag {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  color: #b7f34a;
-  background: rgba(183, 243, 74, 0.12);
-  border: 1px solid rgba(183, 243, 74, 0.28);
-  padding: 1.5px 5.5px;
-  border-radius: 4px;
-  text-transform: uppercase;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.22em;
   line-height: 1.2;
+  white-space: nowrap;
+}
+.brand-suffix {
+  font-size: 0.85em;
+  font-weight: 450;
+  letter-spacing: inherit;
+  color: var(--text-muted);
 }
 .sidebar-close-btn {
   background: rgba(255, 255, 255, 0.05);

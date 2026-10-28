@@ -16,9 +16,9 @@ h2{font-size:clamp(34px,3.4vw,52px);line-height:1.1;letter-spacing:-.04em}
 h3{letter-spacing:-.025em}
 .page-width{max-width:1280px;margin-inline:auto;padding-inline:48px}
 .site-header{max-width:1440px;margin:auto;padding:24px 48px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);gap:30px}
-.brand{display:inline-flex;align-items:center;gap:11px;font-size:21px;font-weight:700;letter-spacing:-0.025em;white-space:nowrap;text-decoration:none;color:var(--text)}
-.brand-name{display:inline-flex;align-items:center;gap:7px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;font-weight:750;letter-spacing:-0.02em;color:#fff}
-.brand-tag{font-size:9.5px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:var(--lime);background:rgba(187,243,74,0.12);border:1px solid rgba(187,243,74,0.28);padding:2px 6px;border-radius:4px;line-height:1.2;display:inline-block}
+.brand{display:inline-flex;flex:0 0 auto;align-items:center;gap:11px;font-size:21px;font-weight:700;letter-spacing:-0.025em;white-space:nowrap;text-decoration:none;color:var(--text)}
+.brand-name{display:inline-flex;align-items:baseline;gap:0.22em;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif;font-weight:700;letter-spacing:-0.02em;line-height:1.2;white-space:nowrap;color:#fff}
+.brand-suffix{font-size:0.85em;font-weight:450;letter-spacing:inherit;color:var(--muted)}
 .brand-mark{display:grid;place-items:center;flex-shrink:0;width:38px;height:38px;border-radius:10px;background:var(--lime);color:var(--ink);box-shadow:0 0 16px rgba(187,243,74,0.3);transition:transform .2s,box-shadow .2s}
 .brand:hover .brand-mark{transform:scale(1.05);box-shadow:0 0 22px rgba(187,243,74,0.45)}
 .brand small{display:none}
