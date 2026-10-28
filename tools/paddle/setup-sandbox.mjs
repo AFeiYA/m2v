@@ -51,7 +51,7 @@ export async function ensureCatalogue(paddle, apply = false, label = 'sandbox') 
     let product = matches[0];
     if (product && product.taxCategory !== 'saas') throw Error('Existing product tax category requires review: ' + wanted.id);
     if (!product && apply) product = await paddle.products.create({name:wanted.name,taxCategory:'saas',
-      description:'Sonicflow Studio lyric timing and video creation software credits.',customData:{fovea_catalog:wanted.id}});
+      description:'Fovea Studio visual music and lyric video creation software credits.',customData:{fovea_catalog:wanted.id}});
     const prices = product?.prices || [];
     matches = prices.filter(p => matchingPrice(p, wanted));
     if (matches.length > 1) throw Error('Duplicate matching prices require review: ' + wanted.id);

@@ -245,15 +245,15 @@ function initAuth() {
 
 function updateAuthUI() {
   if (isLoginMode) {
-    $("#auth-title").textContent = "Sign in to Sonicflow Studio";
+    $("#auth-title").textContent = "Sign in to Fovea Studio";
     $("#auth-submit").textContent = "Sign in";
-    $("#auth-toggle-text").textContent = "New to Sonicflow Studio?";
+    $("#auth-toggle-text").textContent = "New to Fovea Studio?";
     $("#auth-toggle").textContent = "Create an account";
     $("#auth-username").style.display = "none";
     $("#auth-username").required = false;
     $("#auth-password").autocomplete = "current-password";
   } else {
-    $("#auth-title").textContent = "Create your Sonicflow account";
+    $("#auth-title").textContent = "Create your Fovea account";
     $("#auth-submit").textContent = "Create account";
     $("#auth-toggle-text").textContent = "Already have an account?";
     $("#auth-toggle").textContent = "Sign in";

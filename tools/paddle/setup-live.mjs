@@ -34,13 +34,13 @@ async function main(){
  console.log(JSON.stringify({environment:'production',apply,catalogue:rows},null,2));
  if(!apply)return;
  let token;
- for await(const t of paddle.clientTokens.list({status:['active']}))if(t.name==='Sonicflow production'){token=t;break;}
- token||=await paddle.clientTokens.create({name:'Sonicflow production'});
+ for await(const t of paddle.clientTokens.list({status:['active']}))if(t.name==='Fovea production'||t.name==='Sonicflow production'){token=t;break;}
+ token||=await paddle.clientTokens.create({name:'Fovea production'});
  if(!token.token.startsWith('live_'))throw Error('Client token environment does not match.');
  const matches=(await paddle.notificationSettings.list()).filter(n=>n.destination===hook.href);
  if(matches.length>1)throw Error('Duplicate notification destinations need review.');
  let notification=matches[0];
- if(!notification)notification=await paddle.notificationSettings.create({description:'Sonicflow production',
+ if(!notification)notification=await paddle.notificationSettings.create({description:'Fovea production',
   destination:hook.href,type:'url',subscribedEvents:events,trafficSource:'platform',includeSensitiveFields:false});
  else{
   const subscribed=notification.subscribedEvents.map(e=>e.name);
