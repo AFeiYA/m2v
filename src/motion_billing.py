@@ -12,6 +12,32 @@ from src.queue_limiter import now, LEASE_SECONDS, lock_admission, reserve_motion
 from src.settings import get_settings
 
 
+async def is_song_unlocked(db, uid: str, project_id: str) -> bool:
+    """Check if this song has already been unlocked for video export by this user."""
+    has_export = (await db.execute(select(VideoExport.id).where(
+        VideoExport.user_id == uid,
+        VideoExport.task_id == project_id
+    ).limit(1))).scalar_one_or_none()
+    if has_export is not None:
+        return True
+    has_paid_done = (await db.execute(select(MotionExportRequest.id).where(
+        MotionExportRequest.user_id == uid,
+        MotionExportRequest.task_id == project_id,
+        MotionExportRequest.cost > 0,
+        MotionExportRequest.state == 'done'
+    ).limit(1))).scalar_one_or_none()
+    if has_paid_done is not None:
+        return True
+    has_active_paid = (await db.execute(select(MotionExportRequest.id).where(
+        MotionExportRequest.user_id == uid,
+        MotionExportRequest.task_id == project_id,
+        MotionExportRequest.cost > 0,
+        MotionExportRequest.state == 'active',
+        MotionExportRequest.lease_until > now()
+    ).limit(1))).scalar_one_or_none()
+    return has_active_paid is not None
+
+
 async def reservation_kind(db, uid, job_id):
     """Read the historical reservation; equal prices cannot identify its kind."""
     return (await db.execute(select(CreditReservation.kind).where(
@@ -48,7 +74,9 @@ async def admit(db, uid, project_id, candidate_id, request, *, busy=False):
     values = request.model_dump(mode='json')
     request_id = values.get('request_id')
     is_webcodecs = bool(values.get('mode') == 'webcodecs' or values.get('fast_webcodecs'))
-    cost = get_settings().MOTION_WEBCODECS_CREDITS if is_webcodecs else get_settings().MOTION_EXPORT_CREDITS
+    base_cost = get_settings().MOTION_WEBCODECS_CREDITS if is_webcodecs else get_settings().MOTION_EXPORT_CREDITS
+    unlocked = await is_song_unlocked(db, uid, project_id)
+    cost = 0 if unlocked else base_cost
     if cost and not request_id:
         raise HTTPException(409, 'A request_id is required for paid Motion exports.')
     job_id = hashlib.sha256(f'{uid}:motion:{request_id}'.encode()).hexdigest()[:32] if request_id else candidate_id
@@ -63,11 +91,16 @@ async def admit(db, uid, project_id, candidate_id, request, *, busy=False):
         return {'id':job_id, 'replay':True}
     if busy:
         raise HTTPException(409,'已有视频正在导出，请等待完成或取消')
-    if values.get('accepted_cost') != cost and cost:
-        raise HTTPException(409, 'Review and accept the current Motion export credit price before rendering.')
+    accepted = values.get('accepted_cost')
+    if cost > 0:
+        if accepted is None or accepted < cost:
+            raise HTTPException(409, 'Review and accept the current Motion export credit price before rendering.')
+    elif accepted is not None and accepted < 0:
+        raise HTTPException(409, 'Invalid accepted cost.')
     credit_kind = 'motion_webcodecs' if is_webcodecs else 'motion_export'
     await reserve_motion(db, uid, job_id)
-    await credits.reserve(db, uid, job_id, credit_kind, cost)
+    if cost > 0:
+        await credits.reserve(db, uid, job_id, credit_kind, cost)
     db.add(MotionExportRequest(id=job_id,user_id=uid,task_id=project_id,
         fingerprint=fingerprint,cost=cost,state='active',lease_until=now()+timedelta(seconds=LEASE_SECONDS)))
     await db.flush()

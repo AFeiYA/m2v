@@ -209,6 +209,12 @@ class Workspace:
         payload["title"] = task.song_title or task.title or payload.get("title") or "Untitled"
         payload['presentation_title'] = payload['title']
         payload['audio_cache'] = {'uid': self.uid, 'version': hashlib.sha256(task.input_mp3_key.encode()).hexdigest()}
+        from src.export_jobs import sessions
+        from src.motion_billing import is_song_unlocked
+        async def check_unlocked():
+            async with sessions() as db:
+                return await is_song_unlocked(db, self.uid, task_id)
+        payload['video_unlocked'] = await check_unlocked()
         path.write_text(json.dumps(payload, ensure_ascii=False))
         metadata_key, cover_key = source_keys(task.input_mp3_key)
         metadata_path, artwork_path = path.parent / 'source_suno.json', path.parent / 'source_cover.jpg'

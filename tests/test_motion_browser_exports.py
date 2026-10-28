@@ -32,7 +32,9 @@ def upload(s, params=None, content=VIDEO, uid='alice'):
 
 
 def options(**changes):
-    return dict(project_id='alice_motion',request_id=str(uuid4()),accepted_cost=2,**changes)
+    base = {'project_id':'alice_motion','request_id':str(uuid4()),'accepted_cost':2}
+    base.update(changes)
+    return base
 
 
 def balance(s):
@@ -136,3 +138,37 @@ def test_probe_requires_video_and_audio(tmp_path,monkeypatch,audio):
     if audio:assert browser.inspect_video(path)['duration']==2
     else:
         with pytest.raises(HTTPException):browser.inspect_video(path)
+
+
+def test_browser_export_unlimited_after_song_unlocked(ready):
+    # 1. First browser export for alice_motion charges 2 credits (from 5 to 3)
+    p1 = options(project_id='alice_motion', accepted_cost=2)
+    res1 = upload(ready, p1)
+    assert res1.status_code == 200, res1.text
+    assert balance(ready) == 3
+
+    # 2. Second browser export for alice_motion (different request_id): unlocked, cost is 0!
+    p2 = options(project_id='alice_motion', accepted_cost=0)
+    res2 = upload(ready, p2)
+    assert res2.status_code == 200, res2.text
+    # Balance remains 3!
+    assert balance(ready) == 3
+
+    # 3. Third export for alice_motion with accepted_cost omitted or 0: still 0!
+    p3 = options(project_id='alice_motion', accepted_cost=0)
+    res3 = upload(ready, p3)
+    assert res3.status_code == 200, res3.text
+    assert balance(ready) == 3
+
+    # 4. But another song (other_song) requires payment of 2 credits:
+    async def seed_other():
+        async with ready.sessions() as db:
+            from src.models import Task
+            db.add(Task(id='other_song', user_id='alice', input_mp3_key='other.mp3', input_lyrics_key='lyrics', alignment_json_key='test.json', status='completed'))
+            await db.commit()
+    asyncio.run(seed_other())
+    p_other = options(project_id='other_song', accepted_cost=2)
+    res_other = upload(ready, p_other)
+    assert res_other.status_code == 200, res_other.text
+    assert balance(ready) == 1
+

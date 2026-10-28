@@ -96,12 +96,17 @@ async def archive_browser_export(
             if not await get_storage().exists(existing.storage_key):
                 raise HTTPException(503, 'Previously saved video is unavailable. No additional credits were charged.')
             return {'id': job_id, 'status': 'done', 'replay': True}
-        cost = get_settings().MOTION_WEBCODECS_CREDITS
-        if accepted_cost != cost:
-            raise HTTPException(409, 'Export price changed. Review the current price before saving.')
+        from src.motion_billing import is_song_unlocked
+        base_cost = get_settings().MOTION_WEBCODECS_CREDITS
+        unlocked = await is_song_unlocked(db, user.id, project_id)
+        cost = 0 if unlocked else base_cost
+        if cost > 0:
+            if accepted_cost < cost:
+                raise HTTPException(409, 'Export price changed. Review the current price before saving.')
         from src.storage_accounting import check_storage_quota
         await check_storage_quota(db, user)
-        await credits.reserve(db, user.id, job_id, 'motion_webcodecs', cost)
+        if cost > 0:
+            await credits.reserve(db, user.id, job_id, 'motion_webcodecs', cost)
         storage = get_storage()
         # Immutable content-addressed key: retrying cannot overwrite another video.
         key = f'exports/{hashlib.sha256(user.id.encode()).hexdigest()}/browser/{job_id}/{digest.hexdigest()}.mp4'
@@ -112,7 +117,8 @@ async def archive_browser_export(
             details.update(size_bytes=size, title=title, aspect=aspect, request_fingerprint=fingerprint)
             if not await record_export(job_id, user.id, project_id, key, 'webcodecs', details, db=db):
                 raise HTTPException(409, 'Song is no longer available. Nothing was charged.')
-            await credits.finish(db, user.id, job_id, 'motion_webcodecs', True)
+            if cost > 0:
+                await credits.finish(db, user.id, job_id, 'motion_webcodecs', True)
         except BaseException:
             # Before commit the per-account lock prevents another attempt from
             # publishing this object. Never delete on an ambiguous commit error.

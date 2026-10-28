@@ -51,19 +51,14 @@ available/reserved balances, wallet breakdown (expiring monthly vs permanent cre
 `monthly_quota` eligibility status, paginated activity and current prices. The dashboard
 shows the ledger and export dialog shows the price before submission.
 
-### Motion Studio Export Pricing
+### Motion Studio Export Pricing & Song Buyout
 
 Motion Studio supports local WebCodecs encoding and cloud Chromium rendering.
-`MOTION_WEBCODECS_CREDITS` and `MOTION_EXPORT_CREDITS` both default to 10 per video;
-actual quotes come from the backend. Browser capability detection does not prove
-that a full render will succeed, and export time depends on the device and input.
-A fallback must follow the displayed/accepted price; do not describe fallback as
-an automatic upgrade to a fixed 30-credit charge.
-
-Browser-rendered files must upload successfully and become a durable VideoExport
-before settlement and appearance in My Exports. A failed save can retry the same
-request/file without rendering again; refresh currently loses an unpublished file
-held only in page memory. See [release TODO](TODO.md) for real-network acceptance.
+Video exports operate on a **single-song buyout model**:
+- First export for a song charges 10 credits (`MOTION_EXPORT_CREDITS` / `MOTION_WEBCODECS_CREDITS`), unlocking the song for video export.
+- Once unlocked, all subsequent exports of any visual mode (Kinetic Posters, Apple Music Scroll, Dual-line Karaoke), any aspect ratio (16:9, 9:16), custom clips, or re-renders cost **0 credits** (unlimited free exports for that song).
+- Browser capability detection does not prove that a full render will succeed; if local encoding fails, the export automatically falls back to cloud rendering without extra charge.
+- Browser-rendered files must upload successfully and become a durable VideoExport before settlement and appearance in My Exports. A failed save can retry the same request/file without rendering again; refresh currently loses an unpublished file held only in page memory. See [release TODO](TODO.md) for real-network acceptance.
 
 Legacy API maintenance only (not the current product export workflow):
 

@@ -23,6 +23,7 @@ audio.addEventListener('pause',()=>{playing=false;$('play').textContent='▶';})
 let identityDirty=false,settingsDirty=false,saving=false;
 let ruleSeed:MotionPlan|null=null;
 let coverPending:Promise<void>|null=null;
+let songVideoUnlocked=false;
 let scrubbing=false,resumeAfterScrub=false;
 let posterPreview:CompiledPoster|null=null,clipEnd:number|null=null,clipReviewTime=0,reviewHandover=false;
 const options:Options={...defaults,height:720};
@@ -122,6 +123,7 @@ async function load(id:string){
   if(sequence!==loadSequence)return;
   if(exportQueueRunning&&id!==selected){$<HTMLSelectElement>('project-select').value=selected;return;}
   project=normalizeProject(result.project);design=result.design?structuredClone(result.design):createMotionDesign();
+  songVideoUnlocked=Boolean(result.video_unlocked||(result.project as any)?.video_unlocked);
   plan=design.modes.kinetic.plan;ruleSeed=result.rule_seed||null;selected=id;dirty=false;identityDirty=false;settingsDirty=false;
   syncModeControls();
   audioReady=false;audio.src='';audio.currentTime=0;
@@ -349,24 +351,31 @@ function updateMatrixCount() {
   if (badge) badge.textContent = `${count} ${isZh ? '已选' : 'selected'}`;
   const isFast = isFastWebCodecsActive();
   const unitCost = getMotionUnitCost();
-  const totalCost = count * unitCost;
+  const unlocked = songVideoUnlocked;
+  const totalCost = count === 0 ? 0 : (unlocked ? 0 : unitCost);
 
   const price = $('motion-credit-price');
   if (price) {
     if (!cloudService()) {
       price.textContent = isZh ? '本地模式 · 不消耗云端积分' : 'Local export · no cloud credits';
+    } else if (count === 0) {
+      price.textContent = isZh ? '请先勾选需要导出的片段' : 'Select at least one clip';
+    } else if (unlocked) {
+      price.textContent = isZh
+        ? `本歌曲已解锁出片 · 不限次免费导出（所选 ${count} 个视频合计 0 积分）`
+        : `Song unlocked · Unlimited free exports (${count} video${count === 1 ? '' : 's'}, 0 credits total)`;
     } else {
       const itemDesc = custom
         ? (isZh ? '自定义片段' : '1 clip')
         : (isZh ? `${count} 个视频` : `${count} video${count === 1 ? '' : 's'}`);
       price.textContent = isZh
-        ? `${unitCost} 积分/个 · ${itemDesc} 合计 ${totalCost} 积分。遇阻自动转云端，失败返还预留积分。`
-        : `${unitCost} credits each · ${itemDesc} · ${totalCost} credits total. Auto cloud fallback; failed exports refund reserved credits.`;
+        ? `${unitCost} 积分 · 解锁本歌曲出片（本次导出 ${itemDesc} 合计 ${unitCost} 积分，后续不限次免费导出）`
+        : `${unitCost} credits · Unlock song video export (${itemDesc}, ${unitCost} credits total, unlimited later)`;
     }
   }
   const btn = $<HTMLButtonElement>('export');
   if (btn && !btn.disabled) {
-    const costText = cloudService() && totalCost > 0 ? ` (${totalCost} ${isZh ? '积分' : 'credits'})` : (cloudService() ? (isZh ? ' (免费)' : ' (Free)') : '');
+    const costText = cloudService() && totalCost > 0 ? ` (${totalCost} ${isZh ? '积分' : 'credits'})` : (cloudService() ? (isZh ? ' (0 积分 · 已解锁)' : ' (0 credits · Unlocked)') : '');
     const actionText = custom ? (isZh ? '导出自定义片段' : 'Export Custom Clip') : (isZh ? `导出所选视频 (${count})` : `Export Selected (${count})`);
     btn.textContent = `${actionText}${costText}`;
   }
@@ -431,11 +440,12 @@ async function runExportVideo() {
   if (cloudService()) {
     const creditsData = await serviceJson('/api/credits?page_size=1');
     const unitCost = getMotionUnitCost();
-    const totalRequired = tasks.length * unitCost;
+    const unlocked = songVideoUnlocked;
+    const totalRequired = unlocked ? 0 : unitCost;
     if (totalRequired > 0 && typeof creditsData?.available === 'number' && creditsData.available < totalRequired) {
       throw new Error(isZh
-        ? `积分不足（当前剩余 ${creditsData.available} 积分，本次导出需要 ${totalRequired} 积分，请充值后重试）`
-        : `Insufficient credits (${creditsData.available} available, ${totalRequired} required. Please top up first)`);
+        ? `积分不足（当前剩余 ${creditsData.available} 积分，解锁本歌曲导出需要 ${totalRequired} 积分，请充值后重试）`
+        : `Insufficient credits (${creditsData.available} available, ${totalRequired} required to unlock this song. Please top up first)`);
     }
   }
 
@@ -531,6 +541,8 @@ async function runExportVideo() {
             },{signal:controller.signal});
             }finally{if(browserUploadController===controller)browserUploadController=null;}
             archived=true;
+            songVideoUnlocked=true;
+            updateMatrixCount();
             if(cloudService())(window as any).m2vStudioBridge?.exported(sourceProject);
           const blobUrl = URL.createObjectURL(blob);
           const safeTitle = (exportTitle || 'motion').trim().replace(/[/\\?%*:|"<>]/g, '_');
@@ -645,6 +657,8 @@ async function runExportVideo() {
 
         if (job.status === 'done') {
           completedCount++;
+          songVideoUnlocked=true;
+          updateMatrixCount();
           if(cloudService())(window as any).m2vStudioBridge?.exported(sourceProject);
           if(requestIdentity)completedRequestKeys.push(requestIdentity.key);
           const dlUrl = motionUrl('render/' + submittedJobId + '/download');

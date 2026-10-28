@@ -24,7 +24,9 @@ def paid(sandbox,monkeypatch):
 
 
 def request(**overrides):
-    return RenderRequest(project_id='alice_motion',request_id=uuid.uuid4(),accepted_cost=2,length=.5,**overrides)
+    base = {'project_id':'alice_motion','request_id':uuid.uuid4(),'accepted_cost':2,'length':.5}
+    base.update(overrides)
+    return RenderRequest(**base)
 
 
 def test_hold_publish_and_duplicate_finish_are_atomic_and_idempotent(paid):
@@ -238,3 +240,52 @@ def test_busy_engine_waits_without_creating_or_charging_a_request(paid):
             replay=await billing.admit(db,'alice','alice_motion','candidate',req,busy=True)
             assert replay['id']==first['id'] and replay['replay']
     asyncio.run(run())
+
+
+def test_song_level_video_export_buyout_unlocks_unlimited_exports(paid):
+    async def run():
+        # First export for alice_motion: charges 2 credits (from 5 to 3)
+        req1 = request(request_id=uuid.uuid4(), accepted_cost=2)
+        async with paid.sessions() as db:
+            first = await billing.admit(db, 'alice', 'alice_motion', 'cand1', req1)
+            await db.commit()
+            assert not first['replay']
+            assert (await db.get(User, 'alice', populate_existing=True)).credits == 3
+
+        # Second export for same song (different clip / aspect / request_id): unlocked! cost is 0!
+        req2 = request(request_id=uuid.uuid4(), accepted_cost=0, aspect='9:16')
+        async with paid.sessions() as db:
+            second = await billing.admit(db, 'alice', 'alice_motion', 'cand2', req2)
+            await db.commit()
+            assert not second['replay']
+            # Credits remain at 3!
+            assert (await db.get(User, 'alice', populate_existing=True)).credits == 3
+
+        # Complete and publish first job, and finish second job
+        async with paid.sessions() as db:
+            await billing.publish(db, 'alice', first['id'], 'alice_motion', 'results/test1.mp4', 'poster', {})
+            await billing.finish(db, 'alice', first['id'], True)
+            await billing.publish(db, 'alice', second['id'], 'alice_motion', 'results/test2.mp4', 'poster', {})
+            await billing.finish(db, 'alice', second['id'], True)
+            await db.commit()
+            assert (await db.get(User, 'alice', populate_existing=True)).credits == 3
+
+        # Third export for alice_motion after publication: still 0 credits!
+        req3 = request(request_id=uuid.uuid4(), accepted_cost=0, visual_mode='tv')
+        async with paid.sessions() as db:
+            third = await billing.admit(db, 'alice', 'alice_motion', 'cand3', req3)
+            await billing.finish(db, 'alice', third['id'], True)
+            await db.commit()
+            assert not third['replay']
+            assert (await db.get(User, 'alice', populate_existing=True)).credits == 3
+
+        # But a DIFFERENT song (alice_song_b) has not been unlocked yet: charges 2 credits!
+        req_other = request(project_id='alice_song_b', request_id=uuid.uuid4(), accepted_cost=2)
+        async with paid.sessions() as db:
+            other = await billing.admit(db, 'alice', 'alice_song_b', 'cand_other', req_other)
+            await db.commit()
+            assert not other['replay']
+            assert (await db.get(User, 'alice', populate_existing=True)).credits == 1
+
+    asyncio.run(run())
+
