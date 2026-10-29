@@ -41,10 +41,28 @@ with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
     gr.Markdown("# 🎵 Suno2MV API & Cloud Engine")
     gr.Markdown(
         "### 🟢 服务运行正常 (Online)\n\n"
-        "本 Space 正在为 **Suno2MV** 提供云端免费 AI 算力（音频流解密、Demucs 人声分离、卡拉OK词级时间轴对齐）。\n\n"
-        "- **前端 Web 访问地址**: [https://mv.fovea.si](https://mv.fovea.si)\n"
-        "- **API 接口服务**: 登录后使用 `/api/tasks/from-suno` 与 `/api/editor`；本地目录接口不对云端开放\n"
-        "- **硬件配置**: Hugging Face 免费算力 (2 vCPU · 16GB RAM · 50GB Disk)\n"
+        "本 Space 正在为 **Suno2MV** 提供云端服务与测试环境。\n"
+    )
+    gr.HTML(
+        """
+        <div style="display: flex; gap: 14px; margin: 16px 0 24px 0; flex-wrap: wrap;">
+            <a href="/app" target="_blank" style="display: inline-flex; align-items: center; justify-content: center; padding: 12px 22px; background: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; box-shadow: 0 4px 10px rgba(79,70,229,0.3);">
+                🚀 打开前端工作台 (App / Dashboard) ↗
+            </a>
+            <a href="/motion-studio" target="_blank" style="display: inline-flex; align-items: center; justify-content: center; padding: 12px 22px; background: #0284c7; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px; box-shadow: 0 4px 10px rgba(2,132,199,0.3);">
+                🎨 动效视频工作台 (Motion Studio) ↗
+            </a>
+            <a href="/gallery" target="_blank" style="display: inline-flex; align-items: center; justify-content: center; padding: 12px 22px; background: #334155; color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 14px;">
+                🖼️ 模板展厅 (Gallery) ↗
+            </a>
+        </div>
+        """
+    )
+    gr.Markdown(
+        "- **前端入口导航**: [工作台主页](/app) · [动效工作台直达](/motion-studio) · [模板展厅](/gallery)\n"
+        "- **正式版生产站**: [https://mv.fovea.si](https://mv.fovea.si)\n"
+        "- **API 接口服务**: 提供 `/api/cloud-motion/*`、`/api/editor/*` 与任务处理服务\n"
+        "- **运行配置**: Hugging Face (2 vCPU · 16GB RAM · ZeroGPU 动态加速)\n"
     )
     with gr.Accordion("API 健康状态探活", open=False):
         gr.JSON(value={"status": "online", "engine": "Suno2MV Cloud", "version": "0.6.0"})
