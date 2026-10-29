@@ -492,16 +492,18 @@ def _clean_lyrics(prompt: str) -> str:
 
 
 SECTION_PATTERNS = [
-    (r'\bpre-chorus\b|预副歌|导歌', 'Pre-Chorus', '预副歌'),
-    (r'\bpost-chorus\b|后副歌', 'Post-Chorus', '后副歌'),
-    (r'\bchorus\b|副歌|\bhook\b|\brefrain\b', 'Chorus', '副歌'),
-    (r'\bverse\b|主歌', 'Verse', '主歌'),
-    (r'\bintro\b|前奏', 'Intro', '前奏'),
-    (r'\boutro\b|尾奏|\bending\b|\bend\b|结束', 'Outro', '尾奏'),
-    (r'\bbridge\b|桥段', 'Bridge', '桥段'),
-    (r'\bsolo\b|间奏|\binterlude\b', 'Solo', '间奏'),
-    (r'\bbreakdown\b|\bdrop\b', 'Drop', '间奏'),
-    (r'\binstrumental\b', 'Instrumental', '间奏'),
+    (r'\bpre-chorus\b|\bpre-hook\b|\bbuild-up\b|\bbuild\b|预副歌|导歌|b段|b-melody', 'Pre-Chorus', '预副歌'),
+    (r'\bpost-chorus\b|\bpost-hook\b|后副歌', 'Post-Chorus', '后副歌'),
+    (r'\bchorus\b|\bhook\b|\brefrain\b|\bsabi\b|副歌|高潮|大副歌|サビ|c段', 'Chorus', '副歌'),
+    (r'\bverse\b|\brap\b|主歌|说唱|a段|a-melody', 'Verse', '主歌'),
+    (r'\bintro\b|前奏|序奏|导入', 'Intro', '前奏'),
+    (r'\boutro\b|\bending\b|\bend\b|\bcoda\b|\bfade-?out\b|尾奏|尾声|结束', 'Outro', '尾奏'),
+    (r'\bbridge\b|\bmiddle\s*8\b|\bmiddle-8\b|\btransition\b|桥段|过渡|过门|d段', 'Bridge', '桥段'),
+    (r'\bsolo\b|\binterlude\b|间奏|独奏', 'Solo', '间奏'),
+    (r'\bbreakdown\b|\bdrop\b|\bbeat-?drop\b|\bbeats?\s*switch\b', 'Drop', '间奏'),
+    (r'\binstrumental\b|纯音乐|器乐', 'Instrumental', '间奏'),
+    (r'\bsection\b|段落', 'Section', '段落'),
+    (r'\bpart\b', 'Part', '段落'),
 ]
 
 
@@ -531,12 +533,15 @@ def parse_suno_prompt_sections(prompt: str) -> list[dict]:
             tag_content = line[1:-1].strip()
             matched = None
             for pattern, name, label in SECTION_PATTERNS:
-                if re.search(pattern, tag_content, re.IGNORECASE):
-                    num_match = re.search(r'\d+', tag_content)
-                    num_str = f" {num_match.group(0)}" if num_match else ""
-                    style = re.sub(pattern, '', tag_content, flags=re.IGNORECASE)
+                m = re.search(pattern, tag_content, re.IGNORECASE)
+                if m:
+                    style = tag_content[:m.start()] + tag_content[m.end():]
+                    num_match = None
+                    if not re.search(r'\d', m.group(0)):
+                        num_match = re.search(r'\d+', style)
                     if num_match:
-                        style = style.replace(num_match.group(0), '', 1)
+                        style = style[:num_match.start()] + style[num_match.end():]
+                    num_str = f" {num_match.group(0)}" if num_match else ""
                     style = re.sub(r'^[\s:：|—–\-,·/]+|[\s:：|—–\-,·/]+$', '', style).strip()
                     matched = (name, f"{name}{num_str}", f"{label}{num_str}", style, bool(num_match))
                     break

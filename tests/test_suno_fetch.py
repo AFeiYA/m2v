@@ -261,3 +261,29 @@ def test_parse_suno_prompt_sections_with_dash_and_descriptor():
     assert sections[2]['name'] == 'Pre-Chorus' and sections[2]['label'] == '预副歌'
     assert sections[3]['name'] == 'Chorus' and sections[3]['label'] == '副歌'
     assert sections[4]['name'] == 'Outro' and sections[4]['label'] == '尾奏'
+
+
+def test_parse_suno_prompt_sections_arrangement_and_generic_sections():
+    from src.suno_fetch import parse_suno_prompt_sections
+    raw = (
+        "[Section 1]\n"
+        "Opening thoughts\n\n"
+        "[Verse 2 — Rap flow]\n"
+        "Fast rhyme delivery\n\n"
+        "[Build-up — Rising snare]\n"
+        "Energy climbs\n\n"
+        "[Drop]\n"
+        "Heavy bass bounce\n\n"
+        "[Middle 8]\n"
+        "Melodic breath\n\n"
+        "[Outro: Fade out]\n"
+        "Fading to silence\n"
+    )
+    sections = parse_suno_prompt_sections(raw)
+    assert len(sections) == 6
+    assert sections[0]['name'] == 'Section 1' and sections[0]['label'] == '段落 1'
+    assert sections[1]['name'] == 'Verse 2' and sections[1]['label'] == '主歌 2' and sections[1]['style'] == 'Rap flow'
+    assert sections[2]['name'] == 'Pre-Chorus' and sections[2]['label'] == '预副歌' and sections[2]['style'] == 'Rising snare'
+    assert sections[3]['name'] == 'Drop' and sections[3]['label'] == '间奏'
+    assert sections[4]['name'] == 'Bridge' and sections[4]['label'] == '桥段'
+    assert sections[5]['name'] == 'Outro' and sections[5]['label'] == '尾奏' and sections[5]['style'] == 'Fade out'
