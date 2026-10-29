@@ -367,6 +367,146 @@ export function automaticPoster(line:Line,palette='impact',preset:DefaultLayoutP
     }))
   };
 }
+
+export function applyCustomGrouping(
+  line: Line,
+  cue: CuePlan,
+  groupingInput: string,
+  primaryIndex?: number
+): PosterDirection {
+  const base = cue.poster || automaticPoster(line, cue.palette || 'impact');
+  const normalized = (groupingInput || '').replace(/／/g, '/').trim();
+
+  let parts: string[];
+  if (normalized.includes('/')) {
+    parts = normalized.split('/').map(p => p.trim()).filter(Boolean);
+  } else if (normalized.length > 0) {
+    // Single block (user removed all slashes to merge)
+    parts = [normalized];
+  } else {
+    // Empty input fallback to line text
+    parts = [line.text || ''];
+  }
+  if (!parts.length) {
+    parts = [line.text || ''];
+  }
+
+  const N = line.words ? line.words.length : 0;
+  const blocks: { text: string; word_indices: number[] }[] = [];
+
+  if (N === 0) {
+    for (const part of parts) {
+      blocks.push({ text: part, word_indices: [] });
+    }
+  } else if (parts.length === 1) {
+    const indices = range(0, N);
+    const text = joinWordsWithSpacing(line.words, indices) || parts[0];
+    blocks.push({ text, word_indices: indices });
+  } else {
+    // Multi-part mapping to line.words
+    const targetChars = parts.map(p => Math.max(1, p.replace(/\s+/gu, '').length));
+    const wordChars = line.words.map(w => Math.max(1, w.word.replace(/\s+/gu, '').length));
+    let wordIdx = 0;
+
+    for (let i = 0; i < parts.length; i++) {
+      const isLast = (i === parts.length - 1);
+      if (isLast) {
+        const indices: number[] = [];
+        while (wordIdx < N) {
+          indices.push(wordIdx++);
+        }
+        const text = indices.length ? joinWordsWithSpacing(line.words, indices) : parts[i];
+        blocks.push({ text, word_indices: indices });
+      } else {
+        const target = targetChars[i];
+        const indices: number[] = [];
+        let accumulated = 0;
+        const remainingPartsAfterThis = parts.length - 1 - i;
+
+        while (wordIdx < N && (N - wordIdx > remainingPartsAfterThis)) {
+          const nextWordLen = wordChars[wordIdx];
+          if (indices.length > 0 && accumulated + nextWordLen > target) {
+            const diffCurrent = Math.abs(accumulated - target);
+            const diffNext = Math.abs(accumulated + nextWordLen - target);
+            if (diffCurrent <= diffNext) {
+              break;
+            }
+          }
+          indices.push(wordIdx);
+          accumulated += nextWordLen;
+          wordIdx++;
+          if (accumulated >= target) {
+            break;
+          }
+        }
+        if (!indices.length && wordIdx < N && (N - wordIdx > remainingPartsAfterThis)) {
+          indices.push(wordIdx++);
+        }
+        const text = indices.length ? joinWordsWithSpacing(line.words, indices) : parts[i];
+        blocks.push({ text, word_indices: indices });
+      }
+    }
+  }
+
+  // Resolve primary index
+  let resolvedPrimary = 0;
+  if (primaryIndex !== undefined && primaryIndex >= 0 && primaryIndex < blocks.length) {
+    resolvedPrimary = primaryIndex;
+  } else {
+    const oldPrimaryText = base.nodes.find(n => n.role === 'primary')?.text;
+    const matchIdx = oldPrimaryText ? blocks.findIndex(b => b.text === oldPrimaryText) : -1;
+    if (matchIdx !== -1) {
+      resolvedPrimary = matchIdx;
+    } else {
+      resolvedPrimary = blocks.length === 1 ? 0 : blocks.length - 1;
+    }
+  }
+
+  const nodes: PosterDirection['nodes'] = blocks.map((b, i) => {
+    const isPrimary = (i === resolvedPrimary);
+    const prevNode = base.nodes[i];
+    const role: 'primary' | 'secondary' | 'support' = isPrimary
+      ? 'primary'
+      : (i === 0 && blocks.length > 1 ? 'secondary' : 'support');
+    const color_role: 'accent' | 'foreground' | 'muted' = isPrimary
+      ? 'accent'
+      : (i === 0 ? 'foreground' : 'muted');
+
+    return {
+      text: b.text,
+      word_indices: b.word_indices,
+      role,
+      emphasis: isPrimary ? b.text : '',
+      color_role,
+      entrance: prevNode?.entrance || 'slide-up',
+      settle_fraction: prevNode?.settle_fraction ?? 0.25,
+      beat_reaction: isPrimary ? (prevNode?.beat_reaction || 'none') : 'none'
+    };
+  });
+
+  const layout = blocks.length === 1
+    ? (base.layout === 'staggered' ? 'center-stack' : (base.layout || 'center-stack'))
+    : (base.layout || 'hero-stack');
+
+  const intent = blocks.length === 1
+    ? '整句单行居中海报'
+    : blocks.length === 2
+      ? '双行对垒海报'
+      : `自定义${blocks.length}段排版海报`;
+
+  const updatedDirection: PosterDirection = {
+    ...base,
+    version: 'motion-poster-direction-v1',
+    status: 'draft',
+    layout,
+    intent,
+    nodes
+  };
+
+  cue.poster = updatedDirection;
+  return updatedDirection;
+}
+
 export function displayText(text:string){
   return text.replace(/\s+/gu,' ').trim().replace(/(?<=\p{Script=Han}) (?=\p{Script=Han})/gu,'');
 }

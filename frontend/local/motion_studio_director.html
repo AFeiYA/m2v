@@ -242,6 +242,13 @@
               <div id="kinetic-line-controls" style="margin-top:10px;">
                 <label for="cue-select" data-i18n="ms_lbl_cue_select">Lyric Line</label>
                 <select id="cue-select"></select>
+                <label for="cue-phrase-grouping" data-i18n="ms_lbl_phrase_grouping">Lyric Block Phrasing (use / to split, remove to merge)</label>
+                <div style="display:flex;gap:6px">
+                  <input id="cue-phrase-grouping" type="text" style="flex:1" placeholder="Use / to divide blocks, e.g. Listen / by the road / singing softly" data-i18n-placeholder="ms_ph_phrase_grouping">
+                  <button id="btn-reset-phrase-grouping" class="secondary" style="white-space:nowrap" title="Reset to auto phrasing" data-i18n="ms_btn_reset_grouping" data-i18n-title="ms_btn_reset_grouping_title">Reset Auto</button>
+                </div>
+                <div id="cue-phrase-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;margin-bottom:8px;"></div>
+                <p class="help" style="margin-top:2px;margin-bottom:8px;" data-i18n="ms_help_phrase_grouping">Type / to split into blocks, remove / to merge; click ⭐ to set as the hero keyword.</p>
                 <label for="poster-layout" data-i18n="ms_lbl_poster_layout">Poster Layout</label>
                 <div style="display:flex;gap:6px">
                   <select id="poster-layout" style="flex:1">

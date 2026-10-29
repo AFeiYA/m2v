@@ -4,7 +4,7 @@ import {localRulePlan,localPalette,preserveHighlight} from './local-design';
 import {compileSongLayout,paintSongLayout,paintCoverBackground} from './song-layout';
 import {POSTER_FONT} from './poster-layout';
 import {checkImportScope} from './import-scope';
-import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,resolvePaletteColors,pickRandomStackLayout,type CompiledPoster,type DefaultLayoutPreset,type StackLayout} from './poster-layout';
+import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,applyCustomGrouping,resolvePaletteColors,pickRandomStackLayout,type CompiledPoster,type DefaultLayoutPreset,type StackLayout} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
 import { isWebCodecsSupported, exportMotionWebCodecs } from './webcodecs-exporter';
 import { defaults, normalizeProject, renderSize, buildExportClips, resolveVisualMode, type Project, type Options, type MotionPlan, type ExportClip } from './model';
@@ -34,6 +34,14 @@ function listCues(){const select=$<HTMLSelectElement>('cue-select');select.repla
 function showCue(seek=true){if(design.active_mode!=='kinetic')return;const cue=plan?.cues.find(c=>c.line_id===currentCue);if(!cue)return;
  const line=project?.lines.find(l=>l.id===currentCue);
  $<HTMLSelectElement>('poster-layout').value=cue.poster?.layout||'hero-stack';$('poster-design-status').textContent=cue.poster?(dirty?'Local preview design · Unsaved':'Saved director poster design'):'Automatic layout. You can import an AI poster design.';
+ if($('cue-phrase-grouping')){
+  const gInput=$<HTMLInputElement>('cue-phrase-grouping');gInput.disabled=cue.locked;
+  if(document.activeElement!==gInput){
+   const dir=cue.poster||(line?automaticPoster(line,cue.palette):null);
+   gInput.value=dir?.nodes?.length?dir.nodes.map(n=>n.text).join(' / '):(line?.text||'');
+  }
+ }
+ if($('btn-reset-phrase-grouping'))$<HTMLButtonElement>('btn-reset-phrase-grouping').disabled=cue.locked;
  if($('cue-layout-preset')){
   $<HTMLSelectElement>('cue-layout-preset').disabled=cue.locked;
   $<HTMLButtonElement>('apply-layout-preset').disabled=cue.locked;
@@ -52,7 +60,7 @@ function showCue(seek=true){if(design.active_mode!=='kinetic')return;const cue=p
  $<HTMLSelectElement>('visual-intensity').value=cue.poster?.visual_intensity||'auto';$<HTMLSelectElement>('visual-intensity').disabled=cue.locked;
  $<HTMLSelectElement>('semantic-mode').value=cue.poster?.semantic_mode||'auto';$<HTMLSelectElement>('semantic-mode').disabled=cue.locked;
  $<HTMLSelectElement>('cue-exit').value=cue.poster?.transition_out||'cut';$<HTMLSelectElement>('cue-exit').disabled=cue.locked;
- if(line){renderPosterNodes(line,cue);const size=renderSize(options),c=document.createElement('canvas').getContext('2d')!;
+ if(line){renderPhraseChips(line,cue);renderPosterNodes(line,cue);const size=renderSize(options),c=document.createElement('canvas').getContext('2d')!;
   const p=compileSongPosters(project!,size.width,size.height,canvasMeasure(c)).find(p=>p.line_id===line.id)!;
   $('visual-intensity-status').textContent=cue.poster?.highlight&&cue.poster.highlight!=='none'?'Lyric highlighting keeps the layout stable, disables entrance and beat scaling, and uses existing word timings.':`Intensity: ${{restrained:'restrained',expanded:'expanded',peak:'peak'}[p.visual_intensity]} · Controls text size and entrance strength; timing and safe areas take priority.`;
   $('handover-status').textContent=`Hold after singing: ${(Math.max(0,(p.handover?.visible_end||p.end)-p.end)).toFixed(2)}s · ${p.handover?.mode==='layered-fade'?'Supporting text fades before the primary text':p.handover?.mode==='fade'?'Short fade':'Cut'}. Lyrics and audio timing stay unchanged.`;
@@ -1034,6 +1042,34 @@ $('poster-png').onclick=action(()=>{
   const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=(posterPreview?.line_id||'lyric')+'-poster.png';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
  },'image/png');
 });
+if($('cue-phrase-grouping')){
+ let debounceTimer:any=null;
+ const onGroupingChanged=()=>{
+  const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);
+  if(!cue||!line)return;
+  if(cue.locked)throw new Error((window as any).currentLocale==='en'?'Unlock this line before editing.':'请先解锁该句再进行编辑。');
+  const val=$<HTMLInputElement>('cue-phrase-grouping').value;
+  applyCustomGrouping(line,cue,val);
+  dirty=true;refresh();renderPhraseChips(line,cue);renderPosterNodes(line,cue);
+  status((window as any).currentLocale==='en'?'Lyric blocks updated. Save your plan.':'词块断句与组合已更新。请保存方案。');
+ };
+ $('cue-phrase-grouping').addEventListener('input',()=>{clearTimeout(debounceTimer);debounceTimer=setTimeout(onGroupingChanged,120);});
+ $('cue-phrase-grouping').addEventListener('change',()=>{clearTimeout(debounceTimer);onGroupingChanged();});
+}
+if($('btn-reset-phrase-grouping')){
+ $('btn-reset-phrase-grouping').onclick=action(()=>{
+  const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);
+  if(!cue||!line)return;
+  if(cue.locked)throw new Error((window as any).currentLocale==='en'?'Unlock this line before editing.':'请先解锁该句再进行编辑。');
+  const bgTone=($<HTMLSelectElement>('theme-bg')?.value as 'auto'|'light'|'dark')||'auto';
+  const highlight=cue.poster?.highlight||($<HTMLSelectElement>('highlight-mode').value as HighlightMode)||'none';
+  cue.poster=automaticPoster(line,cue.palette,'smart',bgTone);cue.poster.highlight=highlight;
+  const gInput=$<HTMLInputElement>('cue-phrase-grouping');
+  if(gInput)gInput.value=cue.poster.nodes.map(n=>n.text).join(' / ');
+  dirty=true;refresh();showCue(false);
+  status((window as any).currentLocale==='en'?'Reset phrasing to automatic. Save your plan.':'已恢复自动分词。请保存方案。');
+ });
+}
 $('poster-layout').onchange=action(()=>{
  const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);if(!cue||!line)return;
  if(cue.locked)throw new Error('Unlock this line before editing.');
@@ -1123,9 +1159,43 @@ function renderPosterNodes(line:import('./model').Line,cue:import('./model').Cue
     if(key==='role'&&select.value==='primary'){cue.poster.nodes.forEach(n=>{if(n.role==='primary'){n.role='secondary';n.beat_reaction='none';}});}
     if(key==='role'&&select.value!=='primary'&&target.role==='primary'){status('Set another text block as primary first.');select.value='primary';return;}
     if(key==='beat_reaction'&&select.value==='pulse'&&target.role!=='primary'){status('Beat pulse is available only for the primary node.');select.value='none';return;}
-    (target as any)[key]=select.value;dirty=true;refresh();renderPosterNodes(line,cue);status('Poster animation updated. Save your plan.');
+    (target as any)[key]=select.value;dirty=true;refresh();renderPhraseChips(line,cue);renderPosterNodes(line,cue);status('Poster animation updated. Save your plan.');
    };wrapper.append(select);card.append(wrapper);
   }host.append(card);
+ });
+}
+
+function renderPhraseChips(line:import('./model').Line,cue:import('./model').CuePlan){
+ const container=$('cue-phrase-chips');if(!container)return;
+ container.replaceChildren();
+ const direction=cue.poster||automaticPoster(line,cue.palette);
+ const english=(window as any).currentLocale==='en';
+ direction.nodes.forEach((node,idx)=>{
+  const isPrimary=node.role==='primary';
+  const chip=document.createElement('button');
+  chip.type='button';
+  chip.className=`phrase-chip ${isPrimary?'active':''}`;
+  chip.style.cssText=`display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:14px;font-size:11px;cursor:pointer;border:1px solid ${isPrimary?'#57c785':'#334a3f'};background:${isPrimary?'rgba(87,199,133,0.18)':'#16221c'};color:${isPrimary?'#fff':'#c8ded3'};transition:all 0.15s ease;`;
+  chip.title=isPrimary?(english?'Current Hero keyword (largest font & accent color)':'当前主视觉词（最大字号与高亮色）'):(english?'Click to set as Hero keyword':'点击设为主视觉词');
+  const textSpan=document.createElement('span');textSpan.textContent=node.text;chip.append(textSpan);
+  const starSpan=document.createElement('span');starSpan.style.fontSize='12px';starSpan.style.color=isPrimary?'#ffd15c':'#738d82';
+  starSpan.textContent=isPrimary?(english?'★ Hero':'★ 主词'):'☆';chip.append(starSpan);
+  chip.onclick=action(()=>{
+   if(cue.locked)throw new Error(english?'Unlock this line before editing.':'请先解锁该句再进行编辑。');
+   if(node.role==='primary')return;
+   cue.poster=cue.poster||automaticPoster(line,cue.palette);
+   cue.poster.nodes.forEach((n,i)=>{
+    if(i===idx){
+     n.role='primary';n.color_role='accent';n.emphasis=n.text;
+    }else{
+     n.role=(i===0&&cue.poster.nodes.length>1)?'secondary':'support';
+     n.color_role=(i===0?'foreground':'muted');n.emphasis='';n.beat_reaction='none';
+    }
+   });
+   dirty=true;refresh();renderPhraseChips(line,cue);renderPosterNodes(line,cue);
+   status(english?`Set "${node.text}" as hero keyword. Save your plan.`:`已将 "${node.text}" 设为主视觉词。请保存方案。`);
+  });
+  container.append(chip);
  });
 }
 
