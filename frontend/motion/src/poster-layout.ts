@@ -453,7 +453,7 @@ export function applyCustomGrouping(
   if (primaryIndex !== undefined && primaryIndex >= 0 && primaryIndex < blocks.length) {
     resolvedPrimary = primaryIndex;
   } else {
-    const oldPrimaryText = base.nodes.find(n => n.role === 'primary')?.text;
+    const oldPrimaryText = base.nodes?.find(n => n.role === 'primary')?.text;
     const matchIdx = oldPrimaryText ? blocks.findIndex(b => b.text === oldPrimaryText) : -1;
     if (matchIdx !== -1) {
       resolvedPrimary = matchIdx;
@@ -464,7 +464,7 @@ export function applyCustomGrouping(
 
   const nodes: PosterDirection['nodes'] = blocks.map((b, i) => {
     const isPrimary = (i === resolvedPrimary);
-    const prevNode = base.nodes[i];
+    const prevNode = base.nodes ? base.nodes[i] : undefined;
     const role: 'primary' | 'secondary' | 'support' = isPrimary
       ? 'primary'
       : (i === 0 && blocks.length > 1 ? 'secondary' : 'support');
@@ -678,7 +678,8 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
     for(let attempt=0;attempt<100&&rows.length>3;attempt++){size*=.92;rows=rowsFor(text,size,weight,maxWidth,measure);}
     return {n,text,weight,size,rows,maxWidth};
   });
-  const primarySize=fitted.find(f=>f.n.role==='primary')!.size;
+  const primaryNode = fitted.find(f => f.n.role === 'primary') || fitted[0];
+  const primarySize = primaryNode ? primaryNode.size : (portrait ? W * 0.15 : H * 0.2);
   const secondaryLimit=portrait?.8:.55;
   for(const f of fitted)if(f.n.role!=='primary'&&f.size>primarySize*secondaryLimit){
     f.size=primarySize*secondaryLimit;
@@ -691,11 +692,12 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
   const blockWidth=Math.max(...fitted.flatMap(f=>f.rows.map(row=>measure(row,f.size,f.weight).width)));
   const leftAxis=(W-blockWidth)/2;
   const heights=fitted.map(f=>ink(f)+padding*2),totalHeight=heights.reduce((a,b)=>a+b,0)+gap*(fitted.length-1);
-  const primaryIndex=fitted.findIndex(f=>f.n.role==='primary');
+  const primaryIndex=Math.max(0, fitted.findIndex(f=>f.n.role==='primary'));
   const before=heights.slice(0,primaryIndex).reduce((a,b)=>a+b+gap,0);
+  const pHeight=heights[primaryIndex] || (heights[0] ?? 40);
   // Keep the primary near one central baseline while retaining safe bounds.
   let y=portrait?Math.max(H*.20,Math.min(H*.78-totalHeight,H*.46-totalHeight/2)):
-    Math.max(H*.12,Math.min(H*.88-totalHeight,H*.5-before-heights[primaryIndex]/2));
+    Math.max(H*.12,Math.min(H*.88-totalHeight,H*.5-before-pHeight/2));
   for(let i=0;i<fitted.length;i++){
     const {n,weight,size,rows}=fitted[i],height=heights[i];
     const shift=W*hints[i].offset;

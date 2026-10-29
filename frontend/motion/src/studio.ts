@@ -1045,13 +1045,17 @@ $('poster-png').onclick=action(()=>{
 if($('cue-phrase-grouping')){
  let debounceTimer:any=null;
  const onGroupingChanged=()=>{
-  const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);
-  if(!cue||!line)return;
-  if(cue.locked)throw new Error((window as any).currentLocale==='en'?'Unlock this line before editing.':'请先解锁该句再进行编辑。');
-  const val=$<HTMLInputElement>('cue-phrase-grouping').value;
-  applyCustomGrouping(line,cue,val);
-  dirty=true;refresh();renderPhraseChips(line,cue);renderPosterNodes(line,cue);
-  status((window as any).currentLocale==='en'?'Lyric blocks updated. Save your plan.':'词块断句与组合已更新。请保存方案。');
+  try {
+   const cue=plan?.cues.find(c=>c.line_id===currentCue),line=project?.lines.find(l=>l.id===currentCue);
+   if(!cue||!line)return;
+   if(cue.locked)throw new Error((window as any).currentLocale==='en'?'Unlock this line before editing.':'请先解锁该句再进行编辑。');
+   const val=$<HTMLInputElement>('cue-phrase-grouping').value;
+   applyCustomGrouping(line,cue,val);
+   dirty=true;refresh();renderPhraseChips(line,cue);renderPosterNodes(line,cue);
+   status((window as any).currentLocale==='en'?'Lyric blocks updated. Save your plan.':'词块断句与组合已更新。请保存方案。');
+  } catch(err: any) {
+   status(err?.message || String(err));
+  }
  };
  $('cue-phrase-grouping').addEventListener('input',()=>{clearTimeout(debounceTimer);debounceTimer=setTimeout(onGroupingChanged,120);});
  $('cue-phrase-grouping').addEventListener('change',()=>{clearTimeout(debounceTimer);onGroupingChanged();});
@@ -1183,12 +1187,12 @@ function renderPhraseChips(line:import('./model').Line,cue:import('./model').Cue
   chip.onclick=action(()=>{
    if(cue.locked)throw new Error(english?'Unlock this line before editing.':'请先解锁该句再进行编辑。');
    if(node.role==='primary')return;
-   cue.poster=cue.poster||automaticPoster(line,cue.palette);
-   cue.poster.nodes.forEach((n,i)=>{
+   const poster=cue.poster=cue.poster||automaticPoster(line,cue.palette);
+   poster.nodes.forEach((n,i)=>{
     if(i===idx){
      n.role='primary';n.color_role='accent';n.emphasis=n.text;
     }else{
-     n.role=(i===0&&cue.poster.nodes.length>1)?'secondary':'support';
+     n.role=(i===0&&poster.nodes.length>1)?'secondary':'support';
      n.color_role=(i===0?'foreground':'muted');n.emphasis='';n.beat_reaction='none';
     }
    });
