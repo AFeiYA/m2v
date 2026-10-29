@@ -30,13 +30,15 @@ function setup(){
  const design={exports:{}};new Function('module','exports',compiled)(design,design.exports);
  const modeCode=esbuild.buildSync({entryPoints:[path.join(__dirname,'../motion/src/motion-design.ts')],bundle:true,platform:'node',format:'cjs',write:false}).outputFiles[0].text;
  const modeModule={exports:{}};new Function('module','exports',modeCode)(modeModule,modeModule.exports);
- const requireStub=name=>name.includes('motion-design')?modeModule.exports:name.includes('local-design')?design.exports:name.includes('service-api')?service:name.includes('remotion-preview')?{RemotionPreview}:name.includes('webcodecs-exporter')?{isWebCodecsSupported:()=>false,exportMotionWebCodecs:async()=>new Blob()}:name.includes('/model')?{defaults:{},normalizeProject:p=>p,renderSize:()=>({width:720,height:1280}),buildExportClips:()=>[{id:'full',title:'Full song',available:true,start_time:0,end_time:null},{id:'chorus',title:'Chorus',available:true,start_time:20,end_time:35}],resolveVisualMode:m=>m||'kinetic'}:{};
+ const webcodecsModule={isWebCodecsSupported:()=>false,exportMotionWebCodecs:async()=>new Blob()};
+ const browserExportModule={archiveBrowserVideo:async()=>{}};
+ const requireStub=name=>name.includes('motion-design')?modeModule.exports:name.includes('local-design')?design.exports:name.includes('service-api')?service:name.includes('remotion-preview')?{RemotionPreview}:name.includes('webcodecs-exporter')?webcodecsModule:name.includes('browser-export')?browserExportModule:name.includes('/model')?{defaults:{},normalizeProject:p=>p,renderSize:()=>({width:720,height:1280}),buildExportClips:()=>[{id:'full',title:'Full song',available:true,start_time:0,end_time:null},{id:'chorus',title:'Chorus',available:true,start_time:20,end_time:35}],resolveVisualMode:m=>m||'kinetic'}:{};
  const context={module:{exports:{}},require:requireStub,document,window:{addEventListener(){},confirm:()=>false,alert:message=>alerts.push(message)},MutationObserver:class{observe(){}},Audio,structuredClone,
-  URL,URLSearchParams,Blob,FormData,setTimeout,requestAnimationFrame(){},console,location:{search:''}};
+  URL,URLSearchParams,Blob,FormData,AbortController,setTimeout,requestAnimationFrame(){},console,location:{search:''}};
  vm.createContext(context);vm.runInContext(code,context);
  function request(id){const d=deferred();pending.set(id,d);return d;}
  function result(title){return {project:{title,duration:2,lines:[],analysis:{energy_curve:[],beats:[]}},plan:null,audio_url:title+'.mp3'};}
- return {alerts,api:context.module.exports,nodes,request,result,writes,saves,renders,context,design:design.exports};
+ return {alerts,api:context.module.exports,nodes,request,result,writes,saves,renders,context,design:design.exports,webcodecsModule,browserExportModule};
 }
 test('a late previous song response cannot replace current credits or artwork',async()=>{
  const s=setup(),old=s.request('old'),current=s.request('current');
@@ -249,4 +251,23 @@ test('export credit units follow the selected locale',async()=>{
   assert.match(s.nodes.get('export').textContent,locale==='zh'?/积分/:/credits/);
   if(locale==='en')assert.doesNotMatch(s.nodes.get('export').textContent,/积分/);
  }
+});
+
+test('local WebCodecs export delivers immediate download and handles cloud sync failure non-destructively',async()=>{
+ const s=await savedMotion();selectFull(s);
+ s.webcodecsModule.isWebCodecsSupported=()=>true;
+ s.webcodecsModule.exportMotionWebCodecs=async()=>new s.context.Blob(['mock mp4'],{type:'video/mp4'});
+ const service=paidService(s);
+ await s.api.refreshMotionPrice();
+ let archiveCalled=0;
+ s.browserExportModule.archiveBrowserVideo=async()=>{
+  archiveCalled++;
+  throw new Error('Cloud storage temporarily unavailable');
+ };
+ await s.api.exportVideo();
+ const dl=s.nodes.get('download');
+ assert.equal(dl.hidden,false,'Download button must be visible for completed local export');
+ assert.ok(dl.href,'Download button must have blob link');
+ assert.match(dl.download,/\.mp4$/,'Download button must set mp4 filename');
+ assert.equal(archiveCalled,1,'Cloud sync was attempted once');
 });

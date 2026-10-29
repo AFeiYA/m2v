@@ -523,31 +523,12 @@ async function runExportVideo() {
             isCancelled: () => cancelExportQueue,
           });
 
-          const exportTitle=project.title || sourceProject;
-          const browserRequest=cloudService()?await motionRequestId(sourceProject,{
-            mode:'browser',aspect:task.aspect,start:task.start,length:taskLength,
-            accepted_cost:acceptedCost,
-          },sourceRevision):null;
-          let archived=false;
-          retryArchive=async()=>{
-            if(archived)return;
-            text.textContent=`${task.title} (${task.aspect}): ${isZh?'正在保存视频…':'Saving video…'}`;
-            const controller=new AbortController();
-            browserUploadController=controller;
-            if(cancelExportQueue)controller.abort();
-            try{await archiveBrowserVideo(blob,{
-              projectId:sourceProject,requestId:browserRequest?.id||'',acceptedCost,
-              title:`${exportTitle} · ${task.title}`,aspect:task.aspect,
-            },{signal:controller.signal});
-            }finally{if(browserUploadController===controller)browserUploadController=null;}
-            archived=true;
-            songVideoUnlocked=true;
-            updateMatrixCount();
-            if(cloudService())(window as any).m2vStudioBridge?.exported(sourceProject);
-          const blobUrl = URL.createObjectURL(blob);
+          // 1. Local encoding succeeded: deliver local download immediately
+          const exportTitle = project.title || sourceProject;
           const safeTitle = (exportTitle || 'motion').trim().replace(/[/\\?%*:|"<>]/g, '_');
           const modeTag = task.visualMode === 'apple' ? 'apple' : (task.visualMode === 'tv' ? 'ktv' : 'poster');
           const filename = `${safeTitle}-${task.title}-${task.aspect.replace(':', '_')}-${modeTag}.mp4`;
+          const blobUrl = URL.createObjectURL(blob);
 
           const dlLink = document.createElement('a');
           dlLink.className = 'dl-link';
@@ -566,37 +547,88 @@ async function runExportVideo() {
           const autoDl = document.createElement('a');
           autoDl.href = blobUrl;
           autoDl.download = filename;
-          document.body.appendChild(autoDl);
-          autoDl.click();
-          autoDl.remove();
+          if (document.body) {
+            if (typeof document.body.appendChild === 'function') document.body.appendChild(autoDl);
+            else if (typeof document.body.append === 'function') document.body.append(autoDl);
+          }
+          if (typeof autoDl.click === 'function') autoDl.click();
+          if (typeof autoDl.remove === 'function') autoDl.remove();
           completedCount++;
-          if(browserRequest)clearMotionRequest(browserRequest.key);
           updateSummary();
-          text.textContent=`${task.title} (${task.aspect}): ${isZh?'视频已完成，已发起下载':'Video ready, download started'}`;
-          $('export-status').textContent=`${completedCount}/${tasks.length} ${isZh?'视频已保存到云端，已发起下载':'videos saved to cloud; download started'}`;
-          void loadExports().catch(error=>console.error(error));
-          };
-          await retryArchive();
+          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地视频已生成并开始下载' : 'Video ready, download started'}`;
+
+          // 2. Cloud archive / sync
+          if (cloudService()) {
+            const browserRequest = await motionRequestId(sourceProject, {
+              mode: 'browser', aspect: task.aspect, start: task.start, length: taskLength,
+              accepted_cost: acceptedCost,
+            }, sourceRevision);
+
+            let archived = false;
+            retryArchive = async () => {
+              if (archived) return;
+              text.textContent = `${task.title} (${task.aspect}): ${isZh ? '正在同步至云端资产库…' : 'Syncing to cloud library…'}`;
+              const controller = new AbortController();
+              browserUploadController = controller;
+              if (cancelExportQueue) controller.abort();
+              try {
+                await archiveBrowserVideo(blob, {
+                  projectId: sourceProject, requestId: browserRequest?.id || '', acceptedCost,
+                  title: `${exportTitle} · ${task.title}`, aspect: task.aspect,
+                }, { signal: controller.signal });
+                archived = true;
+                songVideoUnlocked = true;
+                updateMatrixCount();
+                (window as any).m2vStudioBridge?.exported(sourceProject);
+                if (browserRequest) clearMotionRequest(browserRequest.key);
+                text.textContent = `${task.title} (${task.aspect}): ${isZh ? '视频已完成并已同步到云端' : 'Video complete & synced to cloud'}`;
+                $('export-status').textContent = `${completedCount}/${tasks.length} ${isZh ? '视频已保存到云端' : 'videos saved to cloud'}`;
+                void loadExports().catch(error => console.error(error));
+              } finally {
+                if (browserUploadController === controller) browserUploadController = null;
+              }
+            };
+
+            try {
+              await retryArchive();
+            } catch (archiveErr: any) {
+              console.warn('[MotionStudio] Cloud archive failed, video retained locally:', archiveErr);
+              text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地视频已下载（云端同步未完成，可重试）' : 'Video downloaded (Cloud sync unconfirmed, retry available)'}`;
+              const retryBtn = document.createElement('button');
+              retryBtn.className = 'retry-sync-btn';
+              retryBtn.textContent = isZh ? '重试同步云端' : 'Retry cloud sync';
+              retryBtn.onclick = () => {
+                if (exportQueueRunning) return;
+                exportQueueRunning = true;
+                exportBtn.disabled = true;
+                retryBtn.disabled = true;
+                cancelExportQueue = false;
+                cancelBtn.hidden = false;
+                void retryArchive!()
+                  .then(() => retryBtn.remove())
+                  .catch(error => {
+                    retryBtn.disabled = false;
+                    text.textContent = String(error);
+                  })
+                  .finally(() => {
+                    exportQueueRunning = false;
+                    exportBtn.disabled = false;
+                    cancelBtn.hidden = true;
+                    updateMatrixCount();
+                  });
+              };
+              row.append(retryBtn);
+            }
+          }
           continue;
         } catch (err: any) {
-          if(retryArchive){
-            text.textContent=`${task.title} (${task.aspect}): ${isZh?'上传未确认；本页保留视频，可重试保存':'Upload unconfirmed; video retained on this page. Retry saving.'}`;
-            const retry=document.createElement('button');
-            retry.textContent=isZh?'重试保存视频':'Retry saving video';
-            retry.onclick=()=>{if(exportQueueRunning)return;exportQueueRunning=true;exportBtn.disabled=true;retry.disabled=true;cancelExportQueue=false;cancelBtn.hidden=false;
-              void retryArchive!().then(()=>retry.remove()).catch(error=>{
-              retry.disabled=false;text.textContent=String(error);
-            }).finally(()=>{exportQueueRunning=false;exportBtn.disabled=false;cancelBtn.hidden=true;updateMatrixCount();});};
-            row.append(retry);
-            throw new Error(isZh?'视频已编码，云端保存未确认。请在本页重试保存，确认前不要刷新或关闭页面；其余视频未开始。':'Video encoded; cloud saving is unconfirmed. Retry saving on this page before refreshing or closing it. Remaining videos have not started.');
-          }
           if (cancelExportQueue || err?.message?.includes('cancelled')) {
             text.textContent = `${task.title} (${task.aspect}): ${isZh ? '已取消' : 'Cancelled'}`;
             break;
           }
           console.warn('[MotionStudio] Local WebCodecs export failed, auto-falling back to cloud render:', err);
-          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地压制受限，已自动转入云端通道…' : 'Local export unavailable, auto-switching to cloud render…'}`;
-          $('export-status').textContent = isZh ? '本地压制受限，已自动为您接入云端通道排队渲染…' : 'Local export unavailable, automatically switching to cloud render…';
+          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地压制受限，已自动转入备用云端通道…' : 'Local export unavailable, auto-switching to cloud render…'}`;
+          $('export-status').textContent = isZh ? '本地压制受限，已自动为您接入备用云端通道排队渲染…' : 'Local export unavailable, automatically switching to cloud render…';
         }
       }
 
@@ -900,21 +932,21 @@ function initExportEngineHint() {
       updateMatrixCount();
       if (exportStatus) {
         exportStatus.textContent = fastCheckbox.checked
-          ? (isZh ? `⚡ 优先本地 GPU 极速导出；若遇环境或浏览器限制，自动转入云端通道。` : `⚡ Local GPU fast export first; auto fall back to cloud if local environment is restricted.`)
-          : (isZh ? `☁️ 云端渲染通道 · 服务端 Chromium 集群 · 可后台排队。` : `☁️ Cloud Render Channel · Server Chromium · Background queue.`);
+          ? (isZh ? `⚡ 优先尝试本机加速压制；若遇设备或浏览器限制，自动转入备用云端通道。` : `⚡ Try local acceleration first; auto fall back to backup cloud render if restricted.`)
+          : (isZh ? `☁️ 备用云端渲染通道 · 服务端队列处理。` : `☁️ Backup cloud render channel · Server queue processing.`);
       }
     };
   }
 
   if (fastLabel) {
     fastLabel.style.opacity = '1';
-    fastLabel.title = isZh ? '优先本地 GPU 极速导出 (遇阻自动转云端)' : 'Local fast export first (auto cloud fallback)';
+    fastLabel.title = isZh ? '优先尝试本机加速导出 (遇阻转备用云端)' : 'Try local acceleration first (cloud fallback)';
   }
 
   if (exportStatus) {
     exportStatus.textContent = isZh
-      ? `⚡ 优先本地 GPU 极速压制；若遇本地硬件或浏览器限制，系统将自动无缝转入云端通道渲染。`
-      : `⚡ Local GPU fast export first; auto fall back to cloud if local environment is restricted.`;
+      ? `⚡ 优先尝试本机加速压制；若遇设备或浏览器限制，自动转入备用云端通道。`
+      : `⚡ Try local acceleration first; auto fall back to backup cloud render if restricted.`;
   }
 
   updateMatrixCount();
