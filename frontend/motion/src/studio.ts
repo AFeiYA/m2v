@@ -920,23 +920,17 @@ function initExportEngineHint() {
     fastCheckbox.checked = true;
     fastCheckbox.onchange = () => {
       updateMatrixCount();
-      if (exportStatus) {
-        exportStatus.textContent = fastCheckbox.checked
-          ? (isZh ? `⚡ 优先尝试本机加速压制；若遇设备或浏览器限制，自动转入备用云端通道。` : `⚡ Try local acceleration first; auto fall back to backup cloud render if restricted.`)
-          : (isZh ? `☁️ 备用云端渲染通道 · 服务端队列处理。` : `☁️ Backup cloud render channel · Server queue processing.`);
-      }
     };
   }
 
   if (fastLabel) {
-    fastLabel.style.opacity = '1';
-    fastLabel.title = isZh ? '优先尝试本机加速导出 (遇阻转备用云端)' : 'Try local acceleration first (cloud fallback)';
+    fastLabel.style.display = 'none';
   }
 
   if (exportStatus) {
     exportStatus.textContent = isZh
-      ? `⚡ 优先尝试本机加速压制；若遇设备或浏览器限制，自动转入备用云端通道。`
-      : `⚡ Try local acceleration first; auto fall back to backup cloud render if restricted.`;
+      ? `高清 1080P · 原声无损同步 · 30fps / H.264`
+      : `Full HD 1080P · Lossless Audio Sync · 30fps / H.264`;
   }
 
   updateMatrixCount();
