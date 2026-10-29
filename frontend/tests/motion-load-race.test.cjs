@@ -253,21 +253,25 @@ test('export credit units follow the selected locale',async()=>{
  }
 });
 
-test('local WebCodecs export delivers immediate download and handles cloud sync failure non-destructively',async()=>{
+test('local WebCodecs export unlocks song via lightweight request and downloads directly without uploading video',async()=>{
  const s=await savedMotion();selectFull(s);
  s.webcodecsModule.isWebCodecsSupported=()=>true;
  s.webcodecsModule.exportMotionWebCodecs=async()=>new s.context.Blob(['mock mp4'],{type:'video/mp4'});
  const service=paidService(s);
  await s.api.refreshMotionPrice();
- let archiveCalled=0;
- s.browserExportModule.archiveBrowserVideo=async()=>{
-  archiveCalled++;
-  throw new Error('Cloud storage temporarily unavailable');
+ let unlockCalled=0;
+ const originalServiceJson = service.serviceJson;
+ service.serviceJson=async(url,options)=>{
+  if(url.includes('/unlock')){
+   unlockCalled++;
+   return {unlocked:true,cost:10};
+  }
+  return originalServiceJson(url,options);
  };
  await s.api.exportVideo();
  const dl=s.nodes.get('download');
  assert.equal(dl.hidden,false,'Download button must be visible for completed local export');
  assert.ok(dl.href,'Download button must have blob link');
  assert.match(dl.download,/\.mp4$/,'Download button must set mp4 filename');
- assert.equal(archiveCalled,1,'Cloud sync was attempted once');
+ assert.equal(unlockCalled,1,'Song was unlocked via lightweight unlock request');
 });

@@ -1,4 +1,3 @@
-import {archiveBrowserVideo} from './browser-export';
 import {createMotionDesign,modeOptions,modeTheme,selectMode,changeTheme,visualModes,type MotionDesign} from './motion-design';
 import type {HighlightMode} from './karaoke';
 import {localRulePlan,localPalette,preserveHighlight} from './local-design';
@@ -221,7 +220,6 @@ function applyVisualTemplate() {
 $('visual-template-select')?.addEventListener('change', action(applyVisualTemplate));
 let cancelExportQueue = false;
 let exportQueueRunning = false;
-let browserUploadController:AbortController|null=null;
 let motionQuote:{projectId:string;cost:number}|null=null;
 let motionPricing = { webcodecs: 10, cloud: 10 };
 const motionRequestIds=new Map<string,string>();
@@ -447,6 +445,17 @@ async function runExportVideo() {
         ? `积分不足（当前剩余 ${creditsData.available} 积分，解锁本歌曲导出需要 ${totalRequired} 积分，请充值后重试）`
         : `Insufficient credits (${creditsData.available} available, ${totalRequired} required to unlock this song. Please top up first)`);
     }
+    if (!unlocked && totalRequired > 0) {
+      const unlockRes = await serviceJson('/api/cloud-motion/unlock?' + new URLSearchParams({
+        project_id: sourceProject,
+        accepted_cost: String(acceptedCost),
+      }), { method: 'POST' });
+      if (unlockRes?.unlocked) {
+        songVideoUnlocked = true;
+        updateMatrixCount();
+        (window as any).m2vStudioBridge?.exported?.(sourceProject);
+      }
+    }
   }
 
   const exportBtn = $<HTMLButtonElement>('export');
@@ -501,7 +510,6 @@ async function runExportVideo() {
         const fullDuration = project.duration || 60;
         const taskLength = task.length ?? Math.max(0.1, fullDuration - task.start);
 
-        let retryArchive:(()=>Promise<void>)|null=null;
         try {
           const blob = await exportMotionWebCodecs({
             project:exportProject,
@@ -555,71 +563,8 @@ async function runExportVideo() {
           if (typeof autoDl.remove === 'function') autoDl.remove();
           completedCount++;
           updateSummary();
-          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地视频已生成并开始下载' : 'Video ready, download started'}`;
-
-          // 2. Cloud archive / sync
-          if (cloudService()) {
-            const browserRequest = await motionRequestId(sourceProject, {
-              mode: 'browser', aspect: task.aspect, start: task.start, length: taskLength,
-              accepted_cost: acceptedCost,
-            }, sourceRevision);
-
-            let archived = false;
-            retryArchive = async () => {
-              if (archived) return;
-              text.textContent = `${task.title} (${task.aspect}): ${isZh ? '正在同步至云端资产库…' : 'Syncing to cloud library…'}`;
-              const controller = new AbortController();
-              browserUploadController = controller;
-              if (cancelExportQueue) controller.abort();
-              try {
-                await archiveBrowserVideo(blob, {
-                  projectId: sourceProject, requestId: browserRequest?.id || '', acceptedCost,
-                  title: `${exportTitle} · ${task.title}`, aspect: task.aspect,
-                }, { signal: controller.signal });
-                archived = true;
-                songVideoUnlocked = true;
-                updateMatrixCount();
-                (window as any).m2vStudioBridge?.exported(sourceProject);
-                if (browserRequest) clearMotionRequest(browserRequest.key);
-                text.textContent = `${task.title} (${task.aspect}): ${isZh ? '视频已完成并已同步到云端' : 'Video complete & synced to cloud'}`;
-                $('export-status').textContent = `${completedCount}/${tasks.length} ${isZh ? '视频已保存到云端' : 'videos saved to cloud'}`;
-                void loadExports().catch(error => console.error(error));
-              } finally {
-                if (browserUploadController === controller) browserUploadController = null;
-              }
-            };
-
-            try {
-              await retryArchive();
-            } catch (archiveErr: any) {
-              console.warn('[MotionStudio] Cloud archive failed, video retained locally:', archiveErr);
-              text.textContent = `${task.title} (${task.aspect}): ${isZh ? '本地视频已下载（云端同步未完成，可重试）' : 'Video downloaded (Cloud sync unconfirmed, retry available)'}`;
-              const retryBtn = document.createElement('button');
-              retryBtn.className = 'retry-sync-btn';
-              retryBtn.textContent = isZh ? '重试同步云端' : 'Retry cloud sync';
-              retryBtn.onclick = () => {
-                if (exportQueueRunning) return;
-                exportQueueRunning = true;
-                exportBtn.disabled = true;
-                retryBtn.disabled = true;
-                cancelExportQueue = false;
-                cancelBtn.hidden = false;
-                void retryArchive!()
-                  .then(() => retryBtn.remove())
-                  .catch(error => {
-                    retryBtn.disabled = false;
-                    text.textContent = String(error);
-                  })
-                  .finally(() => {
-                    exportQueueRunning = false;
-                    exportBtn.disabled = false;
-                    cancelBtn.hidden = true;
-                    updateMatrixCount();
-                  });
-              };
-              row.append(retryBtn);
-            }
-          }
+          text.textContent = `${task.title} (${task.aspect}): ${isZh ? '视频已完成并已开始下载' : 'Video complete & download started'}`;
+          $('export-status').textContent = `${completedCount}/${tasks.length} ${isZh ? '个视频已完成并已保存至本地' : 'videos completed and saved to disk'}`;
           continue;
         } catch (err: any) {
           if (cancelExportQueue || err?.message?.includes('cancelled')) {
@@ -912,7 +857,6 @@ window.addEventListener('pointercancel',()=>{resumeAfterScrub=false;void finishS
 $('export').onclick=action(exportVideo);
 $('cancel').onclick=action(async()=>{
   cancelExportQueue=true;
-  browserUploadController?.abort();
   if(jobId)await api('render/'+jobId+'/cancel','POST').catch(()=>{});
 });
 $('export-custom-range')?.addEventListener('change',updateMatrixCount);

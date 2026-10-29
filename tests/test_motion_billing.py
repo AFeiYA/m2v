@@ -289,3 +289,32 @@ def test_song_level_video_export_buyout_unlocks_unlimited_exports(paid):
 
     asyncio.run(run())
 
+
+def test_lightweight_unlock_endpoint_charges_and_unlocks_without_video_upload(paid):
+    # 1. Calling unlock for alice_motion charges 2 credits (from 5 to 3)
+    res = paid.client.post('/api/cloud-motion/unlock?project_id=alice_motion&accepted_cost=2', headers=headers())
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data['unlocked'] is True
+    assert data['cost'] == 2
+    assert data['already_unlocked'] is False
+    assert paid.client.get('/api/credits', headers=headers()).json()['available'] == 3
+
+    # 2. Second unlock call for the same song is idempotent and costs 0
+    res2 = paid.client.post('/api/cloud-motion/unlock?project_id=alice_motion&accepted_cost=0', headers=headers())
+    assert res2.status_code == 200, res2.text
+    assert res2.json()['cost'] == 0
+    assert res2.json()['already_unlocked'] is True
+    assert paid.client.get('/api/credits', headers=headers()).json()['available'] == 3
+
+    # 3. Subsequent cloud render for alice_motion costs 0!
+    async def verify_cloud_admit():
+        req = request(request_id=uuid.uuid4(), accepted_cost=0)
+        async with paid.sessions() as db:
+            admitted = await billing.admit(db, 'alice', 'alice_motion', 'cand_free', req)
+            await db.commit()
+            assert not admitted['replay']
+            assert (await db.get(User, 'alice', populate_existing=True)).credits == 3
+    asyncio.run(verify_cloud_admit())
+
+

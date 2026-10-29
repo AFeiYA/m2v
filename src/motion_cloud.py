@@ -11,10 +11,12 @@ import shutil
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
+
+from src import credits
 
 from src.auth import get_current_user_flexible
 from src.database import get_db
@@ -347,6 +349,53 @@ async def refresh_source(request: Request, user: User = Depends(get_current_user
                 'sections': payload.get('sections', []), 'warning': result['warning']}
     finally:
         workspace.gate.release()
+
+
+@router.post('/unlock')
+async def unlock_song_export(
+    project_id: str = Query(max_length=64),
+    accepted_cost: int = Query(default=10, ge=0),
+    user: User = Depends(get_current_user_flexible),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lightweight song video export buyout: unlocks unlimited subsequent exports without video uploading."""
+    from src.motion_billing import is_song_unlocked
+    from src.models import MotionExportRequest
+    from src.queue_limiter import now
+    task = (await db.execute(select(Task).where(
+        Task.id == project_id, Task.user_id == user.id, live_task(),
+        Task.alignment_json_key.isnot(None),
+    ))).scalar_one_or_none()
+    if task is None:
+        raise HTTPException(404, 'Song not found')
+
+    if await is_song_unlocked(db, user.id, project_id):
+        return {'unlocked': True, 'cost': 0, 'already_unlocked': True}
+
+    base_cost = get_settings().MOTION_WEBCODECS_CREDITS
+    if base_cost > 0 and accepted_cost < base_cost:
+        raise HTTPException(409, 'Review and accept the current Motion export credit price before unlocking.')
+
+    await credits.lock_balance(db, user.id)
+    if await is_song_unlocked(db, user.id, project_id):
+        return {'unlocked': True, 'cost': 0, 'already_unlocked': True}
+
+    job_id = hashlib.sha256(f'{user.id}:unlock:{project_id}'.encode()).hexdigest()[:32]
+    if base_cost > 0:
+        await credits.reserve(db, user.id, job_id, 'motion_webcodecs', base_cost)
+        await credits.finish(db, user.id, job_id, 'motion_webcodecs', True)
+
+    db.add(MotionExportRequest(
+        id=job_id,
+        user_id=user.id,
+        task_id=project_id,
+        fingerprint='unlock',
+        cost=base_cost,
+        state='done',
+        lease_until=now(),
+    ))
+    await db.commit()
+    return {'unlocked': True, 'cost': base_cost, 'already_unlocked': False}
 
 
 @router.api_route("/{route:path}", methods=["GET", "POST", "PUT", "DELETE"])
