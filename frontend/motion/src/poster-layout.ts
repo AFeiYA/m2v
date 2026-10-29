@@ -614,13 +614,14 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
   return {visual_intensity,version:'motion-poster-layout-v1',line_id:line.id,source:cue?.poster?'director':'automatic',width:W,height:H,background:design.background,accent:design.accent,motif:design.motif,layout:design.layout,transition_out:design.transition_out,semantic_arrangement:semantic.applications,relations:(design.relations||[]).map(r=>({...r,node_indices:[...r.node_indices]})),start:line.start,end:line.end,nodes};
 }
 // Song stage remains continuous; saved direction and alignment are not mutated.
-export function compileSongPosters(project:Project,W:number,H:number,measure:Measure):CompiledPoster[]{
+export function compileSongPosters(project:Project,W:number,H:number,measure:Measure,overridePalette?:ReturnType<typeof resolvePaletteColors>):CompiledPoster[]{
   const choice=project.song_identity?.visual_theme;
   const theme=choice&&choice!=='director'?SONG_THEMES[choice]:undefined;
-  const first=project.motion_plan?.cues.find(c=>c.poster)?.poster;
   const visual=project.motion_plan?.visual_language;
-  const background=theme?.background||visual?.background||first?.background||THEME_PALETTES.impact.backgroundDark;
-  const accent=theme?.accent||visual?.accent||first?.accent||THEME_PALETTES.impact.accentDark;
+  const first=project.motion_plan?.cues.find(c=>c.poster)?.poster;
+  const defaultColors=overridePalette || (visual?.background && visual?.accent ? {background: visual.background, accent: visual.accent} : undefined);
+  const background=theme?.background || defaultColors?.background || visual?.background || first?.background || THEME_PALETTES.impact.backgroundDark;
+  const accent=theme?.accent || defaultColors?.accent || visual?.accent || first?.accent || THEME_PALETTES.impact.accentDark;
   const motif=theme?.motif||first?.motif||'none';
   const recurring=new Map<string,PosterDirection>();
   const layouts=project.lines.map(line=>{
@@ -630,7 +631,9 @@ export function compileSongPosters(project:Project,W:number,H:number,measure:Mea
     if(previous&&!cue?.locked&&previous.nodes.length===design.nodes.length&&previous.nodes.every((n,i)=>n.text===design.nodes[i].text)){
       design={...design,layout:previous.layout,nodes:design.nodes.map((n,i)=>({...n,role:previous.nodes[i].role,color_role:previous.nodes[i].color_role}))};
     }else if(!previous)recurring.set(key,design);
-    const result=compilePoster(line,{...cue,palette:theme?.palette||cue?.palette,poster:{...design,background,accent:theme?.accent||cue?.poster?.accent||design.accent||accent,motif}} as CuePlan,W,H,measure);
+    const cueBg = (cue?.locked && cue?.poster?.background) ? cue.poster.background : background;
+    const cueAccent = (cue?.locked && cue?.poster?.accent) ? cue.poster.accent : (cue?.poster?.accent || accent);
+    const result=compilePoster(line,{...cue,palette:theme?.palette||cue?.palette,poster:{...design,background:cueBg,accent:theme?.accent||cueAccent,motif}} as CuePlan,W,H,measure);
     if(theme)for(const node of result.nodes){node.motion_strength=Math.min(node.motion_strength??1,theme.motion);if(theme!==SONG_THEMES.neon)node.beat_reaction='none';}
     result.source=cue?.poster?'director':'automatic';return result;
   });

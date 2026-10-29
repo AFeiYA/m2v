@@ -141,3 +141,151 @@ button.is-loading {
   0%, 100% { box-shadow: 0 0 8px rgba(185, 255, 112, 0.35); transform: scale(1); }
   50% { box-shadow: 0 0 22px rgba(185, 255, 112, 0.75); transform: scale(1.02); }
 }
+
+/* Visual Template Card Grid */
+.template-cards-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #141f17;
+  border: 1px solid #233626;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.template-card:hover {
+  border-color: #3f6645;
+  background: #19271e;
+}
+
+.template-card.active {
+  border-color: #b9ff70;
+  background: #192b1d;
+  box-shadow: 0 0 12px rgba(185, 255, 112, 0.18);
+}
+
+.template-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.template-card-icon {
+  font-size: 15px;
+}
+
+.template-card-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(185, 255, 112, 0.12);
+  color: #b9ff70;
+}
+
+.template-card-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f0f4e9;
+}
+
+.template-card.active .template-card-title {
+  color: #b9ff70;
+}
+
+.template-card-desc {
+  font-size: 11px;
+  color: #8fa594;
+  margin: 0;
+  line-height: 1.35;
+}
+
+/* Aspect Ratio Pill Group */
+.aspect-pill-group {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  margin-bottom: 8px;
+}
+
+.aspect-pill {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #141f17;
+  border: 1px solid #2a3d2e;
+  color: #c0d1c4;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.aspect-pill:hover {
+  background: #1c2b20;
+  border-color: #405e46;
+  color: #f0f4e9;
+}
+
+.aspect-pill.active {
+  background: #203825;
+  border-color: #b9ff70;
+  color: #b9ff70;
+  box-shadow: 0 0 8px rgba(185, 255, 112, 0.2);
+}
+
+/* Export Target Card */
+.export-target-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #142118;
+  border: 1px solid #28442e;
+  margin-bottom: 12px;
+}
+
+.export-target-badge {
+  font-size: 12px;
+  font-weight: 700;
+  color: #b9ff70;
+}
+
+.export-target-hint {
+  font-size: 11px;
+  color: #8fa594;
+  margin: 0;
+}
+
+/* Kinetic Unready Banner */
+.kinetic-unready-banner {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  margin-bottom: 12px;
+}
+
+.kinetic-unready-banner p {
+  font-size: 11px;
+  color: #fef08a;
+  margin: 0;
+  line-height: 1.4;
+}

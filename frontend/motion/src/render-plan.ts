@@ -6,7 +6,7 @@ import {compileSongLayout,type SongLayout} from './song-layout';
 import {compileKtvDualLayout,compileAppleScrollLayout,type KtvDualCompiled,type AppleScrollCompiled} from './stream-layout';
 export type RenderPlan={mode:VisualMode;layouts:CompiledPoster[]|null;ktvLayout:KtvDualCompiled|null;appleLayout:AppleScrollCompiled|null;songLayout:SongLayout|null;intro:CompiledIntroTitle|null};
 const compilers={
- kinetic:(p:Project,w:number,h:number,m:Measure,_palette:ReturnType<typeof resolvePaletteColors>)=>({layouts:compileSongPosters(p,w,h,m)}),
+ kinetic:(p:Project,w:number,h:number,m:Measure,palette:ReturnType<typeof resolvePaletteColors>)=>({layouts:compileSongPosters(p,w,h,m,palette)}),
  tv:(p:Project,w:number,h:number,m:Measure,palette:ReturnType<typeof resolvePaletteColors>)=>({ktvLayout:compileKtvDualLayout(p,w,h,m,palette,p.motion_design?.modes.tv)}),
  apple:(p:Project,w:number,h:number,m:Measure,palette:ReturnType<typeof resolvePaletteColors>)=>({appleLayout:compileAppleScrollLayout(p,w,h,m,palette,p.motion_design?.modes.apple)}),
 };

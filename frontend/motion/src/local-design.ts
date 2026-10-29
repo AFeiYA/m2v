@@ -17,10 +17,16 @@ export function localRulePlan(project:Project,base:MotionPlan,palette:string,pre
 
 export function localPalette(base:MotionPlan,palette:string,background:'auto'|'dark'|'light'):MotionPlan{
  const next=structuredClone(base);
+ const colors=resolvePaletteColors(palette,background);
+ if(next.visual_language){
+  next.visual_language.background=colors.background;
+  next.visual_language.accent=colors.accent;
+  next.visual_language.foreground=colors.foreground;
+ }
  for(const cue of next.cues){
   if(cue.locked)continue;
   cue.palette=palette;
-  if(cue.poster){const colors=resolvePaletteColors(palette,background);cue.poster.background=colors.background;cue.poster.accent=colors.accent;}
+  if(cue.poster){cue.poster.background=colors.background;cue.poster.accent=colors.accent;}
  }
  return next;
 }

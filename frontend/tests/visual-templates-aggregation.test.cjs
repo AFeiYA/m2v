@@ -37,3 +37,24 @@ test('studio uses non-destructive mode selection', () => {
  assert.ok(switcher.includes('selectMode'));
  assert.doesNotMatch(switcher,/localRulePlan|poster\.highlight|song_identity/);
 });
+
+test('motion studio html provides 5-step workflow with template cards, aspect pills, and export target', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../local/motion_studio_director.html'), 'utf8');
+  assert.ok(html.includes('id="template-cards-container"'), 'must have template cards container');
+  assert.ok(html.includes('data-template-id="kinetic"'), 'must have kinetic card');
+  assert.ok(html.includes('data-template-id="apple"'), 'must have apple card');
+  assert.ok(html.includes('data-template-id="tv"'), 'must have tv card');
+  assert.ok(html.includes('id="aspect-pills"'), 'must have aspect pills');
+  assert.ok(html.includes('data-aspect="9:16"'), 'must have 9:16 aspect pill');
+  assert.ok(html.includes('data-aspect="16:9"'), 'must have 16:9 aspect pill');
+  assert.ok(html.includes('id="export-target-card"'), 'must have export target card');
+  assert.ok(html.includes('id="kinetic-unready-banner"'), 'must have kinetic unready banner');
+  assert.ok(html.includes('id="btn-quick-gen-plan"'), 'must have quick generate button');
+  assert.ok(html.includes('id="btn-quick-switch-apple"'), 'must have quick switch button');
+});
+
+test('exporting unready kinetic posters gives explicit error instead of silent mode mutation', () => {
+  const code = fs.readFileSync(path.join(__dirname, '../motion/src/studio.ts'), 'utf8');
+  assert.doesNotMatch(code, /design\.active_mode\s*=\s*['"](?:tv|apple)['"]\s*;\s*syncModeControls\(\)/, 'Must never silently change active mode during export');
+  assert.ok(code.includes('kinetic-unready-banner'), 'Must reveal kinetic unready banner on error');
+});

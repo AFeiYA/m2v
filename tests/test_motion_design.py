@@ -67,3 +67,35 @@ def test_stream_export_does_not_require_or_validate_a_poster_plan(song):
             assert response.status_code==404,response.text
             assert 'MP4' in response.json()['detail']
         assert client.post('/api/motion/render',json={'project_id':project_id,'visual_mode':'kinetic'}).status_code==422
+
+
+def test_plan_preserved_when_lyrics_updated_and_design_saved(song):
+    path, project_id = song
+    with TestClient(app) as client:
+        # 1. Generate and save a kinetic plan
+        plan = client.post('/api/motion/director/rules', json={'project_id': project_id}).json()
+        assert client.put('/api/motion/plan', json={'project_id': project_id, 'plan': plan, 'from_llm': False}).status_code == 200
+
+        # 2. Modify song lyrics in the alignment file
+        data = json.loads(path.read_text())
+        data['lines'][0]['text'] = '修改后的新歌词'
+        path.write_text(json.dumps(data, ensure_ascii=False))
+
+        # 3. GET project: should keep plan, not wipe it to None, and mark plan_needs_sync=True
+        loaded = client.get('/api/motion/project', params={'project_id': project_id}).json()
+        assert loaded['plan'] is not None
+        assert loaded['plan_needs_sync'] is True
+        assert '不匹配' in loaded['plan_error']
+        assert loaded['design']['modes']['kinetic']['plan'] is not None
+
+        # 4. User saves design (e.g. changing active mode or apple settings)
+        design = loaded['design']
+        design['active_mode'] = 'apple'
+        res = client.put('/api/motion/design', json={'project_id': project_id, 'design': design})
+        assert res.status_code == 200
+
+        # 5. Verify the plan on disk was NOT wiped
+        reloaded = client.get('/api/motion/project', params={'project_id': project_id}).json()
+        assert reloaded['plan'] is not None
+        assert reloaded['design']['modes']['kinetic']['plan'] is not None
+        assert reloaded['design']['active_mode'] == 'apple'

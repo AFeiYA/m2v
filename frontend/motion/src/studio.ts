@@ -75,7 +75,7 @@ function syncModeControls(){
  Object.assign(options,modeOptions(design));
  for(const key of ['aspect','resolution','post','bloom','shake']){const node=$<HTMLInputElement>(key);if(key==='post')node.checked=options.post;else node.value=String(key==='resolution'?options.height:options[key as 'aspect'|'bloom'|'shake']);}
  const theme=modeTheme(design);
- $<HTMLSelectElement>('visual-template-select').value=design.active_mode;
+ if($('visual-template-select'))$<HTMLSelectElement>('visual-template-select').value=design.active_mode;
  $<HTMLSelectElement>('preset').value=theme.palette;$<HTMLSelectElement>('theme-bg').value=theme.background;
  $<HTMLSelectElement>('default-layout-preset').value=design.modes.kinetic.layout;
  $<HTMLSelectElement>('highlight-mode').value=design.modes.kinetic.highlight;
@@ -90,6 +90,23 @@ function syncModeControls(){
   $<HTMLInputElement>('karaoke-preview-seconds').value=String(design.modes.tv.preview_seconds);
  }
  if($('mode-state-hint'))$('mode-state-hint').textContent=visualModes[design.active_mode].label+' · Changes are kept separately for each mode.';
+ if(typeof document.querySelectorAll==='function'){
+  document.querySelectorAll<HTMLElement>('.template-card').forEach(card=>{
+   card.classList.toggle('active',card.dataset.templateId===design.active_mode);
+  });
+  document.querySelectorAll<HTMLButtonElement>('.aspect-pill').forEach(pill=>{
+   pill.classList.toggle('active',pill.dataset.aspect===options.aspect);
+  });
+ }
+ const targetBadge=$('export-target-badge');
+ if(targetBadge)targetBadge.textContent=`${visualModes[design.active_mode].label} · ${options.aspect}`;
+ const unreadyBanner=$('kinetic-unready-banner');
+ if(unreadyBanner)unreadyBanner.hidden=!(kinetic&&!plan);
+ const genBtn=$<HTMLButtonElement>('generate');
+ if(genBtn){
+  const isZh=(window as any).currentLocale==='zh';
+  genBtn.textContent=!plan?(isZh?'⚡ 一键生成海报方案':'⚡ Generate Poster Plan'):(isZh?'🔄 重新生成未锁定海报':'🔄 Regenerate Unlocked Posters');
+ }
 }
 async function saveDesign(){
  if((!dirty&&!settingsDirty)||!selected)return;
@@ -418,13 +435,16 @@ async function exportVideo() {
 async function runExportVideo() {
   if (!selected) throw new Error('Select a song first.');
   if (design.active_mode === 'kinetic' && !plan) {
-    if (options.aspect === '16:9') {
-      design.active_mode = 'tv';
-      syncModeControls();
-    } else {
-      design.active_mode = 'apple';
-      syncModeControls();
-    }
+    const isZh = (window as any).currentLocale === 'zh';
+    const message = isZh
+      ? '动感排版海报尚未生成方案。请先点击【生成海报设计】，或切换为其他视觉模版。'
+      : 'Generate a poster design first, or choose Apple Scroll or Karaoke.';
+    $('export-status').textContent = message;
+    const banner = $('kinetic-unready-banner');
+    if (banner) banner.hidden = false;
+    $('generate')?.focus({preventScroll:true});
+    window.alert(message);
+    throw new Error(message);
   }
   requireSaved();
   if (coverPending) await coverPending;
@@ -922,6 +942,54 @@ function initExportEngineHint() {
   updateMatrixCount();
 }
 void initExportEngineHint();
+
+function initTemplateCards() {
+  if (typeof document.querySelectorAll !== 'function') return;
+  document.querySelectorAll<HTMLElement>('.template-card').forEach(card => {
+    card.addEventListener('click', action(() => {
+      const mode = card.dataset.templateId as keyof typeof visualModes;
+      if (mode && mode in visualModes && mode !== design.active_mode) {
+        const select = $<HTMLSelectElement>('visual-template-select');
+        if (select) select.value = mode;
+        applyVisualTemplate();
+      }
+    }));
+  });
+}
+
+function initAspectPills() {
+  if (typeof document.querySelectorAll !== 'function') return;
+  document.querySelectorAll<HTMLButtonElement>('.aspect-pill').forEach(pill => {
+    pill.addEventListener('click', action(() => {
+      const aspect = pill.dataset.aspect as Options['aspect'];
+      if (aspect && aspect !== options.aspect) {
+        const aspectSelect = $<HTMLSelectElement>('aspect');
+        if (aspectSelect) {
+          aspectSelect.value = aspect;
+          aspectSelect.dispatchEvent(new Event('input'));
+        }
+      }
+    }));
+  });
+}
+
+$('btn-quick-gen-plan')?.addEventListener('click', action(() => {
+  rules();
+  const banner = $('kinetic-unready-banner');
+  if (banner) banner.hidden = true;
+}));
+$('btn-quick-switch-apple')?.addEventListener('click', action(() => {
+  const select = $<HTMLSelectElement>('visual-template-select');
+  if (select) {
+    select.value = 'apple';
+    applyVisualTemplate();
+  }
+  const banner = $('kinetic-unready-banner');
+  if (banner) banner.hidden = true;
+}));
+
+initTemplateCards();
+initAspectPills();
 function tick(){if(engine&&playing){if(clipEnd!==null&&audio.currentTime>=clipEnd){audio.pause();audio.currentTime=clipReviewTime;clipEnd=null;playing=false;$('play').textContent='▶';status(reviewHandover?'Transition preview complete':'Line playback complete. Showing the final poster.');}engine.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';if(audio.ended){playing=false;$('play').textContent='▶';}}requestAnimationFrame(tick);}requestAnimationFrame(tick);
 audio.addEventListener('seeked',()=>{if(scrubbing)return;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';});
 window.addEventListener('beforeunload',event=>{if(dirty||identityDirty||settingsDirty){event.preventDefault();event.returnValue='';}});

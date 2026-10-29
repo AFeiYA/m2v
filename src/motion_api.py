@@ -187,14 +187,17 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
         audio = find_audio(path.stem.removesuffix('_alignment').removesuffix('_project'), song_output_dir=path.parent)
         saved = previous(path)
         error = ''
+        plan_needs_sync = False
         if saved:
             try: validate_plan(payload, saved)
-            except ValueError as exc: saved, error = None, str(exc)
+            except ValueError as exc:
+                error = str(exc)
+                plan_needs_sync = True
         design = design_document(path).model_dump()
         design['modes']['kinetic']['plan'] = saved
         payload['motion_design'] = design
-        return {'project': payload, 'plan': saved, 'plan_error': error, 'design': design,
-                'rule_seed': rule_plan(payload, saved).model_dump(),
+        return {'project': payload, 'plan': saved, 'plan_error': error, 'plan_needs_sync': plan_needs_sync, 'design': design,
+                'rule_seed': rule_plan(payload, None if plan_needs_sync else saved).model_dump(),
                 'audio_url': (audio_url(project_id) if audio_url is not None else
                               '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(audio))) if audio_url is not None or audio else None}
 
@@ -221,8 +224,16 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
             path, payload = read(req.project_id)
             document = req.design.model_copy(deep=True)
             if document.modes.kinetic.plan is not None:
-                try: document.modes.kinetic.plan = validate_plan(payload, document.modes.kinetic.plan.model_dump())
-                except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+                plan_dict = document.modes.kinetic.plan.model_dump()
+                try:
+                    document.modes.kinetic.plan = validate_plan(payload, plan_dict)
+                except ValueError as exc:
+                    prev = previous(path)
+                    if prev is not None and prev.get('cues') == plan_dict.get('cues'):
+                        # Preserve existing saved plan across general design saves when lyrics changed
+                        pass
+                    else:
+                        raise HTTPException(422, str(exc)) from exc
             atomic_write(plan_path(path), document.model_dump())
         return {'design': document.model_dump()}
 
