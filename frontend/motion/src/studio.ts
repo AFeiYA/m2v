@@ -65,7 +65,8 @@ function showCue(seek=true){if(design.active_mode!=='kinetic')return;const cue=p
   $('visual-intensity-status').textContent=cue.poster?.highlight&&cue.poster.highlight!=='none'?'Lyric highlighting keeps the layout stable, disables entrance and beat scaling, and uses existing word timings.':`Intensity: ${{restrained:'restrained',expanded:'expanded',peak:'peak'}[p.visual_intensity]} · Controls text size and entrance strength; timing and safe areas take priority.`;
   $('handover-status').textContent=`Hold after singing: ${(Math.max(0,(p.handover?.visible_end||p.end)-p.end)).toFixed(2)}s · ${p.handover?.mode==='layered-fade'?'Supporting text fades before the primary text':p.handover?.mode==='fade'?'Short fade':'Cut'}. Lyrics and audio timing stay unchanged.`;
  }
- $<HTMLSelectElement>('cue-template').value=cue.template;$<HTMLSelectElement>('cue-layout').value=cue.layout;$<HTMLSelectElement>('cue-palette').value=cue.palette;$<HTMLInputElement>('cue-intensity').value=String(cue.intensity);$<HTMLInputElement>('cue-emphasis').value=cue.emphasis;$<HTMLInputElement>('cue-locked').checked=cue.locked;
+ if($('cue-palette'))$<HTMLSelectElement>('cue-palette').value=cue.palette;
+ if($('cue-locked'))$<HTMLInputElement>('cue-locked').checked=cue.locked;
  if(seek){clipEnd=null;audio.pause();playing=false;$('play').textContent='▶';const line=project?.lines.find(l=>l.id===currentCue);audio.currentTime=line?Math.min(line.end-.001,line.start+.15):0;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';}}
 function updateSaveState(){
  const changed=dirty||identityDirty||settingsDirty;
@@ -945,7 +946,7 @@ async function returnedPlan(apply:boolean){
 $('validate-plan').onclick=action(()=>returnedPlan(false));$('import-plan').onclick=action(()=>returnedPlan(true));
 $('download-plan').onclick=action(()=>{if(!plan)throw new Error('No plan yet.');download('motion-plan.json',JSON.stringify(plan,null,2));});
 $<HTMLSelectElement>('project-select').onchange=action(()=>load($<HTMLSelectElement>('project-select').value));$<HTMLSelectElement>('cue-select').onchange=()=>{currentCue=$<HTMLSelectElement>('cue-select').value;showCue();};
-for(const id of ['cue-template','cue-layout','cue-palette','cue-intensity','cue-emphasis','cue-locked'])$(id).addEventListener('input',()=>{const cue=plan?.cues.find(c=>c.line_id===currentCue);if(!cue)return;cue.template=$<HTMLSelectElement>('cue-template').value as typeof cue.template;cue.layout=$<HTMLSelectElement>('cue-layout').value as typeof cue.layout;cue.palette=$<HTMLSelectElement>('cue-palette').value as typeof cue.palette;cue.intensity=Number($<HTMLInputElement>('cue-intensity').value);cue.emphasis=$<HTMLInputElement>('cue-emphasis').value;cue.locked=$<HTMLInputElement>('cue-locked').checked;dirty=true;refresh();if(id==='cue-locked')showCue(false);status('Preview updated · Unsaved changes');});
+for(const id of ['cue-palette','cue-locked'])$(id)?.addEventListener('input',()=>{const cue=plan?.cues.find(c=>c.line_id===currentCue);if(!cue)return;if(id==='cue-palette')cue.palette=$<HTMLSelectElement>('cue-palette').value as typeof cue.palette;if(id==='cue-locked')cue.locked=$<HTMLInputElement>('cue-locked').checked;dirty=true;refresh();if(id==='cue-locked')showCue(false);status('Preview updated · Unsaved changes');});
 for(const id of ['aspect','resolution','post','bloom','shake'])$(id).addEventListener('input',()=>{
   options.aspect=$<HTMLSelectElement>('aspect').value as Options['aspect'];
   options.height=Number($<HTMLSelectElement>('resolution').value) as 360|720;
