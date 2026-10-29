@@ -466,20 +466,20 @@ def _clean_lyrics(prompt: str) -> str:
                 result.append('')
             continue
 
-        # 过滤方括号标签，如 [Verse 1], [Chorus], [Intro], [Outro: ...], [End], [Solo]
-        if stripped.startswith('[') and stripped.endswith(']'):
+        # 过滤方括号与黑括号标签，如 [Verse 1], [Chorus], [Intro], [Outro: ...], [End], [Solo], 【副歌】
+        if (stripped.startswith('[') and stripped.endswith(']')) or (stripped.startswith('【') and stripped.endswith('】')):
             # The heading is not sung, but its stanza boundary is essential
             # for acoustic anchoring, especially repeated choruses.
             if result and result[-1] != '':
                 result.append('')
             continue
 
-        # 过滤圆括号说明，如 (Warm analog synth pads swell...), (Ambient wind...)
+        # 过滤圆括号说明，如 (Warm analog synth pads swell...), (Ambient wind...), （Bass Drop 前停顿）
         if re.fullmatch(r'[（(].*[）)]', stripped):
             continue
 
         # Match preprocessing: inline arrangement cues are not sung words.
-        stripped = re.sub(r'\[[^\[\]]*\]|[（(][^（）()]*[）)]', '', stripped).strip()
+        stripped = re.sub(r'\[[^\[\]]*\]|[（(][^（）()]*[）)]|【[^【】]*】', '', stripped).strip()
         if stripped:
             result.append(stripped)
 
@@ -491,82 +491,69 @@ def _clean_lyrics(prompt: str) -> str:
     return '\n'.join(result)
 
 
+SECTION_PATTERNS = [
+    (r'\bpre-chorus\b|预副歌|导歌', 'Pre-Chorus', '预副歌'),
+    (r'\bpost-chorus\b|后副歌', 'Post-Chorus', '后副歌'),
+    (r'\bchorus\b|副歌|\bhook\b|\brefrain\b', 'Chorus', '副歌'),
+    (r'\bverse\b|主歌', 'Verse', '主歌'),
+    (r'\bintro\b|前奏', 'Intro', '前奏'),
+    (r'\boutro\b|尾奏|\bending\b|\bend\b|结束', 'Outro', '尾奏'),
+    (r'\bbridge\b|桥段', 'Bridge', '桥段'),
+    (r'\bsolo\b|间奏|\binterlude\b', 'Solo', '间奏'),
+    (r'\bbreakdown\b|\bdrop\b', 'Drop', '间奏'),
+    (r'\binstrumental\b', 'Instrumental', '间奏'),
+]
+
+
 def parse_suno_prompt_sections(prompt: str) -> list[dict]:
     """
     解析 Suno prompt 中的乐段标记与音效提示。
-    识别 [Intro], [Verse 1], [Pre-Chorus], [Chorus: Style], [Bridge], [Outro], [End] 等标签，
-    以及 (Ambient wind...), (Warm synth...) 等音效描述，归类各段包含的歌词文本。
+    识别 [Intro], (Verse 1), 【副歌】, [Chorus: Style], [Bridge], [Outro] 等任意括号标签，
+    无需严苛符号格式，只要包含核心乐段关键词即可自动识别，归类各段包含的歌词文本。
     """
     prompt = prompt.translate(str.maketrans("", "", "\u2060\u200b\ufeff"))
     sections_raw = []
     current_sec = None
-
-    label_map = {
-        'intro': '前奏',
-        'verse': '主歌',
-        'pre-chorus': '预副歌',
-        'post-chorus': '后副歌',
-        'chorus': '副歌',
-        'bridge': '桥段',
-        'solo': '间奏',
-        'interlude': '间奏',
-        'outro': '尾奏',
-        'end': '结束',
-        'hook': '副歌',
-        'refrain': '副歌',
-    }
-
-    section_tag_re = re.compile(
-        r'^(?P<base>(?:(?:final|post|pre)[ -]?)?(?:intro|verse|chorus|bridge|solo|interlude|outro|end|hook|refrain|breakdown|drop|instrumental)'
-        r'|(?:(?:guitar|bass|drum|drums|synth|piano|sax|saxophone|vocal)\s+)?solo'
-        r'|(?:前奏|主歌|预副歌|后副歌|副歌|桥段|间奏|尾奏|结束))'
-        r'(?:\s*(?P<num>\d+))?'
-        r'(?:(?:\s*[:：|—–]|\s+--\s+|\s+-\s+|,\s*)\s*(?P<style>.*))?$',
-        re.IGNORECASE,
-    )
-
     name_counts: dict[str, int] = {}
 
     for raw_line in prompt.split('\n'):
         line = raw_line.strip()
         if not line:
             continue
-        if line.startswith('[') and line.endswith(']'):
+
+        is_bracketed = (
+            (line.startswith('[') and line.endswith(']'))
+            or (line.startswith('(') and line.endswith(')'))
+            or (line.startswith('（') and line.endswith('）'))
+            or (line.startswith('【') and line.endswith('】'))
+        )
+        if is_bracketed:
             tag_content = line[1:-1].strip()
-            match = section_tag_re.match(tag_content)
+            matched = None
+            for pattern, name, label in SECTION_PATTERNS:
+                if re.search(pattern, tag_content, re.IGNORECASE):
+                    num_match = re.search(r'\d+', tag_content)
+                    num_str = f" {num_match.group(0)}" if num_match else ""
+                    style = re.sub(pattern, '', tag_content, flags=re.IGNORECASE)
+                    if num_match:
+                        style = style.replace(num_match.group(0), '', 1)
+                    style = re.sub(r'^[\s:：|—–\-,·/]+|[\s:：|—–\-,·/]+$', '', style).strip()
+                    matched = (name, f"{name}{num_str}", f"{label}{num_str}", style, bool(num_match))
+                    break
 
             # A bracket also encloses performance directions. They annotate the
             # current section; e.g. [Pre-Chorus]\n[Build-up, harmonica] is ONE section.
-            if not match:
+            if not matched:
                 if current_sec is None:
                     current_sec = {'name': 'Verse 1', 'label': '主歌 1', 'style': '', 'lyric_texts': []}
                     sections_raw.append(current_sec)
                 current_sec['style'] = '; '.join(filter(None, (current_sec['style'], tag_content)))
                 continue
 
-            base = match.group('base').strip()
-            num = match.group('num')
-            sec_style = (match.group('style') or '').strip()
-
-            if '-' in base:
-                base_name = '-'.join(p.capitalize() for p in base.split('-'))
-            elif ' ' in base:
-                base_name = ' '.join(p.capitalize() for p in base.split(' '))
-            else:
-                base_name = base.capitalize()
-
-            sec_name = f"{base_name} {num}".strip() if num else base_name
-            base_lower = base.lower()
-            label = sec_name
-            for k in sorted(label_map.keys(), key=len, reverse=True):
-                if k in base_lower:
-                    num_str = f" {num}" if num else ""
-                    label = f"{label_map[k]}{num_str}"
-                    break
-
-            clean_name = re.sub(r'\s*\d+', '', sec_name).strip()
+            base_name, sec_name, label, sec_style, has_num = matched
+            clean_name = base_name
             name_counts[clean_name] = name_counts.get(clean_name, 0) + 1
-            if name_counts[clean_name] > 1 and not num:
+            if name_counts[clean_name] > 1 and not has_num:
                 sec_name = f"{sec_name} {name_counts[clean_name]}"
                 if not re.search(r'\d+', label):
                     label = f"{label} {name_counts[clean_name]}"
@@ -578,13 +565,6 @@ def parse_suno_prompt_sections(prompt: str) -> list[dict]:
                 'lyric_texts': [],
             }
             sections_raw.append(current_sec)
-        elif re.fullmatch(r'[（(].*[）)]', line):
-            sound_style = line[1:-1].strip()
-            if current_sec:
-                if current_sec['style']:
-                    current_sec['style'] += '; ' + sound_style
-                else:
-                    current_sec['style'] = sound_style
         else:
             if current_sec is None:
                 current_sec = {'name': 'Verse 1', 'label': '主歌 1', 'style': '', 'lyric_texts': []}

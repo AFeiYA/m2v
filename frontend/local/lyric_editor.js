@@ -553,12 +553,16 @@ function recommendExcerptCandidates(alignment, options = {}) {
 
     let kind = "section";
     let score = 50.0;
-    let title = sLabel || sec.name || `Section ${sIdx + 1}`;
+    const isEn = Boolean(
+      (typeof window !== "undefined" && window?.currentLocale === "en") ||
+      (typeof document !== "undefined" && document?.documentElement?.lang === "en")
+    );
+    let title = (isEn ? (sec.name || sLabel) : (sLabel || sec.name)) || `Section ${sIdx + 1}`;
 
     if (sName.includes("chorus") || sLabel.includes("副歌") || sLabel.includes("高潮")) {
       kind = "chorus";
       score += 40.0;
-      title = sLabel || (sName.includes("2") ? "🔥 Chorus 2" : "🔥 Main Chorus");
+      title = isEn ? (sName.includes("2") ? "🔥 Chorus 2" : "🔥 Main Chorus") : (sLabel || "🔥 副歌");
     } else if (sName.includes("verse") || sLabel.includes("主歌")) {
       kind = "verse";
       score += 15.0;
@@ -1911,12 +1915,17 @@ function renderLyrics() {
   // 1. 如果有前奏 (Intro) 且不包含歌词行，先在顶部渲染前奏卡片
   const introSec = sections.find(s => s.name && s.name.toLowerCase().includes("intro") && (!s.line_indices || s.line_indices.length === 0));
   if (introSec) {
+    const isEn = Boolean(
+      (typeof window !== "undefined" && window?.currentLocale === "en") ||
+      (typeof document !== "undefined" && document?.documentElement?.lang === "en")
+    );
+    const introBadge = isEn ? (introSec.name || introSec.label) : (introSec.label || introSec.name);
     const introDiv = document.createElement("div");
     introDiv.className = "section-header section-intro";
     introDiv.title = window.t ? t("sec_intro_dblclick") : "双击从前奏开始播放";
     introDiv.innerHTML = `
       <div class="sec-left">
-        <span class="sec-badge">🎵 ${escHtml(introSec.label || introSec.name)}</span>
+        <span class="sec-badge">🎵 ${escHtml(introBadge)}</span>
         ${introSec.style ? `<span class="sec-style" title="${escHtml(introSec.style)}">${escHtml(introSec.style)}</span>` : ""}
       </div>
       <span class="sec-time">${fmtTimeShort(introSec.start)} → ${fmtTimeShort(introSec.end)}</span>
@@ -1943,7 +1952,13 @@ function renderLyrics() {
 
     if (matchedSec || (lineSecName && lineSecName !== lastSectionName)) {
       lastSectionName = lineSecName;
-      const secLabel = matchedSec?.label || lineSecName;
+      const isEn = Boolean(
+      (typeof window !== "undefined" && window?.currentLocale === "en") ||
+      (typeof document !== "undefined" && document?.documentElement?.lang === "en")
+    );
+      const secLabel = isEn
+        ? (matchedSec?.name || matchedSec?.label || lineSecName)
+        : (matchedSec?.label || matchedSec?.name || lineSecName);
       const secStyle = matchedSec?.style || "";
       const secStart = matchedSec ? matchedSec.start : line.start;
       const secEnd = matchedSec ? matchedSec.end : line.end;
