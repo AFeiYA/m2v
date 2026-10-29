@@ -75,6 +75,52 @@ function updateSaveState(){
  $('save-state').textContent=changed?(english?'Unsaved preview':'预览有未保存修改'):(english?'Saved':'已保存');
  $('save-state').dataset.dirty=String(changed);
  (window as any).m2vStudioBridge?.state(selected,changed,saving);
+ if (changed) scheduleLocalDraft();
+ else if (selected && !saving) clearLocalDraft(selected);
+}
+let draftDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+function getDraftKey(id: string): string { return 'm2v_motion_draft:' + id; }
+function saveLocalDraft(id: string) {
+ if (!id || !project) return;
+ try {
+  const draftData = {
+   savedAt: Date.now(),
+   design: designSnapshot(),
+   identity: project.song_identity ? structuredClone(project.song_identity) : null,
+  };
+  if (typeof localStorage !== 'undefined') localStorage.setItem(getDraftKey(id), JSON.stringify(draftData));
+ } catch (_) {}
+}
+function scheduleLocalDraft() {
+ if (!selected) return;
+ if (typeof clearTimeout !== 'undefined' && draftDebounceTimer) clearTimeout(draftDebounceTimer);
+ if (typeof setTimeout !== 'undefined') {
+  draftDebounceTimer = setTimeout(() => {
+   if (selected && (dirty || identityDirty || settingsDirty)) saveLocalDraft(selected);
+  }, 600);
+ }
+}
+function clearLocalDraft(id: string) {
+ if (!id) return;
+ if (typeof clearTimeout !== 'undefined' && draftDebounceTimer) {
+  clearTimeout(draftDebounceTimer);
+  draftDebounceTimer = null;
+ }
+ try { if (typeof localStorage !== 'undefined') localStorage.removeItem(getDraftKey(id)); } catch (_) {}
+}
+function getLocalDraft(id: string): { savedAt: number; design: MotionDesign; identity: any } | null {
+ if (!id) return null;
+ try {
+  if (typeof localStorage === 'undefined') return null;
+  const raw = localStorage.getItem(getDraftKey(id));
+  if (!raw) return null;
+  return JSON.parse(raw);
+ } catch (_) { return null; }
+}
+if (typeof window !== 'undefined') {
+ window.addEventListener('beforeunload', () => {
+  if (selected && (dirty || identityDirty || settingsDirty)) saveLocalDraft(selected);
+ });
 }
 function designSnapshot():MotionDesign {
  const value=structuredClone(design);value.modes.kinetic.plan=plan?structuredClone(plan):null;return value;
@@ -134,7 +180,9 @@ async function saveAll(){
   if(id===selected){showCue(false);status(dirty||identityDirty||settingsDirty?'Submitted version saved. Newer edits remain local.':'Theme, layout, and song details saved.');}
  }finally{saving=false;updateSaveState();}
 }
-function requireSaved(){if(dirty||identityDirty||settingsDirty)throw new Error((window as any).currentLocale==='zh'?'当前修改尚未保存，请先点击顶部的保存按钮，再导出。未提交导出任务，也不会扣除积分。':'Save your changes using the top Save button before exporting. No export has started and no credits have been charged.');}
+function requireSaved(){
+ // Intentional non-blocking compatibility stub: design edits are auto-saved or rendered in-memory without blocking
+}
 async function load(id:string){
  if(exportQueueRunning&&id!==selected){$<HTMLSelectElement>('project-select').value=selected;status('Cancel or finish the export queue before switching songs.');return;}
  if((dirty||identityDirty||settingsDirty)&&id!==selected&&!window.confirm('Switch songs and discard unsaved preview changes?')){$<HTMLSelectElement>('project-select').value=selected;return;}
@@ -149,6 +197,20 @@ async function load(id:string){
   project=normalizeProject(result.project);design=result.design?structuredClone(result.design):createMotionDesign();
   songVideoUnlocked=Boolean(result.video_unlocked||(result.project as any)?.video_unlocked);
   plan=design.modes.kinetic.plan;ruleSeed=result.rule_seed||null;selected=id;dirty=false;identityDirty=false;settingsDirty=false;
+  const draft = getLocalDraft(id);
+  if (draft?.design) {
+   const serverSnapshot = JSON.stringify(design);
+   const draftSnapshot = JSON.stringify(draft.design);
+   if (draftSnapshot !== serverSnapshot) {
+    design = structuredClone(draft.design);
+    plan = design.modes.kinetic.plan;
+    dirty = true;
+    if (draft.identity && project) {
+     project.song_identity = structuredClone(draft.identity);
+     identityDirty = true;
+    }
+   }
+  }
   syncModeControls();
   audioReady=false;audio.src='';audio.currentTime=0;
   showIdentity();showCover();$<HTMLAnchorElement>('rhythm-link').href='/rhythm-studio?project='+encodeURIComponent(id);coverPending=cacheSunoCover(id);
@@ -421,18 +483,19 @@ function updateMatrixCount() {
 }
 
 async function exportVideo() {
-  if(exportQueueRunning)return;
-  exportQueueRunning=true;
-  try {
-    if(saving||dirty||identityDirty||settingsDirty){
-      const message=saving
-        ? ((window as any).currentLocale==='zh'?'正在保存，请等待保存完成后再导出。':'Saving your changes. Please wait until saving finishes before exporting.')
-        : ((window as any).currentLocale==='zh'?'当前修改尚未保存，请先点击顶部的保存按钮，再导出。未提交导出任务，也不会扣除积分。':'Save your changes using the top Save button before exporting. No export has started and no credits have been charged.');
-      $('export-status').textContent=message;
-      window.alert(message);
-      if(!saving)$('save-design').focus({preventScroll:true});
-      throw new Error(message);
+  if (exportQueueRunning) return;
+  // Auto-save to cloud/backend if modified, but NEVER block video export on save errors
+  if ((dirty || identityDirty || settingsDirty) && !saving) {
+    const isZh = (window as any).currentLocale === 'zh';
+    $('export-status').textContent = isZh ? '正在自动保存最新设计…' : 'Auto-saving latest design…';
+    try {
+      await saveAll();
+    } catch (saveErr) {
+      console.warn('[Export] Auto-save before export encountered an error, continuing export with in-memory design:', saveErr);
     }
+  }
+  exportQueueRunning = true;
+  try {
     await runExportVideo();
   } catch(error){
     $('export-status').textContent=error instanceof Error?error.message:String(error);
@@ -454,9 +517,7 @@ async function runExportVideo() {
     window.alert(message);
     throw new Error(message);
   }
-  requireSaved();
   if (coverPending) await coverPending;
-  requireSaved();
   const sourceProject=selected,sourceOptions={...options},sourceRevision=JSON.stringify([project,designSnapshot()]),exportProject=structuredClone(project!);
   const acceptedCost=await refreshMotionPrice(true);
 
@@ -737,7 +798,8 @@ async function runExportVideo() {
 function action(fn:()=>unknown){return async()=>{try{await fn();}catch(error){status(error instanceof Error?error.message:String(error));console.error(error);}};}
 $('generate').onclick=action(()=>rules());$('regenerate-cue').onclick=action(()=>rules(true));$('save-plan').onclick=action(saveAll);$('save-design').onclick=action(saveAll);
 async function directorPrompt(single:boolean){
- if(!selected)throw new Error('Select a song first.');if(single&&!currentCue)throw new Error('Generate a plan and select a lyric line first.');requireSaved();
+ if(!selected)throw new Error('Select a song first.');if(single&&!currentCue)throw new Error('Generate a plan and select a lyric line first.');
+ if((dirty||identityDirty||settingsDirty)&&!saving){try{await saveAll();}catch(e){console.warn(e);}}
  const result=await api(single?'director/line/input':'director/input','POST',{project_id:selected,style:$<HTMLSelectElement>('preset').value,instruction:$<HTMLTextAreaElement>('director-instruction').value,...(single?{line_id:currentCue}:{})});
  $<HTMLTextAreaElement>('director-prompt').value=result.prompt;$<HTMLSelectElement>('import-scope').value=single?'line':'song';
  download(single?`motion-${currentCue}-prompt.txt`:'motion-director-prompt.txt',result.prompt,'text/plain');
@@ -772,7 +834,7 @@ async function aiDirector(single:boolean){
   if(aiBusy)return;
   if(!selected)throw new Error('Select a song first.');
   if(single&&!currentCue)throw new Error('Generate a base plan and select a lyric line first.');
-  requireSaved();
+  if((dirty||identityDirty||settingsDirty)&&!saving){try{await saveAll();}catch(e){console.warn(e);}}
 
   const isZh=isChineseLocale();
   const targetId=single?'ai-line':'ai-song';

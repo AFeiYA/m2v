@@ -34,7 +34,7 @@ function setup(){
  const browserExportModule={archiveBrowserVideo:async()=>{}};
  const requireStub=name=>name.includes('motion-design')?modeModule.exports:name.includes('local-design')?design.exports:name.includes('service-api')?service:name.includes('remotion-preview')?{RemotionPreview}:name.includes('webcodecs-exporter')?webcodecsModule:name.includes('browser-export')?browserExportModule:name.includes('/model')?{defaults:{},normalizeProject:p=>p,renderSize:()=>({width:720,height:1280}),buildExportClips:()=>[{id:'full',title:'Full song',available:true,start_time:0,end_time:null},{id:'chorus',title:'Chorus',available:true,start_time:20,end_time:35}],resolveVisualMode:m=>m||'kinetic'}:{};
  const context={module:{exports:{}},require:requireStub,document,window:{addEventListener(){},confirm:()=>false,alert:message=>alerts.push(message)},MutationObserver:class{observe(){}},Audio,structuredClone,
-  URL,URLSearchParams,Blob,FormData,AbortController,setTimeout,requestAnimationFrame(){},console,location:{search:''}};
+  URL,URLSearchParams,Blob,FormData,AbortController,setTimeout,clearTimeout,requestAnimationFrame(){},console,location:{search:''}};
  vm.createContext(context);vm.runInContext(code,context);
  function request(id){const d=deferred();pending.set(id,d);return d;}
  function result(title){return {project:{title,duration:2,lines:[],analysis:{energy_curve:[],beats:[]}},plan:null,audio_url:title+'.mp3'};}
@@ -87,14 +87,28 @@ test('a failed save preserves the draft and permits retry',async()=>{
  const retry=s.api.saveAll();assert.equal(s.writes[1].name,'design');s.saves[1].resolve({design:s.writes[1].body.design});await retry;
  assert.equal(s.nodes.get('save-state').dataset.dirty,'false');
 });
-test('switching and exporting never silently save an unfinished preview',async()=>{
- const s=await loaded();s.api.rules();await s.api.load('other');
- assert.equal(s.nodes.get('project-select').value,'song');
- await assert.rejects(s.api.exportVideo(),/Save/);assert.equal(s.writes.length,0);
- assert.equal(s.renders.length,0);assert.equal(s.alerts.length,1);
- assert.match(s.alerts[0],/no credits have been charged/);
- assert.equal(s.nodes.get('export-status').textContent,s.alerts[0]);
- assert.equal(s.nodes.get('save-design').focused,true);
+test('exporting automatically persists latest design before export and proceeds with export',async()=>{
+ const s=await loaded();s.api.rules();
+ const box = { checked: true, disabled: false, dataset: { clipId: 'full', ratio: '9:16' } };
+ s.context.document.querySelectorAll = (sel) => sel === '.matrix-clip-check' ? [box] : [];
+ const exporting = s.api.exportVideo();
+ assert.equal(s.writes.length, 1);
+ assert.equal(s.writes[0].name, 'design');
+ s.saves[0].resolve({design: s.writes[0].body.design});
+ await exporting;
+ assert.equal(s.renders.length, 1);
+ assert.equal(s.alerts.length, 0);
+});
+test('cloud save failure never blocks video export',async()=>{
+ const s=await loaded();s.api.rules();
+ const box = { checked: true, disabled: false, dataset: { clipId: 'full', ratio: '9:16' } };
+ s.context.document.querySelectorAll = (sel) => sel === '.matrix-clip-check' ? [box] : [];
+ const exporting = s.api.exportVideo();
+ assert.equal(s.writes.length, 1);
+ s.saves[0].reject(new Error('Cloud save network error'));
+ await exporting;
+ assert.equal(s.renders.length, 1);
+ assert.equal(s.alerts.length, 0);
 });
 test('format and signature edits use the same explicit save',async()=>{
  const s=await loaded();s.nodes.get('aspect').value='9:16';s.nodes.get('aspect').input();
