@@ -237,3 +237,27 @@ def test_suno_section_headers_survive_cleaning_as_stanza_boundaries(tmp_path):
     lines = preprocess_lyrics(lyrics_path)
     assert [line.paragraph for line in lines] == [0, 0, 1, 2]
     assert [line.occurrence for line in lines] == [0, 0, 0, 1]
+
+
+def test_parse_suno_prompt_sections_with_dash_and_descriptor():
+    from src.suno_fetch import parse_suno_prompt_sections
+    raw = (
+        "[Intro — Spoken, playful]\n"
+        "Zero. S-O-E.\n\n"
+        "[Verse — Rhythmic, mischievous]\n"
+        "镜子里的我，角度刚刚好\n\n"
+        "[Pre-Chorus — Melodic, rising]\n"
+        "一点点偏差，一点点心跳\n\n"
+        "[Chorus — Energetic, catchy]\n"
+        "Zero! S-O-E!\n\n"
+        "[Outro — Soft, intimate]\n"
+        "如果所有答案都能计算\n"
+    )
+    sections = parse_suno_prompt_sections(raw)
+    assert len(sections) == 5
+    assert sections[0]['name'] == 'Intro' and sections[0]['label'] == '前奏'
+    assert sections[0]['style'] == 'Spoken, playful'
+    assert sections[1]['name'] == 'Verse' and sections[1]['label'] == '主歌'
+    assert sections[2]['name'] == 'Pre-Chorus' and sections[2]['label'] == '预副歌'
+    assert sections[3]['name'] == 'Chorus' and sections[3]['label'] == '副歌'
+    assert sections[4]['name'] == 'Outro' and sections[4]['label'] == '尾奏'

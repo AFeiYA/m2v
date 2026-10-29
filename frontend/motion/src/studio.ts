@@ -1112,38 +1112,8 @@ $('btn-quick-switch-apple')?.addEventListener('click', action(() => {
   if (banner) banner.hidden = true;
 }));
 
-function initExportPresets() {
-  $('btn-preset-short-916')?.addEventListener('click', action(() => {
-    const checks = Array.from(document.querySelectorAll<HTMLInputElement>('.matrix-clip-check')).filter(c => !c.disabled);
-    checks.forEach(c => c.checked = false);
-    const chorus916 = checks.filter(c => c.dataset.clipId !== 'full' && c.dataset.ratio === '9:16');
-    if (chorus916.length) {
-      chorus916.forEach(c => c.checked = true);
-    } else {
-      const full916 = checks.find(c => c.dataset.clipId === 'full' && c.dataset.ratio === '9:16');
-      if (full916) full916.checked = true;
-    }
-    updateMatrixCount();
-  }));
-
-  $('btn-preset-full-169')?.addEventListener('click', action(() => {
-    const checks = Array.from(document.querySelectorAll<HTMLInputElement>('.matrix-clip-check')).filter(c => !c.disabled);
-    checks.forEach(c => c.checked = false);
-    const full169 = checks.find(c => c.dataset.clipId === 'full' && c.dataset.ratio === '16:9');
-    if (full169) full169.checked = true;
-    updateMatrixCount();
-  }));
-
-  $('btn-preset-all')?.addEventListener('click', action(() => {
-    const checks = Array.from(document.querySelectorAll<HTMLInputElement>('.matrix-clip-check')).filter(c => !c.disabled);
-    checks.forEach(c => c.checked = true);
-    updateMatrixCount();
-  }));
-}
-
 initTemplateCards();
 initAspectPills();
-initExportPresets();
 function tick(){if(engine&&playing){if(clipEnd!==null&&audio.currentTime>=clipEnd){audio.pause();audio.currentTime=clipReviewTime;clipEnd=null;playing=false;$('play').textContent='▶';status(reviewHandover?'Transition preview complete':'Line playback complete. Showing the final poster.');}engine.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';followActiveCue(audio.currentTime);if(audio.ended){playing=false;$('play').textContent='▶';}}requestAnimationFrame(tick);}requestAnimationFrame(tick);
 audio.addEventListener('seeked',()=>{if(scrubbing)return;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';followActiveCue(audio.currentTime);});
 window.addEventListener('beforeunload',event=>{if(dirty||identityDirty||settingsDirty){event.preventDefault();event.returnValue='';}});

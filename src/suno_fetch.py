@@ -505,13 +505,25 @@ def parse_suno_prompt_sections(prompt: str) -> list[dict]:
         'intro': '前奏',
         'verse': '主歌',
         'pre-chorus': '预副歌',
+        'post-chorus': '后副歌',
         'chorus': '副歌',
         'bridge': '桥段',
         'solo': '间奏',
         'interlude': '间奏',
         'outro': '尾奏',
-        'end': '结束'
+        'end': '结束',
+        'hook': '副歌',
+        'refrain': '副歌',
     }
+
+    section_tag_re = re.compile(
+        r'^(?P<base>(?:(?:final|post|pre)[ -]?)?(?:intro|verse|chorus|bridge|solo|interlude|outro|end|hook|refrain|breakdown|drop|instrumental)'
+        r'|(?:(?:guitar|bass|drum|drums|synth|piano|sax|saxophone|vocal)\s+)?solo'
+        r'|(?:前奏|主歌|预副歌|后副歌|副歌|桥段|间奏|尾奏|结束))'
+        r'(?:\s*(?P<num>\d+))?'
+        r'(?:(?:\s*[:：|—–]|\s+--\s+|\s+-\s+|,\s*)\s*(?P<style>.*))?$',
+        re.IGNORECASE,
+    )
 
     name_counts: dict[str, int] = {}
 
@@ -521,39 +533,40 @@ def parse_suno_prompt_sections(prompt: str) -> list[dict]:
             continue
         if line.startswith('[') and line.endswith(']'):
             tag_content = line[1:-1].strip()
-            if ':' in tag_content:
-                sec_name, sec_style = tag_content.split(':', 1)
-                sec_name = sec_name.strip()
-                sec_style = sec_style.strip()
-            else:
-                sec_name = tag_content
-                sec_style = ''
+            match = section_tag_re.match(tag_content)
 
             # A bracket also encloses performance directions. They annotate the
             # current section; e.g. [Pre-Chorus]\n[Build-up, harmonica] is ONE section.
-            if not re.fullmatch(
-                r'(?:(?:final|post|pre)[ -]?)?(?:intro|verse|chorus|bridge|solo|interlude|outro|end|hook|refrain|breakdown|drop|instrumental)'
-                r'(?:\s+\d+)?|(?:前奏|主歌|预副歌|副歌|桥段|间奏|尾奏|结束)(?:\s*\d+)?',
-                sec_name, re.IGNORECASE,
-            ):
+            if not match:
                 if current_sec is None:
                     current_sec = {'name': 'Verse 1', 'label': '主歌 1', 'style': '', 'lyric_texts': []}
                     sections_raw.append(current_sec)
                 current_sec['style'] = '; '.join(filter(None, (current_sec['style'], tag_content)))
                 continue
 
-            base_lower = sec_name.lower()
+            base = match.group('base').strip()
+            num = match.group('num')
+            sec_style = (match.group('style') or '').strip()
+
+            if '-' in base:
+                base_name = '-'.join(p.capitalize() for p in base.split('-'))
+            elif ' ' in base:
+                base_name = ' '.join(p.capitalize() for p in base.split(' '))
+            else:
+                base_name = base.capitalize()
+
+            sec_name = f"{base_name} {num}".strip() if num else base_name
+            base_lower = base.lower()
             label = sec_name
-            for k, v in label_map.items():
+            for k in sorted(label_map.keys(), key=len, reverse=True):
                 if k in base_lower:
-                    num_match = re.search(r'\d+', sec_name)
-                    num = f" {num_match.group(0)}" if num_match else ""
-                    label = f"{v}{num}"
+                    num_str = f" {num}" if num else ""
+                    label = f"{label_map[k]}{num_str}"
                     break
 
             clean_name = re.sub(r'\s*\d+', '', sec_name).strip()
             name_counts[clean_name] = name_counts.get(clean_name, 0) + 1
-            if name_counts[clean_name] > 1 and not re.search(r'\d+', sec_name):
+            if name_counts[clean_name] > 1 and not num:
                 sec_name = f"{sec_name} {name_counts[clean_name]}"
                 if not re.search(r'\d+', label):
                     label = f"{label} {name_counts[clean_name]}"
@@ -562,7 +575,7 @@ def parse_suno_prompt_sections(prompt: str) -> list[dict]:
                 'name': sec_name,
                 'label': label,
                 'style': sec_style,
-                'lyric_texts': []
+                'lyric_texts': [],
             }
             sections_raw.append(current_sec)
         elif re.fullmatch(r'[（(].*[）)]', line):
