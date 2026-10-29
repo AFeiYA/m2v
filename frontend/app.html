@@ -41,6 +41,12 @@
         <input id="auth-password" type="password" placeholder="Password (at least 6 characters)" minlength="6" required autocomplete="current-password">
         <button type="submit" id="auth-submit">Sign in</button>
       </form>
+      <div id="email-verification" hidden>
+        <p id="verification-message" role="status" aria-live="polite"></p>
+        <button type="button" id="verification-check" class="btn">I've verified my email</button>
+        <button type="button" id="verification-resend" class="btn btn-sm btn-outline">Resend verification email</button>
+        <button type="button" id="verification-signout" class="btn btn-sm btn-outline">Use another account</button>
+      </div>
       <button type="button" id="auth-reset-password" class="btn btn-sm btn-outline">Forgot password?</button>
       <p class="auth-switch">
         <span id="auth-toggle-text">New to Fovea Studio?</span>
@@ -665,12 +671,12 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="/static/cache.js?v=20261013_cache"></script>
-  <script src="/firebase-config.js?v=20261015_english"></script>
+  <script src="/firebase-config.js?v=20261030_verify"></script>
   <script src="/workspace-store.js?v=20261021_navigation"></script>
   <script src="/studio-adapters.js?v=20261022_credits"></script>
   <script src="/media-arbiter.js?v=20261019_arbiter"></script>
   <script src="/workspace.js?v=20261027_latest_lyrics"></script>
-  <script src="/dashboard.js?v=20261027_latest_lyrics"></script>
+  <script src="/dashboard.js?v=20261030_verify"></script>
   <script src="/billing.js?v=20261024_checkout_origin"></script>
 </body>
 </html>

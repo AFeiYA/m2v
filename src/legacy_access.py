@@ -37,6 +37,8 @@ async def require_local_api(connection: HTTPConnection) -> None:
                         raise ValueError("缺少用户标识或令牌类型无效")
                 except Exception:  # noqa: BLE001
                     raise HTTPException(401, "插件登录凭据无效或已过期，请重新在插件中同步")
+                from src.auth import require_verified_email
+                require_verified_email(payload)
                 return
 
             # 3. 其他单机本地目录接口在云端一律拦截

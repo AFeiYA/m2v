@@ -55,6 +55,7 @@ window.m2vAuth = {
 
   async loginWithEmail(email, password) {
     const result = await firebaseAuth().signInWithEmailAndPassword(email, password);
+    if (result.user.emailVerified === false) return {user: result.user, verificationRequired: true};
     return saveFirebaseSession(result.user);
   },
 
@@ -63,6 +64,11 @@ window.m2vAuth = {
     if (!name || name.length > 128) throw new Error("Display name must contain 1–128 characters.");
     const result = await firebaseAuth().createUserWithEmailAndPassword(email, password);
     await result.user.updateProfile({ displayName: name });
+    if (result.user.emailVerified === false) {
+      let verificationError = null;
+      try { await result.user.sendEmailVerification(); } catch (error) { verificationError = error; }
+      return {user: result.user, verificationRequired: true, verificationError};
+    }
     // Refresh so the first backend request sees the new name in the ID token.
     await result.user.getIdToken(true);
     return saveFirebaseSession(result.user);
@@ -70,6 +76,21 @@ window.m2vAuth = {
 
   async resetPassword(email) {
     await firebaseAuth().sendPasswordResetEmail(email);
+  },
+
+  async resendVerification() {
+    const user = firebaseAuth().currentUser;
+    if (!user) throw new Error("Sign in to resend the verification email.");
+    await user.sendEmailVerification();
+  },
+
+  async checkEmailVerification() {
+    const user = firebaseAuth().currentUser;
+    if (!user) throw new Error("Sign in to check your email verification.");
+    await user.reload();
+    if (!user.emailVerified) return {user, verificationRequired: true};
+    await user.getIdToken(true);
+    return saveFirebaseSession(user);
   },
 
   errorMessage(error) {
@@ -109,6 +130,7 @@ window.m2vAuth = {
   async getIdToken(forceRefresh = true) {
     await firebaseAuthReady;
     if (typeof firebase !== "undefined" && firebase.auth().currentUser) {
+      if (firebase.auth().currentUser.emailVerified === false) return null;
       const token = await firebase.auth().currentUser.getIdToken(forceRefresh);
       localStorage.setItem("m2v_token", token);
       return token;
@@ -133,7 +155,7 @@ window.m2vAuth = {
   onAuthStateChanged(callback) {
     if (typeof firebase !== "undefined" && firebase.auth) {
       return firebase.auth().onAuthStateChanged(async (user) => {
-        if (user) {
+        if (user && user.emailVerified !== false) {
           const token = await user.getIdToken();
           localStorage.setItem("m2v_token", token);
           localStorage.setItem("m2v_user", JSON.stringify({

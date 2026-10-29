@@ -117,6 +117,7 @@ def verify_firebase_id_token(token: str) -> dict | None:
                 "name": decoded.get("name"),
                 "picture": decoded.get("picture"),
                 "email_verified": decoded.get("email_verified", False),
+                "sign_in_provider": (decoded.get("firebase") or {}).get("sign_in_provider"),
                 "type": "access",
                 "provider": "firebase",
             }
@@ -140,6 +141,7 @@ def verify_firebase_id_token(token: str) -> dict | None:
             "name": decoded.get("name"),
             "picture": decoded.get("picture"),
             "email_verified": decoded.get("email_verified", False),
+            "sign_in_provider": (decoded.get("firebase") or {}).get("sign_in_provider"),
             "type": "access",
             "provider": "firebase",
         }
@@ -175,9 +177,19 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
+def require_verified_email(payload: dict) -> None:
+    if (payload.get("provider") == "firebase"
+            and payload.get("sign_in_provider") == "password"
+            and payload.get("email_verified") is not True):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="EMAIL_VERIFICATION_REQUIRED")
+
+
 async def get_user_from_token(token: str, db: AsyncSession) -> User:
     """从 token 解析当前用户并校验有效性；支持新 Firebase 用户自愈开户"""
     payload = decode_token(token)
+
+    require_verified_email(payload)
 
     if payload.get("type") != "access":
         raise HTTPException(

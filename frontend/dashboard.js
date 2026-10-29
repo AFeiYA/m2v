@@ -167,10 +167,69 @@ async function tryRefresh() {
 
 let isLoginMode = true;
 
+function showEmailVerification(user, sendFailed = false) {
+  token = null;
+  localStorage.removeItem("m2v_token");
+  localStorage.removeItem("m2v_refresh");
+  localStorage.setItem("m2v_auth_provider", "firebase");
+  authProvider = "firebase";
+  syncAuthCookie(null);
+  showAuth();
+  $("#auth-form").hidden = true;
+  $("#auth-reset-password").hidden = true;
+  $(".auth-switch").hidden = true;
+  $(".google-auth-section").style.display = "none";
+  $("#email-verification").hidden = false;
+  $("#verification-message").textContent = sendFailed
+    ? "We couldn't send the verification email. Please try resending it."
+    : `Please verify ${user?.email || 'your email address'}, then return here. Check your spam folder if needed.`;
+}
+
+async function finishVerifiedLogin(result) {
+  token = result.idToken;
+  authProvider = "firebase";
+  refreshToken = null;
+  localStorage.removeItem("m2v_refresh");
+  localStorage.setItem("m2v_auth_provider", authProvider);
+  localStorage.setItem("m2v_token", token);
+  syncAuthCookie(token);
+  if (await loadUser()) showApp();
+  else throw new Error(userLoadError || "Unable to load your account. Please try again.");
+}
+
 function initAuth() {
   const form = $("#auth-form");
   const toggle = $("#auth-toggle");
   const googleBtn = $("#btn-google-login");
+
+  $("#verification-resend")?.addEventListener("click", async () => {
+    const button = $("#verification-resend");
+    button.disabled = true;
+    try {
+      await window.m2vAuth.resendVerification();
+      $("#verification-message").textContent = "Verification email sent. Please check your inbox and spam folder.";
+    } catch (error) {
+      $("#verification-message").textContent = window.m2vAuth.errorMessage(error);
+    } finally { setTimeout(() => { button.disabled = false; }, 30000); }
+  });
+  $("#verification-check")?.addEventListener("click", async () => {
+    const button = $("#verification-check");
+    button.disabled = true;
+    try {
+      const result = await window.m2vAuth.checkEmailVerification();
+      if (result.verificationRequired) $("#verification-message").textContent = "Email not verified yet. Open the verification link and try again.";
+      else await finishVerifiedLogin(result);
+    } catch (error) { $("#verification-message").textContent = window.m2vAuth.errorMessage(error); }
+    finally { button.disabled = false; }
+  });
+  $("#verification-signout")?.addEventListener("click", async () => {
+    await logout();
+    $("#email-verification").hidden = true;
+    $("#auth-form").hidden = false;
+    $("#auth-reset-password").hidden = false;
+    $(".auth-switch").hidden = false;
+    $(".google-auth-section").style.display = "";
+  });
 
   if (googleBtn) {
     googleBtn.addEventListener("click", async () => {
@@ -231,15 +290,11 @@ function initAuth() {
       const result = isLoginMode
         ? await window.m2vAuth.loginWithEmail(email, password)
         : await window.m2vAuth.registerWithEmail(email, password, username);
-      token = result.idToken;
-      authProvider = "firebase";
-      refreshToken = null;
-      localStorage.removeItem("m2v_refresh");
-      localStorage.setItem("m2v_auth_provider", authProvider);
-      localStorage.setItem("m2v_token", token);
-      syncAuthCookie(token);
-      if (await loadUser()) showApp();
-      else throw new Error(userLoadError || "Unable to load your account. Please try again.");
+      if (result.verificationRequired) {
+        showEmailVerification(result.user, Boolean(result.verificationError));
+        return;
+      }
+      await finishVerifiedLogin(result);
     } catch (error) {
       $("#auth-error").textContent = window.m2vAuth?.errorMessage(error) || error.message;
     }
@@ -1395,14 +1450,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // If we already have a cached token, reveal app immediately and verify in background
-  if (token) {
-    $("#app").style.display = "";
-    $("#auth-overlay").style.display = "none";
-  }
 
   // Firebase restores its session asynchronously; never trust an old cached ID token.
   if (window.m2vAuth?.ready) {
     await window.m2vAuth.ready;
+    const firebaseUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
+    if (firebaseUser?.emailVerified === false) {
+      showEmailVerification(firebaseUser);
+      return;
+    }
     if (authProvider === "firebase") {
       token = await window.m2vAuth.getIdToken();
       if (token) localStorage.setItem("m2v_token", token);

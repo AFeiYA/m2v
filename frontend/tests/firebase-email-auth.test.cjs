@@ -8,9 +8,11 @@ const source = fs.readFileSync(path.join(__dirname, '../firebase-config.js'), 'u
 function setup(initialUser = null) {
   const values = new Map([['m2v_token', 'stale-token'], ['m2v_refresh', 'other-account']]);
   const calls = [];
-  const user = {uid: 'firebase-email-user', email: 'test@example.com', displayName: '',
+  const user = {uid: 'firebase-email-user', email: 'test@example.com', displayName: '', emailVerified: false,
     getIdToken: async force => {calls.push(['token', !!force]); return 'firebase-id-token';},
     updateProfile: async data => {calls.push(['profile', data.displayName]); user.displayName = data.displayName;},
+    sendEmailVerification: async () => {calls.push(['verification']);},
+    reload: async () => {calls.push(['reload']);},
   };
   const auth = {
     currentUser: initialUser,
@@ -27,24 +29,34 @@ function setup(initialUser = null) {
   return {helper: context.window.m2vAuth, calls, values, auth};
 }
 
-test('email signup saves the display name before obtaining the API token', async () => {
+test('email signup sends verification and does not create an app session before verification', async () => {
   const s = setup();
   const result = await s.helper.registerWithEmail('test@example.com', 'long-password', 'Artist');
-  assert.equal(result.idToken, 'firebase-id-token');
-  assert.deepEqual(s.calls.map(c => c[0]), ['signup', 'profile', 'token', 'token']);
-  assert.equal(s.calls[2][1], true);
-  assert.equal(s.values.get('m2v_auth_provider'), 'firebase');
-  assert.equal(s.values.has('m2v_refresh'), false);
-  assert.equal(JSON.parse(s.values.get('m2v_user')).displayName, 'Artist');
+  assert.equal(result.verificationRequired, true);
+  assert.deepEqual(s.calls.map(c => c[0]), ['signup', 'profile', 'verification']);
   assert.ok(![...s.values.values()].some(v => String(v).includes('long-password')));
 });
 
 test('email login uses Firebase and clears credentials from the previous local account', async () => {
   const s = setup();
-  await s.helper.loginWithEmail('test@example.com', 'long-password');
+  const pending = await s.helper.loginWithEmail('test@example.com', 'long-password');
+  assert.equal(pending.verificationRequired, true);
+  s.auth.currentUser.emailVerified = true;
+  await s.helper.checkEmailVerification();
   assert.equal(s.calls[0][0], 'login');
   assert.equal(s.values.get('m2v_token'), 'firebase-id-token');
   assert.equal(s.values.has('m2v_refresh'), false);
+});
+
+test('verification can be retried and forces a fresh verified token', async () => {
+  const s = setup();
+  await s.helper.registerWithEmail('test@example.com', 'long-password', 'Artist');
+  await s.helper.resendVerification();
+  assert.equal((await s.helper.checkEmailVerification()).verificationRequired, true);
+  s.auth.currentUser.emailVerified = true;
+  const result = await s.helper.checkEmailVerification();
+  assert.equal(result.idToken, 'firebase-id-token');
+  assert.ok(s.calls.some(c => c[0] === 'token' && c[1] === true));
 });
 
 test('missing Firebase user never returns the stale cached token', async () => {

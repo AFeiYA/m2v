@@ -128,6 +128,20 @@ test('email form signs in through Firebase without sending passwords to Python',
   assert.equal(s.values.has('m2v_refresh'), false);
 });
 
+test('unverified signup shows verification instead of opening the workspace', async () => {
+  const s = setup();
+  s.context.window.m2vAuth.registerWithEmail = async () => ({user: {email: 'artist@example.com'}, verificationRequired: true});
+  s.run('loadUser = async () => { throw Error("must not load unverified account") }; showApp = () => { throw Error("must not open workspace") }; initAuth()');
+  s.element('#auth-toggle').handlers.click({preventDefault() {}});
+  s.element('#auth-email').value = 'artist@example.com';
+  s.element('#auth-password').value = 'long-password';
+  s.element('#auth-username').value = 'Artist';
+  await s.element('#auth-form').handlers.submit({preventDefault() {}});
+  assert.equal(s.element('#email-verification').hidden, false);
+  assert.match(s.element('#verification-message').textContent, /artist@example.com/);
+  assert.equal(s.values.has('m2v_token'), false);
+});
+
 
 test('API settings stay hidden in normal and debug modes', () => {
   const normal = setup();
