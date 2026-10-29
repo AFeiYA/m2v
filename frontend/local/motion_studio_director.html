@@ -8,7 +8,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="/motion-lab.css?v=20261026_header">
+  <link rel="stylesheet" href="/motion-lab.css?v=20261029_flex">
   <script src="/static/i18n.js?v=20261016_locale"></script>
   <script src="/static/song-select.js?v=20261027_dropdown"></script>
 </head>
@@ -237,55 +237,55 @@
             <button id="generate" class="primary" style="margin-top:10px; margin-bottom:12px;" data-i18n="ms_btn_rule_gen">Rule Generate Plan</button>
 
             <!-- Collapsible: Line-by-Line Tuning -->
-            <details id="kinetic-line-details" style="margin-top:8px;">
+            <details id="kinetic-line-details" open style="margin-top:8px;">
               <summary style="font-size:12px; font-weight:600; color:#96c8a0; cursor:pointer;" data-i18n="ms_sec3_title">Line-by-Line Fine Tuning</summary>
               <div id="kinetic-line-controls" style="margin-top:10px;">
                 <label for="cue-select" data-i18n="ms_lbl_cue_select">Lyric Line</label>
                 <select id="cue-select"></select>
-                <label for="cue-phrase-grouping" data-i18n="ms_lbl_phrase_grouping">Lyric Block Phrasing (use / to split, remove to merge)</label>
-                <div style="display:flex;gap:6px">
-                  <input id="cue-phrase-grouping" type="text" style="flex:1" placeholder="Use / to divide blocks, e.g. Listen / by the road / singing softly" data-i18n-placeholder="ms_ph_phrase_grouping">
-                  <button id="btn-reset-phrase-grouping" class="secondary" style="white-space:nowrap" title="Reset to auto phrasing" data-i18n="ms_btn_reset_grouping" data-i18n-title="ms_btn_reset_grouping_title">Reset Auto</button>
-                </div>
+                <label for="cue-phrase-grouping" style="display:flex;justify-content:space-between;align-items:center;">
+                  <span data-i18n="ms_lbl_phrase_grouping">Lyric Block Phrasing (use / to split, remove to merge)</span>
+                  <button id="btn-reset-phrase-grouping" class="secondary" style="width:auto;margin:0;padding:2px 8px;font-size:11px;" title="Reset to auto phrasing" data-i18n="ms_btn_reset_grouping" data-i18n-title="ms_btn_reset_grouping_title">↺ Reset Auto</button>
+                </label>
+                <input id="cue-phrase-grouping" type="text" style="width:100%;margin-top:4px;" placeholder="Use / to divide blocks, e.g. Listen / by the road / singing softly" data-i18n-placeholder="ms_ph_phrase_grouping">
                 <div id="cue-phrase-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;margin-bottom:8px;"></div>
                 <p class="help" style="margin-top:2px;margin-bottom:8px;" data-i18n="ms_help_phrase_grouping">Type / to split into blocks, remove / to merge; click ⭐ to set as the hero keyword.</p>
-                <label for="poster-layout" data-i18n="ms_lbl_poster_layout">Poster Layout</label>
-                <div style="display:flex;gap:6px">
-                  <select id="poster-layout" style="flex:1">
-                    <option value="hero-stack" data-i18n="ms_opt_hero_stack">Hero Stack (Left Aligned)</option>
-                    <option value="center-stack" data-i18n="ms_opt_center_stack">Center Stack</option>
-                    <option value="right-stack" data-i18n="ms_opt_right_stack">Right Stack (Right Impact)</option>
-                    <option value="staggered" data-i18n="ms_opt_staggered">Staggered (Left-Right Dynamic)</option>
-                  </select>
-                  <button id="random-layout-cue" class="secondary" style="white-space:nowrap" title="Randomly switch poster alignment for this line" data-i18n="ms_btn_random_layout" data-i18n-title="ms_btn_random_layout_title">🎲 Change Align</button>
-                </div>
+                <label for="poster-layout" style="display:flex;justify-content:space-between;align-items:center;">
+                  <span data-i18n="ms_lbl_poster_layout">Poster Layout</span>
+                  <button id="random-layout-cue" class="secondary" style="width:auto;margin:0;padding:2px 8px;font-size:11px;" title="Randomly switch poster alignment for this line" data-i18n="ms_btn_random_layout" data-i18n-title="ms_btn_random_layout_title">🎲 Change Align</button>
+                </label>
+                <select id="poster-layout" style="width:100%;margin-top:4px;">
+                  <option value="hero-stack" data-i18n="ms_opt_hero_stack">Hero Stack (Left Aligned)</option>
+                  <option value="center-stack" data-i18n="ms_opt_center_stack">Center Stack</option>
+                  <option value="right-stack" data-i18n="ms_opt_right_stack">Right Stack (Right Impact)</option>
+                  <option value="staggered" data-i18n="ms_opt_staggered">Staggered (Left-Right Dynamic)</option>
+                </select>
                 <p id="poster-design-status" class="help"></p>
-                <label for="cue-layout-preset" data-i18n="ms_lbl_cue_preset">Layout Preset</label>
-                <div style="display:flex;gap:6px">
-                  <select id="cue-layout-preset" style="flex:1">
-                    <option value="smart" data-i18n="ms_opt_layout_smart">Smart Phrase Wrap (Recommended)</option>
-                    <option value="random" data-i18n="ms_opt_layout_random">🎲 Random Variety Layout</option>
-                    <option value="single" data-i18n="ms_opt_layout_single">Single Line Centered</option>
-                    <option value="two-stack" data-i18n="ms_opt_layout_two">Two-Stack Duel</option>
-                    <option value="three-stack" data-i18n="ms_opt_layout_three">Three-Stack Ladder</option>
-                    <option value="word-by-word" data-i18n="ms_opt_layout_word">Word-by-Word Impact</option>
-                  </select>
-                  <button id="apply-layout-preset" class="secondary" style="white-space:nowrap" data-i18n="ms_btn_apply_layout">Apply Preset</button>
-                </div>
-                <label for="cue-palette" data-i18n="ms_lbl_cue_palette">Palette</label>
-                <div style="display:flex;gap:6px">
-                  <select id="cue-palette" style="flex:1">
-                    <option value="impact" data-i18n="ms_palette_impact">Impact · Electric Green</option>
-                    <option value="neon" data-i18n="ms_palette_neon">Neon · Cyber Blue</option>
-                    <option value="sunset" data-i18n="ms_palette_sunset">Sunset · Fiery Gold</option>
-                    <option value="amber" data-i18n="ms_palette_amber">Amber · Warm Gold</option>
-                    <option value="violet" data-i18n="ms_palette_violet">Violet · Electric Aurora</option>
-                    <option value="sakura" data-i18n="ms_palette_sakura">Sakura · Soft Pink</option>
-                    <option value="monochrome" data-i18n="ms_palette_monochrome">Minimal · Black & White</option>
-                    <option value="random" data-i18n="ms_palette_random">🎲 Random Palette</option>
-                  </select>
-                  <button id="apply-palette" class="secondary" style="white-space:nowrap" data-i18n="ms_btn_apply_palette">Apply Palette</button>
-                </div>
+                <label for="cue-layout-preset" style="display:flex;justify-content:space-between;align-items:center;">
+                  <span data-i18n="ms_lbl_cue_preset">Layout Preset</span>
+                  <button id="apply-layout-preset" class="secondary" style="width:auto;margin:0;padding:2px 8px;font-size:11px;" data-i18n="ms_btn_apply_layout">Apply Preset</button>
+                </label>
+                <select id="cue-layout-preset" style="width:100%;margin-top:4px;">
+                  <option value="smart" data-i18n="ms_opt_layout_smart">Smart Phrase Wrap (Recommended)</option>
+                  <option value="random" data-i18n="ms_opt_layout_random">🎲 Random Variety Layout</option>
+                  <option value="single" data-i18n="ms_opt_layout_single">Single Line Centered</option>
+                  <option value="two-stack" data-i18n="ms_opt_layout_two">Two-Stack Duel</option>
+                  <option value="three-stack" data-i18n="ms_opt_layout_three">Three-Stack Ladder</option>
+                  <option value="word-by-word" data-i18n="ms_opt_layout_word">Word-by-Word Impact</option>
+                </select>
+                <label for="cue-palette" style="display:flex;justify-content:space-between;align-items:center;">
+                  <span data-i18n="ms_lbl_cue_palette">Palette</span>
+                  <button id="apply-palette" class="secondary" style="width:auto;margin:0;padding:2px 8px;font-size:11px;" data-i18n="ms_btn_apply_palette">Apply Palette</button>
+                </label>
+                <select id="cue-palette" style="width:100%;margin-top:4px;">
+                  <option value="impact" data-i18n="ms_palette_impact">Impact · Electric Green</option>
+                  <option value="neon" data-i18n="ms_palette_neon">Neon · Cyber Blue</option>
+                  <option value="sunset" data-i18n="ms_palette_sunset">Sunset · Fiery Gold</option>
+                  <option value="amber" data-i18n="ms_palette_amber">Amber · Warm Gold</option>
+                  <option value="violet" data-i18n="ms_palette_violet">Violet · Electric Aurora</option>
+                  <option value="sakura" data-i18n="ms_palette_sakura">Sakura · Soft Pink</option>
+                  <option value="monochrome" data-i18n="ms_palette_monochrome">Minimal · Black & White</option>
+                  <option value="random" data-i18n="ms_palette_random">🎲 Random Palette</option>
+                </select>
                 <label for="cue-highlight" data-i18n="ms_lbl_cue_highlight">This Line's Highlight</label>
                 <select id="cue-highlight">
                   <option value="none" data-i18n="ms_opt_highlight_none">Off · Keep Entrances</option>
