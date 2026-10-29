@@ -217,6 +217,9 @@ async function load(id:string){
   showIdentity();showCover();$<HTMLAnchorElement>('rhythm-link').href='/rhythm-studio?project='+encodeURIComponent(id);coverPending=cacheSunoCover(id);
   $('track-name').textContent=project.title;
   $<HTMLInputElement>('seek').max=String(project.duration);$('duration').textContent=project.duration.toFixed(1)+'s';
+  if (design.active_mode === 'kinetic' && !plan) {
+    ensureKineticPlanSilently();
+  }
   refresh();listCues();
   status(result.plan_error||(plan?'Saved director plan loaded · Preparing audio…':'Layout ready · Preparing audio…'));
   (window as any).m2vStudioBridge?.loaded(id,false,project.title);
@@ -265,6 +268,33 @@ async function load(id:string){
   }
  }
 }
+function ensureKineticPlanSilently(): boolean {
+  if (design.active_mode !== 'kinetic' || plan || !project || !selected || !project.lines?.length) return false;
+  const base = plan || ruleSeed || { version: 'motion-plan-v1', source_signature: selected, seed: 42, cues: [] };
+  const palette = $<HTMLSelectElement>('preset')?.value || 'impact';
+  const layout = ($<HTMLSelectElement>('default-layout-preset')?.value as DefaultLayoutPreset) || 'smart';
+  const bg = ($<HTMLSelectElement>('theme-bg')?.value as 'auto'|'light'|'dark') || 'auto';
+  try {
+    plan = localRulePlan(project, base, palette, layout, bg);
+    for (const cue of plan.cues) {
+      if (!cue.locked && cue.poster && !cue.poster.highlight) {
+        cue.poster.highlight = ($<HTMLSelectElement>('highlight-mode')?.value || 'none') as HighlightMode;
+      }
+    }
+    dirty = true;
+    settingsDirty = true;
+    design.modes.kinetic.plan = plan;
+    refresh();
+    listCues();
+    syncModeControls();
+    const banner = $('kinetic-unready-banner');
+    if (banner) banner.hidden = true;
+    return true;
+  } catch (err) {
+    console.warn('[MotionStudio] Auto-generating kinetic plan failed:', err);
+    return false;
+  }
+}
 function rules(onlyCurrent=false){
  if(design.active_mode!=='kinetic')throw Error('Switch to Kinetic Posters to regenerate poster designs.');
  if(!project||!selected)throw new Error('Select a song first.');
@@ -302,6 +332,9 @@ function applyVisualTemplate() {
  const mode=$<HTMLSelectElement>('visual-template-select').value as keyof typeof visualModes;
  if(!(mode in visualModes))throw Error('Unknown visual mode');
  design=selectMode(designSnapshot(),mode);
+ if(design.active_mode==='kinetic'&&!plan){
+  ensureKineticPlanSilently();
+ }
  settingsDirty=true;syncModeControls();refresh();listCues();populateExportMatrix();
  status(visualModes[mode].label+' selected. Your other mode designs are preserved.');
 }
@@ -506,6 +539,9 @@ async function exportVideo() {
 
 async function runExportVideo() {
   if (!selected) throw new Error('Select a song first.');
+  if (design.active_mode === 'kinetic' && !plan) {
+    ensureKineticPlanSilently();
+  }
   if (design.active_mode === 'kinetic' && !plan) {
     const isZh = (window as any).currentLocale === 'zh';
     const message = isZh
@@ -964,10 +1000,29 @@ for(const id of ['stream-font-scale','apple-focus-y','karaoke-preview-seconds'])
  settingsDirty=true;refresh();status('Mode settings updated locally. Save when ready.');
 });
 $('play').onclick=action(async()=>{if(!project)return;if(!audioReady)throw new Error('Audio is loading. You can preview posters while waiting.');clipEnd=null;if(playing){audio.pause();playing=false;$('play').textContent='▶';}else{await audio.play();playing=true;$('play').textContent='Ⅱ';}});const seek=$<HTMLInputElement>('seek');
+let lastFollowedCue = '';
+function followActiveCue(time: number) {
+  if (!project || !plan?.cues?.length || design.active_mode !== 'kinetic') return;
+  if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+    return;
+  }
+  const activeLine = project.lines.find(l => time >= l.start && time < l.end)
+    || project.lines.find(l => Math.abs(time - l.start) < 0.2);
+  if (!activeLine) return;
+  if (activeLine.id !== currentCue && activeLine.id !== lastFollowedCue) {
+    lastFollowedCue = activeLine.id;
+    currentCue = activeLine.id;
+    const select = $<HTMLSelectElement>('cue-select');
+    if (select && select.value !== currentCue) {
+      select.value = currentCue;
+    }
+    showCue(false);
+  }
+}
 function beginScrub(){if(scrubbing)return;scrubbing=true;resumeAfterScrub=playing;audio.pause();playing=false;$('play').textContent='▶';clipEnd=null;}
 async function finishScrub(){if(!scrubbing)return;scrubbing=false;const resume=resumeAfterScrub;resumeAfterScrub=false;if(resume){await audio.play();playing=true;$('play').textContent='Ⅱ';}}
 seek.onpointerdown=beginScrub;
-seek.oninput=()=>{beginScrub();const t=Number(seek.value);audio.currentTime=t;engine?.renderAt(t);$('time').textContent=t.toFixed(2)+'s';};
+seek.oninput=()=>{beginScrub();const t=Number(seek.value);audio.currentTime=t;engine?.renderAt(t);$('time').textContent=t.toFixed(2)+'s';followActiveCue(t);};
 seek.onchange=action(finishScrub);
 window.addEventListener('pointerup',action(finishScrub));
 window.addEventListener('pointercancel',()=>{resumeAfterScrub=false;void finishScrub();});
@@ -1057,10 +1112,40 @@ $('btn-quick-switch-apple')?.addEventListener('click', action(() => {
   if (banner) banner.hidden = true;
 }));
 
+function initExportPresets() {
+  $('btn-preset-short-916')?.addEventListener('click', action(() => {
+    const checks = Array.from(document.querySelectorAll<HTMLInputElement>('.matrix-clip-check')).filter(c => !c.disabled);
+    checks.forEach(c => c.checked = false);
+    const chorus916 = checks.filter(c => c.dataset.clipId !== 'full' && c.dataset.ratio === '9:16');
+    if (chorus916.length) {
+      chorus916.forEach(c => c.checked = true);
+    } else {
+      const full916 = checks.find(c => c.dataset.clipId === 'full' && c.dataset.ratio === '9:16');
+      if (full916) full916.checked = true;
+    }
+    updateMatrixCount();
+  }));
+
+  $('btn-preset-full-169')?.addEventListener('click', action(() => {
+    const checks = Array.from(document.querySelectorAll<HTMLInputElement>('.matrix-clip-check')).filter(c => !c.disabled);
+    checks.forEach(c => c.checked = false);
+    const full169 = checks.find(c => c.dataset.clipId === 'full' && c.dataset.ratio === '16:9');
+    if (full169) full169.checked = true;
+    updateMatrixCount();
+  }));
+
+  $('btn-preset-all')?.addEventListener('click', action(() => {
+    const checks = Array.from(document.querySelectorAll<HTMLInputElement>('.matrix-clip-check')).filter(c => !c.disabled);
+    checks.forEach(c => c.checked = true);
+    updateMatrixCount();
+  }));
+}
+
 initTemplateCards();
 initAspectPills();
-function tick(){if(engine&&playing){if(clipEnd!==null&&audio.currentTime>=clipEnd){audio.pause();audio.currentTime=clipReviewTime;clipEnd=null;playing=false;$('play').textContent='▶';status(reviewHandover?'Transition preview complete':'Line playback complete. Showing the final poster.');}engine.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';if(audio.ended){playing=false;$('play').textContent='▶';}}requestAnimationFrame(tick);}requestAnimationFrame(tick);
-audio.addEventListener('seeked',()=>{if(scrubbing)return;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';});
+initExportPresets();
+function tick(){if(engine&&playing){if(clipEnd!==null&&audio.currentTime>=clipEnd){audio.pause();audio.currentTime=clipReviewTime;clipEnd=null;playing=false;$('play').textContent='▶';status(reviewHandover?'Transition preview complete':'Line playback complete. Showing the final poster.');}engine.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';followActiveCue(audio.currentTime);if(audio.ended){playing=false;$('play').textContent='▶';}}requestAnimationFrame(tick);}requestAnimationFrame(tick);
+audio.addEventListener('seeked',()=>{if(scrubbing)return;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';followActiveCue(audio.currentTime);});
 window.addEventListener('beforeunload',event=>{if(dirty||identityDirty||settingsDirty){event.preventDefault();event.returnValue='';}});
 (window as any).loadMotionSong = (id: string) => load(id);
 (window as any).getMotionProjectId = () => selected;

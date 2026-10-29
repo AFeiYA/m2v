@@ -1022,8 +1022,7 @@ function renderSong(song) {
     <div class="task-actions">${current?`<a class="btn btn-primary btn-sm" href="/lyric-editor/${encodeURIComponent(current)}" data-action="open-studio" data-studio="lyric" data-task-id="${encodeURIComponent(current)}" data-song-id="${id}">Edit lyrics</a><a class="btn btn-sm btn-outline" href="/motion-studio?project=${encodeURIComponent(current)}" data-action="open-studio" data-studio="motion" data-task-id="${encodeURIComponent(current)}" data-song-id="${id}">Design video</a>`:''}
     ${song.export_count?`<button class="btn btn-sm btn-outline" data-song-action="exports" data-song="${id}">View videos</button>`:''}
     <button class="btn btn-sm btn-outline" data-song-action="archive" data-song="${id}">${song.archived?'Restore':'Archive'}</button></div>
-    ${latest?.error?`<p class="error-text">${escapeHtml(latest.error)}</p>`:''}
-    ${lyrics?`<div class="task-actions"><button class="btn btn-sm btn-outline" data-action="download" data-task="${escapeHtml(current)}" data-type="alignment">Download JSON</button>${lyrics.has_ass?`<button class="btn btn-sm btn-outline" data-action="download" data-task="${escapeHtml(current)}" data-type="ass">Download ASS</button>`:''}</div>`:''}</article>`;
+    ${latest?.error?`<p class="error-text">${escapeHtml(latest.error)}</p>`:''}</article>`;
 }
 
 async function handleSongAction(button) {
@@ -1119,11 +1118,7 @@ function renderTask(task) {
     if (task.output_mp4_key) {
       actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="mp4">📹 Download MP4</button>`;
     }
-    if (task.output_ass_key || task.alignment_json_key) {
-      actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="ass">📄 Download ASS</button>`;
-    }
     if (task.alignment_json_key) {
-      actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="alignment">📊 Download JSON</button>`;
       actions += `<a class="btn btn-sm" href="/lyric-editor/${encodeURIComponent(task.id)}" data-action="open-studio" data-studio="lyric" data-task-id="${encodeURIComponent(task.id)}" data-song-id="${encodeURIComponent(task.id)}">✏️ Edit lyrics</a>`;
     }
   }
