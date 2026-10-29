@@ -10,6 +10,7 @@
 .panel textarea,.panel input[type=text]{width:100%;border:1px solid #344238;background:#151e17;color:#e9f2e9;border-radius:6px;padding:10px}
 .panel input[type=range]{width:100%;accent-color:#b9ff70}.panel details{margin-top:12px;font-size:12px}.panel summary{cursor:pointer;color:#b9ff70}.panel>button:not(.primary):not(.secondary){margin-top:10px;padding:9px;border:1px solid #344238;border-radius:6px;background:#172219;color:#dcebdd}[hidden]{display:none!important}
 .panel label button.secondary{width:auto!important;margin:0!important;padding:2px 8px!important;font-size:11px!important;border-radius:4px!important;display:inline-block!important}
+#lbl-export-fast-mode{display:none!important}
 
 .header-right button{border:1px solid #365334;background:#172219;color:#b9ff70;border-radius:6px;padding:7px 10px;font-size:12px}.preview-focus aside{display:none}.preview-focus main{grid-template-columns:minmax(0,1fr)}
 @media(max-width:900px){.preview-focus main{height:calc(100vh - 68px)}.preview-focus .stage-wrap{height:100%}.preview-focus #stage-box{flex:1;aspect-ratio:auto!important}}

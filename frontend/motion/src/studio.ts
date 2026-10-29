@@ -995,7 +995,11 @@ function initExportEngineHint() {
   }
 
   if (fastLabel) {
+    fastLabel.hidden = true;
     fastLabel.style.display = 'none';
+    if (typeof fastLabel.style?.setProperty === 'function') {
+      fastLabel.style.setProperty('display', 'none', 'important');
+    }
   }
 
   if (exportStatus) {
