@@ -548,7 +548,6 @@ function setupTripleClickDebug(el) {
   let count = 0;
   let timer = null;
   el.style.cursor = "pointer";
-  el.title = "Triple-click to toggle debug mode (Ctrl+Shift+D)";
   el.addEventListener("click", (event) => {
     // A brand link must not navigate away before the third click arrives.
     // Preserve modified clicks, including opening the link in a new tab.
@@ -1313,49 +1312,11 @@ function escapeHtml(str) {
 
 
 function initApiConfig() {
-  const enabled = isDevMode();
+  // API endpoint is configured by deployment, not through the user interface.
   for (const selector of ["#api-config-login", "#btn-config-api-app"]) {
     const element = $(selector);
-    if (element) element.style.display = enabled ? "" : "none";
+    if (element) element.style.display = "none";
   }
-  if (!enabled) return;
-
-  const updateLabel = () => {
-    const cur = API;
-    const el = $("#btn-config-api");
-    const elApp = $("#btn-config-api-app");
-    let label = "";
-    try {
-      const u = new URL(cur);
-      label = `Service: ${u.host}`;
-    } catch (e) {
-      label = cur ? `Service: ${cur}` : "Not configured (click to set up)";
-    }
-    if (el) el.textContent = label;
-    if (elApp) elApp.title = `Backend API: ${cur}`;
-  };
-
-  const configure = (e) => {
-    e?.preventDefault();
-    const current = localStorage.getItem("m2v_api_base") || API;
-    const input = prompt(
-      "Enter the Python backend API address:\n(Leave blank for the default: " + getDefaultApi() + ")",
-      current
-    );
-    if (input !== null) {
-      const trimmed = input.trim().replace(/\/+$/, "");
-      if (trimmed) {
-        localStorage.setItem("m2v_api_base", trimmed);
-      } else {
-        localStorage.removeItem("m2v_api_base");
-      }
-      location.reload();
-    }
-  };
-
-  $("#btn-config-api")?.addEventListener("click", configure);
-  $("#btn-config-api-app")?.addEventListener("click", configure);
-  updateLabel();
 }
 
 // ======================================================================

@@ -129,7 +129,7 @@ test('email form signs in through Firebase without sending passwords to Python',
 });
 
 
-test('API settings are hidden from ordinary users and available in explicit dev mode', () => {
+test('API settings stay hidden in normal and debug modes', () => {
   const normal = setup();
   normal.run('initApiConfig()');
   assert.equal(normal.element('#api-config-login').style.display, 'none');
@@ -139,8 +139,9 @@ test('API settings are hidden from ordinary users and available in explicit dev 
     const dev = setup();
     dev.context.location.search = query;
     dev.run('initApiConfig()');
-    assert.equal(dev.element('#api-config-login').style.display, '');
-    assert.equal(typeof dev.element('#btn-config-api').handlers.click, 'function');
+    assert.equal(dev.element('#api-config-login').style.display, 'none');
+    assert.equal(dev.element('#btn-config-api-app').style.display, 'none');
+    assert.equal(dev.element('#btn-config-api').handlers.click, undefined);
   }
   const disabled = setup();
   disabled.context.location.search = '?dev=0';
