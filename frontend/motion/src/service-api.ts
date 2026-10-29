@@ -31,8 +31,11 @@ export function cloudService(): boolean {
 }
 
 export function serviceUrl(path: string): string {
+ const defaultRemote = (typeof location !== 'undefined' && location.hostname.includes('staging'))
+  ? 'https://lucazhou-suno2mv-api-staging.hf.space'
+  : 'https://lucazhou-suno2mv-api.hf.space';
  const base = window.M2V_API_BASE?.replace(/\/+$/, '') ||
-  (isRemoteStaticHost() ? 'https://lucazhou-suno2mv-api.hf.space' : location.origin);
+  (isRemoteStaticHost() ? defaultRemote : location.origin);
  return new URL(path, base).href;
 }
 

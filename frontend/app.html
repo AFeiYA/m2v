@@ -7,7 +7,11 @@
   <meta name="robots" content="noindex,nofollow">
   <link rel="stylesheet" href="/dashboard.css?v=20261028_unified_wordmark">
   <script>
-    window.M2V_API_BASE = "https://lucazhou-suno2mv-api.hf.space";
+    if (location.hostname.includes("staging")) {
+      window.M2V_API_BASE = "https://lucazhou-suno2mv-api-staging.hf.space";
+    } else {
+      window.M2V_API_BASE = "https://lucazhou-suno2mv-api.hf.space";
+    }
   </script>
 </head>
 <body>

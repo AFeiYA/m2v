@@ -3,11 +3,14 @@
    ========================================================== */
 
 const DEFAULT_CLOUD_API = "https://lucazhou-suno2mv-api.hf.space";
+const DEFAULT_STAGING_API = "https://lucazhou-suno2mv-api-staging.hf.space";
 const DEFAULT_LOCAL_API = "http://localhost:8000";
 
 function getDefaultApi() {
   const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
-  return isLocal ? DEFAULT_LOCAL_API : DEFAULT_CLOUD_API;
+  if (isLocal) return DEFAULT_LOCAL_API;
+  if (location.hostname.includes("staging")) return DEFAULT_STAGING_API;
+  return DEFAULT_CLOUD_API;
 }
 
 function resolveApiBase() {
