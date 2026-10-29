@@ -556,6 +556,16 @@ def parse_suno_prompt_sections(prompt: str) -> list[dict]:
                 continue
 
             base_name, sec_name, label, sec_style, has_num = matched
+
+            # 若当前已有相同类型的段落且尚未产生任何歌词，说明紧随其后的标签是演奏/风格修饰（如 [Pre-Chorus]\n[Build-up, harmonica]）
+            if (
+                current_sec is not None
+                and not current_sec['lyric_texts']
+                and current_sec['name'].startswith(base_name)
+            ):
+                current_sec['style'] = '; '.join(filter(None, (current_sec['style'], tag_content)))
+                continue
+
             clean_name = base_name
             name_counts[clean_name] = name_counts.get(clean_name, 0) + 1
             if name_counts[clean_name] > 1 and not has_num:

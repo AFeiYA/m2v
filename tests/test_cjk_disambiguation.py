@@ -215,3 +215,34 @@ def test_reconcile_english_merged_compound_tokens():
     assert reconciled[2].end == reconciled[3].start
 
 
+def test_reconcile_english_contractions_and_downstream_sync():
+    # Target line with contraction "I'm" and downstream words: "Maybe I'm the missing part."
+    # Whisper splits "I'm" into [" I", "'m"]
+    raw = [
+        WordTimestamp(word=" Maybe", start=63.12, end=63.52),
+        WordTimestamp(word=" I", start=63.52, end=64.00),
+        WordTimestamp(word="'m", start=64.00, end=64.66),
+        WordTimestamp(word=" the", start=64.66, end=64.88),
+        WordTimestamp(word=" missing", start=64.88, end=65.895),
+        WordTimestamp(word=" part.", start=65.90, end=66.32),
+    ]
+    reconciled = reconcile_aligned_words("Maybe I'm the missing part.", raw)
+    assert len(reconciled) == 5
+    assert [w.word for w in reconciled] == ["Maybe", "I'm", "the", "missing", "part"]
+    assert reconciled[0].start == 63.12
+    assert reconciled[0].end == 63.52
+    assert reconciled[1].word == "I'm"
+    assert reconciled[1].start == 63.52
+    assert reconciled[1].end == 64.66
+    assert reconciled[2].word == "the"
+    assert reconciled[2].start == 64.66
+    assert reconciled[2].end == 64.88
+    assert reconciled[3].word == "missing"
+    assert reconciled[3].start == 64.88
+    assert reconciled[3].end == 65.895
+    assert reconciled[4].word == "part"
+    assert reconciled[4].start == 65.90
+    assert reconciled[4].end == 66.32
+
+
+

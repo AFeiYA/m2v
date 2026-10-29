@@ -361,9 +361,11 @@ def reconcile_aligned_words(
             continue
 
         target = targets[t_idx]
+        cur_norm = re.sub(r"[^\w\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff]+", "", cur_w.word).lower()
+        target_norm = re.sub(r"[^\w\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff]+", "", target).lower()
 
         # 1. 精确匹配 (最常见情形)
-        if cur_clean.lower() == target.lower():
+        if cur_norm == target_norm:
             out_words.append(
                 WordTimestamp(
                     word=target,
@@ -379,18 +381,16 @@ def reconcile_aligned_words(
             continue
 
         # 2. Whisper token 包含了连续多个目标单元 (如 Whisper 输出 '世界'，目标为 ['世', '界']；或输出 'dust of'，目标为 ['dust', 'of'])
-        cur_clean_norm = re.sub(r"\s+", "", cur_clean).lower()
-        target_norm = re.sub(r"\s+", "", target).lower()
-        if cur_clean_norm.startswith(target_norm) and len(cur_clean_norm) > len(target_norm):
+        if cur_norm.startswith(target_norm) and len(cur_norm) > len(target_norm):
             accum = ""
             matching_targets: list[str] = []
             temp_t = t_idx
-            while temp_t < len(targets) and len(accum) < len(cur_clean_norm):
-                accum += re.sub(r"\s+", "", targets[temp_t]).lower()
+            while temp_t < len(targets) and len(accum) < len(cur_norm):
+                accum += re.sub(r"[^\w\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff]+", "", targets[temp_t]).lower()
                 matching_targets.append(targets[temp_t])
                 temp_t += 1
 
-            if accum == cur_clean_norm:
+            if accum == cur_norm:
                 num_splits = len(matching_targets) - 1
                 if num_splits > 0:
                     dur = max(0.05, cur_w.end - cur_w.start)
@@ -432,17 +432,16 @@ def reconcile_aligned_words(
                     w_idx += 1
                     continue
 
-        # 3. Whisper 将单个西文目标拆分成了多个子词 (如目标为 'riverside'，Whisper 为 ['rivers', 'ide'])
+        # 3. Whisper 将单个西文目标拆分成了多个子词 (如目标为 'riverside'，Whisper 为 ['rivers', 'ide']；或目标为 \"I'm\"，Whisper 为 ['I', \"'m\"])
         accum = ""
         accum_words: list[WordTimestamp] = []
         temp_w = w_idx
-        target_norm = re.sub(r"\s+", "", target).lower()
         while temp_w < len(whisper_words) and len(accum) < len(target_norm):
-            clean_sub = clean_token(whisper_words[temp_w].word)
-            if not clean_sub or not _WORD_OR_CJK_RE.search(whisper_words[temp_w].word):
+            clean_sub = re.sub(r"[^\w\u4e00-\u9fff\u3400-\u4dbf\u3040-\u30ff]+", "", whisper_words[temp_w].word).lower()
+            if not clean_sub:
                 temp_w += 1
                 continue
-            accum += re.sub(r"\s+", "", clean_sub).lower()
+            accum += clean_sub
             accum_words.append(whisper_words[temp_w])
             temp_w += 1
 
