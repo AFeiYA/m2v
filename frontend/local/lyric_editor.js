@@ -2088,7 +2088,23 @@ function highlightPlayingLine() {
     $$(".word-bar").forEach((bar) => {
       const wi = Number(bar.dataset.idx), w = line.words[wi];
       if (!w) { bar.classList.remove("bar-singing"); return; }
-      bar.classList.toggle("bar-singing", t >= w.start && t < w.end);
+      const isWordSinging = t >= w.start && t < w.end;
+      bar.classList.toggle("bar-singing", isWordSinging);
+      if (w.syllables && w.syllables.length > 1) {
+        bar.querySelectorAll(".syl-block").forEach((sylEl) => {
+          const sStart = Number(sylEl.dataset.start);
+          const sEnd = Number(sylEl.dataset.end);
+          if (t >= sEnd) {
+            sylEl.classList.add("syl-sung");
+            sylEl.classList.remove("syl-singing");
+          } else if (t >= sStart) {
+            sylEl.classList.add("syl-singing");
+            sylEl.classList.remove("syl-sung");
+          } else {
+            sylEl.classList.remove("syl-sung", "syl-singing");
+          }
+        });
+      }
     });
   }
 
@@ -2157,8 +2173,9 @@ function renderWords(lineIdx) {
     const dur = Math.max(0.02, w.end - w.start);
     const flexGrow = (dur / totalWordsDur) * 100;
     const isNeedsReview = Boolean(w.needs_review || w.unresolved_compound);
+    const hasSyllables = Boolean(w.syllables && w.syllables.length > 1);
     const bar = document.createElement("div");
-    bar.className = "word-bar" + (isPunct(w.word) ? " punct" : "") + (i === 0 ? " first-word" : "") + (isNeedsReview ? " needs-review" : "");
+    bar.className = "word-bar" + (isPunct(w.word) ? " punct" : "") + (i === 0 ? " first-word" : "") + (isNeedsReview ? " needs-review" : "") + (hasSyllables ? " has-syllables" : "");
     bar.style.flex = `${flexGrow.toFixed(2)} 1 ${isPunct(w.word) ? "18px" : "36px"}`;
     bar.dataset.idx = i;
     const reviewText = isNeedsReview ? (window.t ? t("word_needs_review") : " [声学边界较弱/连音，建议人工复核]") : "";
@@ -2167,18 +2184,71 @@ function renderWords(lineIdx) {
     const handleTitle = isInternal
       ? (window.t ? t("handle_split_title") : "拖拽分割点 | 双击=对齐至当前播放头")
       : (window.t ? t("handle_end_title") : "拖拽尾字收唱 | 双击=对齐至当前播放头");
-    bar.innerHTML = `
-      <span>${escHtml(w.word.trim() || w.word)}</span>
-      <span class="word-dur">${(dur * 1000).toFixed(0)}</span>
-      <div class="drag-handle" title="${handleTitle}"></div>
-    `;
+
+    if (hasSyllables) {
+      let sylTrackHtml = '<div class="syl-track">';
+      w.syllables.forEach((s, si) => {
+        const sDur = Math.max(0.01, s.end - s.start);
+        const sFlex = ((sDur / dur) * 100).toFixed(1);
+        const sylSoloHint = window.t
+          ? t("syl_solo_preview", null, { syl: s.text, dur: (sDur * 1000).toFixed(0) })
+          : `${s.text} [${(sDur * 1000).toFixed(0)}ms] (双击单独试听此音节)`;
+        const sylHandleTitle = (si < w.syllables.length - 1)
+          ? (window.t
+              ? t("syl_handle_split_title", null, { syl1: s.text, syl2: w.syllables[si + 1].text })
+              : `音节分割点 [${s.text} | ${w.syllables[si + 1].text}] 拖拽调节 | 双击对齐至播放头`)
+          : '';
+        sylTrackHtml += `
+          <div class="syl-block" data-syl-idx="${si}" data-start="${s.start}" data-end="${s.end}" style="flex: ${sFlex} 1 0px;" title="${escHtml(sylSoloHint)}">
+            <span class="syl-text">${escHtml(s.text)}</span>
+            <span class="syl-dur">${(sDur * 1000).toFixed(0)}</span>
+            ${si < w.syllables.length - 1 ? `<div class="syl-drag-handle" data-syl="${si}" title="${escHtml(sylHandleTitle)}"></div>` : ''}
+          </div>
+        `;
+      });
+      sylTrackHtml += `</div><div class="drag-handle" title="${handleTitle}"></div>`;
+      bar.innerHTML = sylTrackHtml;
+
+      bar.querySelectorAll(".syl-block").forEach((sylEl) => {
+        const si = Number(sylEl.dataset.sylIdx);
+        const s = w.syllables[si];
+        sylEl.addEventListener("dblclick", (e) => {
+          if (e.target.classList.contains("syl-drag-handle")) return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (ws) {
+            ws.setTime(s.start); ws.play(); if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(true);
+            if (wsInst && instReady) { wsInst.setTime(s.start); wsInst.play(); }
+            const stopAt = s.end;
+            const check = () => {
+              if (ws.getCurrentTime() >= stopAt) {
+                ws.pause(); if (wsInst && instReady) wsInst.pause();
+                if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(false);
+              } else if (ws.isPlaying()) requestAnimationFrame(check);
+            };
+            requestAnimationFrame(check);
+          }
+        });
+      });
+
+      bar.querySelectorAll(".syl-drag-handle").forEach((sylHandle) => {
+        const si = Number(sylHandle.dataset.syl);
+        setupSyllableDragHandle(sylHandle, i, si, lineIdx, bar, wordsTrack);
+      });
+    } else {
+      bar.innerHTML = `
+        <span>${escHtml(w.word.trim() || w.word)}</span>
+        <span class="word-dur">${(dur * 1000).toFixed(0)}</span>
+        <div class="drag-handle" title="${handleTitle}"></div>
+      `;
+    }
 
     bar.addEventListener("click", (e) => {
-      if (e.target.classList.contains("drag-handle")) return;
+      if (e.target.classList.contains("drag-handle") || e.target.classList.contains("syl-drag-handle")) return;
       selectWord(i);
     });
     bar.addEventListener("dblclick", (e) => {
-      if (e.target.classList.contains("drag-handle")) return;
+      if (e.target.classList.contains("drag-handle") || e.target.classList.contains("syl-drag-handle") || e.target.closest(".syl-block")) return;
       if (ws) {
         ws.setTime(w.start); ws.play(); if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(true);
         if (wsInst && instReady) { wsInst.setTime(w.start); wsInst.play(); }
@@ -2248,6 +2318,218 @@ function selectAdjacentWord(delta) {
 }
 
 // ---------------------------------------------------------------------------
+// Syllable Synchronization & Acoustic-Aware Adaptation
+// ---------------------------------------------------------------------------
+function syncSyllablesOnWordChange(w, changeType = "auto", options = {}) {
+  if (!w || !w.syllables || w.syllables.length <= 1) return;
+  const syls = w.syllables;
+  const n = syls.length;
+  const wordStart = Math.round(w.start * 1000) / 1000;
+  const wordEnd = Math.round(w.end * 1000) / 1000;
+  const wordDur = Math.max(0.01, wordEnd - wordStart);
+  const minSylDur = Math.min(0.035, wordDur / n);
+
+  if (changeType === "shift" && typeof options.delta === "number") {
+    const dt = options.delta;
+    syls.forEach(s => {
+      s.start = Math.round((s.start + dt) * 1000) / 1000;
+      s.end = Math.round((s.end + dt) * 1000) / 1000;
+    });
+    syls[0].start = wordStart;
+    syls[n - 1].end = wordEnd;
+    return;
+  }
+
+  if (changeType === "end") {
+    // Rule 1: Tail elongation / melisma or moderate shrinkage
+    // Anchor preceding syllables (0 .. n-2); absorb duration change in the last syllable.
+    const prevEnd = syls[n - 2].end;
+    if (wordEnd >= prevEnd + minSylDur) {
+      syls[n - 1].start = prevEnd;
+      syls[n - 1].end = wordEnd;
+      syls[0].start = wordStart;
+      return;
+    }
+  } else if (changeType === "start") {
+    // Rule 2: Head onset adjustment
+    // Anchor subsequent syllables (1 .. n-1); absorb onset change in the first syllable.
+    const nextStart = syls[1].start;
+    if (wordStart <= nextStart - minSylDur) {
+      syls[0].start = wordStart;
+      syls[0].end = nextStart;
+      syls[n - 1].end = wordEnd;
+      return;
+    }
+  }
+
+  // Rule 4: Proportional scaling with minimum syllable duration clamp
+  const oldSStart = syls[0].start;
+  const oldSEnd = syls[n - 1].end;
+  const oldSDur = Math.max(0.001, oldSEnd - oldSStart);
+
+  let curT = wordStart;
+  for (let i = 0; i < n; i++) {
+    const s = syls[i];
+    const oldDur = Math.max(0.001, s.end - s.start);
+    const weight = oldDur / oldSDur;
+    const dur = (i === n - 1) ? (wordEnd - curT) : Math.max(minSylDur, (wordDur * weight));
+    s.start = Math.round(curT * 1000) / 1000;
+    curT = (i === n - 1) ? wordEnd : (curT + dur);
+    s.end = Math.round(curT * 1000) / 1000;
+  }
+  // Enforce monotonicity and clamp each syllable to minSylDur
+  syls[0].start = wordStart;
+  for (let i = 0; i < n - 1; i++) {
+    if (syls[i].end > syls[i + 1].end - minSylDur) {
+      syls[i].end = Math.round((syls[i + 1].end - minSylDur) * 1000) / 1000;
+    }
+    syls[i + 1].start = syls[i].end;
+  }
+  syls[n - 1].end = wordEnd;
+}
+
+function snapSyllableSplitToPlayhead(lineIdx, wordIdx, sylIdx) {
+  if (!ws) return;
+  const line = state.alignment?.lines?.[lineIdx];
+  if (!line || !line.words?.length) return;
+  const w = line.words[wordIdx];
+  if (!w || !w.syllables || sylIdx < 0 || sylIdx >= w.syllables.length - 1) return;
+
+  const syls = w.syllables;
+  const t = ws.getCurrentTime();
+  const minSplit = syls[sylIdx].start + 0.035;
+  const maxSplit = syls[sylIdx + 1].end - 0.035;
+
+  let targetT = t;
+  if (targetT < minSplit) {
+    status(
+      window.t
+        ? t("bound_early_last", null, { time: fmtTimeShort(targetT), bound: fmtTimeShort(minSplit) })
+        : `⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 早于前一音节起点`,
+      true
+    );
+    targetT = minSplit;
+  } else if (targetT > maxSplit) {
+    status(
+      window.t
+        ? t("bound_late_next", null, { time: fmtTimeShort(targetT), bound: fmtTimeShort(maxSplit) })
+        : `⚠️ 播放头位置 (${fmtTimeShort(targetT)}) 晚于后一音节终点`,
+      true
+    );
+    targetT = maxSplit;
+  }
+  const clamped = Math.round(targetT * 1000) / 1000;
+  if (Math.abs(clamped - syls[sylIdx].end) < 0.001) return;
+
+  pushUndo();
+  syls[sylIdx].end = clamped;
+  syls[sylIdx + 1].start = clamped;
+
+  renderLyrics();
+  renderWords(lineIdx);
+  selectWord(wordIdx);
+  markDirty();
+
+  status(
+    window.t
+      ? t("syl_split_snapped_msg", null, {
+          syl1: syls[sylIdx].text,
+          syl2: syls[sylIdx + 1].text,
+          time: fmtTimeShort(clamped),
+        })
+      : `🎯 音节分割点 [${syls[sylIdx].text} | ${syls[sylIdx + 1].text}] 已吸附至播放头: ${fmtTimeShort(clamped)}`
+  );
+}
+
+function setupSyllableDragHandle(handle, wordIdx, sylIdx, lineIdx, bar, wordsTrack) {
+  let lastClickTime = 0;
+
+  handle.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    snapSyllableSplitToPlayhead(lineIdx, wordIdx, sylIdx);
+  });
+
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const now = Date.now();
+    if (now - lastClickTime < 350) {
+      lastClickTime = 0;
+      snapSyllableSplitToPlayhead(lineIdx, wordIdx, sylIdx);
+      return;
+    }
+    lastClickTime = now;
+
+    const line = state.alignment?.lines?.[lineIdx];
+    if (!line || !line.words?.length) return;
+    const w = line.words[wordIdx];
+    if (!w || !w.syllables || sylIdx < 0 || sylIdx >= w.syllables.length - 1) return;
+
+    const syls = w.syllables;
+    const startX = e.clientX;
+    const startSplit = syls[sylIdx].end;
+
+    const trackWidth = wordsTrack.getBoundingClientRect().width || 400;
+    const activeSpan = Math.max(0.1, line.words[line.words.length - 1].end - line.words[0].start);
+    const pxPerSec = trackWidth / activeSpan;
+
+    const minSplit = syls[sylIdx].start + 0.035;
+    const maxSplit = syls[sylIdx + 1].end - 0.035;
+
+    let moved = false;
+    let hasPushedUndo = false;
+
+    document.body.style.cursor = "col-resize";
+    handle.classList.add("dragging");
+
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX;
+      if (!moved && Math.abs(dx) < 2) return;
+      moved = true;
+      if (!hasPushedUndo) {
+        pushUndo();
+        hasPushedUndo = true;
+      }
+      const dt = dx / pxPerSec;
+      const targetT = startSplit + dt;
+      const clamped = Math.round(Math.max(minSplit, Math.min(maxSplit, targetT)) * 1000) / 1000;
+      syls[sylIdx].end = clamped;
+      syls[sylIdx + 1].start = clamped;
+
+      renderWords(lineIdx);
+      selectWord(wordIdx);
+      markDirty();
+    };
+
+    const onUp = () => {
+      document.body.style.cursor = "";
+      handle.classList.remove("dragging");
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      if (moved) {
+        renderLyrics();
+        renderWords(lineIdx);
+        selectWord(wordIdx);
+        status(
+          window.t
+            ? t("syl_split_snapped_msg", null, {
+                syl1: syls[sylIdx].text,
+                syl2: syls[sylIdx + 1].text,
+                time: fmtTimeShort(syls[sylIdx].end),
+              })
+            : `✂ 音节分割点 [${syls[sylIdx].text} | ${syls[sylIdx + 1].text}] → ${fmtTimeShort(syls[sylIdx].end)}`
+        );
+      }
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Word Dragging & Nudging
 // ---------------------------------------------------------------------------
 function snapFirstWordStartToPlayhead(lineIdx) {
@@ -2286,6 +2568,7 @@ function snapFirstWordStartToPlayhead(lineIdx) {
       line.end = words[0].end;
     }
   }
+  syncSyllablesOnWordChange(words[0], "start");
 
   syncLineFromWords(lineIdx);
   renderLyrics();
@@ -2326,6 +2609,7 @@ function snapSplitToPlayhead(lineIdx, wordIdx) {
     pushUndo();
     words[wordIdx].end = clamped;
     line.end = clamped;
+    syncSyllablesOnWordChange(words[wordIdx], "end");
     syncLineFromWords(lineIdx);
     renderLyrics();
     renderWords(lineIdx);
@@ -2347,6 +2631,8 @@ function snapSplitToPlayhead(lineIdx, wordIdx) {
     words[wordIdx + 1].start = clamped;
     delete words[wordIdx + 1].needs_review;
     delete words[wordIdx + 1].unresolved_compound;
+    syncSyllablesOnWordChange(words[wordIdx], "end");
+    syncSyllablesOnWordChange(words[wordIdx + 1], "start");
     syncLineFromWords(lineIdx);
     renderWords(lineIdx);
     selectWord(wordIdx);
@@ -2411,6 +2697,7 @@ function setupLineEdgeDragHandle(prePill, postPill, lineIdx, wordsTrack) {
         if (line.words.length > 1 && line.words[0].end <= clamped) {
           line.words[0].end = line.words[1].start;
         }
+        syncSyllablesOnWordChange(line.words[0], "start");
         renderWords(lineIdx);
         selectWord(0);
         markDirty();
@@ -2481,6 +2768,7 @@ function setupLineEdgeDragHandle(prePill, postPill, lineIdx, wordsTrack) {
         const clamped = Math.max(minEnd, Math.min(maxEnd, newEnd));
         line.words[lastIdx].end = clamped;
         line.end = clamped;
+        syncSyllablesOnWordChange(line.words[lastIdx], "end");
         renderWords(lineIdx);
         selectWord(lastIdx);
         markDirty();
@@ -2560,10 +2848,12 @@ function setupDragHandle(bar, wordIdx, lineIdx, wordsTrack) {
       const newEnd = Math.round((startEnd + dt) * 1000) / 1000;
       const clamped = Math.max(minEnd, Math.min(maxEnd, newEnd));
       words[wordIdx].end = clamped;
+      syncSyllablesOnWordChange(words[wordIdx], "end");
       if (isLastWord) {
         line.end = clamped;
       } else {
         words[wordIdx + 1].start = clamped;
+        syncSyllablesOnWordChange(words[wordIdx + 1], "start");
       }
       renderWords(lineIdx);
       selectWord(wordIdx);
@@ -2608,9 +2898,16 @@ function nudgeWord(delta) {
   if (idx < words.length - 1 && newEnd > words[idx + 1].end - 0.01) return;
   if (idx === words.length - 1 && nextLine && newEnd > nextLine.start - 0.01) return;
   pushUndo();
-  if (idx > 0) words[idx - 1].end = newStart;
-  if (idx < words.length - 1) words[idx + 1].start = newEnd;
+  if (idx > 0) {
+    words[idx - 1].end = newStart;
+    syncSyllablesOnWordChange(words[idx - 1], "end");
+  }
+  if (idx < words.length - 1) {
+    words[idx + 1].start = newEnd;
+    syncSyllablesOnWordChange(words[idx + 1], "start");
+  }
   words[idx].start = newStart; words[idx].end = newEnd;
+  syncSyllablesOnWordChange(words[idx], "shift", { delta });
   syncLineFromWords(state.selectedLine);
   renderWords(state.selectedLine); selectWord(idx); markDirty();
 }
@@ -2628,8 +2925,10 @@ function evenSplitLine() {
     const dur = (w.word.length / charCount) * totalDur;
     w.start = Math.round(t * 1000) / 1000; t += dur;
     w.end = Math.round(t * 1000) / 1000;
+    syncSyllablesOnWordChange(w, "proportional");
   });
   words[words.length - 1].end = line.end;
+  syncSyllablesOnWordChange(words[words.length - 1], "end");
   renderWords(state.selectedLine); markDirty();
 }
 
@@ -2677,6 +2976,7 @@ function nudgeLine(lineIdx, delta) {
   line.words.forEach(w => {
     w.start = Math.round((w.start + delta) * 1000) / 1000;
     w.end   = Math.round((w.end + delta) * 1000) / 1000;
+    syncSyllablesOnWordChange(w, "shift", { delta });
   });
   line.start = newStart;
   line.end = Math.round((line.end + delta) * 1000) / 1000;
@@ -2699,10 +2999,13 @@ function resizeLine(lineIdx, startDelta, endDelta) {
     const relEnd   = (w.end - oldStart) / oldDur;
     w.start = Math.round((newStart + relStart * newDur) * 1000) / 1000;
     w.end   = Math.round((newStart + relEnd * newDur) * 1000) / 1000;
+    syncSyllablesOnWordChange(w, "proportional");
   });
   line.start = newStart; line.end = newEnd;
   line.words[0].start = newStart;
+  syncSyllablesOnWordChange(line.words[0], "start");
   line.words[line.words.length - 1].end = newEnd;
+  syncSyllablesOnWordChange(line.words[line.words.length - 1], "end");
   renderLyrics(); selectLine(lineIdx); markDirty();
 }
 
@@ -2728,6 +3031,7 @@ function handleLineTimeInput(e) {
       if (line.words.length > 1 && line.words[0].end <= line.words[0].start) {
         line.words[0].end = line.words[1].start;
       }
+      syncSyllablesOnWordChange(line.words[0], "start");
       syncLineFromWords(idx); renderLyrics(); renderWords(idx); selectLine(idx); markDirty();
       const preGap = prevLine ? (line.start - prevLine.end) : line.start;
       status(window.t ? t("snap_start_msg", null, { time: fmtTimeShort(line.start), gap: preGap.toFixed(1) }) : `🎯 首字起唱点已调整为 ${fmtTimeShort(line.start)}（前置间奏: ${preGap.toFixed(1)}s）`);
@@ -2743,6 +3047,7 @@ function handleLineTimeInput(e) {
       pushUndo();
       lastWord.end = Math.round(parsed * 1000) / 1000;
       line.end = lastWord.end;
+      syncSyllablesOnWordChange(lastWord, "end");
       syncLineFromWords(idx); renderLyrics(); renderWords(idx); selectLine(idx); markDirty();
       const postGap = nextLine ? (nextLine.start - line.end) : 0;
       status(window.t ? t("snap_end_msg", null, { time: fmtTimeShort(line.end), gap: postGap.toFixed(1) }) : `🎯 尾字收唱点已调整为 ${fmtTimeShort(line.end)}（后置间歇: ${postGap.toFixed(1)}s）`);
@@ -2770,6 +3075,7 @@ if (typeof window !== "undefined") {
   window.recommendExcerptCandidates = recommendExcerptCandidates;
   window.toggleTimingWarningsVisibility = toggleTimingWarningsVisibility;
   window.getTimingWarningsVisible = () => timingWarningsVisible;
+  window.syncSyllablesOnWordChange = syncSyllablesOnWordChange;
 }
 
 if (typeof module !== "undefined" && module.exports) {
@@ -2782,5 +3088,6 @@ if (typeof module !== "undefined" && module.exports) {
     recommendExcerptCandidates,
     toggleTimingWarningsVisibility,
     getTimingWarningsVisible: () => timingWarningsVisible,
+    syncSyllablesOnWordChange,
   };
 }
