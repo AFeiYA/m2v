@@ -22,6 +22,10 @@ export function isRemoteStaticHost(): boolean {
  return typeof location !== 'undefined' && /(?:fovea\.si|pages\.dev|web\.app)$/.test(location.hostname);
 }
 
+export function isStagingHost(): boolean {
+ return typeof location !== 'undefined' && (location.hostname.includes('staging') || location.hostname.includes('dev'));
+}
+
 export function cloudService(): boolean {
  if (explicitCloudMode !== null) return explicitCloudMode;
  if (typeof window !== 'undefined' && Boolean(window.M2V_API_BASE)) return true;

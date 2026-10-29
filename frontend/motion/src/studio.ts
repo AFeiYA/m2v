@@ -8,7 +8,7 @@ import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,res
 import { RemotionPreview } from './remotion-preview';
 import { isWebCodecsSupported, exportMotionWebCodecs } from './webcodecs-exporter';
 import { defaults, normalizeProject, renderSize, buildExportClips, resolveVisualMode, type Project, type Options, type MotionPlan, type ExportClip } from './model';
-import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,downloadService} from './service-api';
+import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,downloadService,isStagingHost} from './service-api';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const audio=new Audio();
 audio.hidden=true;
@@ -232,6 +232,7 @@ function isFastWebCodecsActive(): boolean {
 
 function getMotionUnitCost(): number {
   if (!cloudService()) return 0;
+  if (isStagingHost()) return 0;
   return isFastWebCodecsActive() ? motionPricing.webcodecs : motionPricing.cloud;
 }
 
@@ -350,7 +351,9 @@ function updateMatrixCount() {
   const isFast = isFastWebCodecsActive();
   const unitCost = getMotionUnitCost();
   const unlocked = songVideoUnlocked;
-  const totalCost = count === 0 ? 0 : (unlocked ? 0 : unitCost);
+  const isStaging = isStagingHost();
+  const isFree = !cloudService() || isStaging || unitCost === 0 || unlocked;
+  const totalCost = count === 0 || isFree ? 0 : unitCost;
 
   const price = $('motion-credit-price');
   if (price) {
@@ -358,6 +361,10 @@ function updateMatrixCount() {
       price.textContent = isZh ? '本地模式 · 不消耗云端积分' : 'Local export · no cloud credits';
     } else if (count === 0) {
       price.textContent = isZh ? '请先勾选需要导出的片段' : 'Select at least one clip';
+    } else if (isStaging || unitCost === 0) {
+      price.textContent = isZh
+        ? `测试环境 · 限时免费导出（所选 ${count} 个视频合计 0 积分）`
+        : `Staging preview · Free exports (${count} video${count === 1 ? '' : 's'}, 0 credits total)`;
     } else if (unlocked) {
       price.textContent = isZh
         ? `本歌曲已解锁出片 · 不限次免费导出（所选 ${count} 个视频合计 0 积分）`
@@ -373,7 +380,16 @@ function updateMatrixCount() {
   }
   const btn = $<HTMLButtonElement>('export');
   if (btn && !btn.disabled) {
-    const costText = cloudService() && totalCost > 0 ? ` (${totalCost} ${isZh ? '积分' : 'credits'})` : (cloudService() ? (isZh ? ' (0 积分 · 已解锁)' : ' (0 credits · Unlocked)') : '');
+    let costText = '';
+    if (cloudService()) {
+      if (isStaging || unitCost === 0) {
+        costText = isZh ? ' (0 积分 · 免费)' : ' (0 credits · Free)';
+      } else if (unlocked || totalCost === 0) {
+        costText = isZh ? ' (0 积分 · 已解锁)' : ' (0 credits · Unlocked)';
+      } else {
+        costText = isZh ? ` (${totalCost} 积分 · 单曲买断)` : ` (${totalCost} credits · Song unlock)`;
+      }
+    }
     const actionText = custom ? (isZh ? '导出自定义片段' : 'Export Custom Clip') : (isZh ? `导出所选视频 (${count})` : `Export Selected (${count})`);
     btn.textContent = `${actionText}${costText}`;
   }
@@ -400,7 +416,16 @@ async function exportVideo() {
 }
 
 async function runExportVideo() {
-  if(!selected||(design.active_mode==='kinetic'&&!plan))throw new Error('Generate a poster design first, or select Apple Scroll / Dual-line Karaoke.');
+  if (!selected) throw new Error('Select a song first.');
+  if (design.active_mode === 'kinetic' && !plan) {
+    if (options.aspect === '16:9') {
+      design.active_mode = 'tv';
+      syncModeControls();
+    } else {
+      design.active_mode = 'apple';
+      syncModeControls();
+    }
+  }
   requireSaved();
   if (coverPending) await coverPending;
   requireSaved();
@@ -436,16 +461,17 @@ async function runExportVideo() {
   });
 
   if (cloudService()) {
-    const creditsData = await serviceJson('/api/credits?page_size=1');
+    const isStaging = isStagingHost();
     const unitCost = getMotionUnitCost();
     const unlocked = songVideoUnlocked;
-    const totalRequired = unlocked ? 0 : unitCost;
-    if (totalRequired > 0 && typeof creditsData?.available === 'number' && creditsData.available < totalRequired) {
-      throw new Error(isZh
-        ? `积分不足（当前剩余 ${creditsData.available} 积分，解锁本歌曲导出需要 ${totalRequired} 积分，请充值后重试）`
-        : `Insufficient credits (${creditsData.available} available, ${totalRequired} required to unlock this song. Please top up first)`);
-    }
-    if (!unlocked && totalRequired > 0) {
+    const totalRequired = (isStaging || unitCost === 0 || unlocked) ? 0 : unitCost;
+    if (totalRequired > 0) {
+      const creditsData = await serviceJson('/api/credits?page_size=1');
+      if (typeof creditsData?.available === 'number' && creditsData.available < totalRequired) {
+        throw new Error(isZh
+          ? `积分不足（当前剩余 ${creditsData.available} 积分，解锁本歌曲导出需要 ${totalRequired} 积分，请充值后重试）`
+          : `Insufficient credits (${creditsData.available} available, ${totalRequired} required to unlock this song. Please top up first)`);
+      }
       const unlockRes = await serviceJson('/api/cloud-motion/unlock?' + new URLSearchParams({
         project_id: sourceProject,
         accepted_cost: String(acceptedCost),

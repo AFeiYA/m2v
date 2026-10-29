@@ -4,10 +4,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title data-i18n="app_title">M2V Lyrics &amp; Subtitle Alignment Editor</title>
+  <title data-i18n="app_title">Lyrics &amp; Subtitle Alignment Editor · Fovea Studio</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <script>
     if (!window.M2V_API_BASE) {
-      if (location.hostname.includes("fovea.si") || location.hostname.includes("pages.dev") || location.hostname.includes("web.app")) {
+      if (location.hostname.includes("staging") || location.hostname.includes("dev")) {
+        window.M2V_API_BASE = "https://lucazhou-suno2mv-api-staging.hf.space";
+      } else if (location.hostname.includes("fovea.si") || location.hostname.includes("pages.dev") || location.hostname.includes("web.app")) {
         window.M2V_API_BASE = "https://lucazhou-suno2mv-api.hf.space";
       } else {
         window.M2V_API_BASE = "";

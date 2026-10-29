@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="star-grad" x1="12" y1="4" x2="52" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#dbff6b"/>
+      <stop offset="100%" stop-color="#a3ee2c"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="rgba(183, 243, 74, 0.25)"/>
+      <stop offset="100%" stop-color="rgba(183, 243, 74, 0)"/>
+    </radialGradient>
+  </defs>
+  <!-- Background squircle -->
+  <rect width="64" height="64" rx="16" fill="#11130e"/>
+  <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="15.25" stroke="rgba(255, 255, 255, 0.14)" stroke-width="1.5"/>
+  <circle cx="32" cy="32" r="24" fill="url(#glow)"/>
+  <!-- Fovea Sparkle Mark -->
+  <g transform="translate(6.5, 6.5) scale(2.125)">
+    <path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"
+          fill="url(#star-grad)" stroke="#b7f34a" stroke-width="0.8" stroke-linejoin="round"/>
+    <circle cx="19.2" cy="19.2" r="2.3" fill="#ffffff"/>
+  </g>
+</svg>

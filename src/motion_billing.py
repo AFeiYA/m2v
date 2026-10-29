@@ -20,13 +20,12 @@ async def is_song_unlocked(db, uid: str, project_id: str) -> bool:
     ).limit(1))).scalar_one_or_none()
     if has_export is not None:
         return True
-    has_paid_done = (await db.execute(select(MotionExportRequest.id).where(
+    has_done = (await db.execute(select(MotionExportRequest.id).where(
         MotionExportRequest.user_id == uid,
         MotionExportRequest.task_id == project_id,
-        MotionExportRequest.cost > 0,
         MotionExportRequest.state == 'done'
     ).limit(1))).scalar_one_or_none()
-    if has_paid_done is not None:
+    if has_done is not None:
         return True
     has_active_paid = (await db.execute(select(MotionExportRequest.id).where(
         MotionExportRequest.user_id == uid,

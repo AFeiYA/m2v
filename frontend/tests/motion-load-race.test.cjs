@@ -16,7 +16,7 @@ function setup(){
  const document={getElementById(id){if(!nodes.has(id)){const n=node();n.value=({preset:'impact','theme-bg':'auto','default-layout-preset':'smart',aspect:'16:9',resolution:'720',bloom:'.7',shake:'.65'})[id]||'';nodes.set(id,n);}return nodes.get(id);},querySelectorAll(){return [];},createElement:node,body:node()};
  class Audio{currentTime=0;src='';pause(){this.on_pause?.();}load(){}addEventListener(name,handler){this['on_'+name]=handler;}}
  class RemotionPreview{renderAt(){}dispose(){}}
- const service={cloudService:()=>false,motionUrl:p=>'/'+p,downloadService:url=>url,motionJson:async (name,method,body)=>{
+ const service={cloudService:()=>false,isStagingHost:()=>false,motionUrl:p=>'/'+p,downloadService:url=>url,motionJson:async (name,method,body)=>{
   if(method==='PUT'){writes.push({name,body});const d=deferred();saves.push(d);return d.promise;}
   if(name==='projects'||name.startsWith('exports?'))return [];
   if(name==='director/config')return {configured:false};

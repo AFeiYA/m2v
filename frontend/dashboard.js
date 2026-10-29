@@ -1741,8 +1741,11 @@ function renderCreditOverview(data) {
     ['#stat-val-alignment-cost', creditRate(pricing?.alignment)],
     ['#stat-val-motion-cost', motion]
   ]) if ($(id)) $(id).textContent = text;
+  const isZh = window.currentLocale === 'zh';
   if ($('#credit-pricing')) $('#credit-pricing').textContent = pricing
-    ? `Lyrics alignment: ${creditRate(pricing.alignment)} per import. Motion video export: ${motion} per video. Each selected video is charged separately. Review the exact cost before starting. Reusing an unchanged alignment and downloading an existing video are free.`
+    ? (isZh
+        ? `歌词对齐：${creditRate(pricing.alignment)} / 首（含人声分离与逐字对齐）。视频导出：${motion} 单曲买断（解锁后该歌曲所有画幅与片段不限次免费导出）。复用未修改对齐与下载历史视频完全免费。`
+        : `Lyrics alignment: ${creditRate(pricing.alignment)} per song (includes vocal separation & word-level timing). Video export: ${motion} one-time unlock per song (unlimited free exports across all formats & clips). Reusing existing alignment and downloading videos are always free.`)
     : 'Usage costs are unavailable. Refresh before starting a new task.';
 }
 
