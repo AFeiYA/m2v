@@ -228,13 +228,13 @@
             <span class="step-badge">STEP 01</span>
           </div>
 
-          <div class="mode-tabs" id="import-mode-tabs" style="display:none">
-            <button type="button" class="tab-btn active" id="tab-local">📁 Upload audio</button>
-            <button type="button" class="tab-btn" id="tab-suno" style="display:none">🔗 Import from link</button>
+          <div class="mode-tabs" id="import-mode-tabs">
+            <button type="button" class="tab-btn active" id="tab-suno">🔗 Import from link</button>
+            <button type="button" class="tab-btn" id="tab-local">📁 Upload audio</button>
           </div>
 
-          <!-- Mode 1: 链接表单 (仅开发模式可用) -->
-          <form id="suno-form" style="display:none">
+          <!-- Mode 1: 链接表单 (默认显示) -->
+          <form id="suno-form">
             <div class="suno-input-box">
               <svg class="suno-link-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
               <input type="url" id="input-suno-url" placeholder="Paste song link, e.g. https://suno.com/song/..." required>
@@ -242,7 +242,7 @@
             </div>
             <div class="suno-input-hint">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
-              <span>Developer mode only: paste song link for testing</span>
+              <span>Paste public song link (e.g. Suno) to import audio &amp; lyrics automatically</span>
             </div>
 
             <details class="import-options"><summary>Advanced import settings</summary>
@@ -269,7 +269,7 @@
           </form>
 
           <!-- Mode 2: Local Upload Form -->
-          <form id="upload-form">
+          <form id="upload-form" style="display:none">
             <!-- 1. Audio and Optional Cover -->
             <div class="upload-row">
               <div class="upload-field">

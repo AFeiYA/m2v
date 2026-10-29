@@ -506,24 +506,13 @@ function isDevMode() {
 function applyDevMode(isDev) {
   const tabSuno = $("#tab-suno");
   const tabLocal = $("#tab-local");
-  const sunoForm = $("#suno-form");
-  const uploadForm = $("#upload-form");
   const modeTabs = $("#import-mode-tabs");
   const wrapLocalSunoUrl = $("#wrap-local-suno-url");
 
-  if (isDev) {
-    if (tabSuno) tabSuno.style.display = "";
-    if (modeTabs) modeTabs.style.display = "";
-    if (wrapLocalSunoUrl) wrapLocalSunoUrl.style.display = "";
-  } else {
-    if (tabSuno) tabSuno.style.display = "none";
-    if (modeTabs) modeTabs.style.display = "none";
-    if (wrapLocalSunoUrl) wrapLocalSunoUrl.style.display = "none";
-    if (sunoForm) sunoForm.style.display = "none";
-    if (uploadForm) uploadForm.style.display = "";
-    if (tabLocal) tabLocal.classList.add("active");
-    if (tabSuno) tabSuno.classList.remove("active");
-  }
+  if (tabSuno) tabSuno.style.display = "";
+  if (tabLocal) tabLocal.style.display = "";
+  if (modeTabs) modeTabs.style.display = "";
+  if (wrapLocalSunoUrl) wrapLocalSunoUrl.style.display = isDev ? "" : "none";
 
   if (typeof initApiConfig === "function") initApiConfig();
 
