@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.auth import get_current_user_flexible
 from src.database import get_db
 from src.editor_operations import router as operations_router
-from src.models import Task, TaskStatus, User
+from src.models import Task, TaskStatus, TaskStep, User
 from src.schemas import RealignTaskRequest
 from src.storage import LocalStorage, get_storage
 from src.utils import log
@@ -300,12 +300,31 @@ async def realign_lyrics(
 
     task.input_lyrics_key = lyrics_key
 
-    # 2. 预留扣除 20 积分
-    realign_sub_id = f"realign:{task.id}:{int(datetime.now(timezone.utc).timestamp())}"
+    # 2. 预留扣除 20 积分 (使用 task.id 作为 operation_id，支持 allow_reopen=True)
     task.cost_credits = cost
-    await reserve(db, user.id, realign_sub_id, "alignment", cost)
+    await reserve(db, user.id, task.id, "alignment", cost, allow_reopen=True)
 
-    # 3. 更新 Task 状态和标记：单版本模型，打上 is_custom_lyrics 标记
+    # 3. 设置 AlignmentExecution 租约与 execution_token
+    import uuid
+    from datetime import timedelta
+    from src.models import AlignmentExecution
+    from src.alignment_execution import now, QUEUE_SECONDS
+    token = uuid.uuid4().hex
+    exec_row = await db.get(AlignmentExecution, task.id)
+    if exec_row:
+        exec_row.token = token
+        exec_row.phase = "queued"
+        exec_row.lease_until = now() + timedelta(seconds=QUEUE_SECONDS)
+    else:
+        exec_row = AlignmentExecution(
+            task_id=task.id,
+            token=token,
+            phase="queued",
+            lease_until=now() + timedelta(seconds=QUEUE_SECONDS),
+        )
+        db.add(exec_row)
+
+    # 4. 更新 Task 状态和标记：单版本模型，打上 is_custom_lyrics 标记，状态置为 PENDING 供 managed_worker claim
     snapshot = dict(task.config_snapshot or {})
     snapshot.update({
         "language": req.language or snapshot.get("language", "auto"),
@@ -314,16 +333,17 @@ async def realign_lyrics(
         "import_lyrics_signature": new_signature,
         "custom_realigned_at": datetime.now(timezone.utc).isoformat(),
         "reuse_stems_from": task.id,  # 复用当前任务已分离的人声干音
+        "_execution_token": token,
     })
     task.config_snapshot = snapshot
-    task.status = TaskStatus.PROCESSING
-    task.current_step = "queued"
+    task.status = TaskStatus.PENDING
+    task.current_step = TaskStep.QUEUED
     task.progress = 0
     task.error_message = None
     task.updated_at = datetime.now(timezone.utc)
     await db.commit()
 
-    # 4. 派发后台 Worker
+    # 5. 派发后台 Worker
     from src.api_server import _dispatch_task
     task.celery_task_id = _dispatch_task(
         task.id, task.input_mp3_key, task.input_lyrics_key, task.config_snapshot

@@ -1666,3 +1666,55 @@ def test_backend_workbench_pins_browser_requests_to_its_own_deployment(sandbox):
     assert response.status_code == 200
     assert 'window.M2V_API_BASE=window.location.origin;' in response.text
     assert response.text.index('window.M2V_API_BASE=') < response.text.index('src="/dashboard.js')
+
+
+def test_realign_lyrics_and_zero_cost_credits_on_failure(sandbox, monkeypatch):
+    from src.models import AlignmentExecution, Task, TaskStatus, User
+    from src.task_lifecycle import fail_task_and_refund
+    seed_editor_song(sandbox)
+
+    # Initial state: Alice has 5 credits
+    assert sandbox.client.get("/api/auth/me", headers=headers()).json()["credits"] == 5
+
+    # 1. Realign with modified lyrics
+    resp = sandbox.client.post(
+        "/api/editor/tasks/editor/realign",
+        headers=headers(),
+        json={"lyrics_text": "new realigned lyrics"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "processing"
+
+    # User credits decreased by cost (1 in sandbox fixture)
+    assert sandbox.client.get("/api/auth/me", headers=headers()).json()["credits"] == 4
+
+    # Check Task and AlignmentExecution in DB
+    async def verify_dispatched():
+        async with sandbox.sessions() as db:
+            task = await db.get(Task, "editor")
+            assert task.status in (TaskStatus.PENDING, TaskStatus.PROCESSING)
+            assert task.cost_credits == 1
+            token = task.config_snapshot.get("_execution_token")
+            assert token is not None
+            exec_row = await db.get(AlignmentExecution, "editor")
+            assert exec_row is not None
+            assert exec_row.token == token
+            assert exec_row.phase in ("queued", "running")
+    asyncio.run(verify_dispatched())
+
+    # 2. Simulate task failure
+    async def simulate_failure():
+        async with sandbox.sessions() as db:
+            claimed = await fail_task_and_refund(db, "editor", "model failure")
+            assert claimed is True
+            await db.commit()
+    asyncio.run(simulate_failure())
+
+    # Verify task status is FAILED and all credits are refunded to Alice
+    assert sandbox.client.get("/api/auth/me", headers=headers()).json()["credits"] == 5
+    async def verify_failed():
+        async with sandbox.sessions() as db:
+            task = await db.get(Task, "editor")
+            assert task.status == TaskStatus.FAILED
+    asyncio.run(verify_failed())
+

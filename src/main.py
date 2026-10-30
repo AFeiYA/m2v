@@ -332,7 +332,7 @@ def process_one(
                 alignment.save_json(json_path)
                 output_json = output_dir / f"{stem}_alignment.json"
                 shutil.copy2(json_path, output_json)
-            elif not config.skip_separation and existing_vocals.exists() and existing_vocals.stat().st_size > 100_000:
+            elif existing_vocals.exists() and existing_vocals.stat().st_size > 100_000:
                 log.info("[2/5] 检测到已有分离人声文件: %s，直接复用…", existing_vocals.name)
                 vocals_path = existing_vocals
                 instrumental_path = existing_inst if existing_inst.exists() else None

@@ -57,7 +57,7 @@ def entry(db, reservation, event, delta, balance, description):
                        balance_after=balance, description=description))
 
 
-async def reserve(db, uid, operation_id, kind, amount):
+async def reserve(db, uid, operation_id, kind, amount, *, allow_reopen: bool = False):
     if amount < 0:
         raise ValueError("Credit cost must be nonnegative")
     balance = await lock_balance(db, uid)
@@ -66,16 +66,19 @@ async def reserve(db, uid, operation_id, kind, amount):
     if amount == 0 and reservation is None:
         return None
     await opening(db, uid, balance)
-    if reservation and reservation.state in ("held", "settled"):
+    if reservation and reservation.state == "held":
         return reservation
-    # A retry preserves the original price; a config change must not reprice it.
-    cost = reservation.amount if reservation else amount
+    if reservation and reservation.state == "settled" and not allow_reopen:
+        return reservation
+    # A retry preserves the original price; a reopen or new reservation uses amount.
+    cost = amount if (allow_reopen or not reservation) else reservation.amount
     if balance < cost:
         raise HTTPException(403, f"Not enough credits. This operation requires {cost} credits.")
     balance -= cost
     await db.execute(update(User).where(User.id == uid).values(credits=balance))
     if reservation:
         reservation.state = "held"
+        reservation.amount = cost
         reservation.attempt += 1
     else:
         reservation = CreditReservation(id=reservation_id, user_id=uid, operation_id=operation_id,

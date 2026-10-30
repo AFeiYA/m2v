@@ -248,7 +248,7 @@ def process_song_task(
         # Reuse an owner-verified previous task's stems, never its alignment JSON.
         # Missing/deleted stems fall back to the normal separation pipeline.
         previous = (config_dict or {}).get("reuse_stems_from")
-        if previous and not config.skip_separation:
+        if previous:
             for track in ("vocals", "instrumental"):
                 for extension in ("wav", "mp3", "flac"):
                     name = f"{mp3_local.stem}_{track}.{extension}"

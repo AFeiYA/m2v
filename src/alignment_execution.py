@@ -152,3 +152,17 @@ async def reconcile(db, user_id):
     if ids:
         from src.models import User
         await db.get(User, user_id, populate_existing=True)
+
+    # 自动释放因历史异常残留的 realign:* 孤儿预留记录
+    from src.models import CreditReservation
+    from src.credits import finish
+    lingering_realigns = (await db.execute(
+        select(CreditReservation).where(
+            CreditReservation.user_id == user_id,
+            CreditReservation.kind == "alignment",
+            CreditReservation.state == "held",
+            CreditReservation.operation_id.like("realign:%"),
+        )
+    )).scalars().all()
+    for lr in lingering_realigns:
+        await finish(db, user_id, lr.operation_id, "alignment", success=False)
