@@ -224,6 +224,9 @@ async function apiFetch(url, options = {}) {
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`);
   }
+  if (!headers.has("Accept-Language")) {
+    headers.set("Accept-Language", window.currentLocale === "zh" ? "zh-CN,zh;q=0.9" : "en-US,en;q=0.9");
+  }
   opts.headers = headers;
   const response = await fetch(fullUrl, opts);
   if (response.status !== 401 || !isCloudMode()) return response;
@@ -1037,7 +1040,15 @@ async function handleSunoImport() {
     status(window.t ? t("msg_import_success", null, { title: data.title }) : `🎉 导入成功: ${data.title}`);
     await loadFileList(data.title);
   } catch (err) {
-    alert("Suno 导入失败: " + err.message);
+    const isZh = window.currentLocale === "zh";
+    let msg = err.message || "";
+    if (/not published|尚未公开|未公开|未发布/i.test(msg)) {
+      msg = isZh
+        ? "该曲目尚未公开 (Publish)，无法导入！\n💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+        : "This song is not published (Publish required).\n💡 Please click [Publish] in Suno’s song menu (…) and try again.";
+    }
+    const prefix = isZh ? (window.t ? t("msg_import_failed") || "Suno 导入失败: " : "Suno 导入失败: ") : "Suno import failed: ";
+    alert(prefix + msg);
   } finally {
     clearInterval(importTimer);
     if (btn) btn.disabled = false;

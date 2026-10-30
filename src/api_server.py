@@ -488,6 +488,7 @@ async def upload_and_create_task(
 async def create_task_from_suno(
     req: SunoTaskRequest,
     background: BackgroundTasks,
+    request: Request = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -495,16 +496,43 @@ async def create_task_from_suno(
     from src.alignment_execution import reconcile
     await reconcile(db, user.id)
     clean_url = req.suno_url.strip()
-    if not req.ass_only and settings.LYRIC_EXPORT_CREDITS:
-        raise HTTPException(409, "Import alignment only, then export from Lyric Editor to review the video credit price.")
-    if not clean_url:
-        raise HTTPException(400, "Please provide a valid Suno link")
 
-    from src.suno_fetch import fetch_song, download_song
+    # 根据请求与用户语言偏好自适应判断中英文
+    accept = (request.headers.get("accept-language") or "").lower() if request else ""
+    if req.language and req.language.lower() in ("zh", "chinese"):
+        is_zh = True
+    elif req.language and req.language.lower() in ("en", "english"):
+        is_zh = False
+    elif "zh" in accept:
+        zh_idx = accept.find("zh")
+        en_idx = accept.find("en")
+        is_zh = (en_idx == -1 or zh_idx < en_idx)
+    else:
+        is_zh = False
+
+    if not req.ass_only and settings.LYRIC_EXPORT_CREDITS:
+        raise HTTPException(
+            409,
+            "请先仅导入对齐，稍后在歌词编辑器中导出以确认视频积分。"
+            if is_zh else
+            "Import alignment only, then export from Lyric Editor to review the video credit price."
+        )
+    if not clean_url:
+        raise HTTPException(
+            400,
+            "请提供有效的 Suno 歌曲链接" if is_zh else "Please provide a valid Suno link"
+        )
+
+    from src.suno_fetch import fetch_song, download_song, SongNotPublishedError
     try:
         song = await asyncio.to_thread(fetch_song, clean_url)
+    except SongNotPublishedError as e:
+        detail = e.format_message("zh" if is_zh else "en") if hasattr(e, "format_message") else str(e)
+        prefix = "导入链接歌曲失败: " if is_zh else "Failed to fetch song from link: "
+        raise HTTPException(400, f"{prefix}{detail}")
     except Exception as e:
-        raise HTTPException(400, f"Failed to fetch song from link: {e}")
+        prefix = "导入链接歌曲失败: " if is_zh else "Failed to fetch song from link: "
+        raise HTTPException(400, f"{prefix}{e}")
 
     song.id = str(song.id).lower()
     canonical_url = f"https://suno.com/song/{song.id}"

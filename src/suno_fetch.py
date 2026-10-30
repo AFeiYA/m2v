@@ -64,8 +64,48 @@ class SunoSong:
 
 
 class SongNotPublishedError(ValueError):
-    """当 Suno 歌曲尚未公开发布 (is_public is False 或页面不可公开发问) 时抛出。"""
-    pass
+    """当 Suno 歌曲尚未公开发布 (is_public is False 或页面不可公开发布) 时抛出。"""
+
+    def __init__(
+        self,
+        message: str | None = None,
+        title: str = "",
+        status_code: int | None = None,
+    ):
+        self.raw_title = title
+        self.status_code = status_code
+        self.custom_message = message
+        default_msg = message or self.format_message("zh")
+        super().__init__(default_msg)
+
+    def format_message(self, locale: str = "zh") -> str:
+        is_zh = locale.lower().startswith("zh") if locale else True
+        t = f"《{self.raw_title}》" if self.raw_title else ""
+        if is_zh:
+            if self.status_code in (404, 403, 401):
+                return (
+                    f"无法访问 Suno 页面 (HTTP {self.status_code})。该曲目可能尚未公开 (Publish)！\n"
+                    "💡 请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+                )
+            if self.custom_message and not self.raw_title:
+                return self.custom_message
+            return (
+                f"Suno 曲目{t}尚未公开 (Publish)，无法生成！\n"
+                "💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+            )
+        else:
+            song_label = f'"{self.raw_title}"' if self.raw_title else "This song"
+            if self.status_code in (404, 403, 401):
+                return (
+                    f"Unable to access Suno page (HTTP {self.status_code}). This song may not be published (Publish required).\n"
+                    "💡 Please click [Publish] in Suno’s song menu (…) and try again."
+                )
+            if self.custom_message and not self.raw_title:
+                return self.custom_message
+            return (
+                f"Suno song {song_label} is not published (Publish required).\n"
+                "💡 Please click [Publish] in Suno’s song menu (…) and try again."
+            )
 
 
 def resolve_suno_page(url_or_id: str) -> tuple[str, str, str]:
@@ -105,7 +145,8 @@ def resolve_suno_page(url_or_id: str) -> tuple[str, str, str]:
         if status_code in (404, 403, 401):
             raise SongNotPublishedError(
                 f"无法访问 Suno 页面 (HTTP {status_code})。该曲目可能尚未公开 (Publish)！\n"
-                "💡 请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+                "💡 请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。",
+                status_code=status_code,
             )
         raise
     resp.encoding = "utf-8"
@@ -115,7 +156,8 @@ def resolve_suno_page(url_or_id: str) -> tuple[str, str, str]:
     if "suno.com/create" in resp.url or "suno.com/me" in resp.url or not re.search(r'[0-9a-f]{8}-', html):
         raise SongNotPublishedError(
             "未能从 Suno 页面提取歌曲信息，该曲目可能尚未公开 (Publish)！\n"
-            "💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+            "💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。",
+            status_code=403,
         )
 
     # 1. 尝试从 canonical 标签获取标准 song_id
@@ -233,7 +275,8 @@ def fetch_song(
     if require_public and clip_data.get("is_public") is False:
         raise SongNotPublishedError(
             f"Suno 曲目《{title}》尚未公开 (Publish)，无法生成视频！\n"
-            "💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+            "💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。",
+            title=title,
         )
 
     metadata = clip_data.get("metadata", {}) or {}

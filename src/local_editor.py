@@ -385,6 +385,7 @@ async def plugin_export_audio(song_id: str = Form(...), title: str = Form("Suno_
 
 @app.post("/api/plugin/export_video")
 async def plugin_direct_export_video(
+    request: Request = None,
     audio_file: UploadFile = File(None),
     title: str = Form("Suno_Track"),
     lyrics: str = Form(""),
@@ -430,10 +431,14 @@ async def plugin_direct_export_video(
     elif isinstance(is_public, str):
         is_public = is_public.strip().lower() not in ("false", "0", "no", "off")
     if not is_public:
-        raise HTTPException(
-            status_code=400,
-            detail="该曲目尚未公开 (Publish)，无法生成视频！\n💡 请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+        accept = (request.headers.get("accept-language") or "").lower() if request else ""
+        is_zh = "zh" in accept and ("en" not in accept or accept.find("zh") < accept.find("en"))
+        detail = (
+            "该曲目尚未公开 (Publish)，无法生成视频！\n💡 请在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+            if is_zh else
+            "This song is not published (Publish required). Cannot create a video.\n💡 Choose Publish in Suno’s (…) menu and try again."
         )
+        raise HTTPException(status_code=400, detail=detail)
 
     # Only stage request-owned uploads here. Network, inference and rendering
     # must run after returning the task ID, outside the ASGI event loop.
@@ -1461,21 +1466,27 @@ def download_original_mp3(song: str | None = None, json_path: str | None = None)
 
 
 @app.get("/api/suno/publish_status")
-def api_suno_publish_status(url: str):
+def api_suno_publish_status(url: str, request: Request = None):
     """Check public availability without downloading or aligning audio."""
     from src.suno_fetch import fetch_song, SongNotPublishedError
+    accept = (request.headers.get("accept-language") or "").lower() if request else ""
+    is_zh = "zh" in accept and ("en" not in accept or accept.find("zh") < accept.find("en"))
     try:
         song = fetch_song(url.strip(), require_public=True)
         return {"is_public": song.is_public is True}
     except SongNotPublishedError:
+        if is_zh:
+            raise HTTPException(400, "该曲目尚未公开 (Publish)。请在 Suno 的 (…) 菜单中发布后再试。")
         raise HTTPException(400, "Song is not published. Publish it in Suno’s (…) menu before downloading MP3 or MP4.")
     except Exception:
+        if is_zh:
+            raise HTTPException(502, "无法验证曲目公开状态 (verify)，请稍后重试。")
         raise HTTPException(502, "Could not verify song publication. Please try again.")
 
 
 @app.get("/api/suno/download_mp3", operation_id="api_suno_download_mp3_get")
 @app.post("/api/suno/download_mp3", operation_id="api_suno_download_mp3_post")
-def api_suno_download_mp3(url: str):
+def api_suno_download_mp3(url: str, request: Request = None):
     """
     Suno 仅下载原曲 MP3（第一步）：
     仅执行歌曲信息抓取 + 原曲音频下载 (支持直链与视频流自动回退提取)，
@@ -1572,10 +1583,15 @@ def api_suno_download_mp3(url: str):
     except HTTPException:
         raise
     except Exception as e:
+        accept = (request.headers.get("accept-language") or "").lower() if request else ""
+        is_zh = "zh" in accept and ("en" not in accept or accept.find("zh") < accept.find("en"))
         if isinstance(e, SongNotPublishedError):
+            if is_zh:
+                raise HTTPException(400, "该曲目尚未公开 (Publish)。请在 Suno 的 (…) 菜单中发布后再试。")
             raise HTTPException(400, "Song is not published. Publish it in Suno’s (…) menu before downloading MP3 or MP4.")
         log.error("Suno MP3 下载失败: %s", e, exc_info=True)
-        raise HTTPException(500, f"Suno MP3 下载失败: {str(e)}")
+        prefix = "Suno MP3 下载失败: " if is_zh else "Suno MP3 download failed: "
+        raise HTTPException(500, f"{prefix}{str(e)}")
 
 
 

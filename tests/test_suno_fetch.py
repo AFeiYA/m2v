@@ -287,3 +287,17 @@ def test_parse_suno_prompt_sections_arrangement_and_generic_sections():
     assert sections[3]['name'] == 'Drop' and sections[3]['label'] == '间奏'
     assert sections[4]['name'] == 'Bridge' and sections[4]['label'] == '桥段'
     assert sections[5]['name'] == 'Outro' and sections[5]['label'] == '尾奏' and sections[5]['style'] == 'Fade out'
+
+
+def test_song_not_published_error_bilingual_formatting():
+    from src.suno_fetch import SongNotPublishedError
+    err = SongNotPublishedError(title="My Song", status_code=403)
+    assert "尚未公开" in err.format_message("zh")
+    assert "Publish" in err.format_message("zh")
+    assert "published" in err.format_message("en").lower()
+    assert "Publish" in err.format_message("en")
+
+    err2 = SongNotPublishedError(title="My Song")
+    assert "not published" in err2.format_message("en")
+    assert '"My Song"' in err2.format_message("en")
+    assert "《My Song》" in err2.format_message("zh")

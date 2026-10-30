@@ -88,6 +88,9 @@ async function api(path, options = {}) {
 
   const headers = options.headers || {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (!headers["Accept-Language"]) {
+    headers["Accept-Language"] = (window.currentLocale === "zh") ? "zh-CN,zh;q=0.9" : "en-US,en;q=0.9";
+  }
   if (options.json) {
     headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(options.json);
@@ -674,9 +677,10 @@ function initUpload() {
       const songTitle = $("#input-suno-title").value.trim();
       if (!sunoUrl) return;
 
+      const isZh = window.currentLocale === "zh";
       const btn = $("#btn-suno-submit");
       btn.disabled = true;
-      btn.textContent = "⏳ Importing Suno song and audio…";
+      btn.textContent = isZh ? "⏳ 正在导入歌曲并提取音频…" : "⏳ Importing Suno song and audio…";
 
       try {
         const payload = {
@@ -695,20 +699,35 @@ function initUpload() {
 
         if (res.ok) {
           const data = await res.json();
-          showStatus(data.message || `✅ Project created: ${data.task_id.slice(0, 8)}…`);
+          const succMsg = data.message || (isZh ? `✅ 项目创建成功: ${data.task_id.slice(0, 8)}…` : `✅ Project created: ${data.task_id.slice(0, 8)}…`);
+          showStatus(succMsg);
           sunoForm.reset();
           loadTasks();
           connectProgressWS(data.task_id);
           loadCredits();
         } else {
-          const err = await res.json();
-          showStatus(`❌ ${err.detail || "Unable to create project"}`, true);
+          const err = await res.json().catch(() => ({}));
+          let detail = err.detail || "";
+          if (/not published|尚未公开|未公开|未发布/i.test(detail)) {
+            detail = isZh
+              ? "该曲目尚未公开 (Publish)，无法导入！💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+              : "This song is not published (Publish required). 💡 Please click [Publish] in Suno’s song menu (…) and try again.";
+          }
+          const defaultMsg = isZh ? "无法创建项目" : "Unable to create project";
+          showStatus(`❌ ${detail || defaultMsg}`, true);
         }
       } catch (err) {
-        showStatus(`❌ ${err.message || "Network error"}`, true);
+        let msg = err.message || "";
+        if (/not published|尚未公开|未公开|未发布/i.test(msg)) {
+          msg = isZh
+            ? "该曲目尚未公开 (Publish)，无法导入！💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
+            : "This song is not published (Publish required). 💡 Please click [Publish] in Suno’s song menu (…) and try again.";
+        }
+        const defaultMsg = isZh ? "网络连接异常" : "Network error";
+        showStatus(`❌ ${msg || defaultMsg}`, true);
       } finally {
         btn.disabled = false;
-        btn.textContent = "⚡ Import & align lyrics";
+        btn.textContent = isZh ? "⚡ 导入并对齐歌词" : "⚡ Import & align lyrics";
       }
     });
   }

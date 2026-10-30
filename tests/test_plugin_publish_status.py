@@ -22,3 +22,20 @@ def test_publication_network_error_is_not_reported_as_private(monkeypatch):
     response = TestClient(local_editor.app).get("/api/suno/publish_status", params={"url": "selected-song"})
     assert response.status_code == 502
     assert "verify" in response.json()["detail"]
+
+
+def test_private_song_adapts_to_accept_language(monkeypatch):
+    def private(*args, **kwargs):
+        raise suno_fetch.SongNotPublishedError("private")
+
+    monkeypatch.setattr(suno_fetch, "fetch_song", private)
+    client = TestClient(local_editor.app)
+    # 1. Chinese header
+    res_zh = client.get("/api/suno/publish_status", params={"url": "selected-song"}, headers={"Accept-Language": "zh-CN,zh;q=0.9"})
+    assert res_zh.status_code == 400
+    assert "尚未公开" in res_zh.json()["detail"]
+
+    # 2. English header
+    res_en = client.get("/api/suno/publish_status", params={"url": "selected-song"}, headers={"Accept-Language": "en-US,en;q=0.9"})
+    assert res_en.status_code == 400
+    assert "not published" in res_en.json()["detail"]
