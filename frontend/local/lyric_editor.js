@@ -940,6 +940,11 @@ function initRealignModal() {
         }
 
         closeModal();
+        if (data.status === "unchanged") {
+          status(isZh ? "ℹ️ 歌词未发生变化，无需重新对齐 (0 积分消耗)" : "ℹ️ Lyrics unchanged; no realignment needed (0 credits charged).");
+          return;
+        }
+
         status(isZh ? "⏳ 正在后台重新对齐歌词，请稍候…" : "⏳ Re-aligning lyrics in background, please wait…");
 
         // 轮询等待对齐完成

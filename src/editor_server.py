@@ -276,6 +276,18 @@ async def realign_lyrics(
     if not task.input_mp3_key or not await storage.exists(task.input_mp3_key):
         raise HTTPException(404, "原歌曲音频文件缺失，无法重新对齐")
 
+    # 检查歌词是否发生实质变化：若歌词内容完全一致，则无需重新对齐与扣费
+    from src.suno_import_identity import lyrics_signature
+    new_signature = lyrics_signature(new_lyrics)
+    old_signature = (task.config_snapshot or {}).get("import_lyrics_signature")
+    if old_signature == new_signature:
+        return {
+            "status": "unchanged",
+            "task_id": task.id,
+            "cost_credits": 0,
+            "message": "歌词文本未发生变化，无需重新对齐 (0 积分消耗)",
+        }
+
     # 1. 写入新的歌词文本到 storage
     lyrics_key = f"uploads/{user.id}/{task.id}/source.txt"
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", delete=False) as f:
@@ -294,8 +306,6 @@ async def realign_lyrics(
     await reserve(db, user.id, realign_sub_id, "alignment", cost)
 
     # 3. 更新 Task 状态和标记：单版本模型，打上 is_custom_lyrics 标记
-    from src.suno_import_identity import lyrics_signature
-    new_signature = lyrics_signature(new_lyrics)
     snapshot = dict(task.config_snapshot or {})
     snapshot.update({
         "language": req.language or snapshot.get("language", "auto"),
