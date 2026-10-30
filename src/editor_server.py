@@ -265,9 +265,9 @@ async def realign_lyrics(
         raise HTTPException(409, "当前歌曲正在对齐处理中，请稍候再试")
 
     # 积分校验与扣除 (20 积分)
-    from src.config import settings
+    from src.settings import get_settings
     from src.credits import lock_balance, reserve
-    cost = settings.ALIGNMENT_CREDITS
+    cost = get_settings().ALIGNMENT_CREDITS
     current_credits = await lock_balance(db, user.id)
     if current_credits < cost:
         raise HTTPException(403, f"积分不足。重新对齐需消耗 {cost} 积分，当前余额: {current_credits} 积分")
