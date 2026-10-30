@@ -511,6 +511,15 @@ def reconcile_aligned_words(
             sr=sr,
             clip_offset=clip_offset,
         )
+    else:
+        # 兜底：无波形输入时（如部分离线测试或快速对齐）仍保证英文多音节拆解生效
+        from src.align.plosive_snapper import decompose_word_syllables
+
+        for w in out_words:
+            if not w.syllables:
+                syls = decompose_word_syllables(w)
+                if syls:
+                    w.syllables = syls
 
     return out_words
 

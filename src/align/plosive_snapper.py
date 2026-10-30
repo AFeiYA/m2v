@@ -308,6 +308,14 @@ def refine_plosives_and_melisma(
             syls = decompose_word_syllables(w)
             if syls:
                 w.syllables = syls
+                log.info(
+                    "🔤 [英文音节拆分] '%s' (%.3fs ~ %.3fs) 拆分为 %d 音节: %s",
+                    w.word,
+                    w.start,
+                    w.end,
+                    len(syls),
+                    [(s.text, round(s.start, 3), round(s.end, 3)) for s in syls],
+                )
 
     return words
 
