@@ -99,9 +99,25 @@
     window.m2vCanOpenStudio=(studio,songId)=>{
       const blocked=Object.values(m2vStudios).find(editor=>editor.dirty&&editor.currentSongId!==(songId||''));
       const lyrics=m2vStudios.lyric;
-      if(blocked){blocked.status('blocked','Save your changes before switching to another song.');window.m2vNavigationNotice?.('Save your changes before switching to another song.',blocked.name);return false;}
+      if(blocked){
+        const proceed=typeof window.confirm==='function'
+          ?window.confirm('You have unsaved changes in the current editor. Switch songs without saving?')
+          :false;
+        if(!proceed){
+          blocked.status('blocked','Save your changes before switching to another song.');
+          window.m2vNavigationNotice?.('Save your changes before switching to another song.',blocked.name);
+          return false;
+        }
+      }
       if(studio==='motion'&&lyrics.dirty&&lyrics.currentSongId===songId){
-        lyrics.status('blocked','Save your lyric changes before opening Motion Design.');window.m2vNavigationNotice?.('Save your lyric changes before opening Motion Design.','lyric');return false;
+        const proceed=typeof window.confirm==='function'
+          ?window.confirm('You have unsaved lyric changes. Open Motion Design without saving? (Unsaved lyric changes will not be reflected in Motion Design)')
+          :false;
+        if(!proceed){
+          lyrics.status('blocked','Save your lyric changes before opening Motion Design.');
+          window.m2vNavigationNotice?.('Save your lyric changes before opening Motion Design.','lyric');
+          return false;
+        }
       }
       return true;
     };

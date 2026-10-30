@@ -58,11 +58,23 @@ test('saved lyrics invalidate Motion only once and dirty design prevents destruc
  s.send('motion','M2V_STUDIO_LOADED');await s.studios.motion.activate({songId:'song'});
  assert.equal(s.loads.length,3);
 });
-test('unsaved lyrics block Motion and switching songs while Library remains available',async()=>{
+test('unsaved lyrics block Motion and switching songs unless user confirms to proceed without saving',async()=>{
  const s=setup();await s.studios.lyric.activate({songId:'song'});s.send('lyric','M2V_STUDIO_LOADED',{dirty:true});
+ // Without window.confirm, defaults to false
  assert.equal(s.window.m2vCanOpenStudio('motion','song'),false);
  assert.equal(s.window.m2vCanOpenStudio('lyric','other'),false);
  assert.equal(s.window.m2vCanOpenStudio('lyric','song'),true);
+
+ // When user clicks Cancel on confirm dialog
+ s.window.confirm=()=>false;
+ assert.equal(s.window.m2vCanOpenStudio('motion','song'),false);
+
+ // When user clicks OK on confirm dialog, allows opening Motion without saving
+ s.window.confirm=()=>true;
+ assert.equal(s.window.m2vCanOpenStudio('motion','song'),true);
+
+ // When lyric changes are saved, opens without needing confirmation
+ delete s.window.confirm;
  s.send('lyric','M2V_STUDIO_STATE',{dirty:false});
  assert.equal(s.window.m2vCanOpenStudio('motion','song'),true);
 });
