@@ -141,17 +141,6 @@ class Settings(BaseSettings):
             if self.STORAGE_BACKEND == "local":
                 self.STORAGE_BACKEND = "r2"
 
-        # Staging 环境（例如 HF Space lucazhou-suno2mv-api-staging 或设置了 STAGING / M2V_ENV=staging）
-        # 视频导出在测试期间先免费（0 积分），方便调试与功能验证
-        is_staging = bool(
-            os.environ.get("M2V_ENV") == "staging"
-            or os.environ.get("STAGING") == "1"
-            or "staging" in os.environ.get("SPACE_ID", "").lower()
-        )
-        if is_staging:
-            self.MOTION_EXPORT_CREDITS = 0
-            self.MOTION_WEBCODECS_CREDITS = 0
-
         # 自动纠正与归一化 DATABASE_URL (自动补充 asyncpg 驱动，并对密码中的特殊字符如 @、/ 进行 URL 编码)
         if self.DATABASE_URL:
             import urllib.parse

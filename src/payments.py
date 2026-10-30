@@ -71,7 +71,7 @@ def intent_view(row,settings):
 async def packages(user:User=Depends(get_current_user)):
     settings,products=configured()
     return {'provider':settings.BILLING_PROVIDER,'test_mode':(settings.PADDLE_ENVIRONMENT=='sandbox') if settings.BILLING_PROVIDER=='paddle' else settings.STRIPE_TEST_MODE if settings.BILLING_PROVIDER=='stripe' else settings.LEMONSQUEEZY_TEST_MODE,'products':[{**p.model_dump(exclude={'variant_id'}),'validity':'billing_period'} for p in products.values() if p.kind == 'subscription'],
-            'credit_policy':'Subscription credits expire at the end of each billing period and do not roll over. Refunds reverse the corresponding credits without deducting expired credits twice.',
+            'credit_policy':'Lyrics alignment is 20 credits per song; video export is 10 credits per song (one-time unlock with unlimited exports for that song). Subscription credits expire at the end of each billing period and do not roll over. Refunds reverse the corresponding credits without deducting expired credits twice.',
             'subscription_policy':'Monthly automatic renewal until cancelled in the billing portal. No unlimited rendering or extra storage is included.'}
 
 

@@ -1786,8 +1786,8 @@ function renderCreditOverview(data) {
   const isZh = window.currentLocale === 'zh';
   if ($('#credit-pricing')) $('#credit-pricing').textContent = pricing
     ? (isZh
-        ? `歌词对齐：${creditRate(pricing.alignment)} / 首（含人声分离与逐字对齐）。视频导出：${motion} 单曲买断（解锁后该歌曲所有画幅与片段不限次免费导出）。复用未修改对齐与下载历史视频完全免费。`
-        : `Lyrics alignment: ${creditRate(pricing.alignment)} per song (includes vocal separation & word-level timing). Video export: ${motion} one-time unlock per song (unlimited free exports across all formats & clips). Reusing existing alignment and downloading videos are always free.`)
+        ? `歌词对齐：每首歌 ${creditRate(pricing.alignment)}（含人声分离与逐字对齐）。视频导出：每首歌 ${motion} 单曲买断（解锁后该歌曲所有画幅与片段不限次免费导出）。复用未修改对齐与下载历史视频完全免费。`
+        : `Lyrics alignment: ${creditRate(pricing.alignment)} per song (includes vocal separation & word-level timing). Video export: ${motion} per song one-time buyout (unlimited free exports across all formats & clips once unlocked). Reusing existing alignment and downloading videos are always free.`)
     : 'Usage costs are unavailable. Refresh before starting a new task.';
 }
 
