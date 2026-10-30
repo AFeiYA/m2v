@@ -1039,7 +1039,10 @@ function initRealignModal() {
 
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          throw new Error(data.detail || data.message || (isZh ? "重新对齐提交失败" : "Failed to submit realign"));
+          const errMsg = typeof data.detail === "string"
+            ? data.detail
+            : (data.detail?.message || (Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join("; ") : null));
+          throw new Error(errMsg || data.message || (isZh ? "重新对齐提交失败" : "Failed to submit realign"));
         }
 
         if (data.status === "unchanged") {

@@ -886,7 +886,7 @@ async function handleSunoImport() {
       // 云端 SaaS 模式：调用 /api/tasks/from-suno
       // 默认 ass_only: true (首步只导入对齐，不生成视频)
       // ─────────────────────────────────────────────
-      const res = await apiFetch("/api/tasks/from-suno", {
+      let res = await apiFetch("/api/tasks/from-suno", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -904,8 +904,55 @@ async function handleSunoImport() {
       } catch (_) {
         throw new Error("云端网关响应异常: " + resText.slice(0, 100));
       }
+
+      // 处理用户定制歌词冲突 (单版本模型保护)
+      if (res.status === 409) {
+        const conflict = initData.detail;
+        if (conflict && conflict.error === "custom_lyrics_conflict") {
+          const isZh = window.currentLocale === "zh";
+          const promptMsg = isZh
+            ? `${conflict.message}\n\n• 点击【确定】：放弃之前的自定义修改，按 Suno 原始歌词重新对齐并扣除 20 积分。\n• 点击【取消】：保留您修改过的定制歌词，直接打开项目。`
+            : `${conflict.message}\n\n• Click [OK]: Overwrite your edits with Suno lyrics and realign (charges 20 credits).\n• Click [Cancel]: Keep your custom edits and open the existing project.`;
+          const overwrite = window.confirm(promptMsg);
+          if (overwrite) {
+            res = await apiFetch("/api/tasks/from-suno", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                suno_url: url,
+                ass_only: true,
+                skip_separation: !separateVocals,
+                language: importLang,
+                overwrite_custom: true,
+                force_realign: true,
+              }),
+            });
+            const overwriteText = await res.text();
+            try {
+              initData = JSON.parse(overwriteText);
+            } catch (_) {
+              throw new Error("云端网关响应异常: " + overwriteText.slice(0, 100));
+            }
+          } else if (conflict.existing_task_id) {
+            if (dom.sunoModal) dom.sunoModal.style.display = "none";
+            if (input) input.value = "";
+            status(isZh ? "已保留您修改过的定制歌词" : "Kept your custom edited lyrics");
+            await loadFileList();
+            const songIdx = state.allFiles.findIndex((f) => f.task_id === conflict.existing_task_id);
+            if (songIdx >= 0) {
+              await loadSong(songIdx);
+            }
+            return;
+          }
+        }
+      }
+
       if (!res.ok) {
-        throw new Error(initData.detail || "创建任务失败");
+        const isZh = window.currentLocale === "zh";
+        const errMsg = typeof initData.detail === "string"
+          ? initData.detail
+          : (initData.detail?.message || (Array.isArray(initData.detail) ? initData.detail.map((d) => d.msg).join("; ") : null));
+        throw new Error(errMsg || initData.message || (isZh ? "创建任务失败" : "Failed to create task"));
       }
 
       const taskId = initData.task_id;
@@ -984,7 +1031,12 @@ async function handleSunoImport() {
       throw new Error("服务器返回了非标准响应: " + text.slice(0, 100));
     }
 
-    if (!res.ok) throw new Error(data.detail || "处理失败");
+    if (!res.ok) {
+      const errMsg = typeof data.detail === "string"
+        ? data.detail
+        : (data.detail?.message || (Array.isArray(data.detail) ? data.detail.map((d) => d.msg).join("; ") : null));
+      throw new Error(errMsg || data.message || "处理失败");
+    }
 
     // 异步轮询任务进度 (每个轮询请求仅需几十毫秒，彻底规避 Vercel 120s 超时截断)
     if (data.task_id) {
@@ -1041,7 +1093,22 @@ async function handleSunoImport() {
     await loadFileList(data.title);
   } catch (err) {
     const isZh = window.currentLocale === "zh";
-    let msg = err.message || "";
+    let msg = "";
+    if (typeof err === "string") {
+      msg = err;
+    } else if (err && typeof err.message === "string" && err.message !== "[object Object]") {
+      msg = err.message;
+    } else if (err && err.detail) {
+      msg = typeof err.detail === "string"
+        ? err.detail
+        : (err.detail.message || (Array.isArray(err.detail) ? err.detail.map((d) => d.msg).join("; ") : JSON.stringify(err.detail)));
+    } else {
+      try {
+        msg = err?.message && err.message !== "[object Object]" ? err.message : JSON.stringify(err);
+      } catch (_) {
+        msg = String(err || "");
+      }
+    }
     if (/not published|尚未公开|未公开|未发布/i.test(msg)) {
       msg = isZh
         ? "该曲目尚未公开 (Publish)，无法导入！\n💡 请先在 Suno 歌曲右侧菜单（...）中点击【Publish】公开发布后再试。"
