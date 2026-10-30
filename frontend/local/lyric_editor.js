@@ -875,10 +875,83 @@ function initRealignModal() {
   const input = $("#realign-lyrics-input");
   const balanceEl = $("#realign-user-balance");
 
+  const editView = $("#realign-edit-view");
+  const editFooter = $("#realign-edit-footer");
+  const progressView = $("#realign-progress-view");
+  const progressFooter = $("#realign-progress-footer");
+  const btnBg = $("#btn-bg-realign");
+
+  const spinner = $("#realign-spinner");
+  const progressTitle = $("#realign-progress-status-title");
+  const progressDesc = $("#realign-progress-status-desc");
+  const progressStepText = $("#realign-progress-step-text");
+  const progressPercent = $("#realign-progress-percent");
+  const progressBarFill = $("#realign-progress-bar-fill");
+
+  const floatingCard = $("#realign-floating-indicator");
+  const floatingIcon = $("#realign-floating-icon");
+  const floatingText = $("#realign-floating-text");
+
   if (!btnOpen || !modal) return;
+
+  let isRealigning = false;
+  let activeRealignTaskId = null;
+  let pollTimer = null;
+  let simulatedPct = 15;
+
+  function showEditView() {
+    if (editView) editView.style.display = "flex";
+    if (editFooter) editFooter.style.display = "flex";
+    if (progressView) progressView.style.display = "none";
+    if (progressFooter) progressFooter.style.display = "none";
+    if (btnConfirm) {
+      btnConfirm.disabled = false;
+      btnConfirm.textContent = window.currentLocale === "en" ? "Confirm Re-align (-20 Credits)" : "确认重新对齐 (-20 积分)";
+    }
+  }
+
+  function showProgressView() {
+    if (editView) editView.style.display = "none";
+    if (editFooter) editFooter.style.display = "none";
+    if (progressView) progressView.style.display = "flex";
+    if (progressFooter) progressFooter.style.display = "flex";
+    if (spinner) spinner.style.display = "block";
+    if (progressBarFill) {
+      progressBarFill.style.background = "linear-gradient(90deg, #38bdf8, #b7f34a)";
+      progressBarFill.style.width = "15%";
+    }
+    if (progressPercent) progressPercent.textContent = "15%";
+    if (progressStepText) {
+      progressStepText.style.color = "#b7f34a";
+      progressStepText.textContent = window.currentLocale === "en" ? "Aligning vocal acoustics…" : "正在使用声学模型进行卡点对齐…";
+    }
+    if (btnBg) {
+      btnBg.textContent = window.currentLocale === "en" ? "Run in Background" : "在后台运行";
+    }
+  }
 
   function closeModal() {
     modal.style.display = "none";
+    if (!isRealigning) {
+      showEditView();
+    } else {
+      if (floatingCard) floatingCard.style.display = "flex";
+    }
+  }
+
+  async function refreshUserCredits() {
+    if (!balanceEl) return;
+    try {
+      const fetchFn = window.apiFetch || fetch;
+      const res = await fetchFn("/api/credits?page_size=1");
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data.available === "number") {
+          window.m2vUserCredits = data.available;
+          balanceEl.textContent = (window.currentLocale === "en" ? "Balance: " : "当前余额: ") + data.available;
+        }
+      }
+    } catch (_) {}
   }
 
   btnOpen.addEventListener("click", () => {
@@ -886,6 +959,13 @@ function initRealignModal() {
       alert(window.currentLocale === "en" ? "Select a song first to edit lyrics." : "请先选择加载一首歌曲。");
       return;
     }
+
+    if (isRealigning) {
+      showProgressView();
+      modal.style.display = "flex";
+      return;
+    }
+
     // 拼接现有歌词为纯文本
     if (state.alignment?.lines?.length) {
       const fullText = state.alignment.lines.map(line => {
@@ -899,15 +979,38 @@ function initRealignModal() {
       input.value = "";
     }
 
-    if (balanceEl && window.m2vUserCredits !== undefined) {
-      balanceEl.textContent = (window.currentLocale === "en" ? "Balance: " : "当前余额: ") + window.m2vUserCredits;
+    if (balanceEl) {
+      if (window.m2vUserCredits !== undefined) {
+        balanceEl.textContent = (window.currentLocale === "en" ? "Balance: " : "当前余额: ") + window.m2vUserCredits;
+      } else {
+        balanceEl.textContent = window.currentLocale === "en" ? "Checking balance…" : "查询余额中…";
+      }
+      refreshUserCredits();
     }
 
+    showEditView();
     modal.style.display = "flex";
   });
 
   if (btnClose) btnClose.addEventListener("click", closeModal);
   if (btnCancel) btnCancel.addEventListener("click", closeModal);
+  if (btnBg) {
+    btnBg.addEventListener("click", () => {
+      closeModal();
+      if (isRealigning) {
+        status(window.currentLocale === "en" ? "⏳ Realigning in background; will refresh when done." : "⏳ 歌词重新对齐已转入后台，完成后将自动刷新。");
+      }
+    });
+  }
+
+  if (floatingCard) {
+    floatingCard.addEventListener("click", () => {
+      if (isRealigning) {
+        showProgressView();
+      }
+      modal.style.display = "flex";
+    });
+  }
 
   if (btnConfirm) {
     btnConfirm.addEventListener("click", async () => {
@@ -939,50 +1042,163 @@ function initRealignModal() {
           throw new Error(data.detail || data.message || (isZh ? "重新对齐提交失败" : "Failed to submit realign"));
         }
 
-        closeModal();
         if (data.status === "unchanged") {
+          closeModal();
+          showEditView();
           status(isZh ? "ℹ️ 歌词未发生变化，无需重新对齐 (0 积分消耗)" : "ℹ️ Lyrics unchanged; no realignment needed (0 credits charged).");
           return;
         }
 
-        status(isZh ? "⏳ 正在后台重新对齐歌词，请稍候…" : "⏳ Re-aligning lyrics in background, please wait…");
+        // 进入正在重新对齐状态
+        isRealigning = true;
+        activeRealignTaskId = taskId;
+        simulatedPct = 15;
+
+        // 本地更新余额
+        if (typeof window.m2vUserCredits === "number") {
+          window.m2vUserCredits = Math.max(0, window.m2vUserCredits - 20);
+          if (balanceEl) {
+            balanceEl.textContent = (isZh ? "当前余额: " : "Balance: ") + window.m2vUserCredits;
+          }
+        }
+
+        // 切换模态窗为进度模式
+        showProgressView();
+        if (progressStepText) {
+          progressStepText.textContent = isZh ? "已提交，AI 正在分析人声与歌词…" : "Submitted, analyzing acoustics…";
+        }
+
+        // 激活右下角常驻浮动指示卡
+        if (floatingCard) {
+          floatingCard.style.display = "flex";
+          if (floatingIcon) floatingIcon.textContent = "⏳";
+          if (floatingText) {
+            floatingText.textContent = isZh ? "⏳ AI 歌词重新对齐中 (15%) - 点击查看" : "⏳ AI Lyrics Re-aligning (15%) - Click to view";
+          }
+        }
+
+        status(isZh ? "⚡ 已提交重新对齐并扣除 20 积分，正在对齐中…" : "⚡ Submitted realignment (-20 credits), in progress…");
 
         // 轮询等待对齐完成
         let attempts = 0;
-        const pollTimer = setInterval(async () => {
+        if (pollTimer) clearInterval(pollTimer);
+
+        pollTimer = setInterval(async () => {
           attempts++;
           try {
             const checkRes = await fetchFn(`/api/tasks/${taskId}`);
             if (!checkRes.ok) return;
             const task = await checkRes.json();
+
+            // 进度百分比与步骤计算
+            let stepText = isZh ? "AI 声学对齐计算中…" : "Aligning acoustics with AI…";
+            if (task.current_step === "queued") {
+              stepText = isZh ? "排队处理中…" : "Queued for processing…";
+            } else if (task.current_step === "separating") {
+              stepText = isZh ? "提取人声与伴奏…" : "Separating vocals & accompaniment…";
+            } else if (task.current_step === "aligning") {
+              stepText = isZh ? "声学模型精准卡点中…" : "Aligning word-level acoustics…";
+            } else if (task.current_step === "saving") {
+              stepText = isZh ? "正在保存最新时间轴…" : "Saving updated timestamps…";
+            }
+
+            let pct = 0;
+            if (typeof task.progress === "number" && task.progress > 0) {
+              pct = Math.round(task.progress <= 1 ? task.progress * 100 : task.progress);
+            } else {
+              simulatedPct = Math.min(92, simulatedPct + (simulatedPct < 60 ? 6 : 2));
+              pct = simulatedPct;
+            }
+            pct = Math.max(15, Math.min(95, pct));
+
             if (task.status === "completed") {
               clearInterval(pollTimer);
+              isRealigning = false;
+
+              // 进度视图展示完成态
+              if (progressBarFill) progressBarFill.style.width = "100%";
+              if (progressPercent) progressPercent.textContent = "100%";
+              if (spinner) spinner.style.display = "none";
+              if (progressStepText) {
+                progressStepText.textContent = isZh ? "🎉 对齐完成！已载入最新时间轴" : "🎉 Alignment complete! Latest timestamps loaded.";
+                progressStepText.style.color = "#b7f34a";
+              }
+              if (progressDesc) {
+                progressDesc.textContent = isZh ? "最新词级时间戳已生成，正在更新工程数据…" : "Latest word timestamps generated, updating project…";
+              }
+
+              // 浮动指示卡展示完成态
+              if (floatingIcon) floatingIcon.textContent = "🎉";
+              if (floatingText) {
+                floatingText.textContent = isZh ? "🎉 歌词对齐完成！已载入最新时间轴" : "🎉 Realignment complete! Timestamps updated.";
+              }
+
               status(isZh ? "🎉 重新对齐完成！已载入最新时间轴。" : "🎉 Re-alignment complete! Timestamps updated.");
+
               if (typeof window.m2vBridge?.loaded === "function") {
                 window.m2vBridge.loaded(taskId, false, task.title);
               }
+
               // 重新载入当前歌曲
               if (dom.songSelect && dom.songSelect.value !== "") {
                 loadSong(parseInt(dom.songSelect.value));
               } else {
                 location.reload();
               }
+
+              refreshUserCredits();
+
+              // 1.5 秒后平滑关闭模态窗并重置为编辑视图
+              setTimeout(() => {
+                modal.style.display = "none";
+                showEditView();
+                setTimeout(() => {
+                  if (floatingCard) floatingCard.style.display = "none";
+                }, 4000);
+              }, 1500);
+
             } else if (task.status === "failed") {
               clearInterval(pollTimer);
+              isRealigning = false;
+              if (spinner) spinner.style.display = "none";
+              if (progressBarFill) progressBarFill.style.background = "#f43f5e";
+              if (progressStepText) {
+                progressStepText.style.color = "#f43f5e";
+                const errMsg = task.error_message || (isZh ? "未知错误" : "Unknown error");
+                progressStepText.textContent = (isZh ? "❌ 对齐失败: " : "❌ Failed: ") + errMsg;
+              }
+              if (floatingIcon) floatingIcon.textContent = "❌";
+              if (floatingText) {
+                const errMsg = task.error_message || (isZh ? "未知错误" : "Unknown error");
+                floatingText.textContent = (isZh ? "❌ 对齐失败: " : "❌ Failed: ") + errMsg;
+              }
+              if (btnBg) {
+                btnBg.textContent = isZh ? "关闭" : "Close";
+              }
               status((isZh ? "❌ 重新对齐失败: " : "❌ Re-alignment failed: ") + (task.error_message || ""), true);
+              refreshUserCredits();
+
+            } else {
+              // 进行中
+              if (progressBarFill) progressBarFill.style.width = pct + "%";
+              if (progressPercent) progressPercent.textContent = pct + "%";
+              if (progressStepText) progressStepText.textContent = stepText;
+              if (floatingText) {
+                floatingText.textContent = isZh ? `⏳ AI 歌词重新对齐中 (${pct}%) - 点击查看` : `⏳ AI Lyrics Re-aligning (${pct}%) - Click to view`;
+              }
             }
           } catch (_) {}
-          if (attempts > 120) {
+
+          if (attempts > 150) {
             clearInterval(pollTimer);
+            isRealigning = false;
             status(isZh ? "⚠️ 对齐仍在处理中，请稍后刷新" : "⚠️ Processing is taking longer, please refresh later.");
           }
         }, 2000);
 
       } catch (err) {
         alert(err.message);
-      } finally {
-        btnConfirm.disabled = false;
-        btnConfirm.textContent = isZh ? "确认重新对齐 (-20 积分)" : "Confirm Re-align (-20 Credits)";
+        showEditView();
       }
     });
   }
