@@ -842,6 +842,7 @@ function bindLyricEvents() {
   }
 
   initLyricExportModal();
+  initRealignModal();
 
   const btnOpenStudio = $("#btn-open-motion-studio");
   if (btnOpenStudio) {
@@ -860,6 +861,126 @@ function bindLyricEvents() {
   }
 
   document.addEventListener("keydown", handleLyricKey);
+}
+
+// ---------------------------------------------------------------------------
+// 重新对齐（编辑歌词文本）弹窗逻辑
+// ---------------------------------------------------------------------------
+function initRealignModal() {
+  const btnOpen = $("#btn-realign-modal");
+  const modal = $("#modal-realign");
+  const btnClose = $("#btn-close-realign-modal");
+  const btnCancel = $("#btn-cancel-realign");
+  const btnConfirm = $("#btn-confirm-realign");
+  const input = $("#realign-lyrics-input");
+  const balanceEl = $("#realign-user-balance");
+
+  if (!btnOpen || !modal) return;
+
+  function closeModal() {
+    modal.style.display = "none";
+  }
+
+  btnOpen.addEventListener("click", () => {
+    if (!state.currentFile?.task_id) {
+      alert(window.currentLocale === "en" ? "Select a song first to edit lyrics." : "请先选择加载一首歌曲。");
+      return;
+    }
+    // 拼接现有歌词为纯文本
+    if (state.alignment?.lines?.length) {
+      const fullText = state.alignment.lines.map(line => {
+        if (line.words?.length) {
+          return line.words.map(w => w.word || w.text || "").join(" ").trim();
+        }
+        return line.text || "";
+      }).filter(Boolean).join("\n");
+      input.value = fullText;
+    } else {
+      input.value = "";
+    }
+
+    if (balanceEl && window.m2vUserCredits !== undefined) {
+      balanceEl.textContent = (window.currentLocale === "en" ? "Balance: " : "当前余额: ") + window.m2vUserCredits;
+    }
+
+    modal.style.display = "flex";
+  });
+
+  if (btnClose) btnClose.addEventListener("click", closeModal);
+  if (btnCancel) btnCancel.addEventListener("click", closeModal);
+
+  if (btnConfirm) {
+    btnConfirm.addEventListener("click", async () => {
+      const newText = (input.value || "").trim();
+      if (!newText) {
+        alert(window.currentLocale === "en" ? "Lyrics cannot be empty." : "歌词内容不能为空。");
+        return;
+      }
+      const taskId = state.currentFile.task_id;
+      const isZh = window.currentLocale === "zh";
+
+      btnConfirm.disabled = true;
+      btnConfirm.textContent = isZh ? "⏳ 正在提交重新对齐…" : "⏳ Submitting re-alignment…";
+
+      try {
+        const fetchFn = window.apiFetch || fetch;
+        const res = await fetchFn(`/api/editor/tasks/${taskId}/realign`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lyrics_text: newText,
+            language: "auto",
+            skip_separation: true,
+          }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.detail || data.message || (isZh ? "重新对齐提交失败" : "Failed to submit realign"));
+        }
+
+        closeModal();
+        status(isZh ? "⏳ 正在后台重新对齐歌词，请稍候…" : "⏳ Re-aligning lyrics in background, please wait…");
+
+        // 轮询等待对齐完成
+        let attempts = 0;
+        const pollTimer = setInterval(async () => {
+          attempts++;
+          try {
+            const checkRes = await fetchFn(`/api/tasks/${taskId}`);
+            if (!checkRes.ok) return;
+            const task = await checkRes.json();
+            if (task.status === "completed") {
+              clearInterval(pollTimer);
+              status(isZh ? "🎉 重新对齐完成！已载入最新时间轴。" : "🎉 Re-alignment complete! Timestamps updated.");
+              if (typeof window.m2vBridge?.loaded === "function") {
+                window.m2vBridge.loaded(taskId, false, task.title);
+              }
+              // 重新载入当前歌曲
+              if (dom.songSelect && dom.songSelect.value !== "") {
+                loadSong(parseInt(dom.songSelect.value));
+              } else {
+                location.reload();
+              }
+            } else if (task.status === "failed") {
+              clearInterval(pollTimer);
+              status((isZh ? "❌ 重新对齐失败: " : "❌ Re-alignment failed: ") + (task.error_message || ""), true);
+            }
+          } catch (_) {}
+          if (attempts > 120) {
+            clearInterval(pollTimer);
+            status(isZh ? "⚠️ 对齐仍在处理中，请稍后刷新" : "⚠️ Processing is taking longer, please refresh later.");
+          }
+        }, 2000);
+
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        btnConfirm.disabled = false;
+        btnConfirm.textContent = isZh ? "确认重新对齐 (-20 积分)" : "Confirm Re-align (-20 Credits)";
+      }
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

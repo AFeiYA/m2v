@@ -571,6 +571,28 @@ async def create_task_from_suno(
         existing = await reusable_import(db, user.id, song, clean_url, signature, options, storage)
         if existing:
             return await reuse_response(existing)
+
+    # 检查是否已存在当前歌曲的用户自改版本 (单版本模型：保护用户自改歌词不被静默覆盖)
+    from src.suno_import_identity import song_imports
+    existing_imports = await song_imports(db, user.id, song, clean_url)
+    active_custom = next(
+        (t for t in existing_imports if (t.config_snapshot or {}).get("is_custom_lyrics") and t.status in (TaskStatus.COMPLETED, TaskStatus.PROCESSING, TaskStatus.PENDING)),
+        None,
+    )
+    if active_custom and not req.overwrite_custom:
+        conflict_msg = (
+            "检测到您曾自定义修改过此歌曲的歌词。重新从 Suno 导入将覆盖您的修改并重新扣除 20 积分。"
+            if is_zh else
+            "You have previously edited the lyrics for this song. Importing again from Suno will overwrite your edits and charge 20 credits."
+        )
+        raise HTTPException(
+            409,
+            detail={
+                "error": "custom_lyrics_conflict",
+                "message": conflict_msg,
+                "existing_task_id": active_custom.id,
+            },
+        )
     if user.credits <= 0:
         raise HTTPException(403, "Insufficient credits. Please upgrade your plan.")
     claim = sha256(json.dumps([user.id, song.id, signature, alignment_options(options)], sort_keys=True).encode()).hexdigest()
@@ -641,6 +663,15 @@ async def create_task_from_suno(
             lyrics_tmp = directory / "lyrics.txt"
             lyrics_tmp.write_text(lyrics_text, encoding="utf-8")
             await storage.save(lyrics_key, lyrics_tmp)
+
+    # 单版本保留模型：若用户显式确认覆盖旧的自改版本，将旧的自改版本移入回收站
+    if req.overwrite_custom and active_custom:
+        from src.version_lifecycle import trash_version
+        try:
+            await trash_version(db, user.id, active_custom.id)
+        except Exception as e:
+            log.warning("清理被覆盖的旧自改版本失败: %s (%s)", active_custom.id, e)
+
     await _commit_and_dispatch(db, task)
     return UploadResponse(
         mp3_key=mp3_key, lyrics_key=lyrics_key, task_id=task.id,

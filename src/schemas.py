@@ -74,6 +74,14 @@ class SunoTaskRequest(BaseModel):
     beat_effects: bool = False
     lyrics_text: str | None = None
     force_realign: bool = False
+    overwrite_custom: bool = False
+
+
+class RealignTaskRequest(BaseModel):
+    """用户自改歌词并重新对齐请求"""
+    lyrics_text: str
+    language: str = "auto"
+    skip_separation: bool = True
 
 
 class TaskResponse(BaseModel):

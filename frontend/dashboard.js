@@ -692,10 +692,32 @@ function initUpload() {
           beat_effects: $("#suno-opt-beat") ? $("#suno-opt-beat").checked : true,
         };
 
-        const res = await api("/api/tasks/from-suno", {
+        let res = await api("/api/tasks/from-suno", {
           method: "POST",
           json: payload,
         });
+
+        // 处理用户定制歌词冲突 (单版本模型保护)
+        if (res.status === 409) {
+          const errData = await res.json().catch(() => ({}));
+          const conflict = errData.detail;
+          if (conflict && conflict.error === "custom_lyrics_conflict") {
+            const promptMsg = isZh
+              ? `${conflict.message}\n\n• 点击【确定】：放弃之前的自定义修改，按 Suno 原始歌词重新对齐并扣除 20 积分。\n• 点击【取消】：保留您修改过的定制歌词，直接打开项目。`
+              : `${conflict.message}\n\n• Click [OK]: Overwrite your edits with Suno lyrics and realign (charges 20 credits).\n• Click [Cancel]: Keep your custom edits and open the existing project.`;
+            const overwrite = window.confirm(promptMsg);
+            if (overwrite) {
+              res = await api("/api/tasks/from-suno", {
+                method: "POST",
+                json: { ...payload, overwrite_custom: true, force_realign: true },
+              });
+            } else if (conflict.existing_task_id) {
+              window.openLyricStudio(conflict.existing_task_id);
+              showStatus(isZh ? "已为您打开现有的定制歌词项目" : "Opened existing project with custom lyrics");
+              return;
+            }
+          }
+        }
 
         if (res.ok) {
           const data = await res.json();

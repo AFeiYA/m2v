@@ -27,6 +27,7 @@ from src.auth import get_current_user_flexible
 from src.database import get_db
 from src.editor_operations import router as operations_router
 from src.models import Task, TaskStatus, User
+from src.schemas import RealignTaskRequest
 from src.storage import LocalStorage, get_storage
 from src.utils import log
 
@@ -241,6 +242,91 @@ async def save_alignment(
 
     log.info("对齐 JSON 已保存: task=%s, version=%s", task_id, version)
     return {"status": "ok", "task_id": task_id, "version": version, "timing_review": timing_review}
+
+
+# ======================================================================
+# 重新对齐（编辑歌词文本，扣除 20 积分并单版本原地覆盖）
+# ======================================================================
+
+@router.post("/tasks/{task_id}/realign")
+async def realign_lyrics(
+    task_id: str,
+    req: RealignTaskRequest,
+    user: User = Depends(get_current_user_flexible),
+    db: AsyncSession = Depends(get_db),
+):
+    """用户编辑歌词后重新运行声学对齐（扣除 20 积分，保留单版本原地覆盖）"""
+    task = await _get_user_task(db, user.id, task_id)
+    new_lyrics = req.lyrics_text.strip()
+    if not new_lyrics:
+        raise HTTPException(400, "歌词内容不能为空")
+
+    if task.status in (TaskStatus.PENDING, TaskStatus.PROCESSING):
+        raise HTTPException(409, "当前歌曲正在对齐处理中，请稍候再试")
+
+    # 积分校验与扣除 (20 积分)
+    from src.config import settings
+    from src.credits import lock_balance, reserve
+    cost = settings.ALIGNMENT_CREDITS
+    current_credits = await lock_balance(db, user.id)
+    if current_credits < cost:
+        raise HTTPException(403, f"积分不足。重新对齐需消耗 {cost} 积分，当前余额: {current_credits} 积分")
+
+    storage = get_storage()
+    if not task.input_mp3_key or not await storage.exists(task.input_mp3_key):
+        raise HTTPException(404, "原歌曲音频文件缺失，无法重新对齐")
+
+    # 1. 写入新的歌词文本到 storage
+    lyrics_key = f"uploads/{user.id}/{task.id}/source.txt"
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", delete=False) as f:
+        f.write(new_lyrics)
+        tmp_lyrics_p = Path(f.name)
+    try:
+        await storage.save(lyrics_key, tmp_lyrics_p)
+    finally:
+        tmp_lyrics_p.unlink(missing_ok=True)
+
+    task.input_lyrics_key = lyrics_key
+
+    # 2. 预留扣除 20 积分
+    realign_sub_id = f"realign:{task.id}:{int(datetime.now(timezone.utc).timestamp())}"
+    task.cost_credits = cost
+    await reserve(db, user.id, realign_sub_id, "alignment", cost)
+
+    # 3. 更新 Task 状态和标记：单版本模型，打上 is_custom_lyrics 标记
+    from src.suno_import_identity import lyrics_signature
+    new_signature = lyrics_signature(new_lyrics)
+    snapshot = dict(task.config_snapshot or {})
+    snapshot.update({
+        "language": req.language or snapshot.get("language", "auto"),
+        "skip_separation": req.skip_separation,
+        "is_custom_lyrics": True,
+        "import_lyrics_signature": new_signature,
+        "custom_realigned_at": datetime.now(timezone.utc).isoformat(),
+        "reuse_stems_from": task.id,  # 复用当前任务已分离的人声干音
+    })
+    task.config_snapshot = snapshot
+    task.status = TaskStatus.PROCESSING
+    task.current_step = "queued"
+    task.progress = 0
+    task.error_message = None
+    task.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    # 4. 派发后台 Worker
+    from src.api_server import _dispatch_task
+    task.celery_task_id = _dispatch_task(
+        task.id, task.input_mp3_key, task.input_lyrics_key, task.config_snapshot
+    )
+    await db.commit()
+
+    log.info("已提交歌词重新对齐: task=%s, user=%s, cost=%s", task.id, user.id, cost)
+    return {
+        "status": "processing",
+        "task_id": task.id,
+        "cost_credits": cost,
+        "message": "已提交重新对齐，正在后台处理中…",
+    }
 
 
 # ======================================================================
