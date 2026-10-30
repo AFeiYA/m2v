@@ -18,6 +18,9 @@ def test_split_english_syllable_texts():
     assert split_english_syllable_texts("take") == ["take"]
     assert split_english_syllable_texts("running") == ["run", "ning"]
     assert split_english_syllable_texts("momentum") == ["mo", "men", "tum"]
+    assert split_english_syllable_texts("missing") == ["mis", "sing"]
+    assert split_english_syllable_texts("maybe") == ["may", "be"]
+    assert split_english_syllable_texts("recipe") == ["re", "ci", "pe"]
 
 
 def test_decompose_word_syllables_melisma():

@@ -33,6 +33,13 @@ _PLOSIVE_ONSET_RE = re.compile(r"^(k|c[aoulr]|q|p(?!h)|t(?!h))", re.I)
 # Syllable splitting vowels
 _VOWELS = "aeiouy"
 
+# 常见词尾 'e' 需发音的英文词表（避免被静音 e 规则误删音节，如 may-be）
+_PRONOUNCED_FINAL_E = {
+    "maybe", "wannabe", "recipe", "adobe", "sesame", "coyote", "karate", "machete",
+    "hyperbole", "simile", "apostrophe", "catastrophe", "epitome", "acne",
+    "cafe", "latte", "karaoke", "sake",
+}
+
 
 def split_english_syllable_texts(word: str) -> list[str]:
     """Rule-based syllabification for English words.
@@ -55,8 +62,14 @@ def split_english_syllable_texts(word: str) -> list[str]:
         else:
             i += 1
 
-    # Drop silent e at end (e.g. 'take', 'make', 'could')
-    if len(nuclei) > 1 and lower.endswith("e") and not lower.endswith("le") and not lower.endswith("ee"):
+    # Drop silent e at end (e.g. 'take', 'make', 'could'), unless it's in the pronounced-e whitelist
+    if (
+        len(nuclei) > 1
+        and lower.endswith("e")
+        and not lower.endswith("le")
+        and not lower.endswith("ee")
+        and lower not in _PRONOUNCED_FINAL_E
+    ):
         if nuclei[-1] == (len(lower) - 1, len(lower)):
             nuclei.pop()
 
