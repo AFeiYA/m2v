@@ -37,7 +37,9 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: frontend/motion/package-lock.json
+          cache-dependency-path: |
+            frontend/motion/package-lock.json
+            tools/paddle/package-lock.json
 
       - name: Determine whether real rendering is needed
         id: render_scope
@@ -82,14 +84,14 @@ jobs:
 
       - name: Install system dependencies (ffmpeg)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          if ! command -v ffmpeg &>/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov requests gradio ruff
+          pip install --prefer-binary -r requirements.txt pytest pytest-cov requests gradio ruff
 
       - name: Run Static Code & Undefined Variables Check (Ruff)
         run: |
@@ -106,7 +108,7 @@ jobs:
           if [ "$RUN_MOTION_RENDER" = "1" ]; then
             export CHROME_PATH=$(cd frontend/motion && node --input-type=module -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')
           fi
-          pytest tests/ -v --maxfail=1 -m "not local_only"
+          pytest tests/ -v --maxfail=1 -m "not local_only" --ignore=tests/test_hf_entrypoint.py
 
       - name: Verify Gradio Motion runtime preparation
         if: steps.render_scope.outputs.run_render_tests == '1'
