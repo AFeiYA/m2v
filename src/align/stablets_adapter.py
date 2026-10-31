@@ -68,6 +68,12 @@ def align_lyrics_stablets(
         nonspeech_skip: 非语音跳过阈值 (秒，默认 None 保持整块连续对齐，避免分块回滚时张量尺寸不一致)
         guard_interludes: 是否启用宏观间奏硬保护屏障 (默认 True)
     """
+    # Section headings and arrangement directions are metadata, not sung
+    # words. Passing them into stable-ts shifts the alignment of later lines.
+    lyrics = [line for line in lyrics if not getattr(line, "is_annotation", False)]
+    if not lyrics:
+        raise ValueError("No singable lyrics were found after removing section headings.")
+
     if language in ("mixed", "auto", None):
         language = None
 

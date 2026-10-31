@@ -58,3 +58,29 @@ def test_cloud_align_only_skips_ass_generation(tmp_path, monkeypatch):
                          PipelineConfig(alignment_json=source, ass_only=True, emit_ass=False))
     assert result == output / 'song_alignment.json' and result.exists()
     assert not list(output.glob('*.ass'))
+
+
+def test_pasted_suno_sections_reach_saved_alignment(tmp_path, monkeypatch):
+    import src.audio_analyzer as analyzer
+    import src.aligner as aligner
+    from src.main import process_one
+
+    audio = tmp_path / 'song.mp3'
+    audio.write_bytes(b'audio fixture')
+    lyrics = tmp_path / 'lyrics.txt'
+    lyrics.write_text('[Intro — Spoken, playful]\nHello there\n[Verse — Rhythmic]\n镜子里的我', encoding='utf-8')
+    output = tmp_path / 'output'
+    output.mkdir()
+    monkeypatch.setattr(analyzer, 'cached_audio_analysis',
+                        lambda *a, **k: SongAnalysis(duration=8, bpm=120, metadata={'cache_hit': False}))
+    monkeypatch.setattr(aligner, 'align_lyrics', lambda *a, **k: AlignmentProject(lines=[
+        AlignedLine(text='Hello there', start=1, end=2),
+        AlignedLine(text='镜子里的我', start=4, end=6),
+    ]))
+    result = process_one(audio, lyrics, output, None,
+                         PipelineConfig(skip_separation=True, ass_only=True, emit_ass=False))
+    saved = AlignmentProject.load_json(result)
+    assert [line.section for line in saved.lines] == ['Intro', 'Verse']
+    assert [section.name for section in saved.sections] == ['Intro', 'Verse']
+    assert saved.sections[0].style == 'Spoken, playful'
+    assert [s.name for s in saved.analysis.sections] == ['Intro', 'Verse']

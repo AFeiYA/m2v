@@ -54,7 +54,7 @@ _CREDIT_META_RE = re.compile(
 # 不可发音符号（保留中文、字母、数字、基本标点、空格、弯撇号/引号）
 _UNPRINTABLE_RE = re.compile(r"[^\u4e00-\u9fff\u3400-\u4dbf\w\s，。、！？；：\u201c\u201d\u2018\u2019""''…—\-,\.!?;:'\"]")
 # 章节标题: [Intro] / [Verse 1] / [Pre-Chorus] 等 (整行)
-_SECTION_HEADER_RE = re.compile(r"^\[.+\]$")
+_SECTION_HEADER_RE = re.compile(r"^(?:\[.+\]|【.+】)$")
 # 整行都是括号注释: （Fast Kick + ...） / (Bass Drop)
 _FULL_ANNOTATION_RE = re.compile(r"^[（(].+[）)]$")
 # 行内括号注释 (用于剥离混合行中的编曲说明)

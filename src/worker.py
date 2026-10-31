@@ -283,7 +283,9 @@ def process_song_task(
             from src.song_assets import source_keys
             from src.song_sections import bind_source_sections
             metadata_key, _ = source_keys(mp3_key)
-            if loop.run_until_complete(storage.exists(metadata_key)):
+            # A custom realignment's current lyrics are authoritative; older
+            # Suno metadata can otherwise overwrite newly edited headings.
+            if not (config_dict or {}).get('is_custom_lyrics') and loop.run_until_complete(storage.exists(metadata_key)):
                 metadata_path = temp_dir / 'source_suno.json'
                 loop.run_until_complete(storage.load(metadata_key, metadata_path))
                 metadata = json.loads(metadata_path.read_text())

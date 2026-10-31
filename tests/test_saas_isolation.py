@@ -974,7 +974,8 @@ def test_source_refresh_restores_original_section_without_changing_alignment(san
     assert project['sections'][0]['name'] == 'Pre-Chorus'
 
 
-def test_worker_persists_source_sections_in_alignment(sandbox, monkeypatch):
+@pytest.mark.parametrize('custom', [False, True])
+def test_worker_persists_source_sections_in_alignment(sandbox, monkeypatch, custom):
     import json
     from src.song_assets import source_keys
     seed_cloud_motion(sandbox)
@@ -987,17 +988,22 @@ def test_worker_persists_source_sections_in_alignment(sandbox, monkeypatch):
     lyrics.write_text('alice')
     def pipeline(**kwargs):
         result = kwargs['output_dir'] / 'source_alignment.json'
-        result.write_bytes(sandbox.storage.get_local_path('results/alice_motion/source_alignment.json').read_bytes())
+        payload = json.loads(sandbox.storage.get_local_path('results/alice_motion/source_alignment.json').read_text())
+        if custom:
+            payload['lines'][0]['section'] = 'Intro'
+            payload['sections'] = [{'name':'Intro','start':.2,'end':3,'line_indices':[0]}]
+        result.write_text(json.dumps(payload))
         (kwargs['output_dir'] / 'source.ass').write_text('subtitle')
         return result
     module = types.ModuleType('src.main')
     module.process_one = pipeline
     monkeypatch.setitem(sys.modules, 'src.main', module)
     monkeypatch.setattr(worker, '_publish_progress', lambda *args: None)
-    worker.process_song_task('alice_motion', audio_key, 'lyrics')
+    worker.process_song_task('alice_motion', audio_key, 'lyrics', {'is_custom_lyrics': custom})
     saved = json.loads(sandbox.storage.get_local_path('results/alice_motion/source_alignment.json').read_text())
-    assert saved['lines'][0]['section'] == 'Pre-Chorus'
-    assert saved['sections'][0]['name'] == 'Pre-Chorus'
+    expected = 'Intro' if custom else 'Pre-Chorus'
+    assert saved['lines'][0]['section'] == expected
+    assert saved['sections'][0]['name'] == expected
     assert saved['lines'][0]['start'] == .2
 
 

@@ -634,10 +634,25 @@ def parse_suno_prompt_sections(prompt: str) -> list[dict]:
     return sections_raw
 
 
+def parse_explicit_song_sections(text: str) -> list[dict]:
+    """Parse supplied section labels only; plain lyrics retain their existing grouping."""
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if len(line) < 3 or (line[0], line[-1]) not in {
+            ('[', ']'), ('(', ')'), ('（', '）'), ('【', '】'),
+        }:
+            continue
+        if any(re.search(pattern, line[1:-1], re.IGNORECASE) for pattern, _, _ in SECTION_PATTERNS):
+            return parse_suno_prompt_sections(text)
+    return []
+
+
 def enrich_alignment_sections(
     alignment_json_path: Path,
     raw_prompt: str,
     total_duration: float | None = None,
+    *,
+    explicit_only: bool = False,
 ):
     """
     将 Suno 原始 Prompt 中的乐段与音效提示注入 alignment.json：
@@ -651,7 +666,8 @@ def enrich_alignment_sections(
     if not alignment.lines or not raw_prompt:
         return alignment
 
-    parsed_sections = parse_suno_prompt_sections(raw_prompt)
+    parsed_sections = (parse_explicit_song_sections(raw_prompt) if explicit_only
+                       else parse_suno_prompt_sections(raw_prompt))
     if not parsed_sections:
         return alignment
 

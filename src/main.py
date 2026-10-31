@@ -412,6 +412,15 @@ def process_one(
         alignment.audio_path = str(mp3_path.resolve())
         alignment.duration = alignment.analysis.duration
         alignment.save_json(output_json)
+        # Uploaded/pasted lyrics may include the same headings as Suno source
+        # metadata. Bind only explicit labels and only when the lyric sequences
+        # match, so changed text or ambiguous line merges are never guessed.
+        if lyrics_path and not config.alignment_json:
+            from src.preprocessor import _read_file_auto_encoding
+            from src.suno_fetch import enrich_alignment_sections
+            alignment = enrich_alignment_sections(
+                output_json, _read_file_auto_encoding(lyrics_path), explicit_only=True,
+            )
         _progress("analyzing", 64, "音频分析完成" + ("（复用缓存）" if alignment.analysis.metadata["cache_hit"] else ""))
 
         # 云端仅对齐模式：对齐 JSON 即最终产物，ASS 在需要时由 alignment.json 动态生成；

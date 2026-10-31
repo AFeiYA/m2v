@@ -2,7 +2,7 @@
 import copy
 
 from src.song_sections import bind_source_sections
-from src.suno_fetch import parse_suno_prompt_sections, enrich_alignment_sections
+from src.suno_fetch import parse_suno_prompt_sections, parse_explicit_song_sections, enrich_alignment_sections
 
 
 def test_performance_tags_do_not_replace_pre_chorus():
@@ -40,3 +40,23 @@ def test_changed_lyrics_or_cross_section_merge_is_not_guessed():
         before = copy.deepcopy(payload)
         assert bind_source_sections(payload, source) is False
         assert payload == before
+
+
+def test_pasted_suno_headings_bind_to_actual_lyric_lines(tmp_path):
+    import json
+    prompt = '[Intro — Spoken, playful]\nZero. S-O-E\nPerfect? Almost.\n\n[Verse — Rhythmic, mischievous]\n镜子里的我，角度刚刚好\n【副歌】\n这就是我\n[Chorus]\n这就是我'
+    source = parse_explicit_song_sections(prompt)
+    assert [s['name'] for s in source] == ['Intro', 'Verse', 'Chorus', 'Chorus 2']
+    assert source[0]['style'] == 'Spoken, playful'
+    path = tmp_path / 'alignment.json'
+    path.write_text(json.dumps({'duration': 20, 'lines': [
+        {'text': text, 'start': i * 4, 'end': i * 4 + 2, 'words': []}
+        for i, text in enumerate(['Zero. S-O-E', 'Perfect? Almost.', '镜子里的我，角度刚刚好', '这就是我', '这就是我'])
+    ]}), encoding='utf-8')
+    result = enrich_alignment_sections(path, prompt, explicit_only=True)
+    assert [line.section for line in result.lines] == ['Intro', 'Intro', 'Verse', 'Chorus', 'Chorus 2']
+    assert [section.name for section in result.sections] == ['Intro', 'Verse', 'Chorus', 'Chorus 2']
+
+
+def test_unlabelled_or_ambiguous_lyrics_are_not_guessed():
+    assert parse_explicit_song_sections('Hello world\n[Softly]\nAnother line') == []
