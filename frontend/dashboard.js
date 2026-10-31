@@ -105,7 +105,9 @@ async function api(path, options = {}) {
   const contentType = res.headers.get("content-type") || "";
   if (contentType.includes("text/html")) {
     console.error("[M2V] API 返回了 HTML 静态页面而非 JSON:", url, res.status);
-    throw new Error(`Cannot connect to the backend: [${url}] returned an HTML page. Check the backend service.`);
+    const error = new Error("Backend returned an unexpected HTML response.");
+    error.status = res.status;
+    throw error;
   }
 
   if (res.status === 401) {
@@ -1046,11 +1048,11 @@ function initUpload() {
           // Connect WebSocket to track progress
           connectProgressWS(data.task_id);
         } else {
-          const err = await res.json();
-          showStatus(`❌ ${err.detail || "Upload failed"}`, true);
+          showStatus(`❌ ${await uploadResponseError(res)}`, true);
         }
       } catch (e) {
-        showStatus("❌ Network error", true);
+        console.error("[M2V] Audio upload request failed:", e);
+        showStatus(`❌ ${uploadRequestError(e)}`, true);
       } finally {
         if (btn) {
           btn.disabled = false;
@@ -1399,6 +1401,20 @@ function showStatus(msg, isError = false) {
   setTimeout(() => toast.remove(), 4000);
 }
 window.showStatus = showStatus;
+
+async function uploadResponseError(res) {
+  let detail = "";
+  try {
+    const body = await res.json();
+    detail = typeof body.detail === "string" ? body.detail : "";
+  } catch (_) { /* A proxy can return non-JSON errors. */ }
+  return detail || `Upload failed (HTTP ${res.status}). Check your project list before retrying.`;
+}
+
+function uploadRequestError(error) {
+  const status = Number.isInteger(error?.status) ? ` (HTTP ${error.status})` : "";
+  return `Upload could not be completed${status}. Check your connection and project list before retrying.`;
+}
 
 function escapeHtml(str) {
   const div = document.createElement("div");

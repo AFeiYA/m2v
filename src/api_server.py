@@ -448,37 +448,49 @@ async def upload_and_create_task(
         config_snapshot={"language": language, "skip_separation": skip_separation,
                          "ass_only": ass_only, "beat_effects": beat_effects},
     )
+    # Initialize storage before creating a durable reservation. A malformed
+    # endpoint or missing dependency can make get_storage() itself fail.
+    try:
+        storage = get_storage()
+    except Exception as exc:
+        log.exception("Upload storage initialization failed")
+        raise HTTPException(503, "File storage is unavailable. Please try again later.") from exc
     await _reserve_import(db, task)
-    storage = get_storage()
     cleanup_keys = [mp3_key, lyrics_key]
     if cover_bytes:
         cleanup_keys.extend([source_cover_key, source_json_key])
 
-    async with _prepare_import(db, task, storage, cleanup_keys):
-        with tempfile.TemporaryDirectory(prefix="m2v-upload-") as directory:
-            audio = Path(directory) / ("audio" + Path(mp3.filename).suffix)
-            text = Path(directory) / "lyrics.txt"
-            audio.write_bytes(mp3_content)
-            text.write_bytes(lyrics_content)
-            await storage.save(mp3_key, audio)
-            await storage.save(lyrics_key, text)
+    try:
+        async with _prepare_import(db, task, storage, cleanup_keys):
+            with tempfile.TemporaryDirectory(prefix="m2v-upload-") as directory:
+                audio = Path(directory) / ("audio" + Path(mp3.filename).suffix)
+                text = Path(directory) / "lyrics.txt"
+                audio.write_bytes(mp3_content)
+                text.write_bytes(lyrics_content)
+                await storage.save(mp3_key, audio)
+                await storage.save(lyrics_key, text)
 
-            if cover_bytes:
-                cover_path_local = Path(directory) / "source_cover.jpg"
-                cover_path_local.write_bytes(cover_bytes)
-                await storage.save(source_cover_key, cover_path_local)
+                if cover_bytes:
+                    cover_path_local = Path(directory) / "source_cover.jpg"
+                    cover_path_local.write_bytes(cover_bytes)
+                    await storage.save(source_cover_key, cover_path_local)
 
-                meta_path_local = Path(directory) / "source_suno.json"
-                meta = {
-                    "version": "song-source-v1",
-                    "id": task_id,
-                    "title": final_title,
-                    "artist": "",
-                    "image_url": "",
-                    "source_url": suno_url or "",
-                }
-                meta_path_local.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
-                await storage.save(source_json_key, meta_path_local)
+                    meta_path_local = Path(directory) / "source_suno.json"
+                    meta = {
+                        "version": "song-source-v1",
+                        "id": task_id,
+                        "title": final_title,
+                        "artist": "",
+                        "image_url": "",
+                        "source_url": suno_url or "",
+                    }
+                    meta_path_local.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+                    await storage.save(source_json_key, meta_path_local)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("Upload file preparation failed: task=%s", task_id)
+        raise HTTPException(503, "Unable to save the uploaded files. Please check your project list before retrying.") from exc
 
     await _commit_and_dispatch(db, task)
     return UploadResponse(mp3_key=mp3_key, lyrics_key=lyrics_key, task_id=task.id)

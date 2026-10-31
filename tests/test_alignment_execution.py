@@ -39,12 +39,31 @@ def test_preparation_failure_has_durable_task_and_returns_credit(sandbox, monkey
         return await original(key, path)
     monkeypatch.setattr(sandbox.storage, 'save', save)
     monkeypatch.setattr(api_server, '_dispatch_task', lambda *a: pytest.fail('must not dispatch'))
-    with pytest.raises(OSError, match='simulated storage failure'):
-        submit(sandbox, monkeypatch, source)
+    if source == 'upload':
+        response = submit(sandbox, monkeypatch, source)
+        assert response.status_code == 503
+        assert 'Unable to save the uploaded files' in response.json()['detail']
+        assert 'simulated storage failure' not in response.text
+    else:
+        with pytest.raises(OSError, match='simulated storage failure'):
+            submit(sandbox, monkeypatch, source)
     tasks, holds, available = snapshot(sandbox)
     assert tasks[0].status == TaskStatus.FAILED
     assert available == 5 and holds[0].state == 'released'
     assert not any(sandbox.storage.get_local_path(key).exists() for key in calls)
+
+
+def test_upload_storage_initialization_failure_does_not_reserve_credits(sandbox, monkeypatch):
+    def fail():
+        raise ValueError('invalid storage configuration')
+    monkeypatch.setattr(api_server, 'get_storage', fail)
+    monkeypatch.setattr(api_server, '_dispatch_task', lambda *a: pytest.fail('must not dispatch'))
+    response = submit(sandbox, monkeypatch, 'upload')
+    assert response.status_code == 503
+    assert response.json()['detail'] == 'File storage is unavailable. Please try again later.'
+    assert 'invalid storage configuration' not in response.text
+    tasks, holds, available = snapshot(sandbox)
+    assert tasks == [] and holds == [] and available == 5
 
 
 def test_same_song_parallel_import_uses_one_credit_and_one_download(sandbox, monkeypatch):
