@@ -36,3 +36,25 @@ def test_reused_alignment_gets_analysis_without_realigning(tmp_path, monkeypatch
     assert saved.duration == 8 and saved.analysis.bpm == 120
     assert inputs == [audio]
     assert any(step == 'analyzing' for step, _, _ in progress)
+
+
+def test_cloud_align_only_skips_ass_generation(tmp_path, monkeypatch):
+    import src.audio_analyzer as analyzer
+    import src.subtitle as subtitle
+    from src.main import process_one
+    audio = tmp_path / 'song.mp3'
+    audio.write_bytes(b'original mix')
+    source = tmp_path / 'song_alignment.json'
+    AlignmentProject(lines=[AlignedLine(text='保留歌词', start=1, end=3)]).save_json(source)
+    output = tmp_path / 'output'
+    output.mkdir()
+    monkeypatch.setattr(analyzer, 'cached_audio_analysis',
+                        lambda *a, **k: SongAnalysis(duration=8, bpm=120, metadata={'cache_hit': False}))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Cloud align-only runs must not generate ASS')
+    monkeypatch.setattr(subtitle, 'generate_ass', forbidden)
+    result = process_one(audio, None, output, None,
+                         PipelineConfig(alignment_json=source, ass_only=True, emit_ass=False))
+    assert result == output / 'song_alignment.json' and result.exists()
+    assert not list(output.glob('*.ass'))

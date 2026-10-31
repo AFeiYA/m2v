@@ -1259,53 +1259,6 @@ async function saveAlignment() {
 }
 
 // ---------------------------------------------------------------------------
-// Generate Output (ASS / Video)
-// ---------------------------------------------------------------------------
-async function generateOutput() {
-  if (!state.currentFile) return;
-
-  const modeEl = document.querySelector('input[name="gen-mode"]:checked');
-  const tagEl = document.querySelector('input[name="gen-tag-type"]:checked');
-  const renderEl = document.querySelector('input[name="gen-render-mode"]:checked');
-
-  const mode = modeEl ? modeEl.value : "ass";
-  const tagType = tagEl ? tagEl.value : "kf";
-  const renderMode = renderEl ? renderEl.value : "apple";
-
-  status(mode === "video" ? "生成视频中，请稍候…" : "生成 ASS 中…");
-  try {
-    let r;
-    if (state.currentFile.is_saas || state.currentFile.task_id) {
-      r = await apiFetch(`/api/editor/tasks/${state.currentFile.task_id}/regen`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: mode }),
-      });
-    } else {
-      r = await apiFetch("/api/regen", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          json_path: state.currentFile.json_path,
-          audio_path: state.currentFile.audio_path || "",
-          mode: mode,
-          tag_type: tagType,
-          render_mode: renderMode,
-        }),
-      });
-    }
-    const j = await r.json();
-    if (!r.ok) {
-      status("生成失败: " + (j.detail || JSON.stringify(j)), true);
-    } else {
-      status(mode === "video" ? "✅ 视频已生成: " + (j.video_path || "已保存至任务") : "✅ ASS 已生成: " + (j.ass_path || "已保存至任务"));
-    }
-  } catch (e) {
-    status("生成失败: " + e, true);
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Undo / Redo & Dirty Flag
 // ---------------------------------------------------------------------------
 function pushUndo() {

@@ -20,7 +20,7 @@ test('standalone editor does not send workspace events or change backend mode',(
 });
 
 const common=fs.readFileSync(path.join(__dirname,'../local/common.js'),'utf8');
-const saveSource=common.slice(common.indexOf('async function saveAlignment()'),common.indexOf('// Generate Output',common.indexOf('async function saveAlignment()')));
+const saveSource=common.slice(common.indexOf('async function saveAlignment()'),common.indexOf('// Undo / Redo & Dirty Flag',common.indexOf('async function saveAlignment()')));
 function saveSetup(){
  let resolve;const response=new Promise(r=>resolve=r),writes=[],events=[],cache=[];
  const file={is_saas:true,task_id:'song',name:'Song'};

@@ -264,19 +264,11 @@ async def realign_lyrics(
     if task.status in (TaskStatus.PENDING, TaskStatus.PROCESSING):
         raise HTTPException(409, "当前歌曲正在对齐处理中，请稍候再试")
 
-    # 积分校验与扣除 (20 积分)
-    from src.settings import get_settings
-    from src.credits import lock_balance, reserve
-    cost = get_settings().ALIGNMENT_CREDITS
-    current_credits = await lock_balance(db, user.id)
-    if current_credits < cost:
-        raise HTTPException(403, f"积分不足。重新对齐需消耗 {cost} 积分，当前余额: {current_credits} 积分")
-
     storage = get_storage()
     if not task.input_mp3_key or not await storage.exists(task.input_mp3_key):
         raise HTTPException(404, "原歌曲音频文件缺失，无法重新对齐")
 
-    # 检查歌词是否发生实质变化：若歌词内容完全一致，则无需重新对齐与扣费
+    # 检查歌词是否发生实质变化：若歌词内容完全一致，则无需重新对齐与扣费（先于余额校验）
     from src.suno_import_identity import lyrics_signature
     new_signature = lyrics_signature(new_lyrics)
     old_signature = (task.config_snapshot or {}).get("import_lyrics_signature")
@@ -288,7 +280,20 @@ async def realign_lyrics(
             "message": "歌词文本未发生变化，无需重新对齐 (0 积分消耗)",
         }
 
-    # 1. 写入新的歌词文本到 storage
+    # 积分校验与扣除 (20 积分)
+    from src.settings import get_settings
+    from src.credits import lock_balance, reserve
+    cost = get_settings().ALIGNMENT_CREDITS
+    current_credits = await lock_balance(db, user.id)
+    if current_credits < cost:
+        raise HTTPException(403, f"积分不足。重新对齐需消耗 {cost} 积分，当前余额: {current_credits} 积分")
+
+    # 1. 预留扣除 20 积分 (使用 task.id 作为 operation_id，支持 allow_reopen=True)。
+    #    先扣费再写入歌词文件，避免扣费失败时存储中的歌词已被覆盖。
+    task.cost_credits = cost
+    await reserve(db, user.id, task.id, "alignment", cost, allow_reopen=True)
+
+    # 2. 写入新的歌词文本到 storage
     lyrics_key = f"uploads/{user.id}/{task.id}/source.txt"
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", delete=False) as f:
         f.write(new_lyrics)
@@ -299,10 +304,6 @@ async def realign_lyrics(
         tmp_lyrics_p.unlink(missing_ok=True)
 
     task.input_lyrics_key = lyrics_key
-
-    # 2. 预留扣除 20 积分 (使用 task.id 作为 operation_id，支持 allow_reopen=True)
-    task.cost_credits = cost
-    await reserve(db, user.id, task.id, "alignment", cost, allow_reopen=True)
 
     # 3. 设置 AlignmentExecution 租约与 execution_token
     import uuid
@@ -446,77 +447,6 @@ async def get_inst(
     if key is None:
         raise HTTPException(404, "该任务没有分离伴奏")
     return await _stream_storage_file(storage, key)
-
-
-# ======================================================================
-# 重新生成 ASS / 视频
-# ======================================================================
-
-@router.post("/tasks/{task_id}/regen")
-async def regenerate(
-    task_id: str,
-    request: Request,
-    user: User = Depends(get_current_user_flexible),
-    db: AsyncSession = Depends(get_db),
-):
-    """从编辑后的 alignment JSON 重新生成 ASS / MP4"""
-    task = await _get_user_task(db, user.id, task_id)
-    if not task.alignment_json_key:
-        raise HTTPException(404, "该任务没有对齐数据")
-
-    body = await request.json()
-    mode = body.get("mode", "ass")
-    storage = get_storage()
-
-    work_dir = Path(tempfile.mkdtemp(prefix=f"m2v_regen_{task_id[:8]}_"))
-
-    try:
-        # 下载 alignment JSON
-        align_local = work_dir / "alignment.json"
-        await storage.load(task.alignment_json_key, align_local)
-
-        from src.aligner import AlignmentResult
-        from src.subtitle import generate_ass
-        from src.config import SubtitleConfig, CompositorConfig
-
-        alignment = AlignmentResult.load_json(align_local)
-        ass_path = work_dir / f"{task.title}.ass"
-
-        # 下载音频
-        audio_local = None
-        if task.input_mp3_key:
-            audio_local = work_dir / Path(task.input_mp3_key).name
-            await storage.load(task.input_mp3_key, audio_local)
-
-        generate_ass(
-            alignment=alignment,
-            output_path=ass_path,
-            audio_path=audio_local,
-        )
-
-        if mode == "video" and audio_local:
-            from src.compositor import compose_video
-            mp4_path = work_dir / f"{task.title}.mp4"
-            compose_video(
-                audio_path=audio_local,
-                subtitle_path=ass_path,
-                output_path=mp4_path,
-                config=CompositorConfig(),
-            )
-            mp4_key = f"results/{task_id}/{task.title}.mp4"
-            await storage.save(mp4_key, mp4_path)
-            task.output_mp4_key = mp4_key
-            await db.flush()
-            return {"status": "ok", "mode": "video", "task_id": task_id}
-
-        await db.flush()
-        return {"status": "ok", "mode": "ass", "task_id": task_id}
-
-    except Exception as e:
-        log.error("重新生成失败: %s", e, exc_info=True)
-        raise HTTPException(500, str(e))
-    finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 # ======================================================================

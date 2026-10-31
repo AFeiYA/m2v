@@ -1718,3 +1718,23 @@ def test_realign_lyrics_and_zero_cost_credits_on_failure(sandbox, monkeypatch):
             assert task.status == TaskStatus.FAILED
     asyncio.run(verify_failed())
 
+
+
+def test_unchanged_lyrics_report_zero_cost_even_without_credits(sandbox):
+    from sqlalchemy import update
+    from src.models import User
+    seed_editor_song(sandbox)
+    first = sandbox.client.post("/api/editor/tasks/editor/realign", headers=headers(), json={"lyrics_text": "same lyrics"})
+    assert first.status_code == 200 and first.json()["status"] == "processing"
+
+    async def drain():
+        from src.models import Task, TaskStatus
+        async with sandbox.sessions() as db:
+            await db.execute(update(Task).where(Task.id == "editor").values(status=TaskStatus.COMPLETED))
+            await db.execute(update(User).values(credits=0))
+            await db.commit()
+    asyncio.run(drain())
+
+    again = sandbox.client.post("/api/editor/tasks/editor/realign", headers=headers(), json={"lyrics_text": "same lyrics"})
+    assert again.status_code == 200
+    assert again.json()["status"] == "unchanged" and again.json()["cost_credits"] == 0

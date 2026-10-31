@@ -108,6 +108,7 @@ class PipelineConfig:
     # 步骤控制
     skip_separation: bool = True          # 默认跳过 Demucs 极速对齐，直接用原音频对齐
     ass_only: bool = False                # 只生成 ASS，不合成 MP4
+    emit_ass: bool = True                 # ass_only 时是否写出 .ass 文件（云端 worker 关闭：ASS 由 alignment.json 动态生成）
     alignment_json: Path | None = None    # 复用已有对齐结果，跳过对齐
     video_only: bool = False              # 直接从已有 ASS 合成视频，跳过 1-4 步
     ass_file: Path | None = None          # video_only 时指定 ASS 路径 (支持 {stem})

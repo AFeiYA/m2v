@@ -93,7 +93,6 @@ def _update_task_status(
     progress: int | None = None,
     error_message: str | None = None,
     output_mp4_key: str | None = None,
-    output_ass_key: str | None = None,
     alignment_json_key: str | None = None,
     started_at: datetime | None = None,
     completed_at: datetime | None = None,
@@ -120,8 +119,6 @@ def _update_task_status(
             values["error_message"] = error_message
         if output_mp4_key is not None:
             values["output_mp4_key"] = output_mp4_key
-        if output_ass_key is not None:
-            values["output_ass_key"] = output_ass_key
         if alignment_json_key is not None:
             values["alignment_json_key"] = alignment_json_key
         if started_at is not None:
@@ -210,6 +207,8 @@ def process_song_task(
                 config.skip_separation = bool(config_dict["skip_separation"])
             if "ass_only" in config_dict:
                 config.ass_only = bool(config_dict["ass_only"])
+            # 云端不保存 ASS：下载时由最新 alignment.json 动态生成
+            config.emit_ass = False
             if "beat_effects" in config_dict:
                 config.subtitle.enable_beat_effects = bool(config_dict["beat_effects"])
 
@@ -263,7 +262,7 @@ def process_song_task(
                         log.warning("分离音轨缓存不可用，将重新分离: %s", type(exc).__name__)
 
         from src.main import process_one
-        result_path = process_one(
+        process_one(
             mp3_path=mp3_local,
             lyrics_path=lyrics_local,
             output_dir=output_dir,

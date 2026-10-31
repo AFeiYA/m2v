@@ -640,7 +640,6 @@ if (typeof document !== "undefined") {
     dom.btnSave             = $("#btn-save");
     dom.btnUndo             = $("#btn-undo");
     dom.btnRedo             = $("#btn-redo");
-    dom.btnRegenAss         = $("#btn-regen-ass");
     dom.sunoUrlInput        = $("#suno-url-input");
     dom.btnStartSunoImport  = $("#btn-start-suno-import");
     dom.sunoProgress        = $("#suno-import-progress");
@@ -730,50 +729,6 @@ function bindLyricEvents() {
   if (dom.btnSave) dom.btnSave.addEventListener("click", saveAlignment);
   if (dom.btnUndo) dom.btnUndo.addEventListener("click", undo);
   if (dom.btnRedo) dom.btnRedo.addEventListener("click", redo);
-
-  if (dom.btnRegenAss) {
-    dom.btnRegenAss.addEventListener("click", async () => {
-      if (!state.currentFile) {
-        alert(window.t ? t("msg_select_song_first") : "请先选择或加载一首歌曲");
-        return;
-      }
-      status(window.t ? t("msg_generating_ass") : "正在重新生成 ASS 字幕...");
-      try {
-        const fetchFn = window.apiFetch || fetch;
-        let res;
-        if (state.currentFile?.is_saas || state.currentFile?.task_id) {
-          res = await fetchFn(`/api/editor/tasks/${state.currentFile.task_id}/regen`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode: "ass" }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.detail || "生成失败");
-          status(`🎉 ASS 字幕已成功同步生成`);
-          alert(window.currentLocale === "en" ? "ASS subtitles generated and saved to cloud task!" : "ASS 字幕已成功生成并保存至云端！");
-        } else {
-          res = await fetchFn("/api/regen", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              json_path: state.currentFile.json_path,
-              mode: "ass",
-              render_mode: "apple",
-              tag_type: "kf",
-            }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.detail || "生成失败");
-          status(window.t ? t("msg_ass_generated", null, { path: data.ass_path }) : `🎉 ASS 字幕已生成: ${data.ass_path}`);
-          const pathLabel = window.currentLocale === "en" ? "ASS subtitles generated successfully!\nPath: " : "ASS 字幕生成成功！\n保存路径: ";
-          alert(pathLabel + data.ass_path);
-        }
-      } catch (err) {
-        status((window.t ? t("msg_ass_failed") : "生成 ASS 失败: ") + err.message, true);
-        alert((window.t ? t("msg_ass_failed") : "生成 ASS 失败: ") + err.message);
-      }
-    });
-  }
 
   if (dom.btnPlayPause) dom.btnPlayPause.addEventListener("click", togglePlay);
   if (dom.btnPlayLine) dom.btnPlayLine.addEventListener("click", playSelectedLine);
