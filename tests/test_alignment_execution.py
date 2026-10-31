@@ -254,3 +254,54 @@ def test_cancelled_preparation_releases_held_credit(sandbox):
     tasks, holds, available = snapshot(sandbox)
     assert tasks[0].status == TaskStatus.FAILED
     assert available == 5 and holds[0].state == 'released'
+
+
+def test_retry_failed_task_reuses_media_and_dispatches(sandbox, monkeypatch):
+    install_pipeline(sandbox, monkeypatch, False)
+    dispatched = []
+    monkeypatch.setattr(api_server, '_dispatch_task', lambda *a: dispatched.append(a) or 'celery-123')
+
+    async def setup_failed_task():
+        async with sandbox.sessions() as db:
+            task = Task(id='task-retry-test', user_id='alice', status=TaskStatus.FAILED,
+                        input_mp3_key='uploads/alice/task-retry-test/audio.mp3',
+                        input_lyrics_key='uploads/alice/task-retry-test/lyrics.txt')
+            db.add(task)
+            await db.commit()
+    asyncio.run(setup_failed_task())
+
+    p1 = sandbox.storage.get_local_path('uploads/alice/task-retry-test/audio.mp3')
+    p1.parent.mkdir(parents=True, exist_ok=True)
+    p1.write_bytes(b'audio-bytes')
+    p2 = sandbox.storage.get_local_path('uploads/alice/task-retry-test/lyrics.txt')
+    p2.parent.mkdir(parents=True, exist_ok=True)
+    p2.write_bytes(b'lyrics-bytes')
+
+    res = sandbox.client.post('/api/tasks/task-retry-test/retry', headers=headers())
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data['status'] == 'pending'
+    assert data['task_id'] == 'task-retry-test'
+    assert len(dispatched) == 1
+    assert dispatched[0][0] == 'task-retry-test'
+
+    tasks, holds, available = snapshot(sandbox)
+    retry_task = next(t for t in tasks if t.id == 'task-retry-test')
+    assert retry_task.status == TaskStatus.PENDING
+    assert any(h.operation_id == 'task-retry-test' and h.state == 'held' for h in holds)
+
+    # 4. Attempting to retry a task that is already pending raises 409
+    res_conflict = sandbox.client.post('/api/tasks/task-retry-test/retry', headers=headers())
+    assert res_conflict.status_code == 409
+
+    # 5. Missing storage files raises 410
+    async def make_missing_files_task():
+        async with sandbox.sessions() as db:
+            t = Task(id='task-missing-files', user_id='alice', status=TaskStatus.FAILED,
+                     input_mp3_key='uploads/alice/missing/audio.mp3',
+                     input_lyrics_key='uploads/alice/missing/lyrics.txt')
+            db.add(t)
+            await db.commit()
+    asyncio.run(make_missing_files_task())
+    res_missing = sandbox.client.post('/api/tasks/task-missing-files/retry', headers=headers())
+    assert res_missing.status_code == 410

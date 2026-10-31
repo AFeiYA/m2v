@@ -16,6 +16,7 @@ Current operating references:
 - [Credit accounting](credits.md): reservations, settlement, refunds and expiry.
 - [Render admission/storage](RENDER_ADMISSION_AND_STORAGE.md): capacity and persistence.
 - [Testing](../tests/README.md): CI versus private local and real-render tests.
+- [YouTube launch plan (中文)](YOUTUBE_LAUNCH_PLAN_ZH.md): channel setup, tutorial production, publishing, and early feedback.
 
 The dated plans in [archive](archive/) preserve earlier approaches. They are not
 current deployment or pricing instructions. Other design proposals in this folder

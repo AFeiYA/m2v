@@ -740,6 +740,83 @@ async def get_task(
     return _task_to_response(task)
 
 
+@api_router.post("/api/tasks/{task_id}/retry", tags=["Tasks"])
+async def retry_task(
+    task_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """重新触发失败的歌词对齐任务（复用云端已有的输入音频与歌词）"""
+    from src.alignment_execution import reconcile, now, QUEUE_SECONDS
+    from datetime import timedelta
+    from src.models import AlignmentExecution, TaskStatus, TaskStep, VersionTrash
+    from src.credits import reserve
+
+    await reconcile(db, user.id)
+    task = await _get_user_task(db, user.id, task_id)
+    if await db.get(VersionTrash, task_id):
+        raise HTTPException(409, "Restore this version before retrying.")
+
+    if task.status != TaskStatus.FAILED:
+        raise HTTPException(409, f"Only failed tasks can be retried (current status: {task.status.value}).")
+
+    storage = get_storage()
+    if not task.input_mp3_key or not await storage.exists(task.input_mp3_key):
+        raise HTTPException(410, "Original audio file is no longer available in storage. Please re-import.")
+    if not task.input_lyrics_key or not await storage.exists(task.input_lyrics_key):
+        raise HTTPException(410, "Original lyrics file is no longer available in storage. Please re-import.")
+
+    cost = settings.ALIGNMENT_CREDITS
+    token = uuid.uuid4().hex
+    exec_row = await db.get(AlignmentExecution, task_id)
+    if exec_row:
+        exec_row.token = token
+        exec_row.phase = "queued"
+        exec_row.lease_until = now() + timedelta(seconds=QUEUE_SECONDS)
+    else:
+        db.add(AlignmentExecution(task_id=task_id, token=token, phase="queued",
+                                  lease_until=now() + timedelta(seconds=QUEUE_SECONDS)))
+
+    await reserve(db, user.id, task_id, "alignment", cost)
+
+    claimed = await db.execute(
+        update(Task)
+        .where(Task.id == task_id, Task.user_id == user.id, Task.status == TaskStatus.FAILED)
+        .values(
+            status=TaskStatus.PENDING,
+            current_step=TaskStep.QUEUED,
+            progress=0,
+            error_message=None,
+            started_at=None,
+            completed_at=None,
+            cost_credits=cost,
+            updated_at=datetime.now(timezone.utc),
+        )
+    )
+    if not claimed.rowcount:
+        raise HTTPException(409, "Task could not be claimed for retry.")
+
+    await db.commit()
+
+    try:
+        task.celery_task_id = _dispatch_task(
+            task.id, task.input_mp3_key, task.input_lyrics_key,
+            {**(task.config_snapshot or {}), "_execution_token": token},
+        )
+        if task.celery_task_id:
+            await db.execute(update(Task).where(Task.id == task_id).values(celery_task_id=task.celery_task_id))
+            await db.commit()
+    except Exception as exc:
+        log.exception("Failed to dispatch alignment worker on retry: task=%s", task_id)
+        from src.task_lifecycle import fail_task_and_refund
+        await db.rollback()
+        await fail_task_and_refund(db, task_id, str(exc))
+        await db.commit()
+        raise HTTPException(503, "Failed to start alignment task. Credits have been refunded.") from exc
+
+    return {"status": "pending", "task_id": task_id, "message": "Alignment task retried successfully."}
+
+
 @api_router.delete("/api/tasks/{task_id}", response_model=MessageResponse, tags=["Tasks"])
 async def delete_task(
     task_id: str,

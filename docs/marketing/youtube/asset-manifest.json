@@ -1,0 +1,50 @@
+[
+  {
+    "file": "banner-safe-area-guide.png",
+    "width": 1280,
+    "height": 720,
+    "bytes": 116987
+  },
+  {
+    "file": "channel-avatar-800.png",
+    "width": 800,
+    "height": 800,
+    "bytes": 54638
+  },
+  {
+    "file": "channel-banner-2560x1440.png",
+    "width": 2560,
+    "height": 1440,
+    "bytes": 323612
+  },
+  {
+    "file": "kit-preview.jpg",
+    "width": 1600,
+    "height": 1360,
+    "bytes": 181532
+  },
+  {
+    "file": "three-lyric-styles-1920x1080.png",
+    "width": 1920,
+    "height": 1080,
+    "bytes": 233706
+  },
+  {
+    "file": "tutorial-01-thumbnail-1280x720.jpg",
+    "width": 1280,
+    "height": 720,
+    "bytes": 82928
+  },
+  {
+    "file": "tutorial-01-thumbnail-3840x2160.jpg",
+    "width": 3840,
+    "height": 2160,
+    "bytes": 439633
+  },
+  {
+    "file": "video-watermark-150.png",
+    "width": 150,
+    "height": 150,
+    "bytes": 6789
+  }
+]

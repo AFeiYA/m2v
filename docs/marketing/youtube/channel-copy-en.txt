@@ -1,0 +1,38 @@
+CHANNEL NAME
+Fovea Studio
+
+HANDLE CANDIDATES — availability has not been checked
+@FoveaStudio
+@FoveaStudioApp
+@CreateWithFovea
+
+DESCRIPTION — paste only this block into the channel description
+Turn your music into lyric videos with Fovea Studio.
+
+Start with AI lyric alignment, fine-tune word timing, and bring your lyrics to life with kinetic typography, scrolling lyrics, and karaoke layouts. Follow practical tutorials for landscape videos and vertical clips, from your first project to your final MP4.
+
+Made by the creator of Fovea Studio. Independent software; not affiliated with Suno or Apple.
+
+Try Fovea Studio: https://mv.fovea.si/
+Support: support@fovea.si
+
+WEBSITE LINK TITLE
+Create a lyric video
+
+WEBSITE LINK
+https://mv.fovea.si/
+
+BUSINESS INQUIRY EMAIL
+support@fovea.si
+
+PLAYLIST 1
+Start Here
+A practical introduction to creating your first lyric video with Fovea Studio.
+
+PLAYLIST 2
+Lyric Video Tutorials
+AI alignment, editable word timing, typography, layouts, and export workflows.
+
+PLAYLIST 3
+Made with Fovea
+Lyric video examples and the creative decisions behind them.

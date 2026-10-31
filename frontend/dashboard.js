@@ -1111,12 +1111,17 @@ function renderSong(song) {
   const labels={pending:"Import queued",processing:"Aligning lyrics",completed:"Ready to edit",failed:song.current_task_id?"Latest import failed · previous lyrics available":"Import failed"};
   const latest=song.versions?.find(v=>v.id===song.latest_task_id);
   const lyrics=song.versions?.find(v=>v.id===current);
+  const isZh = window.currentLocale === 'zh';
+  const retryBtn = song.status === 'failed' && song.latest_task_id
+    ? `<button class="btn btn-primary btn-sm" data-action="retry-alignment" data-task-id="${encodeURIComponent(song.latest_task_id)}">${isZh ? '重新对齐 (-20 积分)' : 'Retry alignment (-20 credits)'}</button>`
+    : '';
   return `<article class="song-card" id="song-${id}" data-status="${escapeHtml(song.status)}">
     <div class="song-heading"><span class="song-initial" aria-hidden="true">${escapeHtml((song.title||'♫').slice(0,1))}</span><div><h3>${escapeHtml(song.title)}</h3><span class="song-artist">${escapeHtml(song.artist||'')}</span><p>${song.export_count} ${song.export_count===1?"video":"videos"}${song.archived?' · Archived':''}</p></div>
     <button class="song-star" data-song-action="star" data-song="${id}" aria-label="${song.starred?'Unfavorite':'Favorite'} song" aria-pressed="${song.starred}">${song.starred?'★':'☆'}</button></div>
     <p class="song-state">${escapeHtml(song.status==='completed'&&!current?'Import finished':labels[song.status]||song.status)}${song.status==='processing'?` · ${Math.max(0,Math.min(100,Number(song.progress)||0))}%`:''}</p>
     <p class="song-updated">Updated ${escapeHtml(new Date(song.updated_at).toLocaleDateString())}</p>
     <div class="task-actions">${current?`<a class="btn btn-primary btn-sm" href="/lyric-editor/${encodeURIComponent(current)}" data-action="open-studio" data-studio="lyric" data-task-id="${encodeURIComponent(current)}" data-song-id="${id}">Edit lyrics</a><a class="btn btn-sm btn-outline" href="/motion-studio?project=${encodeURIComponent(current)}" data-action="open-studio" data-studio="motion" data-task-id="${encodeURIComponent(current)}" data-song-id="${id}">Design video</a>`:''}
+    ${retryBtn}
     ${song.export_count?`<button class="btn btn-sm btn-outline" data-song-action="exports" data-song="${id}">View videos</button>`:''}
     <button class="btn btn-sm btn-outline" data-song-action="archive" data-song="${id}">${song.archived?'Restore':'Archive'}</button></div>
     ${latest?.error?`<p class="error-text">${escapeHtml(latest.error)}</p>`:''}</article>`;
@@ -1261,6 +1266,31 @@ async function handleTaskAction(e) {
       window.openLyricStudio(task, title);
     } else if (studio === "motion" && window.openMotionStudio) {
       window.openMotionStudio(task, title);
+    }
+    return;
+  }
+
+  if (action === "retry-alignment") {
+    e.preventDefault();
+    const task = decodeURIComponent(btn.dataset.taskId || taskId || "");
+    if (!task) return;
+    const isZh = window.currentLocale === "zh";
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = isZh ? "正在重新对齐…" : "Retrying…";
+    try {
+      const res = await api(`/api/tasks/${encodeURIComponent(task)}/retry`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || (isZh ? "重试对齐失败，请检查积分或网络" : "Retry failed."));
+      }
+      connectProgressWS(task);
+      await loadTasks();
+      await loadCredits();
+    } catch (err) {
+      alert(err.message);
+      btn.textContent = originalText;
+      btn.disabled = false;
     }
     return;
   }
@@ -1802,8 +1832,8 @@ function renderCreditOverview(data) {
   const isZh = window.currentLocale === 'zh';
   if ($('#credit-pricing')) $('#credit-pricing').textContent = pricing
     ? (isZh
-        ? `歌词对齐：每首歌 ${creditRate(pricing.alignment)}（含人声分离与逐字对齐）。视频导出：每首歌 ${motion} 单曲买断（解锁后该歌曲所有画幅与片段不限次免费导出）。复用未修改对齐与下载历史视频完全免费。`
-        : `Lyrics alignment: ${creditRate(pricing.alignment)} per song (includes vocal separation & word-level timing). Video export: ${motion} per song one-time buyout (unlimited free exports across all formats & clips once unlocked). Reusing existing alignment and downloading videos are always free.`)
+        ? `歌词对齐：每首歌 ${creditRate(pricing.alignment)}（含人声分离与逐字对齐）。视频导出：每首歌 ${motion} 单曲买断（解锁后该歌曲所有画幅与片段不限次免费本地导出，云端渲染按次计费）。复用未修改对齐与下载历史视频完全免费。`
+        : `Lyrics alignment: ${creditRate(pricing.alignment)} per song (includes vocal separation & word-level timing). Video export: ${motion} per song one-time buyout (unlimited free browser exports across all formats & clips once unlocked; cloud rendering billed separately). Reusing existing alignment and downloading videos are always free.`)
     : 'Usage costs are unavailable. Refresh before starting a new task.';
 }
 

@@ -488,15 +488,15 @@ function updateMatrixCount() {
         : `Staging preview · Free exports (${count} video${count === 1 ? '' : 's'}, 0 credits total)`;
     } else if (unlocked) {
       price.textContent = isZh
-        ? `本歌曲已解锁出片 · 不限次免费导出（所选 ${count} 个视频合计 0 积分）`
-        : `Song unlocked · Unlimited free exports (${count} video${count === 1 ? '' : 's'}, 0 credits total)`;
+        ? `本歌曲已解锁出片 · 不限次免费本地导出（所选 ${count} 个视频合计 0 积分）`
+        : `Song unlocked · Unlimited free browser exports (${count} video${count === 1 ? '' : 's'}, 0 credits total)`;
     } else {
       const itemDesc = custom
         ? (isZh ? '自定义片段' : '1 clip')
         : (isZh ? `${count} 个视频` : `${count} video${count === 1 ? '' : 's'}`);
       price.textContent = isZh
-        ? `${unitCost} 积分 · 解锁本歌曲出片（本次导出 ${itemDesc} 合计 ${unitCost} 积分，后续不限次免费导出）`
-        : `${unitCost} credits · Unlock song video export (${itemDesc}, ${unitCost} credits total, unlimited later)`;
+        ? `${unitCost} 积分 · 解锁本歌曲出片（本次导出 ${itemDesc} 合计 ${unitCost} 积分，后续不限次免费本地导出）`
+        : `${unitCost} credits · Unlock song video export (${itemDesc}, ${unitCost} credits total, unlimited browser exports later)`;
     }
   }
   const btn = $<HTMLButtonElement>('export');
