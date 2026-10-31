@@ -41,6 +41,7 @@ except Exception:
 
 from src.utils import is_valid_audio_file, log
 from src.suno_audio_cache import remember_audio, temporary_path, verified_audio, write_if_changed
+from src.lyric_markup import is_round_cue, is_square_cue, strip_inline_cues
 
 
 
@@ -510,7 +511,7 @@ def _clean_lyrics(prompt: str) -> str:
             continue
 
         # 过滤方括号与黑括号标签，如 [Verse 1], [Chorus], [Intro], [Outro: ...], [End], [Solo], 【副歌】
-        if (stripped.startswith('[') and stripped.endswith(']')) or (stripped.startswith('【') and stripped.endswith('】')):
+        if is_square_cue(stripped):
             # The heading is not sung, but its stanza boundary is essential
             # for acoustic anchoring, especially repeated choruses.
             if result and result[-1] != '':
@@ -518,11 +519,11 @@ def _clean_lyrics(prompt: str) -> str:
             continue
 
         # 过滤圆括号说明，如 (Warm analog synth pads swell...), (Ambient wind...), （Bass Drop 前停顿）
-        if re.fullmatch(r'[（(].*[）)]', stripped):
+        if is_round_cue(stripped):
             continue
 
         # Match preprocessing: inline arrangement cues are not sung words.
-        stripped = re.sub(r'\[[^\[\]]*\]|[（(][^（）()]*[）)]|【[^【】]*】', '', stripped).strip()
+        stripped = strip_inline_cues(stripped)
         if stripped:
             result.append(stripped)
 

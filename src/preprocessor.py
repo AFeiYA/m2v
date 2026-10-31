@@ -15,6 +15,7 @@ from pathlib import Path
 import chardet
 
 from src.config import PreprocessorConfig
+from src.lyric_markup import is_round_cue, is_square_cue, strip_inline_cues
 from src.utils import log
 
 # ---------------------------------------------------------------------------
@@ -54,13 +55,8 @@ _CREDIT_META_RE = re.compile(
 # 不可发音符号（保留中文、字母、数字、基本标点、空格、弯撇号/引号）
 _UNPRINTABLE_RE = re.compile(r"[^\u4e00-\u9fff\u3400-\u4dbf\w\s，。、！？；：\u201c\u201d\u2018\u2019""''…—\-,\.!?;:'\"]")
 # 章节标题: [Intro] / [Verse 1] / [Pre-Chorus] 等 (整行)
-_SECTION_HEADER_RE = re.compile(r"^(?:\[.+\]|【.+】)$")
-# 整行都是括号注释: （Fast Kick + ...） / (Bass Drop)
-_FULL_ANNOTATION_RE = re.compile(r"^[（(].+[）)]$")
-# 行内括号注释 (用于剥离混合行中的编曲说明)
-_INLINE_ANNOTATION_RE = re.compile(r"[（(][^（）()]*[）)]")
-# 行内方括号指令: [Vocal grit] / [Crescendo] 等 (内嵌于歌词行)
-_INLINE_BRACKET_RE = re.compile(r"\[[^\[\]]+\]")
+# Shared markup rules live in lyric_markup; the original heading is retained
+# here as metadata and removed from the aligner's sung text.
 
 # ---------------------------------------------------------------------------
 # 主函数
@@ -103,22 +99,17 @@ def preprocess_lyrics(
             continue
 
         # 标记章节标题 [Intro] / [Verse 1] 等
-        if _SECTION_HEADER_RE.match(text):
+        if is_square_cue(text):
             cleaned.append(LyricLine(text=text, paragraph=line.paragraph, is_annotation=True))
             continue
 
         # 标记整行编曲说明 （Fast Kick + ...） / (Bass Drop)
-        if _FULL_ANNOTATION_RE.match(text):
+        if is_round_cue(text):
             cleaned.append(LyricLine(text=text, paragraph=line.paragraph, is_annotation=True))
             continue
 
         # 剥离行内方括号指令 e.g. "[Vocal grit] 如果…" → "如果…"
-        text = _INLINE_BRACKET_RE.sub("", text).strip()
-        if not text:
-            continue
-
-        # 剥离行内圆括号编曲注释 e.g. "Let's go!（Drop）" → "Let's go!"
-        text = _INLINE_ANNOTATION_RE.sub("", text).strip()
+        text = strip_inline_cues(text)
         if not text:
             continue
 
@@ -252,16 +243,24 @@ def _parse_txt(text: str) -> list[LyricLine]:
     lines: list[LyricLine] = []
     paragraph = 0
     prev_was_blank = False
+    has_lyric_in_paragraph = False
     for raw_line in text.splitlines():
         stripped = raw_line.strip()
         if not stripped:
             if lines:  # 仅在已有内容后才计为段落分隔
                 prev_was_blank = True
             continue
+        # Like the Suno cleaner, a standalone square-bracket marker creates a
+        # stanza boundary even when the pasted text contains no blank lines.
+        if is_square_cue(stripped) and has_lyric_in_paragraph:
+            prev_was_blank = True
         if prev_was_blank:
             paragraph += 1
             prev_was_blank = False
+            has_lyric_in_paragraph = False
         lines.append(LyricLine(text=stripped, paragraph=paragraph))
+        if not is_square_cue(stripped) and not is_round_cue(stripped):
+            has_lyric_in_paragraph = True
     return lines
 
 
