@@ -140,7 +140,7 @@ function syncModeControls(){
  if($('stream-design-controls'))$('stream-design-controls').hidden=kinetic;
  if($('poster-sample'))$('poster-sample').hidden=!kinetic;
  if(!kinetic){
-  const currentModeSettings = design.modes[design.active_mode as 'apple'|'tv'|'neon'];
+  const currentModeSettings = design.modes[design.active_mode as 'apple'|'tv'];
   if(currentModeSettings && 'font_scale' in currentModeSettings) $<HTMLInputElement>('stream-font-scale').value=String(currentModeSettings.font_scale);
   $('apple-mode-controls').hidden=design.active_mode!=='apple';$('karaoke-mode-controls').hidden=design.active_mode!=='tv';
   if(design.modes.apple) $<HTMLInputElement>('apple-focus-y').value=String(design.modes.apple.focus_y);

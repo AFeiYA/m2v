@@ -6,7 +6,6 @@ import {featuresAt,type Project,type Options} from './model';
 import {stageAt,visiblePosterAt,canvasMeasure,POSTER_FONT,posterNodeState,posterHoldState,posterExitOpacity,posterRings,introTitleState,type CompiledPoster,type CompiledIntroTitle} from './poster-layout';
 import {songLayoutAt,songTextColor,coverPlacement,coverOpacityAt,type SongLayout} from './song-layout';
 import {ktvDualStateAt,type KtvDualCompiled,appleScrollStateAt,type AppleScrollCompiled} from './stream-layout';
-import {neonStateAt,type NeonCompiled} from './neon-layout';
 
 export type VideoProps={project:Project;options:Options;timeOffset?:number;renderLength?:number;transparent?:boolean;surface?:{width:number;height:number}};
 
@@ -18,7 +17,6 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
  const [layouts,setLayouts]=useState<CompiledPoster[]|null>(null);
  const [ktvLayout,setKtvLayout]=useState<KtvDualCompiled|null>(null);
  const [appleLayout,setAppleLayout]=useState<AppleScrollCompiled|null>(null);
- const [neonLayout,setNeonLayout]=useState<NeonCompiled|null>(null);
  const [songLayout,setSongLayout]=useState<SongLayout|null>(null);
  const [intro,setIntro]=useState<CompiledIntroTitle|null>(null);
 
@@ -28,18 +26,18 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
   const context=document.createElement('canvas').getContext('2d')!;
   const measure=canvasMeasure(context);
   const compiled=compileRenderPlan(project,options,width,height,measure);
-  setLayouts(compiled.layouts);setKtvLayout(compiled.ktvLayout);setAppleLayout(compiled.appleLayout);setNeonLayout(compiled.neonLayout);
+  setLayouts(compiled.layouts);setKtvLayout(compiled.ktvLayout);setAppleLayout(compiled.appleLayout);
   setSongLayout(compiled.songLayout);setIntro(compiled.intro);
   continueRender(handle);
  })().catch(cancelRender);return()=>{active=false;};},[project,activeVisualMode,width,height,handle,continueRender,cancelRender]);
 
- const isReady = (activeVisualMode === 'tv' && ktvLayout) || (activeVisualMode === 'apple' && appleLayout) || (activeVisualMode === 'neon' && neonLayout) || (activeVisualMode === 'kinetic' && layouts);
+ const isReady = (activeVisualMode === 'tv' && ktvLayout) || (activeVisualMode === 'apple' && appleLayout) || (activeVisualMode === 'kinetic' && layouts);
  if(!isReady)return <AbsoluteFill style={{background:'#0d120a'}}/>;
 
  const plan=layouts?visiblePosterAt(layouts,t):undefined;
  const stage=layouts?stageAt(layouts,t):undefined;
- const background = stage?.background || (ktvLayout || appleLayout || neonLayout)?.palette.background || '#0d120a';
- const accent = stage?.accent || (ktvLayout || appleLayout || neonLayout)?.palette.accent || '#b7f34a';
+ const background = stage?.background || (ktvLayout || appleLayout)?.palette.background || '#0d120a';
+ const accent = stage?.accent || (ktvLayout || appleLayout)?.palette.accent || '#b7f34a';
 
  const feature=featuresAt(project,t);
  const complete=plan?Math.max(...plan.nodes.map(n=>n.settled)):Infinity;
@@ -201,140 +199,6 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
               );
             })}
           </g>
-        </g>
-      );
-    })()}
-
-    {!songFrame.cover && activeVisualMode === 'neon' && neonLayout && (()=>{
-      const { current, previous, next, pulse, flicker } = neonStateAt(neonLayout, t, feature.kick || feature.beat * 0.35);
-      const glowFilterId = `neon-glow-${highlightId}`;
-      const ambientId = `neon-ambient-${highlightId}`;
-      const glowY = current ? current.y : height * 0.5;
-      const glowRadius = Math.round(18 * pulse * flicker);
-
-      return (
-        <g>
-          <defs>
-            <radialGradient id={ambientId} cx="50%" cy={`${Math.round((glowY / height) * 100)}%`} r="60%">
-              <stop offset="0%" stopColor={neonLayout.palette.accent} stopOpacity={0.16 * pulse * flicker} />
-              <stop offset="45%" stopColor={neonLayout.palette.accent} stopOpacity={0.05 * pulse * flicker} />
-              <stop offset="100%" stopColor={neonLayout.palette.accent} stopOpacity="0" />
-            </radialGradient>
-            <filter id={glowFilterId} x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation={glowRadius * 0.4} result="innerGlow" />
-              <feGaussianBlur in="SourceGraphic" stdDeviation={glowRadius} result="outerGlow" />
-              <feMerge>
-                <feMergeNode in="outerGlow" />
-                <feMergeNode in="innerGlow" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-
-          {/* Ambient atmosphere */}
-          <rect x="0" y="0" width={width} height={height} fill={`url(#${ambientId})`} pointerEvents="none" />
-
-          {/* Neighbors (cold tube) */}
-          {[previous, next].filter((s): s is NonNullable<typeof previous> => Boolean(s)).map((slot, idx) => {
-            const c = slot.compiled;
-            const fSize = Math.round(c.fontSize * slot.scale);
-            return (
-              <g key={idx} opacity={slot.alpha}>
-                {c.rows.map((row, rIdx) => (
-                  <text
-                    key={rIdx}
-                    x={row.x}
-                    y={slot.y + row.yOffset}
-                    fill={neonLayout.palette.foreground}
-                    fontSize={fSize}
-                    fontWeight={800}
-                    fontFamily={POSTER_FONT}
-                    style={{ whiteSpace: 'pre' }}
-                  >
-                    {row.text}
-                  </text>
-                ))}
-              </g>
-            );
-          })}
-
-          {/* Active neon line */}
-          {current && (()=>{
-            const c = current.compiled;
-            const fSize = Math.round(c.fontSize * current.scale);
-            return (
-              <g>
-                {/* Cold tube unignited base */}
-                {c.rows.map((row, rIdx) => (
-                  <text
-                    key={rIdx}
-                    x={row.x}
-                    y={current.y + row.yOffset}
-                    fill={neonLayout.palette.foreground}
-                    opacity={0.25}
-                    fontSize={fSize}
-                    fontWeight={800}
-                    fontFamily={POSTER_FONT}
-                    style={{ whiteSpace: 'pre' }}
-                  >
-                    {row.text}
-                  </text>
-                ))}
-
-                {/* Ignited neon tube sweep */}
-                {current.spansWithProgress.map((sp, k) => {
-                  if (sp.progress <= 0) return null;
-                  const clipId = `neon-clip-${highlightId}-${c.lineIndex}-${k}`;
-                  const targetRow = c.rows[sp.span.row] || c.rows[0];
-                  return (
-                    <g key={k} aria-hidden="true">
-                      <defs>
-                        <clipPath id={clipId}>
-                          <rect
-                            x={sp.span.x}
-                            y={current.y + sp.span.top}
-                            width={sp.span.width * sp.progress}
-                            height={sp.span.height}
-                          />
-                        </clipPath>
-                      </defs>
-
-                      {/* Neon glow halo */}
-                      <text
-                        x={targetRow.x}
-                        y={current.y + targetRow.yOffset}
-                        fill={neonLayout.palette.accent}
-                        filter={`url(#${glowFilterId})`}
-                        clipPath={`url(#${clipId})`}
-                        opacity={current.flicker}
-                        fontSize={fSize}
-                        fontWeight={800}
-                        fontFamily={POSTER_FONT}
-                        style={{ whiteSpace: 'pre' }}
-                      >
-                        {targetRow.text}
-                      </text>
-
-                      {/* White discharge core */}
-                      <text
-                        x={targetRow.x}
-                        y={current.y + targetRow.yOffset}
-                        fill="#ffffff"
-                        clipPath={`url(#${clipId})`}
-                        opacity={0.95 * current.flicker}
-                        fontSize={fSize}
-                        fontWeight={800}
-                        fontFamily={POSTER_FONT}
-                        style={{ whiteSpace: 'pre' }}
-                      >
-                        {targetRow.text}
-                      </text>
-                    </g>
-                  );
-                })}
-              </g>
-            );
-          })()}
         </g>
       );
     })()}

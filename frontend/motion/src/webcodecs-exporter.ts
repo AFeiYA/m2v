@@ -25,10 +25,6 @@ import {
   paintAppleScrollCanvas,
   type AppleScrollCompiled,
 } from './stream-layout';
-import {
-  paintNeonCanvas,
-  type NeonCompiled,
-} from './neon-layout';
 
 export type ExportRange = {
   title: string;
@@ -79,7 +75,6 @@ export function renderCanvasFrame(
     visualMode?: VisualMode;
     ktvLayout?: KtvDualCompiled | null;
     appleLayout?: AppleScrollCompiled | null;
-    neonLayout?: NeonCompiled | null;
   }
 ): void {
   const visualMode = streamOptions?.visualMode || 'kinetic';
@@ -92,9 +87,6 @@ export function renderCanvasFrame(
   } else if (visualMode === 'apple' && streamOptions?.appleLayout) {
     background = streamOptions.appleLayout.palette.background;
     accent = streamOptions.appleLayout.palette.accent;
-  } else if (visualMode === 'neon' && streamOptions?.neonLayout) {
-    background = streamOptions.neonLayout.palette.background;
-    accent = streamOptions.neonLayout.palette.accent;
   } else if (layouts) {
     const stage = stageAt(layouts, t);
     background = stage?.background || '#0d120a';
@@ -157,10 +149,6 @@ export function renderCanvasFrame(
     paintKtvDualCanvas(ctx, streamOptions.ktvLayout, t, POSTER_FONT);
   } else if (visualMode === 'apple' && streamOptions?.appleLayout) {
     paintAppleScrollCanvas(ctx, streamOptions.appleLayout, t, POSTER_FONT);
-  } else if (visualMode === 'neon' && streamOptions?.neonLayout) {
-    const feature = featuresAt(project, t);
-    const beatVal = feature.kick || feature.beat * 0.35;
-    paintNeonCanvas(ctx, streamOptions.neonLayout, t, POSTER_FONT, beatVal);
   } else if (layouts) {
     const plan = visiblePosterAt(layouts, t);
     const feature = featuresAt(project, t);
@@ -207,7 +195,7 @@ export async function exportMotionWebCodecs(params: {
   const measure = canvasMeasure(measureCtx);
 
   const visualMode = resolveVisualMode(range.visualMode, range.aspect);
-  const {layouts,ktvLayout,appleLayout,neonLayout,songLayout,intro}=compileRenderPlan(project,{visualMode},width,height,measure);
+  const {layouts,ktvLayout,appleLayout,songLayout,intro}=compileRenderPlan(project,{visualMode},width,height,measure);
 
   // Preload cover image if available
   let coverImage: HTMLImageElement | null = null;
@@ -377,7 +365,6 @@ export async function exportMotionWebCodecs(params: {
           visualMode,
           ktvLayout,
           appleLayout,
-          neonLayout,
         }
       );
 
