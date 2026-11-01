@@ -7,7 +7,7 @@ import {checkImportScope} from './import-scope';
 import {compileSongPosters,canvasMeasure,paintCompiledPoster,automaticPoster,applyCustomGrouping,resolvePaletteColors,pickRandomStackLayout,type CompiledPoster,type DefaultLayoutPreset,type StackLayout} from './poster-layout';
 import { RemotionPreview } from './remotion-preview';
 import { isWebCodecsSupported, exportMotionWebCodecs } from './webcodecs-exporter';
-import { defaults, normalizeProject, renderSize, buildExportClips, resolveVisualMode, type Project, type Options, type MotionPlan, type ExportClip } from './model';
+import { defaults, normalizeProject, renderSize, buildExportClips, resolveVisualMode, type Project, type Options, type MotionPlan, type ExportClip, type VisualMode } from './model';
 import {motionJson as api,motionUrl,serviceJson,serviceAudio,cloudService,downloadService,isStagingHost} from './service-api';
 const $=<T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const audio=new Audio();
@@ -567,7 +567,7 @@ async function runExportVideo() {
   type QueueTask = {
     title: string;
     aspect: '16:9' | '9:16';
-    visualMode: 'tv' | 'apple' | 'kinetic';
+    visualMode: VisualMode;
     start: number;
     length: number | null;
   };
