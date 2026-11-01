@@ -38,15 +38,23 @@ class KaraokeDesign(ModeSettings):
     preview_seconds: float = Field(default=2.5, ge=0, le=8, allow_inf_nan=False)
 
 
+class NeonDesign(ModeSettings):
+    aspect: Literal['16:9', '9:16'] = '9:16'
+    font_scale: float = Field(default=1, ge=.7, le=1.4, allow_inf_nan=False)
+    glow_intensity: float = Field(default=1, ge=0, le=2, allow_inf_nan=False)
+    flicker: bool = True
+
+
 class Modes(DesignModel):
     kinetic: KineticDesign = Field(default_factory=KineticDesign)
     apple: AppleDesign = Field(default_factory=AppleDesign)
     tv: KaraokeDesign = Field(default_factory=KaraokeDesign)
+    neon: NeonDesign = Field(default_factory=NeonDesign)
 
 
 class MotionDesign(DesignModel):
     version: Literal['motion-design-v1'] = 'motion-design-v1'
-    active_mode: Literal['kinetic', 'apple', 'tv'] = 'kinetic'
+    active_mode: Literal['kinetic', 'apple', 'tv', 'neon'] = 'kinetic'
     theme: Theme = Field(default_factory=Theme)
     height: Literal[360, 720] = 720
     modes: Modes = Field(default_factory=Modes)

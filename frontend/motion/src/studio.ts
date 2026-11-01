@@ -1,4 +1,4 @@
-import {createMotionDesign,modeOptions,modeTheme,selectMode,changeTheme,visualModes,type MotionDesign} from './motion-design';
+import {createMotionDesign,modeOptions,modeTheme,selectMode,changeTheme,visualModes,normalizeMotionDesign,type MotionDesign} from './motion-design';
 import type {HighlightMode} from './karaoke';
 import {localRulePlan,localPalette,preserveHighlight} from './local-design';
 import {compileSongLayout,paintSongLayout,paintCoverBackground} from './song-layout';
@@ -124,9 +124,10 @@ if (typeof window !== 'undefined') {
  });
 }
 function designSnapshot():MotionDesign {
- const value=structuredClone(design);value.modes.kinetic.plan=plan?structuredClone(plan):null;return value;
+ const value=normalizeMotionDesign(design);value.modes.kinetic.plan=plan?structuredClone(plan):null;return value;
 }
 function syncModeControls(){
+ design = normalizeMotionDesign(design);
  Object.assign(options,modeOptions(design));
  for(const key of ['aspect','resolution','post','bloom','shake']){const node=$<HTMLInputElement>(key);if(key==='post')node.checked=options.post;else node.value=String(key==='resolution'?options.height:options[key as 'aspect'|'bloom'|'shake']);}
  const theme=modeTheme(design);
@@ -139,10 +140,11 @@ function syncModeControls(){
  if($('stream-design-controls'))$('stream-design-controls').hidden=kinetic;
  if($('poster-sample'))$('poster-sample').hidden=!kinetic;
  if(!kinetic){
-  $<HTMLInputElement>('stream-font-scale').value=String(design.modes[design.active_mode as 'apple'|'tv'|'neon'].font_scale);
+  const currentModeSettings = design.modes[design.active_mode as 'apple'|'tv'|'neon'];
+  if(currentModeSettings && 'font_scale' in currentModeSettings) $<HTMLInputElement>('stream-font-scale').value=String(currentModeSettings.font_scale);
   $('apple-mode-controls').hidden=design.active_mode!=='apple';$('karaoke-mode-controls').hidden=design.active_mode!=='tv';
-  $<HTMLInputElement>('apple-focus-y').value=String(design.modes.apple.focus_y);
-  $<HTMLInputElement>('karaoke-preview-seconds').value=String(design.modes.tv.preview_seconds);
+  if(design.modes.apple) $<HTMLInputElement>('apple-focus-y').value=String(design.modes.apple.focus_y);
+  if(design.modes.tv) $<HTMLInputElement>('karaoke-preview-seconds').value=String(design.modes.tv.preview_seconds);
  }
  if($('mode-state-hint'))$('mode-state-hint').textContent=visualModes[design.active_mode].label+' · Changes are kept separately for each mode.';
  if(typeof document.querySelectorAll==='function'){
@@ -169,7 +171,7 @@ async function saveDesign(){
  if((!dirty&&!settingsDirty)||!selected)return;
  const id=selected,sequence=loadSequence,value=designSnapshot(),snapshot=JSON.stringify(value);
  const result=await api('design','PUT',{project_id:id,design:value});
- if(selected===id&&sequence===loadSequence&&JSON.stringify(designSnapshot())===snapshot){design=result.design;plan=design.modes.kinetic.plan;dirty=false;settingsDirty=false;}
+ if(selected===id&&sequence===loadSequence&&JSON.stringify(designSnapshot())===snapshot){design=normalizeMotionDesign(result.design);plan=design.modes.kinetic.plan;dirty=false;settingsDirty=false;}
 }
 async function saveAll(){
  if(exportQueueRunning)throw Error('Finish or cancel the export queue before saving a new design.');
@@ -197,7 +199,7 @@ async function load(id:string){
   const result=await api('project?project_id='+encodeURIComponent(id));
   if(sequence!==loadSequence)return;
   if(exportQueueRunning&&id!==selected){$<HTMLSelectElement>('project-select').value=selected;return;}
-  project=normalizeProject(result.project);design=result.design?structuredClone(result.design):createMotionDesign();
+  project=normalizeProject(result.project);design=result.design?normalizeMotionDesign(result.design):createMotionDesign();
   songVideoUnlocked=Boolean(result.video_unlocked||(result.project as any)?.video_unlocked);
   plan=design.modes.kinetic.plan;ruleSeed=result.rule_seed||null;selected=id;dirty=false;identityDirty=false;settingsDirty=false;
   const draft = getLocalDraft(id);
@@ -205,7 +207,7 @@ async function load(id:string){
    const serverSnapshot = JSON.stringify(design);
    const draftSnapshot = JSON.stringify(draft.design);
    if (draftSnapshot !== serverSnapshot) {
-    design = structuredClone(draft.design);
+    design = normalizeMotionDesign(draft.design);
     plan = design.modes.kinetic.plan;
     dirty = true;
     if (draft.identity && project) {
@@ -991,7 +993,7 @@ for(const id of ['aspect','resolution','post','bloom','shake'])$(id).addEventLis
   options.post=$<HTMLInputElement>('post').checked;
   options.bloom=Number($<HTMLInputElement>('bloom').value);
   options.shake=Number($<HTMLInputElement>('shake').value);
-  const mode=design.modes[design.active_mode];mode.aspect=options.aspect;mode.post=options.post;mode.bloom=options.bloom;mode.shake=options.shake;design.height=options.height||720;
+  const mode=design.modes?.[design.active_mode];if(mode){mode.aspect=options.aspect;mode.post=options.post;mode.bloom=options.bloom;mode.shake=options.shake;}design.height=options.height||720;
   settingsDirty=true;refresh();if(id==='aspect'){syncModeControls();populateExportMatrix();}status('Format and display settings updated locally. Save to sync.');
 });
 for(const id of ['stream-font-scale','apple-focus-y','karaoke-preview-seconds'])$(id)?.addEventListener('input',()=>{

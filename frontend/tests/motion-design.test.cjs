@@ -51,3 +51,36 @@ test('stream settings survive JSON round trips and change only their own layout'
  assert.equal(compileRenderPlan(project,{visualMode:'apple'},720,1280,measure).appleLayout.focusY,.5);
  assert.equal(project.motion_design.modes.kinetic.plan.cues[0].poster.layout,'staggered');
 });
+
+test('legacy design without neon mode normalizes safely without reading aspect of undefined', () => {
+ const legacyDesign = {
+  version: 'motion-design-v1',
+  active_mode: 'kinetic',
+  theme: { palette: 'impact', background: 'auto' },
+  height: 720,
+  modes: {
+   kinetic: { aspect: '16:9', theme: null, post: true, bloom: 0.7, shake: 0.65, layout: 'smart', highlight: 'none', plan: null },
+   apple: { aspect: '9:16', theme: null, post: true, bloom: 0.7, shake: 0.65, font_scale: 1, focus_y: 0.42 },
+   tv: { aspect: '16:9', theme: null, post: true, bloom: 0.7, shake: 0.65, font_scale: 1, preview_seconds: 2.5 }
+   // neon is completely missing!
+  }
+ };
+ // Must not throw Cannot read properties of undefined (reading 'aspect')
+ const opts = modeOptions(legacyDesign, 'neon');
+ assert.equal(opts.visualMode, 'neon');
+ assert.equal(opts.aspect, '9:16');
+
+ const selected = selectMode(legacyDesign, 'neon');
+ assert.equal(selected.active_mode, 'neon');
+ assert.ok(selected.modes.neon);
+ assert.equal(selected.modes.neon.aspect, '9:16');
+
+ const theme = modeTheme(legacyDesign, 'neon');
+ assert.equal(theme.palette, 'impact');
+
+ const {project} = fixture();
+ project.motion_design = legacyDesign;
+ const plan = compileRenderPlan(project, { visualMode: 'neon' }, 720, 1280, measure);
+ assert.equal(plan.mode, 'neon');
+ assert.ok(plan.neonLayout);
+});
