@@ -12,7 +12,7 @@ export type Project = {
   title: string; song_cover?:{data_url:string;width:number;height:number;source:string;source_url?:string}; artist?:string; song_identity?:SongIdentity; duration: number; lines: Line[]; motion_plan?:MotionPlan; motion_design?:MotionDesign;
   analysis: { bpm: number; beats: number[]; drum_hits: {time: number; type: string}[]; energy_curve: {time: number; energy: number}[] };
 };
-export type VisualMode = 'kinetic' | 'tv' | 'apple';
+export type VisualMode = 'kinetic' | 'tv' | 'apple' | 'neon';
 
 export type Options = {
   aspect: '16:9' | '9:16'; preset: string; mode: 'slam' | 'phrase';

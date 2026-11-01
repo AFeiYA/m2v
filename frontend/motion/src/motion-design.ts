@@ -4,7 +4,8 @@ export type ModeSettings = {aspect:Options['aspect'];theme:Theme|null;post:boole
 export type KineticDesign = ModeSettings & {layout:'smart'|'random'|'single'|'two-stack'|'three-stack'|'word-by-word';highlight:'none'|'word'|'sweep';plan:MotionPlan|null};
 export type AppleDesign = ModeSettings & {font_scale:number;focus_y:number};
 export type KaraokeDesign = ModeSettings & {font_scale:number;preview_seconds:number};
-export type MotionDesign = {version:'motion-design-v1';active_mode:VisualMode;theme:Theme;height:360|720;modes:{kinetic:KineticDesign;apple:AppleDesign;tv:KaraokeDesign}};
+export type NeonDesign = ModeSettings & {font_scale:number;glow_intensity:number;flicker:boolean};
+export type MotionDesign = {version:'motion-design-v1';active_mode:VisualMode;theme:Theme;height:360|720;modes:{kinetic:KineticDesign;apple:AppleDesign;tv:KaraokeDesign;neon:NeonDesign}};
 
 export interface VisualTemplate {
   id: VisualMode;
@@ -60,12 +61,26 @@ export const VISUAL_TEMPLATES: Record<VisualMode, VisualTemplate> = {
     hasPosters: false,
     exportFormatName: 'Dual-line Karaoke',
   },
+  neon: {
+    id: 'neon',
+    nameKey: 'ms_tpl_neon',
+    defaultName: 'Cyber Neon',
+    descriptionKey: 'ms_tpl_neon_desc',
+    defaultDescription: 'Electric neon glow typography with beat pulse & gas-tube flicker.',
+    icon: '⚡',
+    badge: 'Neon Glow',
+    defaultAspect: '9:16',
+    supportedAspects: ['9:16', '16:9'],
+    hasPosters: false,
+    exportFormatName: 'Cyber Neon',
+  },
 };
 
 export const visualModes = {
  kinetic:{label:'Kinetic Posters',aspect:'16:9',poster:true},
  apple:{label:'Apple Scroll',aspect:'9:16',poster:false},
  tv:{label:'Dual-line Karaoke',aspect:'16:9',poster:false},
+ neon:{label:'Cyber Neon',aspect:'9:16',poster:false},
 } as const;
 
 export function getTemplate(mode: VisualMode): VisualTemplate {
@@ -82,6 +97,7 @@ export function createMotionDesign():MotionDesign {
   kinetic:{...mode('16:9'),layout:'smart',highlight:'none',plan:null},
   apple:{...mode('9:16'),font_scale:1,focus_y:.42},
   tv:{...mode('16:9'),font_scale:1,preview_seconds:2.5},
+  neon:{...mode('9:16'),font_scale:1,glow_intensity:1,flicker:true},
  }};
 }
 export function modeTheme(design:MotionDesign,mode:VisualMode=design.active_mode):Theme{return design.modes[mode].theme||design.theme;}

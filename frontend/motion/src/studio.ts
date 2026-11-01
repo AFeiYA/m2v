@@ -139,7 +139,7 @@ function syncModeControls(){
  if($('stream-design-controls'))$('stream-design-controls').hidden=kinetic;
  if($('poster-sample'))$('poster-sample').hidden=!kinetic;
  if(!kinetic){
-  $<HTMLInputElement>('stream-font-scale').value=String(design.modes[design.active_mode as 'apple'|'tv'].font_scale);
+  $<HTMLInputElement>('stream-font-scale').value=String(design.modes[design.active_mode as 'apple'|'tv'|'neon'].font_scale);
   $('apple-mode-controls').hidden=design.active_mode!=='apple';$('karaoke-mode-controls').hidden=design.active_mode!=='tv';
   $<HTMLInputElement>('apple-focus-y').value=String(design.modes.apple.focus_y);
   $<HTMLInputElement>('karaoke-preview-seconds').value=String(design.modes.tv.preview_seconds);
