@@ -150,7 +150,9 @@ function syncModeControls(){
    card.classList.toggle('active',card.dataset.templateId===design.active_mode);
   });
   document.querySelectorAll<HTMLButtonElement>('.aspect-pill').forEach(pill=>{
-   pill.classList.toggle('active',pill.dataset.aspect===options.aspect);
+   const isActive=pill.dataset.aspect===options.aspect;
+   pill.classList.toggle('active',isActive);
+   pill.setAttribute('aria-pressed',String(isActive));
   });
  }
  const targetBadge=$('export-target-badge');
@@ -990,7 +992,7 @@ for(const id of ['aspect','resolution','post','bloom','shake'])$(id).addEventLis
   options.bloom=Number($<HTMLInputElement>('bloom').value);
   options.shake=Number($<HTMLInputElement>('shake').value);
   const mode=design.modes[design.active_mode];mode.aspect=options.aspect;mode.post=options.post;mode.bloom=options.bloom;mode.shake=options.shake;design.height=options.height||720;
-  settingsDirty=true;refresh();if(id==='aspect')populateExportMatrix();status('Format and display settings updated locally. Save to sync.');
+  settingsDirty=true;refresh();if(id==='aspect'){syncModeControls();populateExportMatrix();}status('Format and display settings updated locally. Save to sync.');
 });
 for(const id of ['stream-font-scale','apple-focus-y','karaoke-preview-seconds'])$(id)?.addEventListener('input',()=>{
  if(design.active_mode==='kinetic')return;
@@ -1086,11 +1088,18 @@ function initAspectPills() {
   document.querySelectorAll<HTMLButtonElement>('.aspect-pill').forEach(pill => {
     pill.addEventListener('click', action(() => {
       const aspect = pill.dataset.aspect as Options['aspect'];
-      if (aspect && aspect !== options.aspect) {
-        const aspectSelect = $<HTMLSelectElement>('aspect');
-        if (aspectSelect) {
-          aspectSelect.value = aspect;
-          aspectSelect.dispatchEvent(new Event('input'));
+      if (aspect) {
+        document.querySelectorAll<HTMLButtonElement>('.aspect-pill').forEach(p => {
+          const isActive = p.dataset.aspect === aspect;
+          p.classList.toggle('active', isActive);
+          p.setAttribute('aria-pressed', String(isActive));
+        });
+        if (aspect !== options.aspect) {
+          const aspectSelect = $<HTMLSelectElement>('aspect');
+          if (aspectSelect) {
+            aspectSelect.value = aspect;
+            aspectSelect.dispatchEvent(new Event('input'));
+          }
         }
       }
     }));
@@ -1114,6 +1123,7 @@ $('btn-quick-switch-apple')?.addEventListener('click', action(() => {
 
 initTemplateCards();
 initAspectPills();
+syncModeControls();
 function tick(){if(engine&&playing){if(clipEnd!==null&&audio.currentTime>=clipEnd){audio.pause();audio.currentTime=clipReviewTime;clipEnd=null;playing=false;$('play').textContent='▶';status(reviewHandover?'Transition preview complete':'Line playback complete. Showing the final poster.');}engine.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';followActiveCue(audio.currentTime);if(audio.ended){playing=false;$('play').textContent='▶';}}requestAnimationFrame(tick);}requestAnimationFrame(tick);
 audio.addEventListener('seeked',()=>{if(scrubbing)return;engine?.renderAt(audio.currentTime);$<HTMLInputElement>('seek').value=String(audio.currentTime);$('time').textContent=audio.currentTime.toFixed(2)+'s';followActiveCue(audio.currentTime);});
 window.addEventListener('beforeunload',event=>{if(dirty||identityDirty||settingsDirty){event.preventDefault();event.returnValue='';}});
