@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 
 import bcrypt as _bcrypt
@@ -19,6 +20,10 @@ from src.models import User
 from src.settings import get_settings
 
 settings = get_settings()
+
+# True only while handling a request on the SaaS (Gradio) app.
+# Local `src.api_server` stays false so offline tests can use HS256 tokens.
+saas_request: ContextVar[bool] = ContextVar("m2v_saas_request", default=False)
 
 # ── 密码哈希 (直接使用 bcrypt，兼容 4.x/5.x) ────────────
 
@@ -151,13 +156,19 @@ def verify_firebase_id_token(token: str) -> dict | None:
 
 
 def decode_token(token: str) -> dict:
-    """解码 JWT，支持 Firebase ID Token 与本地开发 JWT，失败抛 HTTPException 401"""
-    # 1. 优先尝试 Firebase ID Token 验签
+    """解码 JWT。SaaS 只接受 Firebase ID Token；本地 HS256 仅用于离线开发。"""
     fb_payload = verify_firebase_id_token(token)
     if fb_payload:
         return fb_payload
 
-    # 2. 回退到本地 JWT 验签 (用于测试及离线开发)
+    if saas_request.get():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效或过期的令牌",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 本地 / 测试进程：回退到 SECRET_KEY 签名的 JWT
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
@@ -171,18 +182,56 @@ def decode_token(token: str) -> dict:
         )
 
 
+class SaaSModeMiddleware:
+    """Mark requests on the deployed app so local JWTs cannot authenticate them."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        token = saas_request.set(True)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            saas_request.reset(token)
+
+
+def install_saas_auth_middleware(app) -> None:
+    """Attach SaaS auth mode whether or not the ASGI app has already started."""
+    if getattr(app.state, "saas_auth_installed", False):
+        return
+    app.state.saas_auth_installed = True
+    if app.middleware_stack is None:
+        app.add_middleware(SaaSModeMiddleware)
+        return
+    app.middleware_stack = SaaSModeMiddleware(app.middleware_stack)
+
+
 # ── FastAPI 依赖 ─────────────────────────────────────────
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
+def signup_bonus_eligible(payload: dict) -> bool:
+    """Signup credits require a verified email, or a Google sign-in."""
+    if payload.get("provider") != "firebase":
+        return False
+    if payload.get("email_verified") is True:
+        return True
+    return payload.get("sign_in_provider") == "google.com"
+
+
 def require_verified_email(payload: dict) -> None:
-    if (payload.get("provider") == "firebase"
-            and payload.get("sign_in_provider") == "password"
-            and payload.get("email_verified") is not True):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
-                            detail="EMAIL_VERIFICATION_REQUIRED")
+    if payload.get("provider") != "firebase":
+        return
+    if signup_bonus_eligible(payload):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                        detail="EMAIL_VERIFICATION_REQUIRED")
 
 
 async def get_user_from_token(token: str, db: AsyncSession) -> User:
@@ -221,7 +270,7 @@ async def get_user_from_token(token: str, db: AsyncSession) -> User:
                 password_hash="FIREBASE_AUTH",
                 avatar_url=payload.get("picture"),
                 plan=UserPlan.FREE,
-                credits=settings.NEW_USER_PERMANENT_CREDITS,
+                credits=settings.NEW_USER_PERMANENT_CREDITS if signup_bonus_eligible(payload) else 0,
                 is_active=True,
                 is_verified=bool(payload.get("email_verified", False)),
             )
