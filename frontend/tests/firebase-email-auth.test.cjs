@@ -125,3 +125,18 @@ test('invalid display names do not create a partially configured account', async
   await assert.rejects(s.helper.registerWithEmail('test@example.com', 'password', ''), /Display name/);
   assert.deepEqual(s.calls, []);
 });
+
+test('unauthorized continue uri falls back to sending email without custom settings', async () => {
+  const s = setup();
+  let calls = 0;
+  s.auth.sendPasswordResetEmail = async (email, settings) => {
+    calls++;
+    if (settings) {
+      const err = new Error('Domain not whitelisted');
+      err.code = 'auth/unauthorized-continue-uri';
+      throw err;
+    }
+  };
+  await s.helper.resetPassword('test@example.com');
+  assert.equal(calls, 2);
+});
