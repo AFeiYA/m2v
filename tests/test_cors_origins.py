@@ -8,6 +8,7 @@ from src.api_server import PUBLIC_SITE_ORIGINS, app, install_public_cors, origin
 @pytest.mark.parametrize("origin", [
     "https://fovea.si",
     "https://www.fovea.si",
+    "https://staging.fovea.si",
     "https://mv.fovea.si",
     "https://m2v-bdb.pages.dev",
     "https://staging.m2v-bdb.pages.dev",

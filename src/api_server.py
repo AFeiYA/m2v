@@ -112,12 +112,15 @@ app = FastAPI(
 PUBLIC_SITE_ORIGINS = (
     "https://fovea.si",
     "https://www.fovea.si",
+    "https://staging.fovea.si",
     "https://mv.fovea.si",
 )
+_FOVEA_ORIGIN_RE = re.compile(r"https://([a-z0-9-]+\.)*fovea\.si")
 _PAGES_ORIGIN_RE = re.compile(r"https://([a-z0-9-]+\.)*m2v-bdb\.pages\.dev")
 _LOCAL_ORIGIN_RE = re.compile(r"http://(localhost|127\.0\.0\.1)(:\d+)?")
 _BROWSER_ORIGIN_RE = (
-    r"https://([a-z0-9-]+\.)*m2v-bdb\.pages\.dev"
+    r"https://([a-z0-9-]+\.)*fovea\.si"
+    r"|https://([a-z0-9-]+\.)*m2v-bdb\.pages\.dev"
     r"|http://(localhost|127\.0\.0\.1)(:\d+)?"
 )
 
@@ -127,6 +130,7 @@ def origin_is_allowed(origin: str | None) -> bool:
         return False
     return (
         origin in PUBLIC_SITE_ORIGINS
+        or _FOVEA_ORIGIN_RE.fullmatch(origin) is not None
         or _PAGES_ORIGIN_RE.fullmatch(origin) is not None
         or _LOCAL_ORIGIN_RE.fullmatch(origin) is not None
     )
