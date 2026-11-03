@@ -2,7 +2,7 @@
 M2V API Server — FastAPI 主应用
 
 面向用户的 Web 服务，提供:
-- 用户认证 (注册/登录/JWT)
+- 用户认证 (Firebase ID Token；本地 refresh 仅离线开发)
 - 文件上传 (MP3 + 歌词)
 - 异步任务管理 (创建/查询/进度)
 - WebSocket 实时进度推送
@@ -57,17 +57,13 @@ from src.auth import (
     get_current_user,
     get_current_user_flexible,
     get_user_from_token,
-    hash_password,
-    verify_password,
 )
 from src.database import async_session, create_tables, get_db
 from src.models import Task, TaskStatus, TaskStep, User
 from src.schemas import (
     ErrorResponse,
-    LoginRequest,
     MessageResponse,
     RefreshRequest,
-    RegisterRequest,
     SunoTaskRequest,
     TaskCreateRequest,
     TaskListResponse,
@@ -124,55 +120,9 @@ api_router = APIRouter()
 
 # ======================================================================
 # Auth 路由
+# Email/password and Google sign-in go through Firebase. These routes do not
+# create accounts or grant signup credits.
 # ======================================================================
-
-@api_router.post("/api/auth/register", response_model=TokenResponse, tags=["Auth"])
-async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    """用户注册"""
-    # 检查重复
-    existing = await db.execute(
-        select(User).where((User.email == req.email) | (User.username == req.username))
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email or username is already registered.",
-        )
-
-    user = User(
-        email=req.email,
-        username=req.username,
-        password_hash=hash_password(req.password),
-        credits=settings.NEW_USER_PERMANENT_CREDITS,
-    )
-    db.add(user)
-    await db.flush()
-
-    return TokenResponse(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
-    )
-
-
-@api_router.post("/api/auth/login", response_model=TokenResponse, tags=["Auth"])
-async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
-    """用户登录"""
-    result = await db.execute(select(User).where(User.email == req.email))
-    user = result.scalar_one_or_none()
-
-    if user is None or not verify_password(req.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password.",
-        )
-
-    user.last_login_at = datetime.now(timezone.utc)
-
-    return TokenResponse(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
-    )
-
 
 @api_router.post("/api/auth/refresh", response_model=TokenResponse, tags=["Auth"])
 async def refresh_token(req: RefreshRequest, db: AsyncSession = Depends(get_db)):

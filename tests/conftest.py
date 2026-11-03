@@ -3,6 +3,9 @@ import os
 
 import pytest
 
+# SaaS startup rejects the published SECRET_KEY. Set it before tests import settings.
+os.environ.setdefault("SECRET_KEY", "ci-test-secret-key-not-default")
+
 
 def pytest_collection_modifyitems(items):
     is_ci = any(os.getenv(name, "").lower() in {"true", "1"} for name in ("CI", "GITHUB_ACTIONS"))

@@ -98,12 +98,15 @@ jobs:
           ruff check --select F821 src/ app.py tests/
 
       - name: Run Hugging Face Entrypoint & Route Integrity Test
+        env:
+          SECRET_KEY: ci-test-secret-key-not-default
         run: |
           pytest tests/test_hf_entrypoint.py -v
 
       - name: Run Full Test Suite
         env:
           RUN_MOTION_RENDER: ${{ steps.render_scope.outputs.run_render_tests }}
+          SECRET_KEY: ci-test-secret-key-not-default
         run: |
           if [ "$RUN_MOTION_RENDER" = "1" ]; then
             export CHROME_PATH=$(cd frontend/motion && node --input-type=module -e 'import { chromium } from "playwright-core"; process.stdout.write(chromium.executablePath())')
