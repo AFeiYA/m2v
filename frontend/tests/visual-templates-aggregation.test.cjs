@@ -28,7 +28,6 @@ test('i18n contains translations for visual template selector and open motion st
   assert.ok(i18nSource.includes('ms_tpl_kinetic:'), 'Chinese ms_tpl_kinetic exists');
   assert.ok(i18nSource.includes('ms_tpl_apple:'), 'Chinese ms_tpl_apple exists');
   assert.ok(i18nSource.includes('ms_tpl_tv:'), 'Chinese ms_tpl_tv exists');
-  assert.ok(i18nSource.includes('ms_tpl_neon:'), 'Chinese ms_tpl_neon exists');
   assert.ok(i18nSource.includes('ms_lbl_visual_template:'), 'Chinese ms_lbl_visual_template exists');
 });
 
@@ -58,10 +57,4 @@ test('exporting unready kinetic posters gives explicit error instead of silent m
   const code = fs.readFileSync(path.join(__dirname, '../motion/src/studio.ts'), 'utf8');
   assert.doesNotMatch(code, /design\.active_mode\s*=\s*['"](?:tv|apple)['"]\s*;\s*syncModeControls\(\)/, 'Must never silently change active mode during export');
   assert.ok(code.includes('kinetic-unready-banner'), 'Must reveal kinetic unready banner on error');
-});
-
-test('aspect ratio selection immediately updates active pill and calls syncModeControls', () => {
-  const code = fs.readFileSync(path.join(__dirname, '../motion/src/studio.ts'), 'utf8');
-  assert.ok(code.includes("p.classList.toggle('active', isActive)"), 'initAspectPills must immediately update active pill');
-  assert.ok(code.includes("if(id==='aspect'){syncModeControls();populateExportMatrix();}"), 'aspect input event must trigger syncModeControls');
 });

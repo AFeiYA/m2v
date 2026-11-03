@@ -109,7 +109,7 @@ test('changePassword re-authenticates with current password and updates to new p
   assert.equal(s.calls.some(c => c[0] === 'updatePassword' && c[1] === 'new-secure-password'), true);
 
   await assert.rejects(s.helper.changePassword('', 'new-secure-password'), /Current password is required/);
-  await assert.rejects(s.helper.changePassword('old-password', 'short'), /at least 6 characters/);
+  await assert.rejects(s.helper.changePassword('old-password', 'short12'), /at least 8 characters/);
   await assert.rejects(s.helper.changePassword('same-pwd', 'same-pwd'), /different from current/);
 
   s.user.reauthenticateWithCredential = async () => {

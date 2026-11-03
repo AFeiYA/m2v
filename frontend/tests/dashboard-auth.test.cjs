@@ -403,12 +403,12 @@ test('change password in dashboard validates input and updates password via moda
   await form.handlers.submit({preventDefault() {}});
   assert.equal(errLabel.textContent, 'Current password is required.');
 
-  // Password too short (< 6 chars)
+  // Password too short (< 8 chars)
   currentInput.value = 'oldpassword1';
-  newInput.value = 'short';
-  confirmInput.value = 'short';
+  newInput.value = 'short12';
+  confirmInput.value = 'short12';
   await form.handlers.submit({preventDefault() {}});
-  assert.equal(errLabel.textContent, 'New password must be at least 6 characters.');
+  assert.equal(errLabel.textContent, 'New password must be at least 8 characters.');
 
   // Passwords mismatch
   newInput.value = 'secret123';
@@ -433,14 +433,17 @@ test('change password in dashboard validates input and updates password via moda
 
 test('verifyEmail action code in URL is processed first, strips code from URL, and verifies account', async () => {
   const s = setup({provider: 'firebase'});
-  let appliedCode = null, reloaded = 0;
+  let appliedCode = null, reloaded = 0, forceRefreshed = 0;
   const user = {
     emailVerified: false,
     async reload() {
       reloaded++;
       user.emailVerified = true;
     },
-    async getIdToken() { return 'verified-token'; },
+    async getIdToken(force) {
+      if (force) forceRefreshed++;
+      return 'verified-token';
+    },
   };
   s.context.firebase = { auth: () => ({ currentUser: user }) };
   s.context.window.m2vAuth.ready = Promise.resolve();
@@ -453,11 +456,24 @@ test('verifyEmail action code in URL is processed first, strips code from URL, a
 
   assert.equal(appliedCode, 'verify-test-code');
   assert.equal(reloaded, 1);
+  assert.equal(forceRefreshed >= 1, true);
   assert.equal(user.emailVerified, true);
   assert.equal(s.historyCalls.length > 0, true);
   assert.equal(s.historyCalls[0].url, '/app');
   assert.equal(s.element('#auth-error').classList.contains('success-text'), true);
   assert.match(s.element('#auth-error').textContent, /Email verified successfully/);
+});
+
+test('resetPassword with missing verifyPasswordResetCode displays unavailable error and halts', async () => {
+  const s = setup({provider: 'firebase'});
+  delete s.context.window.m2vAuth.verifyPasswordResetCode;
+  s.context.location.search = '?mode=resetPassword&oobCode=code-123';
+  s.context.window.location.search = '?mode=resetPassword&oobCode=code-123';
+
+  await s.dispatchDOMContentLoaded();
+
+  assert.equal(s.element('#auth-error').textContent, 'Password reset is unavailable. Please refresh.');
+  assert.equal(s.element('#auth-error').classList.contains('error-text'), true);
 });
 
 test('resetPassword action code purges session, strips code from URL, and completes reset with logout', async () => {

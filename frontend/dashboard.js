@@ -311,7 +311,7 @@ function initAuth() {
     if (activePasswordResetCode) {
       activePasswordResetCode = null;
       $("#auth-email").disabled = false;
-      $("#auth-password").placeholder = "Password (at least 6 characters)";
+      $("#auth-password").placeholder = "Password (at least 8 characters)";
       $(".google-auth-section").style.display = "";
       $(".auth-switch").hidden = false;
     }
@@ -340,7 +340,7 @@ function initAuth() {
         $("#auth-email").disabled = false;
         $("#auth-email").value = "";
         $("#auth-password").value = "";
-        $("#auth-password").placeholder = "Password (at least 6 characters)";
+        $("#auth-password").placeholder = "Password (at least 8 characters)";
         $(".google-auth-section").style.display = "";
         $(".auth-switch").hidden = false;
         isLoginMode = true;
@@ -1639,8 +1639,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (pwdError) pwdError.textContent = "Current password is required.";
         return;
       }
-      if (!newPwd || newPwd.length < 6) {
-        if (pwdError) pwdError.textContent = "New password must be at least 6 characters.";
+      if (!newPwd || newPwd.length < 8) {
+        if (pwdError) pwdError.textContent = "New password must be at least 8 characters.";
         return;
       }
       if (newPwd !== confirmPwd) {
@@ -1693,80 +1693,88 @@ document.addEventListener("DOMContentLoaded", async () => {
   // If we already have a cached token, reveal app immediately and verify in background
 
   // Action code URL parameters (direct email verification or password reset links)
-  // 必须在会话检查之前优先处理，避免未验证邮箱直接被拦截中断丢弃 (Fix Point 2)
+  let authMode = null;
+  let oobCode = null;
   if (typeof window !== "undefined" && window.location?.search) {
     const urlParams = new URLSearchParams(window.location.search);
-    const authMode = urlParams.get("mode");
-    const oobCode = urlParams.get("oobCode");
+    authMode = urlParams.get("mode");
+    oobCode = urlParams.get("oobCode");
     if (authMode && oobCode) {
       // 立即从地址栏移除敏感的 oobCode，防止通过 Referer 或浏览器历史泄露 (Fix Point 3)
       try { window.history?.replaceState?.({}, document.title, window.location.pathname); } catch (_) {}
+    }
+  }
 
-      if (authMode === "verifyEmail") {
-        try {
-          if (window.m2vAuth?.applyActionCode) {
-            await window.m2vAuth.applyActionCode(oobCode);
-            const fbUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
-            if (fbUser && typeof fbUser.reload === "function") {
-              await fbUser.reload();
-            }
-            setAuthMessage("Email verified successfully! You can now access your account.", "success");
-          }
-        } catch (err) {
-          showAuth();
-          setAuthMessage(window.m2vAuth?.errorMessage(err) || "Failed to verify email.", "error");
-          return;
-        }
-      } else if (authMode === "resetPassword") {
-        // 重置密码时先清理旧会话，避免旧会话污染 (Fix Point 4)
-        await logout();
-        try {
-          if (window.m2vAuth?.verifyPasswordResetCode) {
-            const email = await window.m2vAuth.verifyPasswordResetCode(oobCode);
-            activePasswordResetCode = oobCode;
-            showAuth();
-            $("#auth-title").textContent = "Reset your password";
-            $("#auth-email").value = email;
-            $("#auth-email").disabled = true;
-            $("#auth-username").style.display = "none";
-            $("#auth-password").value = "";
-            $("#auth-password").placeholder = "New password (at least 6 characters)";
-            $("#auth-password").autocomplete = "new-password";
-            $("#auth-submit").textContent = "Save new password";
-            if ($("#auth-reset-password")) $("#auth-reset-password").style.display = "none";
-            $(".auth-switch").hidden = true;
-            $(".google-auth-section").style.display = "none";
-            return;
-          }
-        } catch (err) {
-          showAuth();
-          setAuthMessage(window.m2vAuth?.errorMessage(err) || "Invalid or expired password reset link.", "error");
-          return;
-        }
-      }
+  if (authMode === "resetPassword" && oobCode) {
+    // 重置密码时先清理旧会话，避免旧会话污染 (Fix Point 4)
+    await logout();
+    if (!window.m2vAuth?.verifyPasswordResetCode) {
+      showAuth();
+      setAuthMessage("Password reset is unavailable. Please refresh.", "error");
+      return;
+    }
+    try {
+      const email = await window.m2vAuth.verifyPasswordResetCode(oobCode);
+      activePasswordResetCode = oobCode;
+      showAuth();
+      $("#auth-title").textContent = "Reset your password";
+      $("#auth-email").value = email;
+      $("#auth-email").disabled = true;
+      $("#auth-username").style.display = "none";
+      $("#auth-password").value = "";
+      $("#auth-password").placeholder = "New password (at least 8 characters)";
+      $("#auth-password").autocomplete = "new-password";
+      $("#auth-submit").textContent = "Save new password";
+      if ($("#auth-reset-password")) $("#auth-reset-password").style.display = "none";
+      $(".auth-switch").hidden = true;
+      $(".google-auth-section").style.display = "none";
+      return;
+    } catch (err) {
+      showAuth();
+      setAuthMessage(window.m2vAuth?.errorMessage(err) || "Invalid or expired password reset link.", "error");
+      return;
     }
   }
 
   // Firebase restores its session asynchronously; never trust an old cached ID token.
   if (window.m2vAuth?.ready) {
     await window.m2vAuth.ready;
-    let firebaseUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
-    if (firebaseUser && firebaseUser.emailVerified === false && typeof firebaseUser.reload === "function") {
-      try {
-        await firebaseUser.reload();
-        firebaseUser = firebase.auth().currentUser;
-      } catch (_) {}
-    }
-    if (firebaseUser?.emailVerified === false) {
-      showEmailVerification(firebaseUser);
+  }
+
+  // verifyEmail 在 await window.m2vAuth.ready 之后执行 (Fix Point 2)
+  if (authMode === "verifyEmail" && oobCode) {
+    try {
+      if (window.m2vAuth?.applyActionCode) {
+        await window.m2vAuth.applyActionCode(oobCode);
+        if (typeof firebase !== "undefined" && firebase.auth) {
+          await firebase.auth().currentUser?.reload?.();
+          await firebase.auth().currentUser?.getIdToken?.(true);
+        }
+        setAuthMessage("Email verified successfully! You can now access your account.", "success");
+      }
+    } catch (err) {
+      showAuth();
+      setAuthMessage(window.m2vAuth?.errorMessage(err) || "Failed to verify email.", "error");
       return;
     }
-    if (authProvider === "firebase") {
-      token = await window.m2vAuth.getIdToken();
-      if (token) localStorage.setItem("m2v_token", token);
-      else localStorage.removeItem("m2v_token");
-      syncAuthCookie(token);
-    }
+  }
+
+  let firebaseUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
+  if (firebaseUser && firebaseUser.emailVerified === false && typeof firebaseUser.reload === "function") {
+    try {
+      await firebaseUser.reload();
+      firebaseUser = firebase.auth().currentUser;
+    } catch (_) {}
+  }
+  if (firebaseUser?.emailVerified === false) {
+    showEmailVerification(firebaseUser);
+    return;
+  }
+  if (authProvider === "firebase") {
+    token = await window.m2vAuth.getIdToken();
+    if (token) localStorage.setItem("m2v_token", token);
+    else localStorage.removeItem("m2v_token");
+    syncAuthCookie(token);
   }
 
   // 已登录？

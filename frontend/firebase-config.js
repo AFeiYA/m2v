@@ -108,7 +108,7 @@ window.m2vAuth = {
     const user = firebaseAuth().currentUser;
     if (!user) throw new Error("Please sign in first.");
     if (!currentPassword) throw new Error("Current password is required.");
-    if (!newPassword || newPassword.length < 6) throw new Error("New password must be at least 6 characters.");
+    if (!newPassword || newPassword.length < 8) throw new Error("New password must be at least 8 characters.");
     if (currentPassword === newPassword) throw new Error("New password must be different from current password.");
 
     if (typeof firebase !== "undefined" && firebase.auth?.EmailAuthProvider && typeof user.reauthenticateWithCredential === "function") {
@@ -144,7 +144,7 @@ window.m2vAuth = {
       "auth/user-not-found": "Incorrect email or password.",
       "auth/wrong-password": "Incorrect email or password.",
       "auth/email-already-in-use": "This email already has an account. Sign in or reset your password.",
-      "auth/weak-password": "Password is too weak. Use a longer password (at least 6 characters).",
+      "auth/weak-password": "Password is too weak. Use a longer password (at least 8 characters).",
       "auth/invalid-email": "Enter a valid email address.",
       "auth/missing-email": "Enter your email address.",
       "auth/user-disabled": "This account has been disabled.",

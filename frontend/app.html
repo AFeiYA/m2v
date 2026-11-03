@@ -39,7 +39,7 @@
       <form id="auth-form">
         <input id="auth-username" type="text" placeholder="Display name" maxlength="128" autocomplete="username" style="display:none">
         <input id="auth-email" type="email" placeholder="Email" required autocomplete="email">
-        <input id="auth-password" type="password" placeholder="Password (at least 6 characters)" minlength="6" required autocomplete="current-password">
+        <input id="auth-password" type="password" placeholder="Password (at least 8 characters)" minlength="8" required autocomplete="current-password">
         <button type="submit" id="auth-submit">Sign in</button>
       </form>
       <div id="email-verification" hidden>
@@ -68,8 +68,8 @@
       <h2 id="change-password-title">Change password</h2>
       <form id="change-password-form">
         <input id="change-pwd-current" type="password" placeholder="Current password" required autocomplete="current-password">
-        <input id="change-pwd-new" type="password" placeholder="New password (at least 6 characters)" minlength="6" required autocomplete="new-password">
-        <input id="change-pwd-confirm" type="password" placeholder="Confirm new password" minlength="6" required autocomplete="new-password">
+        <input id="change-pwd-new" type="password" placeholder="New password (at least 8 characters)" minlength="8" required autocomplete="new-password">
+        <input id="change-pwd-confirm" type="password" placeholder="Confirm new password" minlength="8" required autocomplete="new-password">
         <button type="submit" id="change-pwd-submit">Update password</button>
         <button type="button" id="change-pwd-cancel" class="btn btn-sm btn-outline" style="width: 100%; margin-top: 8px;">Cancel</button>
       </form>
