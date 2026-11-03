@@ -29,8 +29,11 @@ Before executing the migration, inspect the `DATABASE_URL` configured in the Hug
   ```
   In Supabase, `postgres` has `rolbypassrls = true`.
 
-### Step 2: Apply to Staging Project First
-1. Open the Supabase Dashboard for the **staging** project -> **SQL Editor**.
+This script is applied by hand in the Supabase SQL editor. CI does not connect to the database.
+`ALTER DEFAULT PRIVILEGES` only covers objects later created by the role that runs this script, so run it as the same `postgres` role that owns the tables.
+
+### Step 2: Apply manually to m2vAsia (staging database) first
+1. Open the Supabase Dashboard for **m2vAsia** (staging) -> **SQL Editor**.
 2. Run the SQL script: `supabase/migrations/20261103000000_enable_rls_public_tables.sql`.
 3. Run the verification queries included in the migration:
    ```sql
@@ -48,8 +51,7 @@ Before executing the migration, inspect the `DATABASE_URL` configured in the Hug
    - Video export generation
    - Credit deduction & ledger writes
 
-### Step 3: Apply to Production Projects (`m2v` and `m2vAsia`)
-Once verified on staging:
-1. Open the Supabase Dashboard for **m2v** -> **SQL Editor**, paste and execute the migration script. Run verification queries.
-2. Open the Supabase Dashboard for **m2vAsia** -> **SQL Editor**, paste and execute the migration script. Run verification queries.
-3. Monitor production logs on Hugging Face Space to confirm normal DB queries continue with zero interruption.
+### Step 3: Apply manually to m2v (production) after staging checks pass
+Once m2vAsia is verified:
+1. Open the Supabase Dashboard for **m2v** (production) -> **SQL Editor**, paste and execute the same migration script. Run the verification queries.
+2. Monitor production logs on the Hugging Face Space to confirm normal DB queries continue.
