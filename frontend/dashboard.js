@@ -586,6 +586,9 @@ async function loadUser() {
         displayName: displayName,
         email: currentUser.email,
       }));
+      const fbUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
+      const isGoogle = fbUser?.providerData?.some(p => p.providerId === "google.com") || authProvider === "google";
+      if ($("#btn-change-password")) $("#btn-change-password").style.display = isGoogle ? "none" : "";
       if (window.m2vStore) window.m2vStore.setUser(currentUser, authProvider);
       return true;
     }
@@ -1569,6 +1572,40 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
       } catch (err) {
         alert("Unable to update display name: " + err.message);
+      }
+    });
+  }
+
+  // 修改密码
+  const btnChangePassword = $("#btn-change-password");
+  if (btnChangePassword) {
+    btnChangePassword.addEventListener("click", async () => {
+      const fbUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
+      const isPasswordUser = fbUser?.providerData?.some(p => p.providerId === "password");
+      if (fbUser && !isPasswordUser) {
+        alert("Your account is managed by Google sign-in. Password change is not applicable.");
+        return;
+      }
+      const newPassword = prompt("Enter your new password (at least 6 characters):");
+      if (newPassword === null) return;
+      if (!newPassword || newPassword.length < 6) {
+        alert("Password must be at least 6 characters.");
+        return;
+      }
+      const confirmPassword = prompt("Confirm your new password:");
+      if (confirmPassword === null) return;
+      if (newPassword !== confirmPassword) {
+        alert("Passwords do not match. Please try again.");
+        return;
+      }
+      try {
+        btnChangePassword.disabled = true;
+        await window.m2vAuth.changePassword(newPassword);
+        alert("Password updated successfully.");
+      } catch (err) {
+        alert(window.m2vAuth?.errorMessage(err) || err.message);
+      } finally {
+        btnChangePassword.disabled = false;
       }
     });
   }

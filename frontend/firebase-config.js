@@ -104,6 +104,23 @@ window.m2vAuth = {
     return saveFirebaseSession(user);
   },
 
+  async changePassword(newPassword) {
+    const user = firebaseAuth().currentUser;
+    if (!user) throw new Error("Please sign in first.");
+    if (!newPassword || newPassword.length < 6) throw new Error("Password must be at least 6 characters.");
+    try {
+      await user.updatePassword(newPassword);
+    } catch (error) {
+      if (error?.code === "auth/requires-recent-login") {
+        if (user.email) {
+          await this.resetPassword(user.email);
+          throw new Error("For security, recent login is required. A password reset link has been sent to your email.");
+        }
+      }
+      throw error;
+    }
+  },
+
   async verifyPasswordResetCode(code) {
     return firebaseAuth().verifyPasswordResetCode(code);
   },
@@ -129,6 +146,7 @@ window.m2vAuth = {
       "auth/user-disabled": "This account has been disabled.",
       "auth/too-many-requests": "Too many attempts. Please try again later.",
       "auth/network-request-failed": "Cannot connect to sign-in. Check your connection.",
+      "auth/requires-recent-login": "For security, recent login is required. Please sign in again or use the reset link sent to your email.",
       "auth/operation-not-allowed": "Email sign-in is unavailable. Please contact support.",
       "auth/expired-action-code": "This link has expired. Please request a new one.",
       "auth/invalid-action-code": "This link is invalid or has already been used.",

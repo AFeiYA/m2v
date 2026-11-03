@@ -11,6 +11,7 @@ function setup(initialUser = null) {
   const user = {uid: 'firebase-email-user', email: 'test@example.com', displayName: '', emailVerified: false,
     getIdToken: async force => {calls.push(['token', !!force]); return 'firebase-id-token';},
     updateProfile: async data => {calls.push(['profile', data.displayName]); user.displayName = data.displayName;},
+    updatePassword: async pwd => {calls.push(['updatePassword', pwd]);},
     sendEmailVerification: async (settings) => {calls.push(['verification', settings]);},
     reload: async () => {calls.push(['reload']);},
   };
@@ -93,6 +94,26 @@ test('action code handlers verify, confirm reset, and apply codes', async () => 
     ['confirmReset', 'test-oob-code', 'new-long-password'],
     ['applyCode', 'verify-oob-code'],
   ]);
+});
+
+test('changePassword updates current user password and enforces validation', async () => {
+  const s = setup();
+  s.auth.currentUser = {
+    email: 'artist@example.com',
+    updatePassword: async pwd => { s.calls.push(['updatePassword', pwd]); },
+  };
+  await s.helper.changePassword('new-secure-password');
+  assert.deepEqual(s.calls, [['updatePassword', 'new-secure-password']]);
+
+  await assert.rejects(s.helper.changePassword('short'), /at least 6 characters/);
+
+  s.auth.currentUser.updatePassword = async () => {
+    const err = new Error('recent login needed');
+    err.code = 'auth/requires-recent-login';
+    throw err;
+  };
+  await assert.rejects(s.helper.changePassword('valid-longer-password'), /recent login is required/);
+  assert.equal(s.calls.some(c => c[0] === 'reset' && c[1] === 'artist@example.com'), true);
 });
 
 test('invalid display names do not create a partially configured account', async () => {
