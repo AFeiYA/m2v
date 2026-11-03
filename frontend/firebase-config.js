@@ -104,21 +104,25 @@ window.m2vAuth = {
     return saveFirebaseSession(user);
   },
 
-  async changePassword(newPassword) {
+  async changePassword(currentPassword, newPassword) {
     const user = firebaseAuth().currentUser;
     if (!user) throw new Error("Please sign in first.");
-    if (!newPassword || newPassword.length < 6) throw new Error("Password must be at least 6 characters.");
-    try {
-      await user.updatePassword(newPassword);
-    } catch (error) {
-      if (error?.code === "auth/requires-recent-login") {
-        if (user.email) {
-          await this.resetPassword(user.email);
-          throw new Error("For security, recent login is required. A password reset link has been sent to your email.");
+    if (!currentPassword) throw new Error("Current password is required.");
+    if (!newPassword || newPassword.length < 6) throw new Error("New password must be at least 6 characters.");
+    if (currentPassword === newPassword) throw new Error("New password must be different from current password.");
+
+    if (typeof firebase !== "undefined" && firebase.auth?.EmailAuthProvider && typeof user.reauthenticateWithCredential === "function") {
+      try {
+        const cred = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
+        await user.reauthenticateWithCredential(cred);
+      } catch (err) {
+        if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+          throw new Error("Current password is incorrect.");
         }
+        throw err;
       }
-      throw error;
     }
+    await user.updatePassword(newPassword);
   },
 
   async verifyPasswordResetCode(code) {
@@ -137,7 +141,7 @@ window.m2vAuth = {
     if (!error) return "";
     const messages = {
       "auth/invalid-credential": "Incorrect email or password.",
-      "auth/user-not-found": "No account found with this email.",
+      "auth/user-not-found": "Incorrect email or password.",
       "auth/wrong-password": "Incorrect email or password.",
       "auth/email-already-in-use": "This email already has an account. Sign in or reset your password.",
       "auth/weak-password": "Password is too weak. Use a longer password (at least 6 characters).",
@@ -146,7 +150,7 @@ window.m2vAuth = {
       "auth/user-disabled": "This account has been disabled.",
       "auth/too-many-requests": "Too many attempts. Please try again later.",
       "auth/network-request-failed": "Cannot connect to sign-in. Check your connection.",
-      "auth/requires-recent-login": "For security, recent login is required. Please sign in again or use the reset link sent to your email.",
+      "auth/requires-recent-login": "For security, please re-authenticate with your current password.",
       "auth/operation-not-allowed": "Email sign-in is unavailable. Please contact support.",
       "auth/expired-action-code": "This link has expired. Please request a new one.",
       "auth/invalid-action-code": "This link is invalid or has already been used.",
