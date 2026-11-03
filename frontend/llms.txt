@@ -2,7 +2,7 @@
 
 > Independent AI-powered lyric video maker and animated typography studio.
 
-Fovea Studio (https://fovea.si) transforms songs into release-ready lyric videos and animated typography. It enables musicians, songwriters, and AI music creators to produce professional, word-synced visuals for YouTube, TikTok, Instagram Reels, and X without manual keyframing or video editing software.
+Fovea Studio (https://fovea.si) transforms songs into release-ready lyric videos and animated typography. It enables musicians, songwriters, and Suno creators to produce professional, word-synced visuals for YouTube, TikTok, Instagram Reels, and X without manual keyframing or video editing software.
 
 ## What is Fovea Studio?
 Fovea Studio is a browser-based creative suite that converts audio tracks and lyrics into dynamic music videos:
@@ -10,17 +10,18 @@ Fovea Studio is a browser-based creative suite that converts audio tracks and ly
 - **Apple Music-Style Scrolling Lyrics**: Fluid portrait lyrics with focus blur, ambient glow, and word-by-word active highlights.
 - **Dual-Line Karaoke (KTV)**: Television-style alternating subtitles with smooth sweep timing.
 - **AI Motion Director**: Analyzes musical cadence, tempo, and mood to suggest cohesive typography layouts and color palettes.
-- **Hardware-Accelerated WebCodecs Export**: Fast 1080p and 4K MP4 exports directly in modern browsers, as well as cloud rendering.
+- **Hardware-Accelerated WebCodecs Export**: Fast 1080p MP4 exports directly in modern browsers, as well as cloud rendering.
 
 ## Who is it for?
-- **Suno and Udio Creators**: Turn generated AI music and tracks into engaging visual content for social platforms.
+- **Suno Music Creators**: Turn generated AI music and tracks into engaging visual content for social platforms.
 - **Musicians and Producers**: Release lyric videos, teaser clips, and visualizers with zero video editing experience.
 - **Content Creators and Labels**: Bulk-create vertical (9:16) and widescreen (16:9) music clips.
 
 ## Pricing & Credits
 - **Free Trial**: 60 free permanent credits upon sign-up and email confirmation (makes about 2 complete lyric videos). No credit card required.
-- **Creator Subscription**: $14.90/month for 360 monthly credits (approximately $1 per completed video).
-- **Credit Costs**: 10 credits for audio-to-lyric timing alignment, 20 credits for motion video rendering (total 30 credits per song).
+- **Creator Plan**: $9.99/month for 300 monthly credits (about 10 songs, ~$1 per completed song).
+- **Pro Plan**: $19.99/month for 800 monthly credits (about 26 songs).
+- **Per-Song Cost**: 30 credits per song — 20 credits for audio-to-lyric timing alignment (including vocal separation), and 10 credits for motion video rendering.
 
 ## Key Links
 - [Home](https://fovea.si/)

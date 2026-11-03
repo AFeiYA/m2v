@@ -46,6 +46,8 @@ test('public pages are readable without auth and have valid internal links',()=>
  assert.match(home,/type="application\/ld\+json"/);
  assert.match(home,/"name": "fovea\.si"/);
  assert.match(home,/"url": "https:\/\/fovea\.si"/);
+ assert.match(home,/"price": "9\.99"/);
+ assert.match(home,/"price": "19\.99"/);
  assert.match(home,/synthetic word timings/);
  assert.match(home,/Suno/);assert.match(home,/Try free, no card required/);
  assert.match(home,/class="nav-try"/);assert.match(home,/hero-video-slot/);assert.match(home,/example-lyric-video\.mp4/);
@@ -109,6 +111,12 @@ test('llms.txt and sitemap.xml define standard SEO assets on fovea.si', () => {
   assert.match(llms, /# Fovea Studio/);
   assert.match(llms, /Suno/);
   assert.match(llms, /60 free permanent credits/);
+  assert.match(llms, /\$9\.99\/month/);
+  assert.match(llms, /\$19\.99\/month/);
+  assert.match(llms, /20 credits for audio-to-lyric/);
+  assert.match(llms, /10 credits for motion video/);
+  assert.doesNotMatch(llms, /Udio/);
+  assert.doesNotMatch(llms, /4K/);
   assert.match(llms, /https:\/\/fovea\.si/);
 
   const sitemap = fs.readFileSync(path.join(root, 'sitemap.xml'), 'utf8');

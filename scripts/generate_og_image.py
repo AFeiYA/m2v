@@ -61,11 +61,11 @@ def create_og_image():
 
     # Feature badges
     badges = [
-        "Suno & Udio Ready",
+        "Suno Link Import",
         "Kinetic Posters",
         "Apple Scroll Lyrics",
         "16:9 & 9:16 Formats",
-        "4K / 60 FPS Export"
+        "1080p MP4 Export"
     ]
     bx = 80
     by = 425

@@ -120,8 +120,26 @@ def shell(title, description, content, *, page='home', path=None):
 
     json_ld = ''
     if page == 'home':
-        facts = plain_credit_facts()
-        creator_price = facts['creator_price']
+        rate = rates()
+        offers = [
+            {
+                "@type": "Offer",
+                "price": "0",
+                "priceCurrency": "USD",
+                "name": "Free Starter",
+                "description": f"{rate['free']} free credits to create your first lyric videos, no credit card required"
+            }
+        ]
+        for product in catalog():
+            if product.get('kind') == 'subscription':
+                price_str = f"{product['price_cents'] / 100:.2f}"
+                offers.append({
+                    "@type": "Offer",
+                    "price": price_str,
+                    "priceCurrency": product.get("currency", "USD"),
+                    "name": product["name"],
+                    "description": f"{product['credits']:,} credits per month"
+                })
         json_ld_data = {
             "@context": "https://schema.org",
             "@type": "SoftwareApplication",
@@ -130,22 +148,7 @@ def shell(title, description, content, *, page='home', path=None):
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": "Web",
             "description": "AI-powered lyric video maker and animated typography studio for Suno musicians and music creators.",
-            "offers": [
-                {
-                    "@type": "Offer",
-                    "price": "0",
-                    "priceCurrency": "USD",
-                    "name": "Free Starter",
-                    "description": f"{facts['free']} free credits to create your first lyric videos, no credit card required"
-                },
-                {
-                    "@type": "Offer",
-                    "price": creator_price,
-                    "priceCurrency": "USD",
-                    "name": "Creator Monthly",
-                    "description": f"{facts['creator_credits']} credits per month (about $1 per song)"
-                }
-            ]
+            "offers": offers
         }
         json_ld = f'\n<script type="application/ld+json">{json.dumps(json_ld_data, ensure_ascii=False)}</script>'
 
