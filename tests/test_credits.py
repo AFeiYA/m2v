@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 # Reuse the existing temporary DB/storage and actual Gradio API mount fixture.
 from tests.test_saas_isolation import sandbox, headers, seed_editor_song, install_pipeline, submit  # noqa: F401
-from src import api_server, credits, editor_operations, export_jobs, worker
+from src import api_server, auth, credits, editor_operations, export_jobs, worker
 from src.models import CreditEntry, CreditReservation, ExportJob, Task, TaskStatus, User
 
 
@@ -236,6 +236,19 @@ def test_alignment_credits_are_returned_when_deliverables_are_missing(sandbox, m
     assert sorted(e['event'] for e in data['entries']) == ['opening','release','reserve']
 
 
+def _seed_user(sandbox, email, username, credits_amount):
+    from src.models import User
+
+    async def create():
+        async with sandbox.sessions() as db:
+            user = User(email=email, username=username, credits=credits_amount, is_active=True, is_verified=True)
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+            return user.id
+    return asyncio.run(create())
+
+
 def test_optional_monthly_free_quota_after_consumption(sandbox, monkeypatch):
     # Legacy optional configuration; the current product defaults to 60 once.
     monkeypatch.setattr(api_server.settings, "NEW_USER_PERMANENT_CREDITS", 100)
@@ -244,13 +257,9 @@ def test_optional_monthly_free_quota_after_consumption(sandbox, monkeypatch):
     from src.credits import replenish_free_quota, check_monthly_quota_status
     from src.settings import get_settings
 
-    # 1. New user registration starts with 100 permanent credits
-    reg_res = sandbox.client.post('/api/auth/register', json={
-        'email': 'newartist@example.com', 'username': 'newartist', 'password': 'password123'
-    })
-    assert reg_res.status_code == 200, reg_res.text
-    token = reg_res.json()['access_token']
-    auth_h = {'Authorization': f'Bearer {token}'}
+    # 1. Account starts with 100 permanent credits. Public password registration is gone.
+    uid = _seed_user(sandbox, 'newartist@example.com', 'newartist', 100)
+    auth_h = {'Authorization': 'Bearer ' + auth.create_access_token(uid)}
 
     me_res = sandbox.client.get('/api/auth/me', headers=auth_h)
     assert me_res.status_code == 200
@@ -338,11 +347,9 @@ def test_configured_alignment_quote_matches_charge_and_refund(sandbox, monkeypat
 def test_free_experience_is_sixty_once_and_covers_two_alignments_two_exports(sandbox, monkeypatch):
     monkeypatch.setattr(api_server.settings, 'ALIGNMENT_CREDITS', 20)
     monkeypatch.setattr(api_server.settings, 'MOTION_WEBCODECS_CREDITS', 10)
-    response = sandbox.client.post('/api/auth/register', json={
-        'email': 'trial60@example.com', 'username': 'trial60', 'password': 'password123'})
-    assert response.status_code == 200, response.text
-    auth = {'Authorization': 'Bearer ' + response.json()['access_token']}
-    user = sandbox.client.get('/api/auth/me', headers=auth).json()
+    uid = _seed_user(sandbox, 'trial60@example.com', 'trial60', 60)
+    headers = {'Authorization': 'Bearer ' + auth.create_access_token(uid)}
+    user = sandbox.client.get('/api/auth/me', headers=headers).json()
     assert user['credits'] == 60
     async def spend():
         async with sandbox.sessions() as db:
@@ -353,8 +360,8 @@ def test_free_experience_is_sixty_once_and_covers_two_alignments_two_exports(san
                 await credits.finish(db, user['id'], operation, kind, True)
             await db.commit()
     asyncio.run(spend())
-    data = sandbox.client.get('/api/credits', headers=auth).json()
+    data = sandbox.client.get('/api/credits', headers=headers).json()
     assert data['available'] == 0
     assert data['monthly_quota']['amount'] == 0
     assert data['monthly_quota']['eligible'] is False
-    assert sandbox.client.post('/api/credits/claim-monthly-quota', headers=auth).json()['granted'] is False
+    assert sandbox.client.post('/api/credits/claim-monthly-quota', headers=headers).json()['granted'] is False

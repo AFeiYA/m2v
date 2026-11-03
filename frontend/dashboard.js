@@ -171,6 +171,24 @@ async function tryRefresh() {
 // ======================================================================
 
 let isLoginMode = true;
+let activePasswordResetCode = null;
+
+function setAuthMessage(text, type = "error") {
+  const el = $("#auth-error");
+  if (!el) return;
+  el.textContent = text || "";
+  if (!text) {
+    el.classList.remove("error-text", "success-text");
+    return;
+  }
+  if (type === "success") {
+    el.classList.remove("error-text");
+    el.classList.add("success-text");
+  } else {
+    el.classList.remove("success-text");
+    el.classList.add("error-text");
+  }
+}
 
 function showEmailVerification(user, sendFailed = false) {
   token = null;
@@ -181,7 +199,7 @@ function showEmailVerification(user, sendFailed = false) {
   syncAuthCookie(null);
   showAuth();
   $("#auth-form").hidden = true;
-  $("#auth-reset-password").hidden = true;
+  if ($("#auth-reset-password")) $("#auth-reset-password").style.display = "none";
   $(".auth-switch").hidden = true;
   $(".google-auth-section").style.display = "none";
   $("#email-verification").hidden = false;
@@ -231,14 +249,15 @@ function initAuth() {
     await logout();
     $("#email-verification").hidden = true;
     $("#auth-form").hidden = false;
-    $("#auth-reset-password").hidden = false;
+    isLoginMode = true;
+    updateAuthUI();
     $(".auth-switch").hidden = false;
     $(".google-auth-section").style.display = "";
   });
 
   if (googleBtn) {
     googleBtn.addEventListener("click", async () => {
-      $("#auth-error").textContent = "";
+      setAuthMessage("", "");
       try {
         if (!window.m2vAuth) {
           throw new Error("Authentication is starting. Please try again shortly.");
@@ -260,35 +279,80 @@ function initAuth() {
         }
       } catch (err) {
         console.error("Google 登录异常:", err);
-        $("#auth-error").textContent = err.message || "Google sign-in failed. Please try again.";
+        setAuthMessage(err.message || "Google sign-in failed. Please try again.", "error");
       }
     });
   }
 
   $("#auth-reset-password")?.addEventListener("click", async () => {
     const email = $("#auth-email").value.trim();
-    if (!email) { $("#auth-error").textContent = "Enter your email address first."; return; }
+    if (!email) {
+      setAuthMessage("Enter your email address first.", "error");
+      return;
+    }
+    const button = $("#auth-reset-password");
+    button.disabled = true;
     try {
       await window.m2vAuth.resetPassword(email);
-      $("#auth-error").textContent = "If an account exists for this email, you will receive a password reset email.";
+      setAuthMessage("If an account exists for this email, you will receive a password reset link. Please check your inbox and spam folder.", "success");
     } catch (error) {
-      $("#auth-error").textContent = window.m2vAuth?.errorMessage(error) || error.message;
+      if (error?.code === "auth/user-not-found") {
+        setAuthMessage("If an account exists for this email, you will receive a password reset link. Please check your inbox and spam folder.", "success");
+      } else {
+        setAuthMessage(window.m2vAuth?.errorMessage(error) || error.message, "error");
+      }
+    } finally {
+      setTimeout(() => { button.disabled = false; }, 3000);
     }
   });
 
   toggle.addEventListener("click", (e) => {
     e.preventDefault();
+    if (activePasswordResetCode) {
+      activePasswordResetCode = null;
+      $("#auth-email").disabled = false;
+      $("#auth-password").placeholder = "Password (at least 8 characters)";
+      $(".google-auth-section").style.display = "";
+      $(".auth-switch").hidden = false;
+    }
     isLoginMode = !isLoginMode;
     updateAuthUI();
   });
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    $("#auth-error").textContent = "";
+    setAuthMessage("", "");
+
+    const submitBtn = $("#auth-submit");
+    if (submitBtn?.disabled) return;
+    if (submitBtn) submitBtn.disabled = true;
 
     const email = $("#auth-email").value.trim();
     const password = $("#auth-password").value;
     const username = $("#auth-username").value.trim();
+
+    if (activePasswordResetCode) {
+      try {
+        if (!window.m2vAuth?.confirmPasswordReset) throw new Error("Sign-in is unavailable. Please refresh and try again.");
+        await window.m2vAuth.confirmPasswordReset(activePasswordResetCode, password);
+        activePasswordResetCode = null;
+        await logout();
+        $("#auth-email").disabled = false;
+        $("#auth-email").value = "";
+        $("#auth-password").value = "";
+        $("#auth-password").placeholder = "Password (at least 8 characters)";
+        $(".google-auth-section").style.display = "";
+        $(".auth-switch").hidden = false;
+        isLoginMode = true;
+        updateAuthUI();
+        setAuthMessage("Password updated successfully! Please sign in with your new password.", "success");
+      } catch (error) {
+        setAuthMessage(window.m2vAuth?.errorMessage(error) || error.message, "error");
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+      return;
+    }
 
     try {
       if (!window.m2vAuth) throw new Error("Sign-in is unavailable. Please refresh and try again.");
@@ -301,12 +365,16 @@ function initAuth() {
       }
       await finishVerifiedLogin(result);
     } catch (error) {
-      $("#auth-error").textContent = window.m2vAuth?.errorMessage(error) || error.message;
+      setAuthMessage(window.m2vAuth?.errorMessage(error) || error.message, "error");
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
     }
   });
 }
 
 function updateAuthUI() {
+  setAuthMessage("", "");
+  const resetBtn = $("#auth-reset-password");
   if (isLoginMode) {
     $("#auth-title").textContent = "Sign in to Fovea Studio";
     $("#auth-submit").textContent = "Sign in";
@@ -315,6 +383,7 @@ function updateAuthUI() {
     $("#auth-username").style.display = "none";
     $("#auth-username").required = false;
     $("#auth-password").autocomplete = "current-password";
+    if (resetBtn) resetBtn.style.display = "";
   } else {
     $("#auth-title").textContent = "Create your Fovea account";
     $("#auth-submit").textContent = "Create account";
@@ -323,6 +392,7 @@ function updateAuthUI() {
     $("#auth-username").style.display = "";
     $("#auth-username").required = true;
     $("#auth-password").autocomplete = "new-password";
+    if (resetBtn) resetBtn.style.display = "none";
   }
 }
 
@@ -527,6 +597,9 @@ async function loadUser() {
         displayName: displayName,
         email: currentUser.email,
       }));
+      const fbUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
+      const isGoogle = fbUser?.providerData?.some(p => p.providerId === "google.com") || authProvider === "google";
+      if ($("#btn-change-password")) $("#btn-change-password").style.display = isGoogle ? "none" : "";
       if (window.m2vStore) window.m2vStore.setUser(currentUser, authProvider);
       return true;
     }
@@ -1514,6 +1587,87 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
+  // 修改密码弹窗交互
+  const btnChangePassword = $("#btn-change-password");
+  const pwdOverlay = $("#change-password-overlay");
+  const pwdForm = $("#change-password-form");
+  const pwdCancel = $("#change-pwd-cancel");
+  const pwdError = $("#change-pwd-error");
+
+  function closeChangePasswordModal() {
+    if (pwdOverlay) pwdOverlay.style.display = "none";
+    if (pwdForm) pwdForm.reset();
+    if (pwdError) pwdError.textContent = "";
+  }
+
+  if (btnChangePassword) {
+    btnChangePassword.addEventListener("click", () => {
+      const fbUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
+      const isPasswordUser = fbUser?.providerData?.some(p => p.providerId === "password");
+      if (fbUser && !isPasswordUser) {
+        alert("Your account is managed by Google sign-in. Password change is not applicable.");
+        return;
+      }
+      if (pwdOverlay) {
+        pwdOverlay.style.display = "flex";
+        if (pwdError) pwdError.textContent = "";
+        $("#change-pwd-current")?.focus();
+      }
+    });
+  }
+
+  if (pwdCancel) {
+    pwdCancel.addEventListener("click", closeChangePasswordModal);
+  }
+
+  if (pwdOverlay) {
+    pwdOverlay.addEventListener("click", (e) => {
+      if (e.target === pwdOverlay) closeChangePasswordModal();
+    });
+  }
+
+  if (pwdForm) {
+    pwdForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (pwdError) pwdError.textContent = "";
+
+      const currentPwd = $("#change-pwd-current")?.value || "";
+      const newPwd = $("#change-pwd-new")?.value || "";
+      const confirmPwd = $("#change-pwd-confirm")?.value || "";
+
+      if (!currentPwd) {
+        if (pwdError) pwdError.textContent = "Current password is required.";
+        return;
+      }
+      if (!newPwd || newPwd.length < 8) {
+        if (pwdError) pwdError.textContent = "New password must be at least 8 characters.";
+        return;
+      }
+      if (newPwd !== confirmPwd) {
+        if (pwdError) pwdError.textContent = "Passwords do not match.";
+        return;
+      }
+      if (currentPwd === newPwd) {
+        if (pwdError) pwdError.textContent = "New password must be different from current password.";
+        return;
+      }
+
+      const submitBtn = $("#change-pwd-submit");
+      if (submitBtn) submitBtn.disabled = true;
+
+      try {
+        if (!window.m2vAuth?.changePassword) throw new Error("Service is unavailable. Please refresh and try again.");
+        await window.m2vAuth.changePassword(currentPwd, newPwd);
+        closeChangePasswordModal();
+        alert("Password updated successfully.");
+      } catch (err) {
+        if (pwdError) pwdError.textContent = window.m2vAuth?.errorMessage(err) || err.message;
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
   // 复制插件登录凭据 Token
   const btnCopyToken = $("#btn-copy-plugin-token");
   if (btnCopyToken) {
@@ -1538,20 +1692,89 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // If we already have a cached token, reveal app immediately and verify in background
 
+  // Action code URL parameters (direct email verification or password reset links)
+  let authMode = null;
+  let oobCode = null;
+  if (typeof window !== "undefined" && window.location?.search) {
+    const urlParams = new URLSearchParams(window.location.search);
+    authMode = urlParams.get("mode");
+    oobCode = urlParams.get("oobCode");
+    if (authMode && oobCode) {
+      // 立即从地址栏移除敏感的 oobCode，防止通过 Referer 或浏览器历史泄露 (Fix Point 3)
+      try { window.history?.replaceState?.({}, document.title, window.location.pathname); } catch (_) {}
+    }
+  }
+
+  if (authMode === "resetPassword" && oobCode) {
+    // 重置密码时先清理旧会话，避免旧会话污染 (Fix Point 4)
+    await logout();
+    if (!window.m2vAuth?.verifyPasswordResetCode) {
+      showAuth();
+      setAuthMessage("Password reset is unavailable. Please refresh.", "error");
+      return;
+    }
+    try {
+      const email = await window.m2vAuth.verifyPasswordResetCode(oobCode);
+      activePasswordResetCode = oobCode;
+      showAuth();
+      $("#auth-title").textContent = "Reset your password";
+      $("#auth-email").value = email;
+      $("#auth-email").disabled = true;
+      $("#auth-username").style.display = "none";
+      $("#auth-password").value = "";
+      $("#auth-password").placeholder = "New password (at least 8 characters)";
+      $("#auth-password").autocomplete = "new-password";
+      $("#auth-submit").textContent = "Save new password";
+      if ($("#auth-reset-password")) $("#auth-reset-password").style.display = "none";
+      $(".auth-switch").hidden = true;
+      $(".google-auth-section").style.display = "none";
+      return;
+    } catch (err) {
+      showAuth();
+      setAuthMessage(window.m2vAuth?.errorMessage(err) || "Invalid or expired password reset link.", "error");
+      return;
+    }
+  }
+
   // Firebase restores its session asynchronously; never trust an old cached ID token.
   if (window.m2vAuth?.ready) {
     await window.m2vAuth.ready;
-    const firebaseUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
-    if (firebaseUser?.emailVerified === false) {
-      showEmailVerification(firebaseUser);
+  }
+
+  // verifyEmail 在 await window.m2vAuth.ready 之后执行 (Fix Point 2)
+  if (authMode === "verifyEmail" && oobCode) {
+    try {
+      if (window.m2vAuth?.applyActionCode) {
+        await window.m2vAuth.applyActionCode(oobCode);
+        if (typeof firebase !== "undefined" && firebase.auth) {
+          await firebase.auth().currentUser?.reload?.();
+          await firebase.auth().currentUser?.getIdToken?.(true);
+        }
+        setAuthMessage("Email verified successfully! You can now access your account.", "success");
+      }
+    } catch (err) {
+      showAuth();
+      setAuthMessage(window.m2vAuth?.errorMessage(err) || "Failed to verify email.", "error");
       return;
     }
-    if (authProvider === "firebase") {
-      token = await window.m2vAuth.getIdToken();
-      if (token) localStorage.setItem("m2v_token", token);
-      else localStorage.removeItem("m2v_token");
-      syncAuthCookie(token);
-    }
+  }
+
+  let firebaseUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
+  if (firebaseUser && firebaseUser.emailVerified === false && typeof firebaseUser.reload === "function") {
+    try {
+      await firebaseUser.reload();
+      firebaseUser = firebase.auth().currentUser;
+    } catch (_) {}
+  }
+  if (firebaseUser?.emailVerified === false) {
+    showEmailVerification(firebaseUser);
+    return;
+  }
+  if (authProvider === "firebase") {
+    token = await window.m2vAuth.getIdToken();
+    if (token) localStorage.setItem("m2v_token", token);
+    else localStorage.removeItem("m2v_token");
+    syncAuthCookie(token);
   }
 
   // 已登录？

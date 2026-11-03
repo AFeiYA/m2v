@@ -4,12 +4,39 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Your workspace · Fovea Studio</title>
+  <meta name="description" content="Workspace and creation studio for Fovea Studio AI lyric videos.">
   <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <link rel="canonical" href="https://fovea.si/app">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Fovea Studio">
+  <meta property="og:title" content="Your workspace · Fovea Studio">
+  <meta property="og:description" content="Workspace and creation studio for Fovea Studio AI lyric videos.">
+  <meta property="og:url" content="https://fovea.si/app">
+  <meta property="og:image" content="https://fovea.si/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Your workspace · Fovea Studio">
+  <meta name="twitter:description" content="Workspace and creation studio for Fovea Studio AI lyric videos.">
+  <meta name="twitter:image" content="https://fovea.si/og-image.png">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="/dashboard.css?v=20261028_unified_wordmark">
+  <script>
+    (function(){
+      const t = window.CF_BEACON_TOKEN || document.querySelector('meta[name="cf-beacon-token"]')?.getAttribute('content');
+      if (t && !document.querySelector('script[src*="cloudflareinsights.com/beacon.min.js"]')) {
+        const s = document.createElement('script');
+        s.defer = true;
+        s.src = 'https://static.cloudflareinsights.com/beacon.min.js';
+        s.setAttribute('data-cf-beacon', JSON.stringify({ token: t }));
+        document.head.appendChild(s);
+      }
+    })();
+  </script>
   <script>
     if (location.hostname.includes("staging")) {
       window.M2V_API_BASE = "https://lucazhou-suno2mv-api-staging.hf.space";
@@ -24,30 +51,30 @@
   <div id="auth-overlay" class="overlay" style="display: none;">
     <div class="auth-card">
       <h2 id="auth-title">Sign in to Fovea Studio</h2>
-      <div class="google-auth-section" style="margin-bottom: 16px;">
-        <button type="button" id="btn-google-login" class="btn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; background: #fff; color: #3c4043; border: 1px solid #dadce0; border-radius: 6px; padding: 10px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgba(60,64,67,0.2);">
+      <div class="google-auth-section">
+        <button type="button" id="btn-google-login" class="btn btn-google">
           <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.616z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/><path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.347 2.825.957 4.039l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z"/></svg>
           Continue with Google
         </button>
-        <div style="display: flex; align-items: center; margin: 14px 0 8px 0; color: #888;">
-          <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.15);"></div>
-          <span style="padding: 0 10px; font-size: 12px; color: #aaa;">or use email and password</span>
-          <div style="flex: 1; height: 1px; background: rgba(255,255,255,0.15);"></div>
+        <div class="auth-divider">
+          <span>or use email and password</span>
         </div>
       </div>
       <form id="auth-form">
         <input id="auth-username" type="text" placeholder="Display name" maxlength="128" autocomplete="username" style="display:none">
         <input id="auth-email" type="email" placeholder="Email" required autocomplete="email">
-        <input id="auth-password" type="password" placeholder="Password (at least 6 characters)" minlength="6" required autocomplete="current-password">
+        <input id="auth-password" type="password" placeholder="Password (at least 8 characters)" minlength="8" required autocomplete="current-password">
+        <div class="auth-aux-row">
+          <button type="button" id="auth-reset-password" class="auth-link-btn">Forgot password?</button>
+        </div>
         <button type="submit" id="auth-submit">Sign in</button>
       </form>
       <div id="email-verification" hidden>
         <p id="verification-message" role="status" aria-live="polite"></p>
-        <button type="button" id="verification-check" class="btn">I've verified my email</button>
-        <button type="button" id="verification-resend" class="btn btn-sm btn-outline">Resend verification email</button>
-        <button type="button" id="verification-signout" class="btn btn-sm btn-outline">Use another account</button>
+        <button type="button" id="verification-check" class="btn btn-primary" style="width: 100%; margin-bottom: 8px;">I've verified my email</button>
+        <button type="button" id="verification-resend" class="btn btn-sm btn-outline" style="width: 100%; margin-bottom: 8px;">Resend verification email</button>
+        <button type="button" id="verification-signout" class="btn btn-sm btn-outline" style="width: 100%;">Use another account</button>
       </div>
-      <button type="button" id="auth-reset-password" class="btn btn-sm btn-outline">Forgot password?</button>
       <p class="auth-switch">
         <span id="auth-toggle-text">New to Fovea Studio?</span>
         <a href="#" id="auth-toggle">Create an account</a>
@@ -57,7 +84,25 @@
         <a href="#" id="btn-config-api" style="color: #4285F4; text-decoration: underline;">Configure API address</a>
       </div>
       <p id="auth-error" class="error-text"></p>
-      <p style="font-size:12px;line-height:1.7;color:#a7ad9f;margin-top:18px">Review our <a href="/terms">Terms</a>, <a href="/privacy">Privacy Policy</a> and <a href="/refunds">Refund Policy</a>. <a href="/">Back to home</a></p>
+      <div class="auth-legal-footer">
+        <p>Review our <a href="/terms">Terms</a>, <a href="/privacy">Privacy Policy</a> and <a href="/refunds">Refund Policy</a>.</p>
+        <a href="/" class="auth-back-home">Back to home</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 修改密码弹窗 ========== -->
+  <div id="change-password-overlay" class="overlay" style="display: none;">
+    <div class="auth-card" role="dialog" aria-modal="true" aria-labelledby="change-password-title">
+      <h2 id="change-password-title">Change password</h2>
+      <form id="change-password-form">
+        <input id="change-pwd-current" type="password" placeholder="Current password" required autocomplete="current-password">
+        <input id="change-pwd-new" type="password" placeholder="New password (at least 8 characters)" minlength="8" required autocomplete="new-password">
+        <input id="change-pwd-confirm" type="password" placeholder="Confirm new password" minlength="8" required autocomplete="new-password">
+        <button type="submit" id="change-pwd-submit">Update password</button>
+        <button type="button" id="change-pwd-cancel" class="btn btn-sm btn-outline" style="width: 100%; margin-top: 8px;">Cancel</button>
+      </form>
+      <p id="change-pwd-error" class="error-text"></p>
     </div>
   </div>
 
@@ -175,6 +220,10 @@
             <button type="button" id="btn-edit-nickname" class="account-menu-item" role="menuitem" title="Edit display name">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
               <span>Edit name</span>
+            </button>
+            <button type="button" id="btn-change-password" class="account-menu-item" role="menuitem" title="Change password">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <span>Change password</span>
             </button>
             <a href="#credits-section" class="account-menu-item" role="menuitem" data-workspace-link>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></svg>
@@ -672,12 +721,12 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="/static/cache.js?v=20261013_cache"></script>
-  <script src="/firebase-config.js?v=20261030_verify"></script>
+  <script src="/firebase-config.js?v=20261103_auth_flow"></script>
   <script src="/workspace-store.js?v=20261021_navigation"></script>
   <script src="/studio-adapters.js?v=20261022_credits"></script>
   <script src="/media-arbiter.js?v=20261019_arbiter"></script>
   <script src="/workspace.js?v=20261027_latest_lyrics"></script>
-  <script src="/dashboard.js?v=20261031_upload_fix"></script>
+  <script src="/dashboard.js?v=20261103_auth_flow"></script>
   <script src="/billing.js?v=20261031_pricing"></script>
 </body>
 </html>

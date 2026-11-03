@@ -7,11 +7,11 @@ const source = fs.readFileSync(require('node:path').join(__dirname, '../dashboar
 function setup({firebaseUser = true, failRefresh = false, provider = null} = {}) {
   const values = new Map([['m2v_token', 'expired-B'], ['m2v_refresh', 'refresh-A']]);
   if (provider) values.set('m2v_auth_provider', provider);
-  const requests = [], alerts = [], elements = new Map();
+  const requests = [], alerts = [], elements = new Map(), historyCalls = [], docHandlers = {};
   let sdkCalls = 0, downloads = 0, logoutCalls = 0;
   function element(selector) {
     if (!elements.has(selector)) elements.set(selector, {
-      style: {}, handlers: {},
+      style: {}, handlers: {}, dataset: {}, value: '', textContent: '', innerText: '',
       classList: {
         _classes: new Set(),
         add(c) { this._classes.add(c); },
@@ -19,25 +19,38 @@ function setup({firebaseUser = true, failRefresh = false, provider = null} = {})
         contains(c) { return this._classes.has(c); },
       },
       addEventListener(event, handler) { this.handlers[event] = handler; },
+      focus() { this.focused = true; },
+      reset() { this.value = ''; },
+      closest() { return null; },
     });
     return elements.get(selector);
   }
-  const location = {hostname: 'mv.fovea.si', host: 'mv.fovea.si', origin: 'https://mv.fovea.si', search: ''};
+  const location = {hostname: 'mv.fovea.si', host: 'mv.fovea.si', origin: 'https://mv.fovea.si', pathname: '/app', search: ''};
+  const history = {
+    replaceState(state, title, url) { historyCalls.push({state, title, url}); },
+  };
   const user = {getIdToken: async () => {
     sdkCalls++;
     if (failRefresh) throw new Error('SDK unavailable');
     return 'fresh-B';
   }};
   const context = {
-    window: {location, addEventListener() {}, m2vAuth: {
+    window: {location, history, addEventListener() {}, m2vAuth: {
       logout: async () => {logoutCalls++;},
       loginWithGoogle: async () => ({user, idToken: 'google-B'}),
       getIdToken: async () => values.get('m2v_token'),
-    }}, location,
+      errorMessage: err => err?.message || 'Error',
+    }}, location, history,
     firebase: {auth: () => ({currentUser: firebaseUser ? user : null})},
     localStorage: {getItem: k => values.get(k) || null, setItem: (k,v) => values.set(k,v), removeItem: k => values.delete(k)},
-    document: {querySelector: element, querySelectorAll: () => [], addEventListener() {},
-      createElement: () => ({click() {downloads++;}, remove() {}}), body: {appendChild() {}}},
+    document: {
+      querySelector: element,
+      querySelectorAll: () => [],
+      addEventListener(event, handler) { docHandlers[event] = handler; },
+      createElement: () => ({click() {downloads++;}, remove() {}}),
+      body: {appendChild() {}},
+      title: 'Your workspace · Fovea Studio',
+    },
     console: {log() {}, warn() {}, error() {}},
     URL: {createObjectURL: () => 'blob:test', revokeObjectURL() {}}, URLSearchParams,
     setTimeout() {}, clearInterval() {}, alert: msg => alerts.push(msg),
@@ -50,7 +63,8 @@ function setup({firebaseUser = true, failRefresh = false, provider = null} = {})
   };
   vm.createContext(context);
   vm.runInContext(source, context);
-  return {context, requests, alerts, values, elements, element,
+  return {context, requests, alerts, values, elements, element, docHandlers, historyCalls,
+    dispatchDOMContentLoaded: async () => { if (docHandlers['DOMContentLoaded']) await docHandlers['DOMContentLoaded'](); },
     run: code => vm.runInContext(code, context),
     stats: () => ({sdkCalls, downloads, logoutCalls})};
 }
@@ -266,4 +280,279 @@ test('brand triple click toggles debug without navigating, single click still na
   for (const fn of [...timers.values()]) fn();
   assert.deepEqual(navigations, [brand.href]);
   brand.handlers.click({button: 0, metaKey: true, preventDefault() { throw Error('Modified click was intercepted'); }});
+});
+
+test('password reset triggers m2vAuth.resetPassword and styles message as success', async () => {
+  const s = setup();
+  let resetEmail = null;
+  s.context.window.m2vAuth.resetPassword = async email => { resetEmail = email; };
+  s.run('initAuth()');
+  s.element('#auth-email').value = 'artist@example.com';
+  await s.element('#auth-reset-password').handlers.click();
+  assert.equal(resetEmail, 'artist@example.com');
+  assert.match(s.element('#auth-error').textContent, /password reset link/);
+  assert.equal(s.element('#auth-error').classList.contains('success-text'), true);
+  assert.equal(s.element('#auth-error').classList.contains('error-text'), false);
+});
+
+test('auth toggle switches between sign-in and create account, hiding password reset', async () => {
+  const s = setup();
+  s.run('initAuth(); updateAuthUI();');
+  assert.equal(s.element('#auth-reset-password').style.display, '');
+  assert.equal(s.element('#auth-username').style.display, 'none');
+
+  s.element('#auth-toggle').handlers.click({preventDefault() {}});
+  assert.equal(s.element('#auth-reset-password').style.display, 'none');
+  assert.equal(s.element('#auth-username').style.display, '');
+
+  s.element('#auth-toggle').handlers.click({preventDefault() {}});
+  assert.equal(s.element('#auth-reset-password').style.display, '');
+  assert.equal(s.element('#auth-username').style.display, 'none');
+});
+
+test('unverified user on page reload reloads firebase session and admits verified accounts', async () => {
+  const s = setup({provider: 'firebase'});
+  let reloaded = 0;
+  const user = {
+    emailVerified: false,
+    async reload() {
+      reloaded++;
+      user.emailVerified = true;
+    },
+    async getIdToken() { return 'verified-token'; },
+  };
+  s.context.firebase = { auth: () => ({ currentUser: user }) };
+  s.context.window.m2vAuth.ready = Promise.resolve();
+  s.context.window.m2vAuth.getIdToken = async () => 'verified-token';
+
+  s.run('appShown = false; loadUser = async () => { currentUser = { id: "u1" }; return true; }; showApp = () => { appShown = true; }');
+  await s.run(`
+    (async () => {
+      let firebaseUser = firebase.auth().currentUser;
+      if (firebaseUser && firebaseUser.emailVerified === false && typeof firebaseUser.reload === "function") {
+        try {
+          await firebaseUser.reload();
+          firebaseUser = firebase.auth().currentUser;
+        } catch (_) {}
+      }
+      if (firebaseUser?.emailVerified === false) {
+        showEmailVerification(firebaseUser);
+        return;
+      }
+      if (authProvider === "firebase") {
+        token = await window.m2vAuth.getIdToken();
+      }
+      if (token && await loadUser()) showApp();
+    })()
+  `);
+
+  assert.equal(reloaded, 1);
+  assert.equal(user.emailVerified, true);
+  assert.equal(s.context.appShown, true);
+});
+
+test('change password in dashboard validates input and updates password via modal', async () => {
+  const s = setup({provider: 'firebase'});
+  let updatedCreds = null;
+  s.context.window.m2vAuth.changePassword = async (curr, next) => {
+    updatedCreds = {curr, next};
+  };
+
+  // 1. Google sign-in accounts should be blocked from opening modal
+  s.context.firebase = {
+    auth: () => ({
+      currentUser: { providerData: [{ providerId: 'google.com' }] },
+    }),
+  };
+  await s.dispatchDOMContentLoaded();
+
+  const btnChange = s.element('#btn-change-password');
+  const overlay = s.element('#change-password-overlay');
+  const form = s.element('#change-password-form');
+  const currentInput = s.element('#change-pwd-current');
+  const newInput = s.element('#change-pwd-new');
+  const confirmInput = s.element('#change-pwd-confirm');
+  const errLabel = s.element('#change-pwd-error');
+  const cancelBtn = s.element('#change-pwd-cancel');
+
+  btnChange.handlers.click();
+  assert.notEqual(overlay.style.display, 'flex');
+  assert.equal(s.alerts.includes('Your account is managed by Google sign-in. Password change is not applicable.'), true);
+
+  // 2. Password accounts can open the modal
+  s.context.firebase = {
+    auth: () => ({
+      currentUser: { providerData: [{ providerId: 'password' }] },
+    }),
+  };
+  btnChange.handlers.click();
+  assert.equal(overlay.style.display, 'flex');
+
+  // Cancel closes the modal
+  cancelBtn.handlers.click();
+  assert.equal(overlay.style.display, 'none');
+
+  // Open again and test form validations
+  btnChange.handlers.click();
+  assert.equal(overlay.style.display, 'flex');
+
+  // Missing current password
+  currentInput.value = '';
+  newInput.value = 'secret123';
+  confirmInput.value = 'secret123';
+  await form.handlers.submit({preventDefault() {}});
+  assert.equal(errLabel.textContent, 'Current password is required.');
+
+  // Password too short (< 8 chars)
+  currentInput.value = 'oldpassword1';
+  newInput.value = 'short12';
+  confirmInput.value = 'short12';
+  await form.handlers.submit({preventDefault() {}});
+  assert.equal(errLabel.textContent, 'New password must be at least 8 characters.');
+
+  // Passwords mismatch
+  newInput.value = 'secret123';
+  confirmInput.value = 'secret456';
+  await form.handlers.submit({preventDefault() {}});
+  assert.equal(errLabel.textContent, 'Passwords do not match.');
+
+  // New password same as current password
+  newInput.value = 'oldpassword1';
+  confirmInput.value = 'oldpassword1';
+  await form.handlers.submit({preventDefault() {}});
+  assert.equal(errLabel.textContent, 'New password must be different from current password.');
+
+  // Successful submission
+  newInput.value = 'newsecret123';
+  confirmInput.value = 'newsecret123';
+  await form.handlers.submit({preventDefault() {}});
+  assert.deepEqual(updatedCreds, {curr: 'oldpassword1', next: 'newsecret123'});
+  assert.equal(overlay.style.display, 'none');
+  assert.equal(s.alerts.includes('Password updated successfully.'), true);
+});
+
+test('verifyEmail action code in URL is processed first, strips code from URL, and verifies account', async () => {
+  const s = setup({provider: 'firebase'});
+  let appliedCode = null, reloaded = 0, forceRefreshed = 0;
+  const user = {
+    emailVerified: false,
+    async reload() {
+      reloaded++;
+      user.emailVerified = true;
+    },
+    async getIdToken(force) {
+      if (force) forceRefreshed++;
+      return 'verified-token';
+    },
+  };
+  s.context.firebase = { auth: () => ({ currentUser: user }) };
+  s.context.window.m2vAuth.ready = Promise.resolve();
+  s.context.window.m2vAuth.applyActionCode = async code => { appliedCode = code; };
+  s.context.window.m2vAuth.getIdToken = async () => 'verified-token';
+  s.context.location.search = '?mode=verifyEmail&oobCode=verify-test-code';
+  s.context.window.location.search = '?mode=verifyEmail&oobCode=verify-test-code';
+
+  await s.dispatchDOMContentLoaded();
+
+  assert.equal(appliedCode, 'verify-test-code');
+  assert.equal(reloaded, 1);
+  assert.equal(forceRefreshed >= 1, true);
+  assert.equal(user.emailVerified, true);
+  assert.equal(s.historyCalls.length > 0, true);
+  assert.equal(s.historyCalls[0].url, '/app');
+  assert.equal(s.element('#auth-error').classList.contains('success-text'), true);
+  assert.match(s.element('#auth-error').textContent, /Email verified successfully/);
+});
+
+test('resetPassword with missing verifyPasswordResetCode displays unavailable error and halts', async () => {
+  const s = setup({provider: 'firebase'});
+  delete s.context.window.m2vAuth.verifyPasswordResetCode;
+  s.context.location.search = '?mode=resetPassword&oobCode=code-123';
+  s.context.window.location.search = '?mode=resetPassword&oobCode=code-123';
+
+  await s.dispatchDOMContentLoaded();
+
+  assert.equal(s.element('#auth-error').textContent, 'Password reset is unavailable. Please refresh.');
+  assert.equal(s.element('#auth-error').classList.contains('error-text'), true);
+});
+
+test('resetPassword action code purges session, strips code from URL, and completes reset with logout', async () => {
+  const s = setup({provider: 'firebase'});
+  let verifiedCode = null, confirmedReset = null;
+  s.context.window.m2vAuth.verifyPasswordResetCode = async code => {
+    verifiedCode = code;
+    return 'user@example.com';
+  };
+  s.context.window.m2vAuth.confirmPasswordReset = async (code, pwd) => {
+    confirmedReset = {code, pwd};
+  };
+  s.context.location.search = '?mode=resetPassword&oobCode=reset-secret-code';
+  s.context.window.location.search = '?mode=resetPassword&oobCode=reset-secret-code';
+
+  await s.dispatchDOMContentLoaded();
+
+  // 1. Stale session purged on arrival
+  assert.equal(s.stats().logoutCalls >= 1, true);
+  assert.equal(verifiedCode, 'reset-secret-code');
+  assert.equal(s.historyCalls.length > 0, true);
+  assert.equal(s.historyCalls[0].url, '/app');
+
+  // Auth UI in reset mode
+  assert.equal(s.element('#auth-title').textContent, 'Reset your password');
+  assert.equal(s.element('#auth-email').value, 'user@example.com');
+  assert.equal(s.element('#auth-email').disabled, true);
+  assert.equal(s.element('#auth-submit').textContent, 'Save new password');
+
+  // 2. Submit new password
+  s.element('#auth-password').value = 'brand-new-secret';
+  await s.element('#auth-form').handlers.submit({preventDefault() {}});
+
+  assert.deepEqual(confirmedReset, {code: 'reset-secret-code', pwd: 'brand-new-secret'});
+  // Logged out again after password reset
+  assert.equal(s.stats().logoutCalls >= 2, true);
+  assert.match(s.element('#auth-error').textContent, /Password updated successfully/);
+  assert.equal(s.element('#auth-error').classList.contains('success-text'), true);
+});
+
+test('invalid or expired password reset link halts on auth card and does not show app', async () => {
+  const s = setup({provider: 'firebase'});
+  s.context.window.m2vAuth.verifyPasswordResetCode = async () => {
+    const err = new Error('Expired code');
+    err.code = 'auth/invalid-action-code';
+    throw err;
+  };
+  s.context.window.m2vAuth.errorMessage = err => {
+    if (err?.code === 'auth/invalid-action-code') return 'This link has expired or has already been used.';
+    return err?.message || 'Error';
+  };
+  s.context.location.search = '?mode=resetPassword&oobCode=expired-code';
+  s.context.window.location.search = '?mode=resetPassword&oobCode=expired-code';
+  s.values.set('m2v_token', 'cached-valid-token');
+
+  let enteredApp = false;
+  s.run('showApp = () => { enteredApp = true; };');
+
+  await s.dispatchDOMContentLoaded();
+
+  assert.equal(s.context.enteredApp, undefined);
+  assert.match(s.element('#auth-error').textContent, /This link has expired or has already been used/);
+  assert.equal(s.element('#auth-error').classList.contains('error-text'), true);
+});
+
+test('submitting auth form disables submit button while in flight to prevent double submits', async () => {
+  const s = setup();
+  let submitStateDuringCall = null;
+  s.context.window.m2vAuth.loginWithEmail = async () => {
+    submitStateDuringCall = s.element('#auth-submit').disabled;
+    return {user: {emailVerified: true}, idToken: 'token-123'};
+  };
+  s.run('currentUser = null; loadUser = async () => true; showApp = () => {}; initAuth();');
+
+  s.element('#auth-email').value = 'test@example.com';
+  s.element('#auth-password').value = 'password123';
+
+  await s.element('#auth-form').handlers.submit({preventDefault() {}});
+
+  assert.equal(submitStateDuringCall, true);
+  assert.equal(s.element('#auth-submit').disabled, false);
 });

@@ -12,6 +12,9 @@ from pathlib import Path
 from functools import lru_cache
 from pydantic import Field, model_validator
 
+# Published placeholder. SaaS startup refuses to run until this is replaced.
+DEFAULT_SECRET_KEY = "CHANGE-ME-in-production-use-openssl-rand-hex-32"
+
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError:
@@ -62,7 +65,7 @@ class Settings(BaseSettings):
     # ── 通用 ──────────────────────────────────────────────
     APP_NAME: str = "M2V — Auto-Karaoke MV Generator"
     DEBUG: bool = False
-    SECRET_KEY: str = "CHANGE-ME-in-production-use-openssl-rand-hex-32"
+    SECRET_KEY: str = DEFAULT_SECRET_KEY
 
     # ── 数据库 ────────────────────────────────────────────
     # 默认 SQLite (本地开发)；生产用 PostgreSQL
@@ -190,3 +193,13 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """单例获取设置（缓存实例）"""
     return Settings()
+
+
+def assert_saas_secret_configured() -> None:
+    """SaaS mode signs export tickets with SECRET_KEY and must not ship the public default."""
+    key = get_settings().SECRET_KEY
+    if not isinstance(key, str) or not key.strip() or key == DEFAULT_SECRET_KEY:
+        raise RuntimeError(
+            "SaaS mode cannot start while SECRET_KEY is unset or still the published default. "
+            "Set a unique SECRET_KEY on the Hugging Face Space (openssl rand -hex 32) and restart."
+        )

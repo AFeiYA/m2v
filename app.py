@@ -78,6 +78,9 @@ demo.queue()
 
 def mount_fastapi_routes(demo_instance):
     """Gradio 在 launch() 期间会生成运行期 server_app，注入 FastAPI 全部路由（带防重复校验）。"""
+    from src.settings import assert_saas_secret_configured
+    assert_saas_secret_configured()
+
     targets = []
     if hasattr(demo_instance, "app") and demo_instance.app is not None:
         targets.append(demo_instance.app)
@@ -100,14 +103,17 @@ def mount_fastapi_routes(demo_instance):
         import logging
         logging.getLogger("uvicorn").warning("初始化 SaaS 数据库异常: %s", e)
 
-    from src.api_server import api_router
+    from src.api_server import api_router, install_public_cors
     from src.editor_server import router as editor_router
     from src.motion_cloud import router as cloud_motion_router
     from fastapi import Depends
     from src.legacy_access import require_local_api
+    from src.auth import install_saas_auth_middleware
 
     for target in targets:
         target.state.saas_mode = True
+        install_saas_auth_middleware(target)
+        install_public_cors(target)
         existing_paths = {getattr(r, "path", "") for r in getattr(target, "routes", []) if hasattr(r, "path")}
         if "/api/files" not in existing_paths:
             target.include_router(fastapi_app.router, dependencies=[Depends(require_local_api)])

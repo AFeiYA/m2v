@@ -29,7 +29,20 @@ def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(api_server.settings, "ALIGNMENT_CREDITS", 1)
     monkeypatch.setattr(worker.settings, "DATABASE_URL", url)
     monkeypatch.setattr(auth.settings, "SECRET_KEY", "isolated-regression-key")
-    monkeypatch.setattr(auth, "verify_firebase_id_token", lambda token: None)
+
+    def _accept_harness_token(token: str):
+        # SaaS mode does not accept local JWTs. The fixture still signs requests
+        # with the test key; treat those as already-verified harness identities.
+        from jose import JWTError
+        from jose import jwt as jose_jwt
+        try:
+            return jose_jwt.decode(
+                token, auth.settings.SECRET_KEY, algorithms=[auth.settings.JWT_ALGORITHM]
+            )
+        except JWTError:
+            return None
+
+    monkeypatch.setattr(auth, "verify_firebase_id_token", _accept_harness_token)
     monkeypatch.setattr(api_server, "async_session", sessions)
     local_storage = storage.LocalStorage(tmp_path / "storage")
     monkeypatch.setattr(storage, "_storage_instance", local_storage)
@@ -615,16 +628,35 @@ def test_remote_media_errors_are_reported_and_temp_files_removed(sandbox, monkey
 
 def test_firebase_email_verification_is_not_assumed(sandbox, monkeypatch):
     payload = {"sub": "firebase-email-user", "email": "new@example.com", "name": "New Artist",
-               "type": "access", "provider": "firebase", "email_verified": False}
-    monkeypatch.setattr(auth, "decode_token", lambda token: payload)
+               "type": "access", "provider": "firebase", "sign_in_provider": "password",
+               "email_verified": False}
+    monkeypatch.setattr(auth, "decode_token", lambda token: dict(payload))
     credentials = {"Authorization": "Bearer test-firebase-token"}
+    blocked = sandbox.client.get("/api/auth/me", headers=credentials)
+    assert blocked.status_code == 403
+    assert blocked.json()["detail"] == "EMAIL_VERIFICATION_REQUIRED"
+    payload["email_verified"] = True
+    first = sandbox.client.get("/api/auth/me", headers=credentials)
+    assert first.status_code == 200
+    assert first.json()["is_verified"] is True
+    assert first.json()["credits"] == auth.settings.NEW_USER_PERMANENT_CREDITS
+    second = sandbox.client.get("/api/auth/me", headers=credentials)
+    assert second.json()["is_verified"] is True
+    assert second.json()["id"] == first.json()["id"]
+    assert second.json()["credits"] == first.json()["credits"]
+
+
+def test_google_signup_grants_bonus_once_without_email_verified(sandbox, monkeypatch):
+    payload = {"sub": "firebase-google-user", "email": "google@example.com", "name": "Google Artist",
+               "type": "access", "provider": "firebase", "sign_in_provider": "google.com",
+               "email_verified": False}
+    monkeypatch.setattr(auth, "decode_token", lambda token: dict(payload))
+    credentials = {"Authorization": "Bearer google-token"}
     first = sandbox.client.get("/api/auth/me", headers=credentials)
     assert first.status_code == 200
     assert first.json()["is_verified"] is False
     assert first.json()["credits"] == auth.settings.NEW_USER_PERMANENT_CREDITS
-    payload["email_verified"] = True
     second = sandbox.client.get("/api/auth/me", headers=credentials)
-    assert second.json()["is_verified"] is True
     assert second.json()["id"] == first.json()["id"]
     assert second.json()["credits"] == first.json()["credits"]
 

@@ -2,7 +2,7 @@
 M2V API Server — FastAPI 主应用
 
 面向用户的 Web 服务，提供:
-- 用户认证 (注册/登录/JWT)
+- 用户认证 (Firebase ID Token；本地 refresh 仅离线开发)
 - 文件上传 (MP3 + 歌词)
 - 异步任务管理 (创建/查询/进度)
 - WebSocket 实时进度推送
@@ -57,17 +57,13 @@ from src.auth import (
     get_current_user,
     get_current_user_flexible,
     get_user_from_token,
-    hash_password,
-    verify_password,
 )
 from src.database import async_session, create_tables, get_db
 from src.models import Task, TaskStatus, TaskStep, User
 from src.schemas import (
     ErrorResponse,
-    LoginRequest,
     MessageResponse,
     RefreshRequest,
-    RegisterRequest,
     SunoTaskRequest,
     TaskCreateRequest,
     TaskListResponse,
@@ -110,69 +106,107 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+# Browser origins that may call this API with credentials.
+# Pages project name is documented in docs/ARCHITECTURE_AND_DATA_FLOW.md (m2v-bdb).
+# Branch and commit previews are https://<name>.m2v-bdb.pages.dev.
+PUBLIC_SITE_ORIGINS = (
+    "https://fovea.si",
+    "https://www.fovea.si",
+    "https://staging.fovea.si",
+    "https://mv.fovea.si",
 )
+_FOVEA_ORIGIN_RE = re.compile(r"https://([a-z0-9-]+\.)*fovea\.si")
+_PAGES_ORIGIN_RE = re.compile(r"https://([a-z0-9-]+\.)*m2v-bdb\.pages\.dev")
+_LOCAL_ORIGIN_RE = re.compile(r"http://(localhost|127\.0\.0\.1)(:\d+)?")
+_BROWSER_ORIGIN_RE = (
+    r"https://([a-z0-9-]+\.)*fovea\.si"
+    r"|https://([a-z0-9-]+\.)*m2v-bdb\.pages\.dev"
+    r"|http://(localhost|127\.0\.0\.1)(:\d+)?"
+)
+
+
+def origin_is_allowed(origin: str | None) -> bool:
+    if not origin:
+        return False
+    return (
+        origin in PUBLIC_SITE_ORIGINS
+        or _FOVEA_ORIGIN_RE.fullmatch(origin) is not None
+        or _PAGES_ORIGIN_RE.fullmatch(origin) is not None
+        or _LOCAL_ORIGIN_RE.fullmatch(origin) is not None
+    )
+
+
+def _cors_kwargs() -> dict:
+    return {
+        "allow_origins": list(PUBLIC_SITE_ORIGINS),
+        "allow_origin_regex": _BROWSER_ORIGIN_RE,
+        "allow_credentials": True,
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+    }
+
+
+class PublicOriginMiddleware:
+    """Force the public origin list, including over Gradio's reflected ACAO header."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        from starlette.datastructures import Headers
+
+        origin = Headers(scope=scope).get("origin")
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start" and origin:
+                raw = message.setdefault("headers", [])
+
+                def _header_name(key: bytes | str) -> str:
+                    text = key.decode("latin-1") if isinstance(key, bytes) else key
+                    return text.lower()
+
+                kept = [
+                    (key, value)
+                    for key, value in raw
+                    if _header_name(key) not in (
+                        "access-control-allow-origin",
+                        "access-control-allow-credentials",
+                    )
+                ]
+                if origin_is_allowed(origin):
+                    kept.append((b"access-control-allow-origin", origin.encode()))
+                    kept.append((b"access-control-allow-credentials", b"true"))
+                message["headers"] = kept
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+def install_public_cors(app) -> None:
+    """Apply the public origin list. A running Gradio app already reflects every origin."""
+    if getattr(app.state, "public_cors_installed", False):
+        return
+    app.state.public_cors_installed = True
+    if getattr(app, "middleware_stack", None) is None:
+        app.add_middleware(PublicOriginMiddleware)
+        return
+    app.middleware_stack = PublicOriginMiddleware(app.middleware_stack)
+
+
+# CORS
+app.add_middleware(CORSMiddleware, **_cors_kwargs())
 
 api_router = APIRouter()
 
 
 # ======================================================================
 # Auth 路由
+# Email/password and Google sign-in go through Firebase. These routes do not
+# create accounts or grant signup credits.
 # ======================================================================
-
-@api_router.post("/api/auth/register", response_model=TokenResponse, tags=["Auth"])
-async def register(req: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    """用户注册"""
-    # 检查重复
-    existing = await db.execute(
-        select(User).where((User.email == req.email) | (User.username == req.username))
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email or username is already registered.",
-        )
-
-    user = User(
-        email=req.email,
-        username=req.username,
-        password_hash=hash_password(req.password),
-        credits=settings.NEW_USER_PERMANENT_CREDITS,
-    )
-    db.add(user)
-    await db.flush()
-
-    return TokenResponse(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
-    )
-
-
-@api_router.post("/api/auth/login", response_model=TokenResponse, tags=["Auth"])
-async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
-    """用户登录"""
-    result = await db.execute(select(User).where(User.email == req.email))
-    user = result.scalar_one_or_none()
-
-    if user is None or not verify_password(req.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password.",
-        )
-
-    user.last_login_at = datetime.now(timezone.utc)
-
-    return TokenResponse(
-        access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
-    )
-
 
 @api_router.post("/api/auth/refresh", response_model=TokenResponse, tags=["Auth"])
 async def refresh_token(req: RefreshRequest, db: AsyncSession = Depends(get_db)):
@@ -1082,6 +1116,7 @@ if frontend_dir.exists():
     @app.get("/privacy", tags=["Frontend"])
     @app.get("/refunds", tags=["Frontend"])
     @app.get("/contact", tags=["Frontend"])
+    @app.get("/karaoke", tags=["Frontend"])
     @app.get("/app", tags=["Frontend"])
     async def serve_public_page(request: Request):
         name = request.url.path.strip("/") or "index"

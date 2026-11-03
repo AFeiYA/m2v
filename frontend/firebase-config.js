@@ -48,10 +48,21 @@ const firebaseAuthReady = typeof firebase !== "undefined" && firebase.auth
     });
   }) : Promise.resolve(null);
 
+function getActionCodeSettings() {
+  const origin = typeof window !== "undefined" && window.location?.origin
+    ? window.location.origin
+    : "https://fovea.si";
+  return {
+    url: origin + "/app",
+    handleCodeInApp: false,
+  };
+}
+
 // M2V Authentication Helper
 window.m2vAuth = {
   config: firebaseConfig,
   ready: firebaseAuthReady,
+  getActionCodeSettings,
 
   async loginWithEmail(email, password) {
     const result = await firebaseAuth().signInWithEmailAndPassword(email, password);
@@ -66,7 +77,19 @@ window.m2vAuth = {
     await result.user.updateProfile({ displayName: name });
     if (result.user.emailVerified === false) {
       let verificationError = null;
-      try { await result.user.sendEmailVerification(); } catch (error) { verificationError = error; }
+      try {
+        await result.user.sendEmailVerification(getActionCodeSettings());
+      } catch (error) {
+        if (error?.code === "auth/unauthorized-continue-uri") {
+          try {
+            await result.user.sendEmailVerification();
+          } catch (fallbackErr) {
+            verificationError = fallbackErr;
+          }
+        } else {
+          verificationError = error;
+        }
+      }
       return {user: result.user, verificationRequired: true, verificationError};
     }
     // Refresh so the first backend request sees the new name in the ID token.
@@ -75,13 +98,29 @@ window.m2vAuth = {
   },
 
   async resetPassword(email) {
-    await firebaseAuth().sendPasswordResetEmail(email);
+    try {
+      await firebaseAuth().sendPasswordResetEmail(email, getActionCodeSettings());
+    } catch (error) {
+      if (error?.code === "auth/unauthorized-continue-uri") {
+        await firebaseAuth().sendPasswordResetEmail(email);
+        return;
+      }
+      throw error;
+    }
   },
 
   async resendVerification() {
     const user = firebaseAuth().currentUser;
     if (!user) throw new Error("Sign in to resend the verification email.");
-    await user.sendEmailVerification();
+    try {
+      await user.sendEmailVerification(getActionCodeSettings());
+    } catch (error) {
+      if (error?.code === "auth/unauthorized-continue-uri") {
+        await user.sendEmailVerification();
+        return;
+      }
+      throw error;
+    }
   },
 
   async checkEmailVerification() {
@@ -93,18 +132,57 @@ window.m2vAuth = {
     return saveFirebaseSession(user);
   },
 
+  async changePassword(currentPassword, newPassword) {
+    const user = firebaseAuth().currentUser;
+    if (!user) throw new Error("Please sign in first.");
+    if (!currentPassword) throw new Error("Current password is required.");
+    if (!newPassword || newPassword.length < 8) throw new Error("New password must be at least 8 characters.");
+    if (currentPassword === newPassword) throw new Error("New password must be different from current password.");
+
+    if (typeof firebase !== "undefined" && firebase.auth?.EmailAuthProvider && typeof user.reauthenticateWithCredential === "function") {
+      try {
+        const cred = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
+        await user.reauthenticateWithCredential(cred);
+      } catch (err) {
+        if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+          throw new Error("Current password is incorrect.");
+        }
+        throw err;
+      }
+    }
+    await user.updatePassword(newPassword);
+  },
+
+  async verifyPasswordResetCode(code) {
+    return firebaseAuth().verifyPasswordResetCode(code);
+  },
+
+  async confirmPasswordReset(code, newPassword) {
+    return firebaseAuth().confirmPasswordReset(code, newPassword);
+  },
+
+  async applyActionCode(code) {
+    return firebaseAuth().applyActionCode(code);
+  },
+
   errorMessage(error) {
+    if (!error) return "";
     const messages = {
       "auth/invalid-credential": "Incorrect email or password.",
       "auth/user-not-found": "Incorrect email or password.",
       "auth/wrong-password": "Incorrect email or password.",
       "auth/email-already-in-use": "This email already has an account. Sign in or reset your password.",
-      "auth/weak-password": "Password is too weak. Use a longer password.",
+      "auth/weak-password": "Password is too weak. Use a longer password (at least 8 characters).",
       "auth/invalid-email": "Enter a valid email address.",
+      "auth/missing-email": "Enter your email address.",
       "auth/user-disabled": "This account has been disabled.",
       "auth/too-many-requests": "Too many attempts. Please try again later.",
       "auth/network-request-failed": "Cannot connect to sign-in. Check your connection.",
+      "auth/requires-recent-login": "For security, please re-authenticate with your current password.",
       "auth/operation-not-allowed": "Email sign-in is unavailable. Please contact support.",
+      "auth/expired-action-code": "This link has expired. Please request a new one.",
+      "auth/invalid-action-code": "This link is invalid or has already been used.",
+      "auth/unauthorized-continue-uri": "Domain not whitelisted by project. Please whitelist staging.fovea.si in Firebase Console.",
     };
     return messages[error.code] || error.message || "Sign-in failed. Please try again.";
   },

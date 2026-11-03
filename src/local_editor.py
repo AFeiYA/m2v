@@ -2345,6 +2345,7 @@ if _FRONTEND_DIR.exists():
 @app.get("/privacy", response_class=HTMLResponse)
 @app.get("/refunds", response_class=HTMLResponse)
 @app.get("/contact", response_class=HTMLResponse)
+@app.get("/karaoke", response_class=HTMLResponse)
 @app.get("/app", response_class=HTMLResponse)
 def public_page(request: Request):
     name = request.url.path.strip("/") or "index"
@@ -2359,9 +2360,13 @@ def public_page(request: Request):
 
 @app.get("/marketing/{asset}")
 def public_asset(asset: str):
-    if asset not in {"site.css", "site.js"}:
+    # example-lyric-video.mp4 is optional. Add the file to replace the hero sample.
+    if asset not in {"site.css", "site.js", "example-lyric-video.mp4"}:
         raise HTTPException(404, "Asset not found")
-    return FileResponse(_FRONTEND_ROOT / "marketing" / asset)
+    path = _FRONTEND_ROOT / "marketing" / asset
+    if not path.is_file():
+        raise HTTPException(404, "Asset not found")
+    return FileResponse(path)
 
 
 @app.get("/dashboard.css")

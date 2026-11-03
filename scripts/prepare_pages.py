@@ -38,7 +38,8 @@ def prepare(destination: Path) -> None:
 
     shutil.copytree(source, destination, ignore=ignore)
     for page in ("index.html", "app.html", "pricing.html", "contact.html",
-                 "terms.html", "privacy.html", "refunds.html", "lyric-editor.html", "gallery.html", "storyboard.html",
+                 "terms.html", "privacy.html", "refunds.html", "karaoke.html",
+                 "lyric-editor.html", "gallery.html", "storyboard.html",
                  "motion-studio.html", "motion-lab.html", "rhythm-studio.html", "404.html"):
         p = destination / page
         if not p.is_file() or p.stat().st_size == 0:
