@@ -5,9 +5,15 @@ Implemented 2026-10-22.
 ## Routes
 
 - `/`: public English marketing page, no Firebase SDK or private API calls.
-- `/pricing`: three monthly subscription plans, renewal/expiry terms, FAQs.
+- `/pricing`: three monthly subscription plans. Dollar amounts stay on the cards; reservation and expiry rules are in the FAQ.
+- `/karaoke`: public landing page for karaoke lyric videos.
 - `/app`: existing authenticated workspace, formerly served at `/`.
 - `/contact`, `/privacy`, `/terms`, `/refunds`: public support and policy pages.
+
+The homepage hero plays the studio lyric component until a recorded example exists.
+To swap in a real MP4, add `frontend/marketing/example-lyric-video.mp4` and rerun
+`python scripts/build_marketing.py`. The generator only points the hero at that
+file when it exists, so a missing file does not produce a request.
 
 Cloudflare Pages serves the matching root HTML files directly at extensionless
 URLs. No HTML rewrites or catch-all SPA rules were added. Both Python entry points

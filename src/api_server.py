@@ -1112,6 +1112,7 @@ if frontend_dir.exists():
     @app.get("/privacy", tags=["Frontend"])
     @app.get("/refunds", tags=["Frontend"])
     @app.get("/contact", tags=["Frontend"])
+    @app.get("/karaoke", tags=["Frontend"])
     @app.get("/app", tags=["Frontend"])
     async def serve_public_page(request: Request):
         name = request.url.path.strip("/") or "index"

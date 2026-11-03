@@ -61,6 +61,7 @@ def test_hf_app_entrypoint_routes():
         ("GET", "/terms"),
         ("GET", "/refunds"),
         ("GET", "/contact"),
+        ("GET", "/karaoke"),
         ("GET", "/api/files"),
         ("GET", "/motion-studio"),
         ("GET", "/motion-lab"),
