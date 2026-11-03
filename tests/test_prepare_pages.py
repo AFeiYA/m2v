@@ -19,7 +19,7 @@ def frontend(tmp_path, monkeypatch):
         (Path(__file__).resolve().parents[1] / "frontend/_redirects").read_text()
     )
     (source / "index.html").write_text("public home")
-    for name in ("app", "pricing", "contact", "terms", "privacy", "refunds"):
+    for name in ("app", "pricing", "contact", "terms", "privacy", "refunds", "karaoke"):
         (source / f"{name}.html").write_text(f"page:{name}")
     (source / "404.html").write_text("not found")
     for name in ("lyric-editor", "gallery", "storyboard", "motion-studio", "motion-lab", "rhythm-studio"):
@@ -42,6 +42,7 @@ def test_pages_staging_materializes_canonical_pages(frontend, tmp_path):
     assert (destination / "index.html").read_text() == "public home"
     assert (destination / "app.html").read_text() == "page:app"
     assert (destination / "pricing.html").read_text() == "page:pricing"
+    assert (destination / "karaoke.html").read_text() == "page:karaoke"
 
 
 @pytest.mark.parametrize("route", [
