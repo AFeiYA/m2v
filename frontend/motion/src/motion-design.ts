@@ -84,22 +84,72 @@ export function createMotionDesign():MotionDesign {
   tv:{...mode('16:9'),font_scale:1,preview_seconds:2.5},
  }};
 }
-export function modeTheme(design:MotionDesign,mode:VisualMode=design.active_mode):Theme{return design.modes[mode].theme||design.theme;}
-export function modeOptions(design:MotionDesign,mode:VisualMode=design.active_mode):Options {
- const value=design.modes[mode];return {aspect:value.aspect,post:value.post,bloom:value.bloom,shake:value.shake,preset:modeTheme(design,mode).palette,mode:'phrase',grain:.035,punch:.7,height:design.height,visualMode:mode};
+export function normalizeMotionDesign(raw?: Partial<MotionDesign> | null): MotionDesign {
+  const base = createMotionDesign();
+  if (!raw || typeof raw !== 'object') return base;
+  const active_mode = (raw.active_mode && raw.active_mode in visualModes) ? raw.active_mode : base.active_mode;
+  const theme = raw.theme ? { ...base.theme, ...raw.theme } : base.theme;
+  const height = raw.height === 360 ? 360 : 720;
+  const rawModes = raw.modes || ({} as any);
+  return {
+    version: 'motion-design-v1',
+    active_mode,
+    theme,
+    height,
+    modes: {
+      kinetic: { ...base.modes.kinetic, ...(rawModes.kinetic || {}) },
+      apple: { ...base.modes.apple, ...(rawModes.apple || {}) },
+      tv: { ...base.modes.tv, ...(rawModes.tv || {}) },
+    },
+  };
 }
-/** Selection never regenerates or mutates another mode's design. */
-export function selectMode(design:MotionDesign,mode:VisualMode):MotionDesign{return {...design,active_mode:mode};}
 
-export function setModeAspect(design:MotionDesign,aspect:Options['aspect'],mode:VisualMode=design.active_mode):MotionDesign {
-  const next = structuredClone(design);
-  next.modes[mode].aspect = aspect;
+export function modeTheme(design:MotionDesign,mode:VisualMode=design?.active_mode||'kinetic'):Theme{
+  const safe = normalizeMotionDesign(design);
+  return safe.modes[mode]?.theme || safe.theme;
+}
+
+export function modeOptions(design:MotionDesign,mode:VisualMode=design?.active_mode||'kinetic'):Options {
+  const safe = normalizeMotionDesign(design);
+  const value = safe.modes[mode] || safe.modes.kinetic;
+  return {
+    aspect: value.aspect || (visualModes[mode]?.aspect ?? '16:9'),
+    post: value.post ?? true,
+    bloom: value.bloom ?? 0.7,
+    shake: value.shake ?? 0.65,
+    preset: modeTheme(safe, mode).palette,
+    mode: 'phrase',
+    grain: 0.035,
+    punch: 0.7,
+    height: safe.height,
+    visualMode: mode,
+  };
+}
+
+/** Selection never regenerates or mutates another mode's design. */
+export function selectMode(design:MotionDesign,mode:VisualMode):MotionDesign {
+  const next = normalizeMotionDesign(design);
+  next.active_mode = (mode in visualModes) ? mode : 'kinetic';
+  return next;
+}
+
+export function setModeAspect(design:MotionDesign,aspect:Options['aspect'],mode:VisualMode=design?.active_mode||'kinetic'):MotionDesign {
+  const next = normalizeMotionDesign(design);
+  if (next.modes[mode]) {
+    next.modes[mode].aspect = aspect;
+  }
   return next;
 }
 
 export function changeTheme(design:MotionDesign,theme:Theme,scope:'mode'|'all'):MotionDesign {
- const next=structuredClone(design);
- if(scope==='all'){next.theme=theme;for(const mode of Object.keys(visualModes) as VisualMode[])next.modes[mode].theme=null;}
- else next.modes[next.active_mode].theme=theme;
- return next;
+  const next = normalizeMotionDesign(design);
+  if (scope === 'all') {
+    next.theme = theme;
+    for (const mode of Object.keys(visualModes) as VisualMode[]) {
+      if (next.modes[mode]) next.modes[mode].theme = null;
+    }
+  } else {
+    if (next.modes[next.active_mode]) next.modes[next.active_mode].theme = theme;
+  }
+  return next;
 }
