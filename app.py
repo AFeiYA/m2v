@@ -103,7 +103,7 @@ def mount_fastapi_routes(demo_instance):
         import logging
         logging.getLogger("uvicorn").warning("初始化 SaaS 数据库异常: %s", e)
 
-    from src.api_server import api_router
+    from src.api_server import api_router, install_public_cors
     from src.editor_server import router as editor_router
     from src.motion_cloud import router as cloud_motion_router
     from fastapi import Depends
@@ -113,6 +113,7 @@ def mount_fastapi_routes(demo_instance):
     for target in targets:
         target.state.saas_mode = True
         install_saas_auth_middleware(target)
+        install_public_cors(target)
         existing_paths = {getattr(r, "path", "") for r in getattr(target, "routes", []) if hasattr(r, "path")}
         if "/api/files" not in existing_paths:
             target.include_router(fastapi_app.router, dependencies=[Depends(require_local_api)])
