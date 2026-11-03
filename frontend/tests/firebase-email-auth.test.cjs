@@ -11,7 +11,8 @@ function setup(initialUser = null) {
   const user = {uid: 'firebase-email-user', email: 'test@example.com', displayName: '', emailVerified: false,
     getIdToken: async force => {calls.push(['token', !!force]); return 'firebase-id-token';},
     updateProfile: async data => {calls.push(['profile', data.displayName]); user.displayName = data.displayName;},
-    sendEmailVerification: async () => {calls.push(['verification']);},
+    updatePassword: async pwd => {calls.push(['updatePassword', pwd]);},
+    sendEmailVerification: async (settings) => {calls.push(['verification', settings]);},
     reload: async () => {calls.push(['reload']);},
   };
   const auth = {
@@ -19,10 +20,13 @@ function setup(initialUser = null) {
     onAuthStateChanged(callback) {queueMicrotask(() => callback(auth.currentUser)); return () => {};},
     async createUserWithEmailAndPassword(email, password) {calls.push(['signup', email, password]); auth.currentUser = user; return {user};},
     async signInWithEmailAndPassword(email, password) {calls.push(['login', email, password]); auth.currentUser = user; return {user};},
-    async sendPasswordResetEmail(email) {calls.push(['reset', email]);},
+    async sendPasswordResetEmail(email, settings) {calls.push(['reset', email, settings]);},
+    async verifyPasswordResetCode(code) {calls.push(['verifyCode', code]); return 'test@example.com';},
+    async confirmPasswordReset(code, password) {calls.push(['confirmReset', code, password]);},
+    async applyActionCode(code) {calls.push(['applyCode', code]);},
     async signOut() {auth.currentUser = null;},
   };
-  const context = {window: {}, firebase: {apps: [{}], auth: () => auth},
+  const context = {window: {location: {origin: 'https://mv.fovea.si'}}, firebase: {apps: [{}], auth: () => auth},
     localStorage: {getItem: k => values.get(k) || null, setItem: (k,v) => values.set(k,v), removeItem: k => values.delete(k)},
   };
   vm.createContext(context); vm.runInContext(source, context);
@@ -68,9 +72,48 @@ test('password reset and authentication errors have explicit handling', async ()
   const s = setup();
   await s.helper.resetPassword('test@example.com');
   assert.equal(s.auth.languageCode, 'en');
-  assert.deepEqual(s.calls, [['reset', 'test@example.com']]);
+  assert.equal(s.calls[0][0], 'reset');
+  assert.equal(s.calls[0][1], 'test@example.com');
+  assert.equal(s.calls[0][2]?.url, 'https://mv.fovea.si/app');
+  assert.equal(s.calls[0][2]?.handleCodeInApp, false);
   assert.equal(s.helper.errorMessage({code: 'auth/invalid-credential'}), 'Incorrect email or password.');
+  assert.equal(s.helper.errorMessage({code: 'auth/user-not-found'}), 'No account found with this email.');
   assert.equal(s.helper.errorMessage({code: 'auth/email-already-in-use'}), 'This email already has an account. Sign in or reset your password.');
+  assert.equal(s.helper.errorMessage({code: 'auth/missing-email'}), 'Enter your email address.');
+  assert.equal(s.helper.errorMessage({code: 'auth/expired-action-code'}), 'This link has expired. Please request a new one.');
+});
+
+test('action code handlers verify, confirm reset, and apply codes', async () => {
+  const s = setup();
+  const email = await s.helper.verifyPasswordResetCode('test-oob-code');
+  assert.equal(email, 'test@example.com');
+  await s.helper.confirmPasswordReset('test-oob-code', 'new-long-password');
+  await s.helper.applyActionCode('verify-oob-code');
+  assert.deepEqual(s.calls, [
+    ['verifyCode', 'test-oob-code'],
+    ['confirmReset', 'test-oob-code', 'new-long-password'],
+    ['applyCode', 'verify-oob-code'],
+  ]);
+});
+
+test('changePassword updates current user password and enforces validation', async () => {
+  const s = setup();
+  s.auth.currentUser = {
+    email: 'artist@example.com',
+    updatePassword: async pwd => { s.calls.push(['updatePassword', pwd]); },
+  };
+  await s.helper.changePassword('new-secure-password');
+  assert.deepEqual(s.calls, [['updatePassword', 'new-secure-password']]);
+
+  await assert.rejects(s.helper.changePassword('short'), /at least 6 characters/);
+
+  s.auth.currentUser.updatePassword = async () => {
+    const err = new Error('recent login needed');
+    err.code = 'auth/requires-recent-login';
+    throw err;
+  };
+  await assert.rejects(s.helper.changePassword('valid-longer-password'), /recent login is required/);
+  assert.equal(s.calls.some(c => c[0] === 'reset' && c[1] === 'artist@example.com'), true);
 });
 
 test('invalid display names do not create a partially configured account', async () => {
