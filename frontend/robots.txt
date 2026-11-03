@@ -5,4 +5,4 @@ Disallow: /motion-studio
 Disallow: /motion-lab
 Disallow: /rhythm-studio
 Disallow: /api/
-Sitemap: https://mv.fovea.si/sitemap.xml
+Sitemap: https://fovea.si/sitemap.xml

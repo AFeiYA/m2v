@@ -1,5 +1,17 @@
 /* Public pages never start checkout, load private projects or initialize auth. */
 (() => {
+  // Redirect marketing pages on www.fovea.si and mv.fovea.si to fovea.si
+  if (typeof location !== 'undefined' && location.hostname) {
+    const host = location.hostname.toLowerCase();
+    if (host === 'www.fovea.si' || host === 'mv.fovea.si') {
+      const isApp = location.pathname.startsWith('/app') || location.pathname.startsWith('/lyric-editor') || location.pathname.startsWith('/motion-studio') || location.pathname.startsWith('/motion-lab') || location.pathname.startsWith('/rhythm-studio') || location.pathname.startsWith('/gallery') || location.pathname.startsWith('/storyboard');
+      if (host === 'www.fovea.si' || !isApp) {
+        location.replace('https://fovea.si' + location.pathname + location.search + location.hash);
+        return;
+      }
+    }
+  }
+
   // Preserve old workspace bookmarks and checkout returns without a server redirect loop.
   const workspace = new Set(['tasks-section', 'lyric-editor-section', 'motion-studio-section', 'exports-section', 'credits-section', 'settings-section']);
   if (location.pathname === '/') {

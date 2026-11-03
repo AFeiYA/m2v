@@ -29,13 +29,25 @@ test('public pages are readable without auth and have valid internal links',()=>
   const html=fs.readFileSync(path.join(root,name+'.html'),'utf8');
   assert.match(html,/<html lang="en">/);
   assert.doesNotMatch(html,/suno-lyric-video|href="\/zh"/);
-  assert.match(html,/property="og:title"/);assert.match(html,/property="og:description"/);assert.match(html,/property="og:url"/);
+  assert.match(html,/property="og:title"/);assert.match(html,/property="og:description"/);
+  assert.match(html,/property="og:url" content="https:\/\/fovea\.si/);
+  assert.match(html,/rel="canonical" href="https:\/\/fovea\.si/);
+  assert.match(html,/property="og:image" content="https:\/\/fovea\.si\/og-image\.png"/);
+  assert.match(html,/name="twitter:card" content="summary_large_image"/);
   assertPublicLinks(name, html);
  }
  assert.equal(fs.existsSync(path.join(root,'zh.html')), false);
  assert.equal(fs.existsSync(path.join(root,'suno-lyric-video.html')), false);
- assert.match(fs.readFileSync(path.join(root,'app.html'),'utf8'),/id="auth-overlay"/);
+ const appHtml=fs.readFileSync(path.join(root,'app.html'),'utf8');
+ assert.match(appHtml,/id="auth-overlay"/);
+ assert.match(appHtml,/rel="canonical" href="https:\/\/fovea\.si\/app"/);
+ assert.match(appHtml,/property="og:image" content="https:\/\/fovea\.si\/og-image\.png"/);
  const home=fs.readFileSync(path.join(root,'index.html'),'utf8');
+ assert.match(home,/type="application\/ld\+json"/);
+ assert.match(home,/"name": "fovea\.si"/);
+ assert.match(home,/"url": "https:\/\/fovea\.si"/);
+ assert.match(home,/"price": "9\.99"/);
+ assert.match(home,/"price": "19\.99"/);
  assert.match(home,/synthetic word timings/);
  assert.match(home,/Suno/);assert.match(home,/Try free, no card required/);
  assert.match(home,/class="nav-try"/);assert.match(home,/hero-video-slot/);assert.match(home,/example-lyric-video\.mp4/);
@@ -71,4 +83,49 @@ test('marketing previews share the video renderer rather than CSS lyric animatio
  assert.match(home,/AI automatically aligns/);
  assert.ok(home.indexOf('Let AI align your lyrics')<home.indexOf('Refine only what needs it'));
  assert.doesNotMatch(home,/class="demo-lines"|class="poster-copy"/);
+});
+
+test('marketing pages on www and mv redirect to fovea.si while app pages stay on mv', () => {
+  function routeWithHost(urlStr) {
+    const u = new URL(urlStr);
+    const redirects = [];
+    const location = {
+      hostname: u.hostname,
+      pathname: u.pathname,
+      search: u.search,
+      hash: u.hash,
+      replace: target => redirects.push(target)
+    };
+    vm.runInNewContext(source, { location, URLSearchParams, document: { querySelector: () => null } });
+    return redirects;
+  }
+  assert.deepEqual(routeWithHost('https://www.fovea.si/pricing'), ['https://fovea.si/pricing']);
+  assert.deepEqual(routeWithHost('https://mv.fovea.si/pricing'), ['https://fovea.si/pricing']);
+  assert.deepEqual(routeWithHost('https://mv.fovea.si/'), ['https://fovea.si/']);
+  assert.deepEqual(routeWithHost('https://mv.fovea.si/app'), []);
+  assert.deepEqual(routeWithHost('https://fovea.si/pricing'), []);
+});
+
+test('llms.txt and sitemap.xml define standard SEO assets on fovea.si', () => {
+  const llms = fs.readFileSync(path.join(root, 'llms.txt'), 'utf8');
+  assert.match(llms, /# Fovea Studio/);
+  assert.match(llms, /Suno/);
+  assert.match(llms, /60 free permanent credits/);
+  assert.match(llms, /\$9\.99\/month/);
+  assert.match(llms, /\$19\.99\/month/);
+  assert.match(llms, /20 credits for audio-to-lyric/);
+  assert.match(llms, /10 credits for motion video/);
+  assert.doesNotMatch(llms, /Udio/);
+  assert.doesNotMatch(llms, /4K/);
+  assert.match(llms, /https:\/\/fovea\.si/);
+
+  const sitemap = fs.readFileSync(path.join(root, 'sitemap.xml'), 'utf8');
+  assert.match(sitemap, /<loc>https:\/\/fovea\.si\/<\/loc>/);
+  assert.match(sitemap, /<loc>https:\/\/fovea\.si\/pricing<\/loc>/);
+  assert.match(sitemap, /<loc>https:\/\/fovea\.si\/karaoke<\/loc>/);
+  assert.doesNotMatch(sitemap, /mv\.fovea\.si/);
+
+  const robots = fs.readFileSync(path.join(root, 'robots.txt'), 'utf8');
+  assert.match(robots, /Sitemap: https:\/\/fovea\.si\/sitemap\.xml/);
+  assert.doesNotMatch(robots, /mv\.fovea\.si/);
 });

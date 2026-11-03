@@ -1,11 +1,12 @@
 """Build public, dependency-free pages from the checked-in catalogue (no secrets)."""
 import html
 import json
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / 'frontend'
-CANONICAL_ORIGIN = 'https://mv.fovea.si'
+CANONICAL_ORIGIN = 'https://fovea.si'
 # Drop a recorded MP4 at this path to replace the studio sample in every hero.
 # One file is enough: frontend/marketing/example-lyric-video.mp4
 EXAMPLE_VIDEO = '/marketing/example-lyric-video.mp4'
@@ -105,6 +106,7 @@ def shell(title, description, content, *, page='home', path=None):
     copy = COPY
     canonical_path = '/' if page == 'home' else '/' + (path or page)
     canonical = CANONICAL_ORIGIN + canonical_path
+    og_image = CANONICAL_ORIGIN + '/og-image.png'
     how_href = '/#how-it-works'
     faq_href = '/#faq'
 
@@ -115,18 +117,60 @@ def shell(title, description, content, *, page='home', path=None):
     footer = ''.join(f'<a href="{url}">{html.escape(label)}</a>' for url, label in copy['footer'])
     safe_title = html.escape(title)
     safe_description = html.escape(description)
+
+    json_ld = ''
+    if page == 'home':
+        rate = rates()
+        offers = [
+            {
+                "@type": "Offer",
+                "price": "0",
+                "priceCurrency": "USD",
+                "name": "Free Starter",
+                "description": f"{rate['free']} free credits to create your first lyric videos, no credit card required"
+            }
+        ]
+        for product in catalog():
+            if product.get('kind') == 'subscription':
+                price_str = f"{product['price_cents'] / 100:.2f}"
+                offers.append({
+                    "@type": "Offer",
+                    "price": price_str,
+                    "priceCurrency": product.get("currency", "USD"),
+                    "name": product["name"],
+                    "description": f"{product['credits']:,} credits per month"
+                })
+        json_ld_data = {
+            "@context": "https://schema.org",
+            "@type": "SoftwareApplication",
+            "name": "fovea.si",
+            "url": "https://fovea.si",
+            "applicationCategory": "MultimediaApplication",
+            "operatingSystem": "Web",
+            "description": "AI-powered lyric video maker and animated typography studio for Suno musicians and music creators.",
+            "offers": offers
+        }
+        json_ld = f'\n<script type="application/ld+json">{json.dumps(json_ld_data, ensure_ascii=False)}</script>'
+
+    cf_token = (os.environ.get('CF_BEACON_TOKEN') or os.environ.get('CLOUDFLARE_WEB_ANALYTICS_TOKEN') or '').strip()
+    if cf_token:
+        analytics = f'\n<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon=\'{{"token": "{html.escape(cf_token)}"}}\'></script>'
+    else:
+        analytics = '\n<script>(function(){const t=window.CF_BEACON_TOKEN||document.querySelector(\'meta[name="cf-beacon-token"]\')?.getAttribute(\'content\');if(t&&!document.querySelector(\'script[src*="cloudflareinsights.com/beacon.min.js"]\')){const s=document.createElement(\'script\');s.defer=true;s.src=\'https://static.cloudflareinsights.com/beacon.min.js\';s.setAttribute(\'data-cf-beacon\',JSON.stringify({token:t}));document.head.appendChild(s);}})();</script>'
+
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{safe_title} · Fovea Studio</title><meta name="description" content="{safe_description}">
 <meta name="theme-color" content="#11130e"><meta property="og:type" content="website"><meta property="og:site_name" content="Fovea Studio"><meta property="og:locale" content="en_US">
 <meta property="og:title" content="{safe_title} · Fovea Studio"><meta property="og:description" content="{safe_description}"><meta property="og:url" content="{canonical}">
-<meta name="twitter:card" content="summary"><meta name="twitter:title" content="{safe_title} · Fovea Studio"><meta name="twitter:description" content="{safe_description}">
+<meta property="og:image" content="{og_image}"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{safe_title} · Fovea Studio"><meta name="twitter:description" content="{safe_description}"><meta name="twitter:image" content="{og_image}">
 <link rel="canonical" href="{canonical}">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-<link rel="stylesheet" href="/marketing/site.css?v={ASSET_VERSION}"><script src="/marketing/site.js?v={ASSET_VERSION}" defer></script></head>
+<link rel="stylesheet" href="/marketing/site.css?v={ASSET_VERSION}"><script src="/marketing/site.js?v={ASSET_VERSION}" defer></script>{json_ld}{analytics}</head>
 <body><a class="skip" href="#main">Skip to content</a>
 <header class="site-header"><a class="brand" href="/" aria-label="Fovea Studio home">{BRAND_MARK}{BRAND_HTML}</a>
 <nav aria-label="Main navigation">{nav(copy['how'], how_href, 'how')}{nav(copy['pricing'], '/pricing', 'pricing')}{nav(copy['faq'], faq_href, 'faq')}{nav(copy['support'], '/contact', 'contact', ' class="nav-support"')}<a class="nav-try" href="/app">{copy['try']}</a><a class="sign-in" href="/app">{copy['signin']} <span aria-hidden="true">↗</span></a></nav></header>
