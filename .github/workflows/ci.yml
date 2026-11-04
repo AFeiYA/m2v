@@ -3,14 +3,16 @@ name: Suno2MV CI/CD Pipeline
 on:
   push:
     branches: [ main, staging ]
-  pull_request:
-    branches: [ main, staging ]
   workflow_dispatch:
     inputs:
       run_render_tests:
         description: Run real Chromium/FFmpeg rendering acceptance tests
         type: boolean
         default: false
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
