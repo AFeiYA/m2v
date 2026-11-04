@@ -42,7 +42,7 @@ DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
-RECOMMENDED_WECHAT_TAGS = ["AI音乐", "Suno", "音乐分享", "每日一歌", "治愈系"]
+RECOMMENDED_WECHAT_TAGS = ["音乐分享", "每日一歌", "治愈系"]
 
 
 def sanitize_wechat_short_title(title: str, max_len: int = 16, min_len: int = 6) -> str:
@@ -64,7 +64,7 @@ def sanitize_wechat_short_title(title: str, max_len: int = 16, min_len: int = 6)
        - 若清理后不足 6 字符，自动追加后缀 (如 " 音乐MV") 保证达到 6 字符
     """
     if not title:
-        return "AI音乐MV精选"
+        return "歌词视频精选"
 
     t = title.strip()
     t = t.replace("，", " ").replace(",", " ")
@@ -91,7 +91,7 @@ def sanitize_wechat_short_title(title: str, max_len: int = 16, min_len: int = 6)
 
     # 处理过短 (< 6 字符)
     if len(t) < min_len:
-        for suffix in [" 音乐MV", " 歌曲精选", " AI音乐", " MV分享"]:
+        for suffix in [" 音乐MV", " 歌曲精选", " MV分享"]:
             candidate = (t + suffix).strip()
             if min_len <= len(candidate) <= max_len:
                 t = candidate
@@ -100,7 +100,7 @@ def sanitize_wechat_short_title(title: str, max_len: int = 16, min_len: int = 6)
             if len(t) < min_len:
                 t = (t + " 音乐MV分享")[:max_len].strip()
             if len(t) < min_len:
-                t = "AI音乐MV精选"
+                t = "歌词视频精选"
 
     return t
 

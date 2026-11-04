@@ -41,7 +41,7 @@ DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
-RECOMMENDED_XHS_TAGS = ["AI音乐", "Suno", "自制MV", "宝藏音乐", "音乐日记", "治愈系音乐"]
+RECOMMENDED_XHS_TAGS = ["自制MV", "宝藏音乐", "音乐日记", "治愈系音乐"]
 
 
 class XiaohongshuUploader:

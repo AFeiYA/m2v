@@ -1,19 +1,19 @@
 # Fovea Studio
 
-> Independent AI-powered lyric video maker and animated typography studio.
+> Lyric video maker and animated typography studio. Bring your song and lyrics.
 
-Fovea Studio (https://fovea.si) transforms songs into release-ready lyric videos and animated typography. It enables musicians, songwriters, and Suno creators to produce professional, word-synced visuals for YouTube, TikTok, Instagram Reels, and X without manual keyframing or video editing software.
+Fovea Studio (https://fovea.si) turns a song and lyrics into a release-ready lyric video and animated typography. Musicians and songwriters can make word-synced visuals for YouTube, TikTok, Instagram Reels, and X without manual keyframing or video editing software.
 
 ## What is Fovea Studio?
 Fovea Studio is a browser-based creative suite that converts audio tracks and lyrics into dynamic music videos:
 - **Kinetic Posters**: Multi-line typography compositions with entrance and beat-reactive animations.
 - **Apple Music-Style Scrolling Lyrics**: Fluid portrait lyrics with focus blur, ambient glow, and word-by-word active highlights.
 - **Dual-Line Karaoke (KTV)**: Television-style alternating subtitles with smooth sweep timing.
-- **AI Motion Director**: Analyzes musical cadence, tempo, and mood to suggest cohesive typography layouts and color palettes.
+- **Motion director**: Analyzes musical cadence, tempo, and mood to suggest cohesive typography layouts and color palettes.
 - **Hardware-Accelerated WebCodecs Export**: Fast 1080p MP4 exports directly in modern browsers, as well as cloud rendering.
 
 ## Who is it for?
-- **Suno Music Creators**: Turn generated AI music and tracks into engaging visual content for social platforms.
+- **Anyone with a song and lyrics**: Turn your track and lyrics into visuals for social platforms.
 - **Musicians and Producers**: Release lyric videos, teaser clips, and visualizers with zero video editing experience.
 - **Content Creators and Labels**: Bulk-create vertical (9:16) and widescreen (16:9) music clips.
 

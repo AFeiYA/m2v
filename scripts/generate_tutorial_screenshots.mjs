@@ -1,6 +1,6 @@
 /**
  * Generates high-resolution 1920x1080 screenshots for the 6 scenes of the tutorial video.
- * Uses real Fovea Studio design tokens, typography, and the Suno song: ZeroSOE (https://suno.com/s/C2NldDJaPsOc7uvi).
+ * Uses real Fovea Studio design tokens, typography, and a sample song with lyrics.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -133,12 +133,12 @@ async function main() {
     <div class="showcase-grid">
       <div class="showcase-left">
         <div class="eyebrow">YOUR MUSIC IN MOTION</div>
-        <h1>Turn Suno Songs into <span>Animated Lyric MVs</span></h1>
+        <h1>Turn your song and lyrics into <span>a lyric video</span></h1>
         <div class="song-meta-box">
           <div class="song-cover-dummy">🎵</div>
           <div>
             <p class="song-name">ZeroSOE (Z偏离中线)</p>
-            <p class="song-artist">AI Music by Suno · Mastered with Fovea</p>
+            <p class="song-artist">Your track and lyrics · Made with Fovea</p>
           </div>
         </div>
       </div>
@@ -170,9 +170,9 @@ async function main() {
   console.log('✅ Scene 1 Saved!');
 
   // -------------------------------------------------------------
-  // Scene 2: Import Suno Link (Live App)
+  // Scene 2: Import a public song link (Live App)
   // -------------------------------------------------------------
-  console.log('📸 Rendering Scene 2: Import Suno Link...');
+  console.log('📸 Rendering Scene 2: Import a song link...');
   await page.goto('https://mv.fovea.si/app', { waitUntil: 'networkidle' });
   await page.evaluate(() => {
     const overlay = document.getElementById('auth-overlay');
@@ -191,9 +191,9 @@ async function main() {
   });
   await page.waitForTimeout(600);
   const inputSuno = page.locator('#input-suno-url');
-  await inputSuno.fill('https://suno.com/s/C2NldDJaPsOc7uvi');
+  await inputSuno.fill('https://example.com/song/demo');
   await inputSuno.focus();
-  await page.screenshot({ path: `${OUT_DIR}/Scene_02_Import_Suno_Link.png` });
+  await page.screenshot({ path: `${OUT_DIR}/Scene_02_Import_Song_Link.png` });
   console.log('✅ Scene 2 Saved!');
 
   // -------------------------------------------------------------
@@ -508,7 +508,7 @@ async function main() {
         <div>
           <label style="font-size: 13px; color: #8a9680;">Artwork Crop</label>
           <div style="background: #182013; padding: 12px; border-radius: 8px; margin-top: 8px; font-size: 13px;">
-            ✓ Cached Suno Cover Active
+            ✓ Cached cover active
           </div>
         </div>
       </div>

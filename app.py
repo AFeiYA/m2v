@@ -37,11 +37,11 @@ except Exception:
         return f"CPU Ready: {payload}"
 
 # 1. 创建 Gradio 控制台面板
-with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
-    gr.Markdown("# 🎵 Suno2MV API & Cloud Engine")
+with gr.Blocks(title="Fovea Studio") as demo:
+    gr.Markdown("# 🎵 Fovea Studio")
     gr.Markdown(
         "### 🟢 服务运行正常 (Online)\n\n"
-        "本 Space 正在为 **Suno2MV** 提供云端服务与测试环境。\n"
+        "本 Space 正在为 **Fovea Studio** 提供云端服务与测试环境。\n"
     )
     gr.HTML(
         """
@@ -65,7 +65,7 @@ with gr.Blocks(title="Suno2MV Cloud Engine") as demo:
         "- **运行配置**: Hugging Face (2 vCPU · 16GB RAM · ZeroGPU 动态加速)\n"
     )
     with gr.Accordion("API 健康状态探活", open=False):
-        gr.JSON(value={"status": "online", "engine": "Suno2MV Cloud", "version": "0.6.0"})
+        gr.JSON(value={"status": "online", "engine": "Fovea Studio", "version": "0.6.0"})
 
     # 显式绑定 ZeroGPU 探测事件，严格满足 ZeroGPU AST 扫描器对交互组件绑定的检查
     _gpu_in = gr.Textbox(value="ping", visible=False)

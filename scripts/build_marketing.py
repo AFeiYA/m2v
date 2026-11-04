@@ -24,7 +24,7 @@ COPY = {
     'try': 'Try free',
     'signin': 'Sign in',
     'blurb': 'Where your characters and music become a world.',
-    'independent': 'Independent creative software. Not affiliated with Suno.',
+    'independent': 'Independent creative software.',
     'footer': [
         ('/pricing', 'Pricing'),
         ('/karaoke', 'Karaoke videos'),
@@ -147,7 +147,7 @@ def shell(title, description, content, *, page='home', path=None):
             "url": "https://fovea.si",
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": "Web",
-            "description": "AI-powered lyric video maker and animated typography studio for Suno musicians and music creators.",
+            "description": "Lyric video maker and animated typography studio. Bring your song and lyrics, then export a word-synced video.",
             "offers": offers
         }
         json_ld = f'\n<script type="application/ld+json">{json.dumps(json_ld_data, ensure_ascii=False)}</script>'
@@ -203,8 +203,8 @@ def faq(items):
 def shared_product_faq():
     facts = plain_credit_facts()
     return [
-        ('Do I need to own the music?', 'You need permission to process and use the music, lyrics, and artwork. Uploading a file or pasting a public Suno link does not itself prove copyright ownership. Fovea Studio does not grant music licences and is not affiliated with Suno. You are responsible for what you upload and publish.'),
-        ('Which audio formats are supported?', f'Upload MP3, WAV, or FLAC, up to {env_int("MAX_UPLOAD_SIZE_MB")} MB per file. You can also paste a public song link, including a Suno link, to import audio and lyrics. Lyrics can be pasted as text or uploaded as TXT or LRC.'),
+        ('Do I need to own the music?', 'You need permission to process and use the music, lyrics, and artwork. Uploading a file or pasting a public song link does not itself prove copyright ownership. Fovea Studio does not grant music licences. You are responsible for what you upload and publish.'),
+        ('Which audio formats are supported?', f'Upload MP3, WAV, or FLAC, up to {env_int("MAX_UPLOAD_SIZE_MB")} MB per file. You can also paste a public song link to import audio and lyrics. Lyrics can be pasted as text or uploaded as TXT or LRC.'),
         ('Which lyric languages are supported?', 'Set the language to auto-detect, or choose English, Chinese, Japanese, or Korean before alignment. Auto-detect follows the lyric text. Those four are the explicit languages the aligner accepts. After alignment you can still correct any word.'),
         ('How accurate is the alignment?', 'Alignment is word-level, after vocal separation, and it can be wrong. Long instrumental breaks, repeated sections, ad-libs, and lyrics that do not match the vocal are the usual trouble spots. The product does not guarantee a perfect sync, and the samples on this site use synthetic timings rather than a measured accuracy score. Listen through the song and drag a word if it is off, then export.'),
         ('How do credits work?', f'Credits pay for processing. They are not cash. A new account receives {facts["free"]} permanent credits once, with no card. That is {facts["alignment"]} credits to align a song, including vocal separation, and {facts["export"]} credits to unlock browser video exports for that song, so {facts["free"]} credits cover {facts["free_songs"]}. On Creator (${facts["creator_price"]} for {facts["creator_credits"]} credits, {facts["creator_songs"]} songs) a song is {facts["per_song"]}. After a song is unlocked, further browser exports of that song in 16:9 or 9:16, other layouts, and clips are 0 credits. Cloud server rendering, when you choose it, uses compute credits. The credit price of a song stays {facts["song"]} credits on every plan.'),
@@ -237,9 +237,9 @@ def pricing_cards():
 
 def home_page():
     facts = plain_credit_facts()
-    return f'''<section class="hero page-width"><div class="hero-copy"><p class="eyebrow"><span class="live-dot"></span> FOVEA STUDIO · LYRIC VIDEOS FOR AI SONGS</p><h1>Lyric videos<br>for Suno<br><em>and AI songs.</em></h1><p class="lead">Paste a Suno link or upload a song you have permission to use. AI automatically aligns each word to the vocal. Adjust any timing, then export a word-synced MP4 in 16:9 or 9:16.</p><div class="actions"><a class="button primary" href="/app">Try free, no card required <span aria-hidden="true">↗</span></a><a class="text-link" href="#the-look">Watch the layouts <span aria-hidden="true">↓</span></a></div><p class="fine">{facts["free"]} free credits, {facts["free_songs"]}. No card required. <a href="/contact">Contact support</a></p><div class="hero-tags"><span>Suno link or audio upload</span><span>Word-level timing edits</span><span>MP4 · 16:9 and 9:16</span></div></div>
+    return f'''<section class="hero page-width"><div class="hero-copy"><p class="eyebrow"><span class="live-dot"></span> FOVEA STUDIO · LYRIC VIDEOS FOR YOUR SONGS</p><h1>Lyric videos<br>for your song<br><em>and lyrics.</em></h1><p class="lead">Upload your track and lyrics, or paste a public song link you have permission to use. AI automatically aligns each word to the vocal. Adjust any timing, then export a word-synced MP4 in 16:9 or 9:16.</p><div class="actions"><a class="button primary" href="/app">Try free, no card required <span aria-hidden="true">↗</span></a><a class="text-link" href="#the-look">Watch the layouts <span aria-hidden="true">↓</span></a></div><p class="fine">{facts["free"]} free credits, {facts["free_songs"]}. No card required. <a href="/contact">Contact support</a></p><div class="hero-tags"><span>Song link or audio upload</span><span>Word-level timing edits</span><span>MP4 · 16:9 and 9:16</span></div></div>
 {hero_media()}</section>
-<section class="workflow page-width" id="how-it-works"><div class="section-title"><p class="eyebrow">LESS FRICTION. MORE CREATING.</p><h2>From your audio track<br>to a screen of your own.</h2></div><div class="steps"><article><span class="step-num">01</span><h3>Let AI align your lyrics</h3><p>Paste a public Suno link, or upload MP3, WAV, or FLAC plus your lyrics. AI aligns the lyrics to the vocal. Use music and lyrics you own or have permission to process.</p></article><article><span class="step-num">02</span><h3>Refine only what needs it</h3><p>Listen to the aligned lyrics. If a word needs adjusting, drag its timing boundaries and save. You stay in control.</p></article><article><span class="step-num">03</span><h3>Find your look. Export.</h3><p>Choose a layout and palette, then export the full song or selected sections as MP4 in 16:9 or 9:16.</p></article></div></section>
+<section class="workflow page-width" id="how-it-works"><div class="section-title"><p class="eyebrow">LESS FRICTION. MORE CREATING.</p><h2>From your audio track<br>to a screen of your own.</h2></div><div class="steps"><article><span class="step-num">01</span><h3>Let AI align your lyrics</h3><p>Upload your track and lyrics, or paste a public song link. MP3, WAV, or FLAC. AI aligns the lyrics to the vocal. Use music and lyrics you own or have permission to process.</p></article><article><span class="step-num">02</span><h3>Refine only what needs it</h3><p>Listen to the aligned lyrics. If a word needs adjusting, drag its timing boundaries and save. You stay in control.</p></article><article><span class="step-num">03</span><h3>Find your look. Export.</h3><p>Choose a layout and palette, then export the full song or selected sections as MP4 in 16:9 or 9:16.</p></article></div></section>
 <section class="look-section" id="the-look"><div class="page-width"><div class="section-heading"><div><p class="eyebrow">ONE SONG. DIFFERENT STAGES.</p><h2>Let the words lead.</h2></div><p>Three layouts from the actual video renderer.<br>Watch how your lyrics can move.</p></div><div class="layout-tabs" role="group" aria-label="Layout preview"><button type="button" data-demo="apple" aria-pressed="true">01 · Portrait scroll</button><button type="button" data-demo="karaoke" aria-pressed="false">02 · Dual-line karaoke</button><button type="button" data-demo="poster" aria-pressed="false">03 · Kinetic poster</button></div><div class="demo-shell" data-mode="apple"><div class="demo-stage"><div class="live-preview demo-canvas" data-preview-mode="apple" role="img" aria-label="Live lyric video sample"><p class="preview-loading">Loading studio preview…</p></div><p class="demo-label">PORTRAIT SCROLL · 9:16</p></div><div class="demo-notes"><span class="eyebrow">THE SAME ENGINE AS YOUR VIDEO</span><h3 id="demo-title">Scrolling lyrics, word by word.</h3><p id="demo-description">Portrait lyrics move around the active line, with softened edges and a highlight that follows each word’s timing.</p><p class="fine">Live output from the studio’s video component. Original sample text and synthetic word timings; silent demonstration, not an AI alignment accuracy test.</p><button class="text-link" id="demo-replay" type="button">Play sample <span aria-hidden="true">▷</span></button><p id="demo-playback-status" class="fine" role="status" aria-live="polite">Paused sample · no audio</p><a class="text-link" href="/app">Try free, no card required <span aria-hidden="true">↗</span></a></div></div></div></section>
 <section class="faq page-width" id="faq"><p class="eyebrow">BEFORE YOU PRESS PLAY</p><h2>Questions, answered plainly.</h2>{support_line()}{faq(shared_product_faq())}</section>
 <section class="bottom-cta page-width"><p class="eyebrow">YOU MADE THE MUSIC. NOW MAKE IT SEEN.</p><h2>A new stage<br>for your next song.</h2><div class="actions"><a class="button primary" href="/app">Try free, no card required <span aria-hidden="true">↗</span></a><a class="text-link" href="/pricing">See pricing ↗</a></div><p class="fine">{facts["free"]} free credits, {facts["free_songs"]}. No card required.</p></section>'''
@@ -278,8 +278,8 @@ def pricing_page():
 def build():
     facts = plain_credit_facts()
     (FRONTEND / 'index.html').write_text(shell(
-        'Lyric videos for Suno and AI songs',
-        f'Paste a Suno link or upload audio and lyrics. AI aligns each word, you can edit the timing, and export an MP4 in 16:9 or 9:16. {facts["free"]} free credits, {facts["free_songs"]}, no card required.',
+        'Lyric videos for your songs',
+        f'Upload your track and lyrics, or paste a public song link. AI aligns each word, you can edit the timing, and export an MP4 in 16:9 or 9:16. {facts["free"]} free credits, {facts["free_songs"]}, no card required.',
         home_page(),
     ))
     (FRONTEND / 'pricing.html').write_text(shell(
@@ -294,7 +294,7 @@ def build():
         landing_page(
             eyebrow='KARAOKE LYRIC VIDEO MAKER',
             title_html='Karaoke videos<br>with a highlight<br><em>on every word.</em>',
-            lead='Upload audio and lyrics, or paste a public Suno link. The dual-line layout highlights each word as it is sung. You can correct the timing, then export a 16:9 or 9:16 MP4.',
+            lead='Upload your track and lyrics, or paste a public song link. The dual-line layout highlights each word as it is sung. You can correct the timing, then export a 16:9 or 9:16 MP4.',
             steps=[
                 ('Bring the song and the words', 'Upload MP3, WAV, or FLAC and your lyrics, or paste a public song link. Vocal separation runs with alignment unless you skip it because the file is already vocals.'),
                 ('Choose the karaoke layout', 'Dual-line karaoke is the 16:9 layout: two lines near the bottom, with a highlight that follows each word. Portrait scroll and kinetic posters use the same timings.'),

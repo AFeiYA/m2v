@@ -41,7 +41,7 @@ DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
-RECOMMENDED_DOUYIN_TAGS = ["AI音乐", "Suno", "自制MV", "听歌推荐", "治愈系", "好歌分享"]
+RECOMMENDED_DOUYIN_TAGS = ["自制MV", "听歌推荐", "治愈系", "好歌分享"]
 
 
 class DouyinUploader:

@@ -32,7 +32,7 @@ Try Fovea Studio: https://mv.fovea.si/?utm_source=youtube&utm_medium=video&utm_c
 
 Have a question? support@fovea.si
 
-Use music, lyrics, and artwork you own or have permission to use. Fovea Studio is independent software and is not affiliated with Suno or Apple.
+Use music, lyrics, and artwork you own or have permission to use. Fovea Studio is independent software.
 
 Features shown reflect the version recorded. Check the website for current availability and pricing.
 
