@@ -53,7 +53,7 @@ def create_og_image():
     # Draw Brand Tag (Top)
     # Lime accent pill
     draw.rounded_rectangle([80, 75, 360, 120], radius=12, fill=(200, 255, 0, 30), outline=(200, 255, 0, 180), width=1)
-    draw.text((100, 85), "AI LYRIC VIDEO STUDIO", fill=(200, 255, 0, 255), font=tag_font)
+    draw.text((100, 85), "LYRIC VIDEO STUDIO", fill=(200, 255, 0, 255), font=tag_font)
 
     # Main Brand & Title
     # Sparkle / Diamond icon

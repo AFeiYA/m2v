@@ -81,8 +81,9 @@ test('marketing previews share the video renderer rather than CSS lyric animatio
  assert.match(sample,/automaticPoster/);
  assert.doesNotMatch(entry,/service-api|firebase|archiveBrowserVideo/);
  const home=fs.readFileSync(path.join(root,'index.html'),'utf8');
- assert.match(home,/AI automatically aligns/);
- assert.ok(home.indexOf('Let AI align your lyrics')<home.indexOf('Refine only what needs it'));
+ assert.match(home,/Each word is aligned automatically/);
+ assert.ok(home.indexOf('Align your lyrics automatically')<home.indexOf('Refine only what needs it'));
+ assert.doesNotMatch(home,/\bAI\b/);
  assert.doesNotMatch(home,/class="demo-lines"|class="poster-copy"/);
 });
 

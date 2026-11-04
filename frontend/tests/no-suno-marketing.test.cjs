@@ -94,3 +94,31 @@ test('public marketing copy is not positioned as a tool for third-party music ge
   }
   assert.deepEqual(problems, []);
 });
+
+// The privacy page states that an external service may receive inputs. That sentence
+// is generated from scripts/build_marketing.py, so the same phrase is allowed there
+// and nowhere else.
+const PRIVACY_DISCLOSURE = 'external AI or media service';
+
+function scrubDisclosure(rel, text) {
+  if (rel === 'frontend/privacy.html' || rel === 'scripts/build_marketing.py') {
+    return text.split(PRIVACY_DISCLOSURE).join('external media service');
+  }
+  return text;
+}
+
+test('public marketing copy does not use AI wording except the privacy disclosure', () => {
+  const problems = [];
+  const patterns = [/\bAI\b/, /AI /, /AI对齐/, /人工智能/];
+  for (const full of marketingFiles()) {
+    const rel = path.relative(root, full);
+    const text = scrubDisclosure(rel, fs.readFileSync(full, 'utf8'));
+    if (rel === 'frontend/privacy.html' && fs.readFileSync(full, 'utf8').split(PRIVACY_DISCLOSURE).length !== 2) {
+      problems.push(`${rel}: expected exactly one privacy disclosure`);
+    }
+    for (const pattern of patterns) {
+      for (const hit of offending(text, pattern)) problems.push(`${rel}:${hit}`);
+    }
+  }
+  assert.deepEqual(problems, []);
+});

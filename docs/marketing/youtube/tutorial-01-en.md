@@ -4,7 +4,7 @@ Status: copy and shot plan ready; final recording, real export playback and uplo
 
 ## Title
 
-**How to Make a Lyric Video with AI Alignment | Fovea Studio Tutorial**
+**How to Make a Lyric Video with Automatic Alignment | Fovea Studio Tutorial**
 
 Alternative: **Turn Your Song into a Lyric Video with Fovea Studio**
 
@@ -16,7 +16,7 @@ Use an audio file and lyrics you have permission to use. Record on the public si
 | --- | --- | --- |
 | 0–8 s | “Your song, with lyrics that move with the music. Here’s how to make a lyric video in Fovea Studio.” | Actual exported MP4 playing, 3–4 seconds each of a landscape and portrait example. |
 | 8–22 s | “Open mv.fovea.si and sign in. Create a project, upload your audio, and add your lyrics.” | Sign-in cut to library. Show upload and lyrics input. Hide personal email and balance. |
-| 22–34 s | “Fovea uses AI to align the lyrics to your song. When it’s ready, open Lyric Studio to review the timing.” | Start alignment, label shortened wait, open the completed project. |
+| 22–34 s | “Fovea aligns the lyrics automatically to your song. When it’s ready, open Lyric Studio to review the timing.” | Start alignment, label shortened wait, open the completed project. |
 | 34–50 s | “Play a line, listen to each word, and adjust any timing that needs a correction. Save your changes when you’re happy with the result.” | Select a line, audition one word, make one small timing correction, save. |
 | 50–70 s | “Next, open Motion Studio. Choose kinetic typography, scrolling lyrics, or a two-line karaoke layout. Pick your format and colors, then preview the design.” | Show mode changes and actual playback. Frame the matching portrait or landscape preview clearly. |
 | 70–84 s | “Save your design and choose what to export: the full song, or a shorter clip. Follow the export progress and download your MP4 when it’s ready.” | Save; show current export options and one real download. Record the actual public-site flow; do not invent cloud-save steps. |
@@ -26,7 +26,7 @@ The timing above is an editing target, not a claim that alignment or rendering a
 
 ## YouTube description — pasteable draft
 
-Create a lyric video from your own music with Fovea Studio. This walkthrough covers AI lyric alignment, editable word timing, lyric styles, and exporting an MP4.
+Create a lyric video from your own music with Fovea Studio. This walkthrough covers automatic lyric alignment, editable word timing, lyric styles, and exporting an MP4.
 
 Try Fovea Studio: https://mv.fovea.si/?utm_source=youtube&utm_medium=video&utm_campaign=first_tutorial
 
