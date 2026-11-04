@@ -42,6 +42,8 @@ test('public pages are readable without auth and have valid internal links',()=>
  assert.match(appHtml,/id="auth-overlay"/);
  assert.match(appHtml,/rel="canonical" href="https:\/\/fovea\.si\/app"/);
  assert.match(appHtml,/property="og:image" content="https:\/\/fovea\.si\/og-image\.png"/);
+ assert.doesNotMatch(appHtml.slice(0, 1500), /\bAI\b/);
+ assert.doesNotMatch(appHtml.slice(0, 1500), /Suno/i);
  const home=fs.readFileSync(path.join(root,'index.html'),'utf8');
  assert.match(home,/type="application\/ld\+json"/);
  assert.match(home,/"name": "fovea\.si"/);
