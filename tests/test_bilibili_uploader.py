@@ -110,8 +110,8 @@ def test_uploader_submit_archive(tmp_path):
         res = uploader.submit_archive(
             filename="mock_filename_123",
             title="测试音乐MV",
-            desc="Suno 音乐日记",
-            tags=["AI音乐", "原创音乐"],
+            desc="音乐日记",
+            tags=["原创音乐"],
             tid=28,
         )
         assert res["success"] is True

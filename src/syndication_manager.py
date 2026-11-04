@@ -86,7 +86,7 @@ class SyndicationPublishRequest(BaseModel):
     video_source: str
     title: str
     desc: str = ""
-    tags: list[str] = Field(default_factory=lambda: ["AI音乐", "Suno", "自制MV", "宝藏音乐", "原创音乐"])
+    tags: list[str] = Field(default_factory=lambda: ["自制MV", "宝藏音乐", "原创音乐"])
     cover_source: str = ""
     platforms: list[str] = Field(default_factory=lambda: ["bilibili"])
     bilibili_tid: int = 28

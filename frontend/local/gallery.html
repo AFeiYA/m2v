@@ -938,7 +938,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
 
         <div class="form-group">
           <label class="form-label">Tags (comma-separated; adapted for each platform)</label>
-          <input type="text" id="syndicate-input-tags" class="form-input" value="Suno,AI音乐,自制MV,宝藏音乐,音乐日记,治愈系">
+          <input type="text" id="syndicate-input-tags" class="form-input" value="自制MV,宝藏音乐,音乐日记,治愈系">
         </div>
 
         <div class="form-group">
@@ -1025,7 +1025,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
 
           <div class="form-group">
             <label class="form-label">Tags (comma-separated)</label>
-            <input type="text" id="bili-input-tags" class="form-input" value="Suno,AI音乐,音乐MV,原创音乐,音乐日记,华语流行">
+            <input type="text" id="bili-input-tags" class="form-input" value="音乐MV,原创音乐,音乐日记,华语流行">
           </div>
 
           <div class="form-group">
@@ -1397,7 +1397,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
         const data = await res.json();
         select.innerHTML = (data.tids || []).map(t => `<option value="${t.id}">${t.name}</option>`).join('');
       } catch (err) {
-        select.innerHTML = '<option value="28">音乐 · 原创音乐 (推荐)</option><option value="31">音乐 · 音乐综合 / 翻唱</option><option value="278">科技 · AI音乐</option>';
+        select.innerHTML = '<option value="28">音乐 · 原创音乐 (推荐)</option><option value="31">音乐 · 音乐综合 / 翻唱</option><option value="278">科技 · 数码</option>';
       }
     }
 
@@ -1407,8 +1407,8 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       currentBiliVideo = item;
 
       await loadBiliTids();
-      $('bili-input-title').value = `《${item.song_title}》| Suno AI 音乐MV (${item.aspect})`;
-      $('bili-input-desc').value = `🎵 歌曲：《${item.song_title}》\n✨ 词曲音频：由 Suno AI 创作\n🎬 动态视觉：由 suno2MV 自动编排生成\n时长：${item.duration}s\n\n欢迎一键三连支持！#Suno #AI音乐 #音乐MV #音乐日记`;
+      $('bili-input-title').value = `《${item.song_title}》| 歌词视频 (${item.aspect})`;
+      $('bili-input-desc').value = `🎵 歌曲：《${item.song_title}》\n🎬 歌词视频由 Fovea Studio 编排\n时长：${item.duration}s\n\n欢迎一键三连支持！#音乐MV #音乐日记`;
       const videoPlayUrl = item.cdn_url || (window.location.origin + item.stream_url);
       $('bili-video-source-label').textContent = item.cdn_url ? `☁️ R2 CDN (${formatBytes(item.file_size)})` : `💾 本地流媒体 (${formatBytes(item.file_size)})`;
       $('bili-video-source-label').title = videoPlayUrl;
@@ -1854,8 +1854,8 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
         selectedPlatforms.add(focusPlatform);
       }
 
-      $('syndicate-input-title').value = `《${item.song_title}》| Suno AI 音乐MV (${item.aspect})`;
-      $('syndicate-input-desc').value = `🎵 歌曲：《${item.song_title}》\n✨ 词曲音频：由 Suno AI 创作\n🎬 动态视觉：由 suno2MV 自动编排生成\n时长：${item.duration}s\n\n欢迎一键三连与关注！#Suno #AI音乐 #自制MV #宝藏音乐 #音乐日记`;
+      $('syndicate-input-title').value = `《${item.song_title}》| 歌词视频 (${item.aspect})`;
+      $('syndicate-input-desc').value = `🎵 歌曲：《${item.song_title}》\n🎬 歌词视频由 Fovea Studio 编排\n时长：${item.duration}s\n\n欢迎一键三连与关注！#自制MV #音乐日记`;
 
       $('syndicate-modal').classList.add('active');
       $('syndicate-form-section').style.display = 'block';

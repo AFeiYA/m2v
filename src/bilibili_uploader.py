@@ -47,7 +47,7 @@ logger = logging.getLogger("bilibili_uploader")
 POPULAR_TIDS = [
     {"id": 28, "name": "音乐 · 原创音乐 (推荐)"},
     {"id": 31, "name": "音乐 · 音乐综合 / 翻唱"},
-    {"id": 278, "name": "科技 · AI音乐 / 人工智能"},
+    {"id": 278, "name": "科技 · 数码"},
     {"id": 130, "name": "音乐 · 音乐现场 / 官方MV"},
     {"id": 21, "name": "动画 · MAD·AMV"},
     {"id": 138, "name": "生活 · 搞笑 / 综合日常"},
@@ -465,7 +465,7 @@ class BilibiliUploader:
         if not self.is_configured:
             raise RuntimeError("未登录 B 站账号，无法提交稿件")
 
-        tags = tags or ["Suno", "AI音乐", "音乐MV", "原创音乐", "音乐日记"]
+        tags = tags or ["音乐MV", "原创音乐", "音乐日记"]
         tag_str = ",".join([t.strip() for t in tags if t.strip()])[:200]
 
         payload = {
@@ -637,7 +637,7 @@ class BiliPublishRequest(BaseModel):
     video_source: str
     title: str
     desc: str = ""
-    tags: list[str] = Field(default_factory=lambda: ["Suno", "AI音乐", "音乐MV", "原创音乐", "音乐日记"])
+    tags: list[str] = Field(default_factory=lambda: ["音乐MV", "原创音乐", "音乐日记"])
     tid: int = 28
     cover_source: str = ""
     dynamic: str = ""

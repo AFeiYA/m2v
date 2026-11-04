@@ -4,21 +4,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Your workspace · Fovea Studio</title>
-  <meta name="description" content="Workspace and creation studio for Fovea Studio AI lyric videos.">
+  <meta name="description" content="Workspace and creation studio for Fovea Studio lyric videos.">
   <meta name="robots" content="noindex,nofollow">
   <meta name="referrer" content="strict-origin-when-cross-origin">
   <link rel="canonical" href="https://fovea.si/app">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Fovea Studio">
   <meta property="og:title" content="Your workspace · Fovea Studio">
-  <meta property="og:description" content="Workspace and creation studio for Fovea Studio AI lyric videos.">
+  <meta property="og:description" content="Workspace and creation studio for Fovea Studio lyric videos.">
   <meta property="og:url" content="https://fovea.si/app">
   <meta property="og:image" content="https://fovea.si/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Your workspace · Fovea Studio">
-  <meta name="twitter:description" content="Workspace and creation studio for Fovea Studio AI lyric videos.">
+  <meta name="twitter:description" content="Workspace and creation studio for Fovea Studio lyric videos.">
   <meta name="twitter:image" content="https://fovea.si/og-image.png">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -254,7 +254,7 @@
     <main id="workspace-content" class="workspace-content">
     <div id="workspace-notice" role="status" hidden><span id="workspace-notice-text"></span> <button id="workspace-notice-review" type="button">Review unsaved changes</button></div>
 
-    <!-- 创作区 (Suno 链接解析 / 本地文件上传) -->
+    <!-- 创作区 (公开歌曲链接 / 本地文件上传) -->
     <section id="upload-section" class="workspace-page" tabindex="-1" hidden>
       <div class="upload-hero-wrap">
         <div class="upload-hero-text">
@@ -292,12 +292,12 @@
           <form id="suno-form">
             <div class="suno-input-box">
               <svg class="suno-link-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-              <input type="url" id="input-suno-url" placeholder="Paste song link, e.g. https://suno.com/song/..." required>
+              <input type="url" id="input-suno-url" placeholder="Paste a public song link" required>
               <button type="button" id="btn-paste-suno" class="btn-paste-clip" title="Paste from clipboard">Paste</button>
             </div>
             <div class="suno-input-hint">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>
-              <span>Paste public song link (e.g. Suno) to import audio &amp; lyrics automatically</span>
+              <span>Paste a public song link to import audio and lyrics automatically</span>
             </div>
 
             <details class="import-options"><summary>Advanced import settings</summary>
@@ -454,7 +454,7 @@
               </div>
             </div>
 
-            <!-- 3. Title & Optional Suno Link -->
+            <!-- 3. Title and optional song link -->
             <div class="upload-row">
               <div class="upload-field">
                 <label for="local-song-title">Song title <span class="field-sub-label">(optional; defaults to filename)</span></label>
@@ -462,7 +462,7 @@
               </div>
               <div class="upload-field" id="wrap-local-suno-url" style="display:none">
                 <label for="local-suno-url">Original song link <span class="field-sub-label">(debug mode only)</span></label>
-                <input type="url" id="local-suno-url" placeholder="https://suno.com/song/...">
+                <input type="url" id="local-suno-url" placeholder="Paste a public song link">
               </div>
             </div>
 

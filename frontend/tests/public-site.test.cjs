@@ -42,6 +42,8 @@ test('public pages are readable without auth and have valid internal links',()=>
  assert.match(appHtml,/id="auth-overlay"/);
  assert.match(appHtml,/rel="canonical" href="https:\/\/fovea\.si\/app"/);
  assert.match(appHtml,/property="og:image" content="https:\/\/fovea\.si\/og-image\.png"/);
+ assert.doesNotMatch(appHtml.slice(0, 1500), /\bAI\b/);
+ assert.doesNotMatch(appHtml.slice(0, 1500), /Suno/i);
  const home=fs.readFileSync(path.join(root,'index.html'),'utf8');
  assert.match(home,/type="application\/ld\+json"/);
  assert.match(home,/"name": "fovea\.si"/);
@@ -49,7 +51,8 @@ test('public pages are readable without auth and have valid internal links',()=>
  assert.match(home,/"price": "9\.99"/);
  assert.match(home,/"price": "19\.99"/);
  assert.match(home,/synthetic word timings/);
- assert.match(home,/Suno/);assert.match(home,/Try free, no card required/);
+ assert.doesNotMatch(home,/suno/i);assert.match(home,/for your song/);assert.match(home,/Upload your track and lyrics/);assert.match(home,/Try free, no card required/);
+ assert.doesNotMatch(home,/AI songs|AI music|AI-generated|\bUdio\b/i);
  assert.match(home,/class="nav-try"/);assert.match(home,/hero-video-slot/);assert.match(home,/example-lyric-video\.mp4/);
  assert.match(home,/id="faq"/);assert.match(home,/href="\/contact"/);
 });
@@ -80,8 +83,9 @@ test('marketing previews share the video renderer rather than CSS lyric animatio
  assert.match(sample,/automaticPoster/);
  assert.doesNotMatch(entry,/service-api|firebase|archiveBrowserVideo/);
  const home=fs.readFileSync(path.join(root,'index.html'),'utf8');
- assert.match(home,/AI automatically aligns/);
- assert.ok(home.indexOf('Let AI align your lyrics')<home.indexOf('Refine only what needs it'));
+ assert.match(home,/Each word is aligned automatically/);
+ assert.ok(home.indexOf('Align your lyrics automatically')<home.indexOf('Refine only what needs it'));
+ assert.doesNotMatch(home,/\bAI\b/);
  assert.doesNotMatch(home,/class="demo-lines"|class="poster-copy"/);
 });
 
@@ -109,7 +113,9 @@ test('marketing pages on www and mv redirect to fovea.si while app pages stay on
 test('llms.txt and sitemap.xml define standard SEO assets on fovea.si', () => {
   const llms = fs.readFileSync(path.join(root, 'llms.txt'), 'utf8');
   assert.match(llms, /# Fovea Studio/);
-  assert.match(llms, /Suno/);
+  assert.doesNotMatch(llms, /suno/i);
+  assert.match(llms, /your song and lyrics/);
+  assert.doesNotMatch(llms, /AI songs|AI music|AI-generated/i);
   assert.match(llms, /60 free permanent credits/);
   assert.match(llms, /\$9\.99\/month/);
   assert.match(llms, /\$19\.99\/month/);
