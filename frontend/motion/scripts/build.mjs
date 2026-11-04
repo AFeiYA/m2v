@@ -11,6 +11,17 @@ await build({
   minify: true, legalComments: 'linked', sourcemap: false,
 });
 
+await build({
+  absWorkingDir: root,
+  entryPoints: ['src/extension-webcodecs.ts'],
+  outfile: path.resolve(root, '../../chrome_extension/webcodecs_bundle.js'),
+  bundle: true,
+  format: 'iife',
+  globalName: 'FoveaWebCodecs',
+  target: 'es2022',
+  minify: true,
+});
+
 const remotionOut = fileURLToPath(new URL('../../local/remotion', import.meta.url));
 const mockEncoder = path.resolve(root, 'src/mock-encoder.ts');
 

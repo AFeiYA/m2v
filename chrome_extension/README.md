@@ -66,6 +66,12 @@ MP4 按点击时识别到的歌曲 ID 获取音频，不使用无法确认归属
 
 1.4.4 复用网站已有的“仅下载”接口 `/api/suno/download_mp3`，无需提交新的音频导出任务或等待插件轮询。旧版 `/api/plugin/export_audio` 接口保留，兼容已有客户端。
 
+## 1.6.1：WebCodecs 本地 GPU 极速压制
+
+- **WebCodecs 本地硬件加速导出**：对齐成功后，优先使用 Chrome 110+ 的 Manifest V3 `offscreen` 文档在本地调用浏览器 GPU 进行 WebCodecs (H.264 + AAC) 极速压制，5~10 秒内即可导出高码率 1080×1920 (9:16) 竖屏 Apple 歌词动效 MP4，无需在云端排队等待 FFmpeg。
+- **自动优雅回退**：若当前操作系统或环境未开启硬件加速或出现解码异常，插件将自动平滑转入云端备用渲染通道 (`/api/editor/tasks/{id}/lyric-video`)，确保用户始终能顺利获取视频。
+- **新增权限 `offscreen`**：用于在后台安全隔离执行 Canvas 渲染与 Web Audio 采样，不影响前台标签页浏览与音频播放。
+
 ## 1.6.0：当前云端账号与工程
 
 - Cloud 仍显示 `https://mv.fovea.si`；这是登录/编辑网站。插件将官方计算请求发送到 `https://lucazhou-suno2mv-api.hf.space`，不会向 Pages 请求旧接口。
