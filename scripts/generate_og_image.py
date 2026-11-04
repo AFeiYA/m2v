@@ -27,12 +27,22 @@ def create_og_image():
     img = Image.alpha_composite(img, overlay)
     draw = ImageDraw.Draw(img)
 
-    # Fonts
-    font_bold = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
-    font_reg = "/System/Library/Fonts/Supplemental/Arial.ttf"
-    if not Path(font_bold).exists():
-        font_bold = "/System/Library/Fonts/Helvetica.ttc"
-        font_reg = "/System/Library/Fonts/Helvetica.ttc"
+    def first_font(*candidates):
+        found = next((path for path in candidates if Path(path).exists()), None)
+        if not found:
+            raise SystemExit('No font found for the OpenGraph image')
+        return found
+
+    font_bold = first_font(
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    )
+    font_reg = first_font(
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    )
 
     title_font = ImageFont.truetype(font_bold, 72)
     brand_sub_font = ImageFont.truetype(font_bold, 40)
@@ -43,7 +53,7 @@ def create_og_image():
     # Draw Brand Tag (Top)
     # Lime accent pill
     draw.rounded_rectangle([80, 75, 360, 120], radius=12, fill=(200, 255, 0, 30), outline=(200, 255, 0, 180), width=1)
-    draw.text((100, 85), "AI LYRIC VIDEO STUDIO", fill=(200, 255, 0, 255), font=tag_font)
+    draw.text((100, 85), "LYRIC VIDEO STUDIO", fill=(200, 255, 0, 255), font=tag_font)
 
     # Main Brand & Title
     # Sparkle / Diamond icon
@@ -61,7 +71,7 @@ def create_og_image():
 
     # Feature badges
     badges = [
-        "Suno Link Import",
+        "Song link import",
         "Kinetic Posters",
         "Apple Scroll Lyrics",
         "16:9 & 9:16 Formats",

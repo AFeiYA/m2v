@@ -9,7 +9,9 @@ from src.douyin_uploader import DouyinUploader, RECOMMENDED_DOUYIN_TAGS
 
 def test_recommended_douyin_tags():
     assert len(RECOMMENDED_DOUYIN_TAGS) >= 3
-    assert "AI音乐" in RECOMMENDED_DOUYIN_TAGS
+    assert "自制MV" in RECOMMENDED_DOUYIN_TAGS
+    assert "Suno" not in RECOMMENDED_DOUYIN_TAGS
+    assert "AI音乐" not in RECOMMENDED_DOUYIN_TAGS
 
 
 def test_clean_locks_broken_symlinks(tmp_path):

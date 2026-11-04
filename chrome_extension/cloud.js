@@ -87,7 +87,7 @@ var FoveaCloud = (() => {
           onProgress({...job,task_id:job.exportId||job.songTaskId||job.requestId,message:result.status==='completed'?'Video ready. Starting download…':'Rendering your video…'});
           if(result.status==='completed'){
             const suffix={chorus:'_Chorus',verse1:'_Verse1',intro:'_Intro'}[job.section]||'';
-            const filename=(job.title||'Suno').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').slice(0,110)+suffix+'_9x16.mp4';
+            const filename=(job.title||'lyric-video').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').slice(0,110)+suffix+'_9x16.mp4';
             const downloaded=await download('/api/editor/jobs/'+job.exportId+'/video',filename,job.ownerUid,job.tabId,job.taskId);
             job.downloadId=downloaded.downloadId;return downloaded;
           }

@@ -151,7 +151,7 @@ function finishVideoJob(job, onProgress = () => {}) {
       downloadUrl.searchParams.set("token", authToken);
     }
     const suffix = { chorus: "_Chorus", verse1: "_Verse1", intro: "_Intro" }[job.section] || "";
-    const filename = `${(job.title || "suno_mv").replace(/[\\/:*?"<>|]/g, "_")}${suffix}_9x16.mp4`;
+    const filename = `${(job.title || "lyric_video").replace(/[\\/:*?"<>|]/g, "_")}${suffix}_9x16.mp4`;
     const downloadId = await new Promise((resolve, reject) => {
       chrome.downloads.download({ url: downloadUrl.href, filename, saveAs: false, conflictAction: "uniquify" }, (id) => {
         if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
@@ -199,7 +199,7 @@ async function submitVideo(blob, track, serverUrl, section, duration, onProgress
 
   const formData = new FormData();
   if (blob) {
-    formData.append("audio_file", blob, `${track.title || "suno_track"}.mp3`);
+    formData.append("audio_file", blob, `${track.title || "track"}.mp3`);
   }
   formData.append("title", track.title || "Suno_Track");
   formData.append("prompt", track.prompt || "");

@@ -35,7 +35,7 @@ from src.session_manager import (
 
 logger = logging.getLogger("youtube_uploader")
 
-RECOMMENDED_YOUTUBE_TAGS = ["SunoAI", "AIMusic", "MusicVideo", "OriginalSong", "Visualizer"]
+RECOMMENDED_YOUTUBE_TAGS = ["LyricVideo", "MusicVideo", "OriginalSong", "Visualizer"]
 
 
 class YouTubeUploader:

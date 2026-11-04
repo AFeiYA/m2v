@@ -1,5 +1,5 @@
 ---
-title: Suno2MV API
+title: Fovea Studio
 emoji: 🎵
 colorFrom: indigo
 colorTo: purple
@@ -16,7 +16,7 @@ Turn your song into a lyric video: **My Songs → Lyric Editor → Motion Design
 
 ## Supported product
 
-- Import a published Suno song, separate vocals/instrumental and align its lyrics.
+- Import a published song from a public link, separate vocals and instrumental, and align its lyrics.
 - Review timing warnings and edit sentence/word boundaries without replacing lyrics.
 - Save lyric timing, song credits, artwork and visual design.
 - Export Apple-style portrait, two-line landscape karaoke or kinetic typography,
