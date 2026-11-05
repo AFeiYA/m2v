@@ -1294,6 +1294,7 @@ function renderTask(task) {
       actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="mp4">📹 Download MP4</button>`;
     }
     if (task.alignment_json_key) {
+      actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="lrc" title="Download .lrc synchronized lyrics">📜 Download LRC</button>`;
       actions += `<a class="btn btn-sm" href="/lyric-editor/${encodeURIComponent(task.id)}" data-action="open-studio" data-studio="lyric" data-task-id="${encodeURIComponent(task.id)}" data-song-id="${encodeURIComponent(task.id)}">✏️ Edit lyrics</a>`;
     }
   }

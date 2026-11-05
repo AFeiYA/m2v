@@ -346,6 +346,17 @@ def test_editor_saas_routes_multi_track_and_isolation(sandbox):
     r = sandbox.client.put("/api/editor/tasks/alice_task/align", json=new_data, headers=headers("alice"))
     assert r.status_code == 200
 
+    # 3.1 验证自动存储的 .lrc 歌词文件及导出的 LRC 接口
+    lrc_stored = sandbox.storage.get_local_path("results/alice_task/alice_task_alignment.lrc")
+    assert lrc_stored.exists()
+    assert "[00:00.60]updated" in lrc_stored.read_text(encoding="utf-8")
+
+    r_lrc = sandbox.client.get("/api/editor/tasks/alice_task/lrc", headers=headers("alice"))
+    assert r_lrc.status_code == 200
+    assert "[00:00.60]updated" in r_lrc.text
+    assert "attachment; filename=" in r_lrc.headers.get("content-disposition", "")
+    assert ".lrc" in r_lrc.headers.get("content-disposition", "")
+
     # 4. 音轨流获取 (支持 Bearer header 与 ?token=xxx)
     alice_token = auth.create_access_token("alice")
     r_voc = sandbox.client.get("/api/editor/tasks/alice_task/vocals", params={"token": alice_token})
@@ -359,6 +370,7 @@ def test_editor_saas_routes_multi_track_and_isolation(sandbox):
     # 5. 租户隔离: Bob 无法访问 Alice 的工程
     assert sandbox.client.get("/api/editor/tasks/alice_task/align", headers=headers("bob")).status_code == 404
     assert sandbox.client.get("/api/editor/tasks/alice_task/vocals", headers=headers("bob")).status_code == 404
+    assert sandbox.client.get("/api/editor/tasks/alice_task/lrc", headers=headers("bob")).status_code == 404
 
 
 def seed_editor_song(sandbox):
@@ -1167,6 +1179,16 @@ def test_download_ass_generates_dynamically_from_alignment_json(sandbox, monkeyp
     assert res.status_code == 200
     assert "Dialogue:" in res.text or "[Script Info]" in res.text
     assert "attachment; filename=" in res.headers.get("content-disposition", "")
+
+
+def test_download_lrc_generates_dynamically_from_alignment_json(sandbox, monkeypatch):
+    install_pipeline(sandbox, monkeypatch, False)
+    task_id = submit(sandbox, monkeypatch, "suno").json()["task_id"]
+    res = sandbox.client.get(f"/api/tasks/{task_id}/download/lrc", headers=headers())
+    assert res.status_code == 200
+    assert "[by:Fovea MV]" in res.text or "[00:" in res.text
+    assert "attachment; filename=" in res.headers.get("content-disposition", "")
+    assert ".lrc" in res.headers.get("content-disposition", "")
 
 
 def test_suno_missing_cached_audio_downloads_a_new_copy(sandbox, monkeypatch):
