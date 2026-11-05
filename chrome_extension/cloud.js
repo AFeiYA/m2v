@@ -74,6 +74,15 @@ var FoveaCloud = (() => {
             await saveJob(job);onProgress({...job,task_id:job.exportId||job.songTaskId||job.requestId,message:'Importing and aligning your song…'});
             if(once)return {status:'pending'};
           }else{
+            if(chrome?.offscreen && !job.fallbackToCloud){
+              try {
+                const exported=await exportWebCodecs(job,onProgress);
+                if(exported)return exported;
+              }catch(wcErr){
+                console.warn('[FoveaCloud] WebCodecs export failed, falling back to cloud FFmpeg:',wcErr);
+                job.fallbackToCloud=true;await saveJob(job);
+              }
+            }
             const result=await post('/api/editor/tasks/'+encodeURIComponent(job.songTaskId)+'/lyric-video',{
               request_id:job.requestId,section_name:job.section||'',aspect_ratio:'9:16',template:'apple',theme:'apple_white',
               background_mode:'full_bleed',...(job.duration>0?{duration_limit:job.duration}:{})},job.ownerUid);
@@ -128,5 +137,114 @@ var FoveaCloud = (() => {
     if(published.is_public!==true)throw new Error('Song is not published. Publish it in Suno first.');
     return finish(job,onProgress);
   }
-  return {api,web,official,sync,acceptToken,token,request,download,start,finish};
+  async function ensureOffscreen() {
+    if (!chrome?.offscreen) return false;
+    const offscreenUrl = chrome.runtime.getURL('offscreen.html');
+    if (chrome.runtime?.getContexts) {
+      const contexts = await chrome.runtime.getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT'],
+        documentUrls: [offscreenUrl],
+      });
+      if (contexts.length > 0) return true;
+    } else if (chrome.offscreen?.hasDocument && await chrome.offscreen.hasDocument()) {
+      return true;
+    }
+    try {
+      await chrome.offscreen.createDocument({
+        url: offscreenUrl,
+        reasons: ['BLOBS'],
+        justification: 'Hardware-accelerated WebCodecs video encoding',
+      });
+      return true;
+    } catch (err) {
+      if (err?.message?.includes('Only a single offscreen document may be created')) return true;
+      console.warn('[FoveaCloud] Offscreen document creation failed:', err);
+      return false;
+    }
+  }
+  async function exportWebCodecs(job, onProgress=()=>{}) {
+    if (!chrome?.offscreen) return null;
+    const ok = await ensureOffscreen();
+    if (!ok) return null;
+    const ping = await chrome.runtime.sendMessage({ target: 'offscreen', action: 'CHECK_WEBCODECS_SUPPORT' })
+      .catch(() => null);
+    if (!ping?.supported) return null;
+
+    onProgress({ ...job, task_id: job.songTaskId || job.requestId, message: 'Loading song project data…' });
+    let project = null;
+    try {
+      const motionRes = await request('/api/cloud-motion/project?project_id=' + encodeURIComponent(job.songTaskId), {}, job.ownerUid);
+      project = motionRes?.project || motionRes;
+    } catch (_) {
+      project = await request('/api/editor/tasks/' + encodeURIComponent(job.songTaskId) + '/align', {}, job.ownerUid);
+    }
+    if (!project) throw new Error('Project data could not be loaded');
+
+    const auth = await token(job.ownerUid);
+    const audioUrl = api + '/api/editor/tasks/' + encodeURIComponent(job.songTaskId) + '/audio';
+    const audioHeaders = { Authorization: 'Bearer ' + auth.value };
+
+    onProgress({ ...job, task_id: job.songTaskId || job.requestId, progress: 65, message: 'Encoding lyric video with WebCodecs GPU…' });
+    const key = job.requestId;
+    const progressHandler = (msg) => {
+      if (msg?.action === 'WEBCODECS_PROGRESS' && msg.requestId === key) {
+        job.status = 'running';
+        job.progress = 65 + Math.round((msg.pct || 0) * 0.35);
+        onProgress({
+          ...job,
+          task_id: job.songTaskId || job.requestId,
+          progress: job.progress,
+          message: `Hardware GPU encoding frame ${msg.frame}/${msg.totalFrames} (${msg.pct}%)…`,
+        });
+      }
+    };
+    if (chrome.runtime?.onMessage?.addListener) {
+      chrome.runtime.onMessage.addListener(progressHandler);
+    }
+    let res;
+    try {
+      res = await chrome.runtime.sendMessage({
+        target: 'offscreen',
+        action: 'RENDER_WEBCODECS',
+        requestId: job.requestId,
+        project,
+        audioUrl,
+        audioHeaders,
+        section: job.section || '',
+        duration: job.duration || 0,
+        aspect: '9:16',
+        visualMode: 'apple',
+        title: job.title || project.title || 'lyric-video',
+      });
+    } finally {
+      if (chrome.runtime?.onMessage?.removeListener) {
+        chrome.runtime.onMessage.removeListener(progressHandler);
+      }
+    }
+
+    if (res?.status !== 'ok' || !res?.data?.blobUrl) {
+      throw new Error(res?.message || 'WebCodecs video rendering failed');
+    }
+
+    const { blobUrl, filename } = res.data;
+    onProgress({ ...job, task_id: job.songTaskId || job.requestId, progress: 99, message: 'Video ready. Starting download…' });
+    const downloadId = await chrome.downloads.download({
+      url: blobUrl,
+      filename,
+      saveAs: false,
+      conflictAction: 'uniquify',
+    });
+
+    job.downloadId = downloadId;
+    job.taskId = job.songTaskId;
+    job.status = 'completed';
+    job.progress = 100;
+    await saveJob(job);
+    await trackDownload(downloadId, filename, 'MP4', job.tabId, job.songTaskId);
+    await changeRecords('downloads', records => records.map(r => r.id === downloadId ? { ...r, backend: api, ownerUid: job.ownerUid, localWebCodecs: true } : r));
+
+    post('/api/cloud-motion/unlock?project_id=' + encodeURIComponent(job.songTaskId) + '&accepted_cost=0', {}, job.ownerUid).catch(() => {});
+    return { status: 'ok', downloadId, filename };
+  }
+  return {api,web,official,sync,acceptToken,token,request,download,start,finish,exportWebCodecs};
 })();
