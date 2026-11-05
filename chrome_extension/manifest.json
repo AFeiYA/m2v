@@ -2,14 +2,15 @@
   "manifest_version": 3,
   "minimum_chrome_version": "110",
   "name": "Fovea MV - Suno Music Videos",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Download Suno songs as MP3 or create vertical lyric videos as MP4.",
   "permissions": [
     "storage",
     "activeTab",
     "downloads",
     "alarms",
-    "scripting"
+    "scripting",
+    "offscreen"
   ],
   "host_permissions": [
     "http://127.0.0.1:8000/*",

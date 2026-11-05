@@ -12,6 +12,7 @@ from __future__ import annotations
 from src.version_lifecycle import live_task
 
 import json
+import re
 import shutil
 import tempfile
 from datetime import datetime, timezone
@@ -157,6 +158,37 @@ async def get_alignment(
         raise HTTPException(503, "Unable to load alignment from storage. Please retry later.") from exc
 
 
+@router.get("/tasks/{task_id}/lrc")
+async def get_task_lrc(
+    task_id: str,
+    user: User = Depends(get_current_user_flexible),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取并导出任务最新的 .lrc 格式歌词"""
+    task = await _get_user_task(db, user.id, task_id)
+    if not task.alignment_json_key:
+        raise HTTPException(404, "该任务没有对齐数据")
+
+    storage = get_storage()
+    payload = await _load_alignment(storage, task.alignment_json_key)
+    payload = await _hydrate_source_sections(storage, task, payload)
+
+    from src.ass2lrc import alignment_to_lrc
+    lrc_content = alignment_to_lrc(
+        payload,
+        title=task.song_title or task.title or "",
+        artist=getattr(task, "artist", "") or "",
+    )
+    safe_filename = re.sub(r'[^\w.\-\u4e00-\u9fa5]', '_', task.song_title or task.title or "lyrics").strip('.') or "lyrics"
+    return Response(
+        content=lrc_content,
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_filename}.lrc"',
+        },
+    )
+
+
 @router.get("/tasks/{task_id}/review")
 async def get_task_review(
     task_id: str,
@@ -230,6 +262,26 @@ async def save_alignment(
 
     try:
         await storage.save(task.alignment_json_key, tmp_path)
+        # 自动生成并存储最新 .lrc 歌词文件
+        try:
+            from src.ass2lrc import alignment_to_lrc
+            lrc_text = alignment_to_lrc(
+                data,
+                title=task.song_title or task.title or "",
+                artist=getattr(task, "artist", "") or "",
+            )
+            lrc_key = task.alignment_json_key.rsplit(".json", 1)[0] + ".lrc"
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".lrc", delete=False, encoding="utf-8"
+            ) as lf:
+                lf.write(lrc_text)
+                lrc_tmp = Path(lf.name)
+            try:
+                await storage.save(lrc_key, lrc_tmp)
+            finally:
+                lrc_tmp.unlink(missing_ok=True)
+        except Exception as lrc_err:
+            log.warning("存储 .lrc 失败: task=%s (%s)", task_id, lrc_err)
     finally:
         tmp_path.unlink(missing_ok=True)
 

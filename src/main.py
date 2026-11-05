@@ -423,6 +423,15 @@ def process_one(
             )
         _progress("analyzing", 64, "音频分析完成" + ("（复用缓存）" if alignment.analysis.metadata["cache_hit"] else ""))
 
+        # 生成并存储本地 .lrc 歌词文件
+        try:
+            from src.ass2lrc import convert_alignment_to_lrc
+            output_lrc = output_dir / f"{stem}.lrc"
+            convert_alignment_to_lrc(output_json, output_lrc, title=stem)
+            log.info("已生成并存储 LRC 歌词: %s", output_lrc)
+        except Exception as lrc_err:
+            log.warning("生成 .lrc 失败: %s", lrc_err)
+
         # 云端仅对齐模式：对齐 JSON 即最终产物，ASS 在需要时由 alignment.json 动态生成；
         # 本地模式（emit_ass=True）仍会在输出目录写出 .ass 文件。
         if config.ass_only and not config.emit_ass:

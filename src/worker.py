@@ -301,6 +301,17 @@ def process_song_task(
                 raise RuntimeError("Alignment upload size mismatch")
             result_keys["alignment_json_key"] = key
 
+            # 自动生成并存储对应 .lrc 歌词文件
+            try:
+                from src.ass2lrc import convert_alignment_to_lrc
+                lrc_file = temp_dir / f"{stem}.lrc"
+                convert_alignment_to_lrc(align_json, lrc_file)
+                if lrc_file.exists():
+                    lrc_key = f"results/{task_id}/{lrc_file.name}"
+                    loop.run_until_complete(storage.save(lrc_key, lrc_file))
+            except Exception as lrc_err:
+                log.warning("Worker 存储 .lrc 失败: task=%s (%s)", task_id, lrc_err)
+
         # MP4 视频
         mp4_file = output_dir / f"{stem}.mp4"
         if mp4_file.exists():
