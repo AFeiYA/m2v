@@ -179,3 +179,32 @@ test('matrix export gracefully waits for render slots on HTTP 429 instead of cra
  assert.ok(rows.some(r=>r.includes('Waiting for available render slot')));
 });
 
+test('formatLrcTimestamp formats seconds as mm:ss.xx', () => {
+  const { formatLrcTimestamp } = require('../local/lyric_editor.js');
+  assert.equal(formatLrcTimestamp(0), '00:00.00');
+  assert.equal(formatLrcTimestamp(5.42), '00:05.42');
+  assert.equal(formatLrcTimestamp(65.12), '01:05.12');
+  assert.equal(formatLrcTimestamp(125.05), '02:05.05');
+});
+
+test('exportCurrentLrc exports standard LRC format from state', () => {
+  const s = setup();
+  s.context.state.currentFile = { name: 'My Song' };
+  s.context.state.alignment = {
+    title: 'My Song',
+    artist: 'Singer',
+    lines: [
+      { start: 2.5, end: 6.0, text: 'First line of lyrics' },
+      { start: 7.25, end: 12.0, text: 'Second line of lyrics' },
+    ],
+  };
+
+  const lrc = s.context.exportCurrentLrc();
+  assert.match(lrc, /\[ti:My Song\]/);
+  assert.match(lrc, /\[ar:Singer\]/);
+  assert.match(lrc, /\[by:Fovea MV\]/);
+  assert.match(lrc, /\[00:02.50\]First line of lyrics/);
+  assert.match(lrc, /\[00:07.25\]Second line of lyrics/);
+});
+
+

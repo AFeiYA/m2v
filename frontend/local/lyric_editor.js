@@ -638,6 +638,7 @@ if (typeof document !== "undefined") {
     // DOM element cache
     dom.songSelect          = $("#song-select");
     dom.btnSave             = $("#btn-save");
+    dom.btnExportLrc        = $("#btn-export-lrc");
     dom.btnUndo             = $("#btn-undo");
     dom.btnRedo             = $("#btn-redo");
     dom.sunoUrlInput        = $("#suno-url-input");
@@ -727,6 +728,7 @@ function bindLyricEvents() {
     });
   }
   if (dom.btnSave) dom.btnSave.addEventListener("click", saveAlignment);
+  if (dom.btnExportLrc) dom.btnExportLrc.addEventListener("click", exportCurrentLrc);
   if (dom.btnUndo) dom.btnUndo.addEventListener("click", undo);
   if (dom.btnRedo) dom.btnRedo.addEventListener("click", redo);
 
@@ -3372,6 +3374,56 @@ function handleLineTimeInput(e) {
   }
 }
 
+function formatLrcTimestamp(seconds) {
+  const totalCentis = Math.round(Math.max(0, Number(seconds) || 0) * 100);
+  const totalSeconds = Math.floor(totalCentis / 100);
+  const centis = totalCentis % 100;
+  const minutes = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(centis).padStart(2, "0")}`;
+}
+
+function exportCurrentLrc() {
+  const lines = state.alignment?.lines || [];
+  if (!lines.length) {
+    if (typeof status === "function") {
+      status(window.t ? t("msg_no_lyrics_to_export") : "No lyrics to export", true);
+    }
+    return "";
+  }
+  const title = state.currentFile?.name || state.alignment?.title || "lyrics";
+  const artist = state.alignment?.artist || "";
+  const out = [];
+  if (title) out.push(`[ti:${title}]`);
+  if (artist) out.push(`[ar:${artist}]`);
+  out.push(`[by:Fovea MV]`);
+
+  for (const line of lines) {
+    const startStr = formatLrcTimestamp(line.start || 0);
+    const text = (line.text || (line.words || []).map(w => w.word || "").join("")).trim();
+    if (!text && (!line.words || !line.words.length)) continue;
+    out.push(`[${startStr}]${text}`);
+  }
+
+  const lrcContent = out.join("\n") + "\n";
+  if (typeof document !== "undefined" && typeof URL !== "undefined" && typeof Blob !== "undefined") {
+    const blob = new Blob([lrcContent], { type: "text/plain;charset=utf-8" });
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    const safeFilename = title.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 100) || "lyrics";
+    a.download = `${safeFilename}.lrc`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+    if (typeof status === "function") {
+      status(window.t ? t("msg_lrc_exported") : "LRC lyrics exported successfully!");
+    }
+  }
+  return lrcContent;
+}
+
 if (typeof window !== "undefined") {
   window.addEventListener("languagechange", () => {
     renderLyrics();
@@ -3391,6 +3443,8 @@ if (typeof window !== "undefined") {
   window.toggleTimingWarningsVisibility = toggleTimingWarningsVisibility;
   window.getTimingWarningsVisible = () => timingWarningsVisible;
   window.syncSyllablesOnWordChange = syncSyllablesOnWordChange;
+  window.formatLrcTimestamp = formatLrcTimestamp;
+  window.exportCurrentLrc = exportCurrentLrc;
 }
 
 if (typeof module !== "undefined" && module.exports) {
@@ -3404,5 +3458,7 @@ if (typeof module !== "undefined" && module.exports) {
     toggleTimingWarningsVisibility,
     getTimingWarningsVisible: () => timingWarningsVisible,
     syncSyllablesOnWordChange,
+    formatLrcTimestamp,
+    exportCurrentLrc,
   };
 }

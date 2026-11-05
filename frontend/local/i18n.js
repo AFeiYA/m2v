@@ -31,6 +31,10 @@ const I18N = {
     // Toolbar
     btn_save: "💾 保存",
     btn_save_title: "保存修改 (Ctrl+S)",
+    btn_export_lrc: "📜 导出 LRC",
+    btn_export_lrc_title: "导出当前对齐时间戳为 .lrc 歌词文件",
+    msg_lrc_exported: "LRC 歌词导出成功！",
+    msg_no_lyrics_to_export: "没有可导出的歌词内容",
     btn_realign: "✏️ 编辑歌词并重对齐",
     btn_realign_title: "编辑修改歌词文本，重新进行 AI 伴奏/人声声学卡点对齐 (-20 积分)",
     realign_modal_title: "✏️ 编辑歌词并重新对齐",
@@ -550,6 +554,10 @@ const I18N = {
     // Toolbar
     btn_save: "💾 Save",
     btn_save_title: "Save changes (Ctrl+S)",
+    btn_export_lrc: "📜 Export LRC",
+    btn_export_lrc_title: "Export synchronized timestamps as .lrc lyrics file",
+    msg_lrc_exported: "LRC lyrics exported successfully!",
+    msg_no_lyrics_to_export: "No lyrics to export",
     btn_realign: "✏️ Edit Lyrics (Realign)",
     btn_realign_title: "Edit lyrics text and re-run AI acoustic alignment (-20 credits)",
     realign_modal_title: "✏️ Edit Lyrics & Re-align",
