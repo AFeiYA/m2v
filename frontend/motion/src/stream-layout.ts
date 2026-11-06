@@ -1,5 +1,6 @@
 import { compileHighlightSpans, highlightState, type HighlightSpan } from './karaoke.ts';
 import type { Project, Line } from './model.ts';
+import { computeIntroEnd } from './song-layout.ts';
 
 export type TextMeasure = (text: string, size: number, weight: number) => {
   width: number;
@@ -59,13 +60,7 @@ export function compileKtvDualLayout(
   const previewSeconds = options?.preview_seconds ?? 2.5;
 
   // 首句预览时机计算：若存在前奏封面，必须在封面彻底淡出后才进场预读，杜绝视觉撞车
-  const first = lines[0]?.start || 0;
-  const identity = project.song_identity;
-  const hasIntro = Boolean(identity && identity.style !== 'none' && identity.show_intro && first >= 1.5);
-  const lyricLeadIn = first >= 6 ? 2.0 : first >= 3 ? Math.min(1.8, Math.max(0.7, first * 0.28)) : Math.max(0.4, first * 0.25);
-  const breathingGap = first >= 4 ? 0.35 : 0.2;
-  const targetIntroEnd = first - lyricLeadIn - breathingGap;
-  const introEnd = hasIntro && targetIntroEnd >= 0.8 ? targetIntroEnd : 0;
+  const introEnd = computeIntroEnd(project);
 
   // 1. 预先测量全曲所有歌词单句在基准字号下的宽度，找出最长句
   let maxMeasured = 1.0;
@@ -385,13 +380,7 @@ export function compileAppleScrollLayout(
   const paragraphGap = Math.round(activeFontSize * 1.9);
 
   // 首句展示时机：若存在前奏封面，必须在封面彻底淡出后才进场，杜绝视觉撞车
-  const first = lines[0]?.start || 0;
-  const identity = project.song_identity;
-  const hasIntro = Boolean(identity && identity.style !== 'none' && identity.show_intro && first >= 1.5);
-  const lyricLeadIn = first >= 6 ? 2.0 : first >= 3 ? Math.min(1.8, Math.max(0.7, first * 0.28)) : Math.max(0.4, first * 0.25);
-  const breathingGap = first >= 4 ? 0.35 : 0.2;
-  const targetIntroEnd = first - lyricLeadIn - breathingGap;
-  const introEnd = hasIntro && targetIntroEnd >= 0.8 ? targetIntroEnd : 0;
+  const introEnd = computeIntroEnd(project);
 
   const compiledLines: AppleLineCompiled[] = [];
   let cumulativeY = 0;
