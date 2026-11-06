@@ -1294,8 +1294,25 @@ function renderTask(task) {
       actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="mp4">📹 Download MP4</button>`;
     }
     if (task.alignment_json_key) {
-      actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="lrc" title="Download .lrc synchronized lyrics">📜 Download LRC</button>`;
-      actions += `<button class="btn btn-sm" data-action="download" data-task="${task.id}" data-type="ttml" title="Download Apple Music .ttml synchronized lyrics">🍎 Download TTML</button>`;
+      actions += `
+        <div class="dropdown-wrapper" style="position: relative; display: inline-block;">
+          <button class="btn btn-sm" data-action="toggle-lyrics-menu" data-target="lyrics-menu-${task.id}" title="导出多格式同步歌词与字幕">📥 导出歌词 ▾</button>
+          <div id="lyrics-menu-${task.id}" class="dropdown-menu" style="display: none; position: absolute; bottom: calc(100% + 4px); left: 0; min-width: 250px; background: #1e293b; border: 1px solid #475569; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.6); z-index: 1000; padding: 6px 0; text-align: left;">
+            <div style="padding: 4px 12px; font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Apple Music TTML</div>
+            <button class="dropdown-item btn-menu" data-action="download" data-task="${task.id}" data-type="ttml" style="display: block; width: 100%; padding: 6px 12px; background: none; border: none; color: #f1f5f9; text-align: left; font-size: 12px; cursor: pointer;">🍎 TTML (自动语言识别)</button>
+            <button class="dropdown-item btn-menu" data-action="download" data-task="${task.id}" data-type="ttml" data-query="lang=zh-Hans" style="display: block; width: 100%; padding: 6px 12px; background: none; border: none; color: #f1f5f9; text-align: left; font-size: 12px; cursor: pointer;">🍎 TTML (简体 zh-Hans)</button>
+            <button class="dropdown-item btn-menu" data-action="download" data-task="${task.id}" data-type="ttml" data-query="lang=zh-Hant" style="display: block; width: 100%; padding: 6px 12px; background: none; border: none; color: #f1f5f9; text-align: left; font-size: 12px; cursor: pointer;">🍎 TTML (繁体 zh-Hant)</button>
+            <button class="dropdown-item btn-menu" data-action="download" data-task="${task.id}" data-type="ttml" data-query="ruby=pinyin" style="display: block; width: 100%; padding: 6px 12px; background: none; border: none; color: #f1f5f9; text-align: left; font-size: 12px; cursor: pointer;">🍎 TTML (带拼音 Ruby 注音)</button>
+            <div style="height: 1px; background: #334155; margin: 4px 0;"></div>
+            <div style="padding: 4px 12px; font-size: 11px; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Standard LRC</div>
+            <button class="dropdown-item btn-menu" data-action="download" data-task="${task.id}" data-type="lrc" style="display: block; width: 100%; padding: 6px 12px; background: none; border: none; color: #f1f5f9; text-align: left; font-size: 12px; cursor: pointer;">📜 LRC (标准单行)</button>
+            <button class="dropdown-item btn-menu" data-action="download" data-task="${task.id}" data-type="lrc" data-query="lang=zh-Hant" style="display: block; width: 100%; padding: 6px 12px; background: none; border: none; color: #f1f5f9; text-align: left; font-size: 12px; cursor: pointer;">📜 LRC (繁体 zh-Hant)</button>
+            <button class="dropdown-item btn-menu" data-action="download" data-task="${task.id}" data-type="lrc" data-query="pinyin=true" style="display: block; width: 100%; padding: 6px 12px; background: none; border: none; color: #f1f5f9; text-align: left; font-size: 12px; cursor: pointer;">📜 LRC (拼音 + 中文双行)</button>
+            <div style="height: 1px; background: #334155; margin: 4px 0;"></div>
+            <button class="dropdown-item btn-menu" data-action="download" data-task="${task.id}" data-type="zip" style="display: block; width: 100%; padding: 6px 12px; background: none; border: none; color: #38bdf8; text-align: left; font-size: 12px; font-weight: 600; cursor: pointer;">📦 下载全套分发包 (.zip)</button>
+          </div>
+        </div>
+      `;
       actions += `<a class="btn btn-sm" href="/lyric-editor/${encodeURIComponent(task.id)}" data-action="open-studio" data-studio="lyric" data-task-id="${encodeURIComponent(task.id)}" data-song-id="${encodeURIComponent(task.id)}">✏️ Edit lyrics</a>`;
     }
   }
@@ -1370,13 +1387,29 @@ async function handleTaskAction(e) {
     return;
   }
 
+  if (action === "toggle-lyrics-menu") {
+    e.stopPropagation();
+    const menuId = btn.dataset.target;
+    const menu = menuId ? document.getElementById(menuId) : btn.nextElementSibling;
+    if (menu) {
+      const isVisible = menu.style.display === "block";
+      document.querySelectorAll(".dropdown-menu").forEach(m => { m.style.display = "none"; });
+      menu.style.display = isVisible ? "none" : "block";
+    }
+    return;
+  }
+
   if (action === "download") {
     const type = btn.dataset.type;
+    const query = btn.dataset.query ? `?${btn.dataset.query}` : "";
     const originalText = btn.textContent;
     btn.textContent = "Downloading...";
     btn.disabled = true;
     try {
-      const res = await api(`/api/tasks/${taskId}/download/${type}`);
+      const parentMenu = btn.closest ? btn.closest(".dropdown-menu") : null;
+      if (parentMenu) parentMenu.style.display = "none";
+
+      const res = await api(`/api/tasks/${taskId}/download/${type}${query}`);
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
         throw new Error(err.detail || `HTTP ${res.status}`);
@@ -1386,11 +1419,17 @@ async function handleTaskAction(e) {
       const a = document.createElement("a");
       a.href = blobUrl;
       const disposition = res.headers.get("content-disposition");
-      let filename = `task_${taskId.slice(0, 8)}.${type === "alignment" ? "json" : type}`;
-      if (disposition && disposition.includes("filename=")) {
-        const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
-        if (match && match[1]) {
-          filename = match[1].replace(/['"]/g, "");
+      let defaultExt = type === "alignment" ? "json" : (type === "zip" || type === "bundle" ? "zip" : type);
+      let filename = `task_${taskId.slice(0, 8)}.${defaultExt}`;
+      if (disposition) {
+        const fnStarMatch = disposition.match(/filename\*=UTF-8''([^;\n]+)/i);
+        if (fnStarMatch && fnStarMatch[1]) {
+          filename = decodeURIComponent(fnStarMatch[1]);
+        } else if (disposition.includes("filename=")) {
+          const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+          if (match && match[1]) {
+            filename = match[1].replace(/['"]/g, "");
+          }
         }
       }
       a.download = filename;
@@ -1404,6 +1443,7 @@ async function handleTaskAction(e) {
       btn.textContent = originalText;
       btn.disabled = false;
     }
+    return;
   } else if (action === "delete") {
     if (!confirm("Delete this lyric version and its exported videos? Other versions of the song will be kept.")) return;
     const res = await api(`/api/tasks/${taskId}`, { method: "DELETE" });
@@ -1551,6 +1591,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   // 退出与刷新按钮
   $("#btn-logout").addEventListener("click", logout);
   $("#btn-refresh").addEventListener("click", loadTasks);
+
+  // 全局关闭下拉菜单
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest || !e.target.closest(".dropdown-wrapper")) {
+      document.querySelectorAll(".dropdown-menu").forEach(m => { m.style.display = "none"; });
+    }
+  });
 
   // 修改显示昵称
   const btnEditNickname = $("#btn-edit-nickname");

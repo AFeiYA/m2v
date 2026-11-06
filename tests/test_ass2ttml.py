@@ -248,3 +248,73 @@ def test_main_cli(tmp_path: Path) -> None:
     content_override = out_ttml.read_text(encoding="utf-8")
     assert 'xml:lang="zh-Hant"' in content_override
 
+
+def test_alignment_to_ttml_ruby_pinyin() -> None:
+    align = {
+        "title": "海风吹拂",
+        "lines": [
+            {
+                "start": 1.0,
+                "end": 3.0,
+                "text": "海风",
+                "words": [
+                    {"word": "海", "start": 1.0, "end": 2.0},
+                    {"word": "风", "start": 2.0, "end": 3.0},
+                ],
+            }
+        ],
+    }
+    ttml = alignment_to_ttml(align, ruby="pinyin")
+    assert 'xmlns:tts="http://www.w3.org/ns/ttml#styling"' in ttml
+    assert 'tts:ruby="container"' in ttml
+    assert 'tts:ruby="base"' in ttml
+    assert 'tts:ruby="textContainer"' in ttml
+    assert 'tts:ruby="text"' in ttml
+    assert "hǎi" in ttml
+    assert "fēng" in ttml
+
+
+def test_alignment_to_ttml_traditional_script_conversion() -> None:
+    align = {
+        "title": "海风吹拂",
+        "artist": "歌手",
+        "lines": [
+            {
+                "start": 1.0,
+                "end": 3.0,
+                "text": "海风轻轻吹拂",
+                "words": [
+                    {"word": "海", "start": 1.0, "end": 2.0},
+                    {"word": "风", "start": 2.0, "end": 3.0},
+                ],
+            }
+        ],
+    }
+    ttml = alignment_to_ttml(align, lang="zh-Hant")
+    assert "<ttm:title>海風吹拂</ttm:title>" in ttml
+    assert ">風<" in ttml
+    assert 'xml:lang="zh-Hant"' in ttml
+
+
+def test_build_lyrics_bundle_zip() -> None:
+    import io
+    import zipfile
+    from src.ass2ttml import build_lyrics_bundle_zip
+
+    align = {
+        "title": "海风吹拂",
+        "lines": [{"start": 1.0, "end": 3.0, "text": "海风轻轻吹拂"}],
+    }
+    zip_bytes = build_lyrics_bundle_zip(align, title="海风吹拂", artist="测试歌手")
+    assert len(zip_bytes) > 0
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        names = zf.namelist()
+        assert any("AppleMusic_zh-Hans.ttml" in n for n in names)
+        assert any("AppleMusic_zh-Hant.ttml" in n for n in names)
+        assert any("AppleMusic_PinyinRuby.ttml" in n for n in names)
+        assert any("Standard.lrc" in n for n in names)
+        assert any("zh-Hant.lrc" in n for n in names)
+        assert any("Pinyin_DualLine.lrc" in n for n in names)
+
+

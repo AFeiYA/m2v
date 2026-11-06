@@ -640,6 +640,9 @@ if (typeof document !== "undefined") {
     dom.btnSave             = $("#btn-save");
     dom.btnExportLrc        = $("#btn-export-lrc");
     dom.btnExportTtml       = $("#btn-export-ttml");
+    dom.btnExportLyrics     = $("#btn-export-lyrics");
+    dom.menuExportLyrics    = $("#menu-export-lyrics");
+    dom.dropdownExportLyricsWrap = $("#dropdown-export-lyrics-wrap");
     dom.btnUndo             = $("#btn-undo");
     dom.btnRedo             = $("#btn-redo");
     dom.sunoUrlInput        = $("#suno-url-input");
@@ -729,8 +732,73 @@ function bindLyricEvents() {
     });
   }
   if (dom.btnSave) dom.btnSave.addEventListener("click", saveAlignment);
-  if (dom.btnExportLrc) dom.btnExportLrc.addEventListener("click", exportCurrentLrc);
-  if (dom.btnExportTtml) dom.btnExportTtml.addEventListener("click", exportCurrentTtml);
+  if (dom.btnExportLrc) dom.btnExportLrc.addEventListener("click", () => exportCurrentLrc());
+  if (dom.btnExportTtml) dom.btnExportTtml.addEventListener("click", () => exportCurrentTtml());
+
+  const btnExportLyrics = dom.btnExportLyrics || $("#btn-export-lyrics");
+  const menuExportLyrics = dom.menuExportLyrics || $("#menu-export-lyrics");
+  const dropdownWrap = dom.dropdownExportLyricsWrap || $("#dropdown-export-lyrics-wrap");
+
+  if (btnExportLyrics && menuExportLyrics) {
+    btnExportLyrics.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = menuExportLyrics.style.display === "block";
+      menuExportLyrics.style.display = isOpen ? "none" : "block";
+    });
+
+    const exportItems = menuExportLyrics.querySelectorAll ? menuExportLyrics.querySelectorAll("[data-export-action]") : [];
+    if (exportItems.forEach) {
+      exportItems.forEach(item => {
+        item.addEventListener("click", (e) => {
+          e.stopPropagation();
+          menuExportLyrics.style.display = "none";
+          const action = item.dataset?.exportAction;
+          switch (action) {
+            case "ttml-auto":
+              exportCurrentTtml();
+              break;
+            case "ttml-hans":
+              exportCurrentTtml({ lang: "zh-Hans" });
+              break;
+            case "ttml-hant":
+              exportCurrentTtml({ lang: "zh-Hant" });
+              break;
+            case "ttml-ruby":
+              if (state.currentFile?.task_id && typeof window !== "undefined" && window.apiFetch) {
+                downloadLyricsFromServer("ttml", { ruby: "pinyin" });
+              } else {
+                exportCurrentTtml({ ruby: "pinyin" });
+              }
+              break;
+            case "lrc-auto":
+              exportCurrentLrc();
+              break;
+            case "lrc-hant":
+              exportCurrentLrc({ lang: "zh-Hant" });
+              break;
+            case "lrc-pinyin":
+              if (state.currentFile?.task_id && typeof window !== "undefined" && window.apiFetch) {
+                downloadLyricsFromServer("lrc", { pinyin: "true" });
+              } else {
+                exportCurrentLrc({ pinyin: true });
+              }
+              break;
+            case "bundle-zip":
+              exportLyricsBundle();
+              break;
+          }
+        });
+      });
+    }
+
+    if (typeof document !== "undefined") {
+      document.addEventListener("click", (e) => {
+        if (dropdownWrap && dropdownWrap.contains && !dropdownWrap.contains(e.target)) {
+          menuExportLyrics.style.display = "none";
+        }
+      });
+    }
+  }
   if (dom.btnUndo) dom.btnUndo.addEventListener("click", undo);
   if (dom.btnRedo) dom.btnRedo.addEventListener("click", redo);
 
@@ -3385,7 +3453,26 @@ function formatLrcTimestamp(seconds) {
   return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}.${String(centis).padStart(2, "0")}`;
 }
 
-function exportCurrentLrc() {
+const S2T_SIMP = "爱风云梦飞伤泪谁远见离边听话声词会动变换点样岁怀恋忆归寻难独乐牵续终觉间问关开门头脸发带随处别尽双线转车轻选进遗还这么给让请说读们国时经学对长两条实东电几后当过来气无书应体欢万视传华热与为这桥鸟响";
+const S2T_TRAD = "愛風雲夢飛傷淚誰遠見離邊聽話聲詞會動變換點樣歲懷戀憶歸尋難獨樂牽續終覺間問關開門頭臉發帶隨處別盡雙線轉車輕選進遺還這麼給讓請說讀們國時經學對長兩條實東電幾後當過來氣無書應體歡萬視傳華熱與為這橋鳥響";
+
+const S2T_DICT = {};
+const T2S_DICT = {};
+for (let i = 0; i < S2T_SIMP.length && i < S2T_TRAD.length; i++) {
+  S2T_DICT[S2T_SIMP[i]] = S2T_TRAD[i];
+  T2S_DICT[S2T_TRAD[i]] = S2T_SIMP[i];
+}
+
+function convertScript(text, targetLang) {
+  if (!text || typeof text !== "string") return text || "";
+  const isTrad = targetLang === "zh-Hant" || targetLang === "zh-TW" || targetLang === "zh-HK";
+  const isSimp = targetLang === "zh-Hans" || targetLang === "zh-CN";
+  if (!isTrad && !isSimp) return text;
+  const dict = isTrad ? S2T_DICT : T2S_DICT;
+  return text.split("").map(ch => dict[ch] || ch).join("");
+}
+
+function exportCurrentLrc(options = {}) {
   const lines = state.alignment?.lines || [];
   if (!lines.length) {
     if (typeof status === "function") {
@@ -3393,8 +3480,19 @@ function exportCurrentLrc() {
     }
     return "";
   }
-  const title = state.currentFile?.name || state.alignment?.title || "lyrics";
-  const artist = state.alignment?.artist || "";
+  let title = state.currentFile?.name || state.alignment?.title || "lyrics";
+  let artist = state.alignment?.artist || "";
+  const targetLang = options?.lang || null;
+  const isPinyin = Boolean(options?.pinyin);
+
+  if (targetLang === "zh-Hant") {
+    title = convertScript(title, "zh-Hant");
+    artist = convertScript(artist, "zh-Hant");
+  } else if (targetLang === "zh-Hans") {
+    title = convertScript(title, "zh-Hans");
+    artist = convertScript(artist, "zh-Hans");
+  }
+
   const out = [];
   if (title) out.push(`[ti:${title}]`);
   if (artist) out.push(`[ar:${artist}]`);
@@ -3402,8 +3500,19 @@ function exportCurrentLrc() {
 
   for (const line of lines) {
     const startStr = formatLrcTimestamp(line.start || 0);
-    const text = (line.text || (line.words || []).map(w => w.word || "").join("")).trim();
+    let text = (line.text || (line.words || []).map(w => w.word || "").join("")).trim();
     if (!text && (!line.words || !line.words.length)) continue;
+    if (targetLang === "zh-Hant") {
+      text = convertScript(text, "zh-Hant");
+    } else if (targetLang === "zh-Hans") {
+      text = convertScript(text, "zh-Hans");
+    }
+    if (isPinyin) {
+      const pinyinText = line.pinyin || (line.words || []).map(w => w.pinyin || "").join(" ").trim();
+      if (pinyinText) {
+        out.push(`[${startStr}]${pinyinText}`);
+      }
+    }
     out.push(`[${startStr}]${text}`);
   }
 
@@ -3413,8 +3522,9 @@ function exportCurrentLrc() {
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = blobUrl;
-    const safeFilename = title.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 100) || "lyrics";
-    a.download = `${safeFilename}.lrc`;
+    const safeTitle = title.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 100) || "lyrics";
+    const suffix = isPinyin ? "_pinyin" : (targetLang ? `_${targetLang}` : "");
+    a.download = `${safeTitle}${suffix}.lrc`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -3484,7 +3594,7 @@ function detectLyricLanguage(input) {
   return "zh-Hans";
 }
 
-function exportCurrentTtml() {
+function exportCurrentTtml(options = {}) {
   const lines = state.alignment?.lines || [];
   if (!lines.length) {
     if (typeof status === "function") {
@@ -3492,14 +3602,23 @@ function exportCurrentTtml() {
     }
     return "";
   }
-  const title = state.currentFile?.name || state.alignment?.title || "lyrics";
-  const artist = state.alignment?.artist || "";
+  let title = state.currentFile?.name || state.alignment?.title || "lyrics";
+  let artist = state.alignment?.artist || "";
   const maxEnd = Math.max(0, ...lines.map(l => Number(l.end || l.start || 0)));
   const durStr = formatTtmlTimestamp(maxEnd);
 
-  const explicitLang = state.alignment?.lang;
+  const targetLang = options?.lang || null;
+  const isRuby = options?.ruby === "pinyin";
+
+  const explicitLang = targetLang || state.alignment?.lang;
   let lang = "zh-Hans";
-  if (explicitLang) {
+  if (targetLang) {
+    const l = String(targetLang).trim().toLowerCase().replace("_", "-");
+    if (["zh-cn", "zh-sg", "zh-hans", "zh"].includes(l)) lang = "zh-Hans";
+    else if (["zh-tw", "zh-hk", "zh-mo", "zh-hant"].includes(l)) lang = "zh-Hant";
+    else if (l.startsWith("en")) lang = "en";
+    else lang = targetLang;
+  } else if (explicitLang) {
     const l = String(explicitLang).trim().toLowerCase().replace("_", "-");
     if (["zh-cn", "zh-sg", "zh-hans", "zh"].includes(l)) lang = "zh-Hans";
     else if (["zh-tw", "zh-hk", "zh-mo", "zh-hant"].includes(l)) lang = "zh-Hant";
@@ -3509,12 +3628,27 @@ function exportCurrentTtml() {
     lang = detectLyricLanguage(lines);
   }
 
+  if (lang === "zh-Hant") {
+    title = convertScript(title, "zh-Hant");
+    artist = convertScript(artist, "zh-Hant");
+  } else if (lang === "zh-Hans") {
+    title = convertScript(title, "zh-Hans");
+    artist = convertScript(artist, "zh-Hans");
+  }
+
+  const rootAttrs = [
+    'xmlns="http://www.w3.org/ns/ttml"',
+    'xmlns:ttm="http://www.w3.org/ns/ttml#metadata"',
+    'xmlns:itunes="http://music.apple.com/lyric-ttml-extensions"',
+  ];
+  if (isRuby) {
+    rootAttrs.push('xmlns:tts="http://www.w3.org/ns/ttml#styling"');
+  }
+  rootAttrs.push(`xml:lang="${escapeXmlForTtml(lang)}"`);
+
   const out = [
     '<?xml version="1.0" encoding="UTF-8"?>',
-    '<tt xmlns="http://www.w3.org/ns/ttml"',
-    '    xmlns:ttm="http://www.w3.org/ns/ttml#metadata"',
-    '    xmlns:itunes="http://music.apple.com/lyric-ttml-extensions"',
-    `    xml:lang="${escapeXmlForTtml(lang)}">`,
+    `<tt ${rootAttrs.join("\n    ")}>`,
     '  <head>',
     '    <metadata>',
     `      <ttm:title>${escapeXmlForTtml(title)}</ttm:title>`,
@@ -3531,17 +3665,34 @@ function exportCurrentTtml() {
     const pBegin = formatTtmlTimestamp(start);
     const pEnd = formatTtmlTimestamp(end);
     const words = line.words || [];
-    const text = (line.text || words.map(w => w.word || "").join("")).trim();
+    let text = (line.text || words.map(w => w.word || "").join("")).trim();
 
     if (!text && !words.length) continue;
+
+    if (lang === "zh-Hant") {
+      text = convertScript(text, "zh-Hant");
+    } else if (lang === "zh-Hans") {
+      text = convertScript(text, "zh-Hans");
+    }
 
     if (words.length > 0) {
       const spans = words
         .filter(w => (w.word || "").trim())
         .map(w => {
+          let wordText = w.word;
+          if (lang === "zh-Hant") wordText = convertScript(wordText, "zh-Hant");
+          else if (lang === "zh-Hans") wordText = convertScript(wordText, "zh-Hans");
+
           const wStart = formatTtmlTimestamp(w.start ?? start);
           const wEnd = formatTtmlTimestamp(w.end ?? (w.start ? w.start + 0.3 : end));
-          return `<span begin="${wStart}" end="${wEnd}">${escapeXmlForTtml(w.word)}</span>`;
+
+          if (isRuby) {
+            const pinyinVal = w.pinyin || "";
+            if (pinyinVal) {
+              return `<span begin="${wStart}" end="${wEnd}" tts:ruby="container"><span tts:ruby="base">${escapeXmlForTtml(wordText)}</span><span tts:ruby="textContainer"><span tts:ruby="text">${escapeXmlForTtml(pinyinVal)}</span></span></span>`;
+            }
+          }
+          return `<span begin="${wStart}" end="${wEnd}">${escapeXmlForTtml(wordText)}</span>`;
         });
       if (spans.length) {
         out.push(`      <p begin="${pBegin}" end="${pEnd}">${spans.join("")}</p>`);
@@ -3563,8 +3714,9 @@ function exportCurrentTtml() {
     const blobUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = blobUrl;
-    const safeFilename = title.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 100) || "lyrics";
-    a.download = `${safeFilename}.ttml`;
+    const safeTitle = title.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 100) || "lyrics";
+    const suffix = isRuby ? "_pinyin" : (targetLang ? `_${targetLang}` : "");
+    a.download = `${safeTitle}${suffix}.ttml`;
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -3574,6 +3726,97 @@ function exportCurrentTtml() {
     }
   }
   return ttmlContent;
+}
+
+async function handleBlobDownload(res, defaultFilename) {
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = blobUrl;
+  const disposition = res.headers?.get?.("content-disposition");
+  let filename = defaultFilename;
+  if (disposition) {
+    const fnStarMatch = disposition.match(/filename\*=UTF-8''([^;\n]+)/i);
+    if (fnStarMatch && fnStarMatch[1]) {
+      filename = decodeURIComponent(fnStarMatch[1]);
+    } else if (disposition.includes("filename=")) {
+      const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      if (match && match[1]) {
+        filename = match[1].replace(/['"]/g, "");
+      }
+    }
+  }
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+  if (typeof status === "function") {
+    const msg = filename.endsWith(".ttml")
+      ? (window.t ? t("msg_ttml_exported") : "Apple TTML lyrics exported successfully!")
+      : (filename.endsWith(".zip")
+        ? (window.t ? t("msg_bundle_exported") : "Lyrics bundle downloaded successfully!")
+        : (window.t ? t("msg_lrc_exported") : "LRC lyrics exported successfully!"));
+    status(msg);
+  }
+}
+
+async function downloadLyricsFromServer(type, queryParams = {}) {
+  const taskId = state.currentFile?.task_id || state.currentFile?.id || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("task_id"));
+  if (!taskId) {
+    if (type === "ttml") exportCurrentTtml(queryParams);
+    else if (type === "lrc") exportCurrentLrc(queryParams);
+    return;
+  }
+  const title = state.currentFile?.name || state.alignment?.title || "lyrics";
+  const fetchFn = (typeof window !== "undefined" && window.apiFetch) || (typeof fetch !== "undefined" ? fetch : null);
+  if (!fetchFn) return;
+  const qs = new URLSearchParams(queryParams).toString();
+  const queryStr = qs ? `?${qs}` : "";
+  try {
+    const res = await fetchFn(`/api/tasks/${taskId}/download/${type}${queryStr}`);
+    if (!res.ok) {
+      const res2 = await fetchFn(`/api/editor/tasks/${taskId}/${type}${queryStr}`);
+      if (!res2.ok) throw new Error(`HTTP ${res.status}`);
+      await handleBlobDownload(res2, `${title}.${type}`);
+      return;
+    }
+    await handleBlobDownload(res, `${title}.${type}`);
+  } catch (err) {
+    console.warn("[LyricEditor] Server download failed, falling back to client export:", err);
+    if (type === "ttml") exportCurrentTtml(queryParams);
+    else if (type === "lrc") exportCurrentLrc(queryParams);
+  }
+}
+
+async function exportLyricsBundle() {
+  const taskId = state.currentFile?.task_id || state.currentFile?.id || (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("task_id"));
+  if (!taskId) {
+    if (typeof status === "function") {
+      status(window.t ? t("msg_select_song_first") : "请先选择或加载一首歌曲", true);
+    }
+    return;
+  }
+  const title = state.currentFile?.name || state.alignment?.title || "lyrics";
+  const fetchFn = (typeof window !== "undefined" && window.apiFetch) || (typeof fetch !== "undefined" ? fetch : null);
+  if (!fetchFn) return;
+  try {
+    if (typeof status === "function") {
+      status(window.t ? t("export_opt_bundle_zip") + "..." : "正在打包全套歌词分发包...");
+    }
+    const res = await fetchFn(`/api/tasks/${taskId}/download/zip`);
+    if (!res.ok) {
+      const res2 = await fetchFn(`/api/editor/tasks/${taskId}/lyrics-bundle`);
+      if (!res2.ok) throw new Error(`HTTP ${res.status}`);
+      await handleBlobDownload(res2, `${title}_lyrics.zip`);
+      return;
+    }
+    await handleBlobDownload(res, `${title}_lyrics.zip`);
+  } catch (err) {
+    if (typeof status === "function") {
+      status(`Bundle export failed: ${err.message}`, true);
+    }
+  }
 }
 
 if (typeof window !== "undefined") {
@@ -3596,10 +3839,12 @@ if (typeof window !== "undefined") {
   window.getTimingWarningsVisible = () => timingWarningsVisible;
   window.syncSyllablesOnWordChange = syncSyllablesOnWordChange;
   window.formatLrcTimestamp = formatLrcTimestamp;
+  window.convertScript = convertScript;
   window.exportCurrentLrc = exportCurrentLrc;
   window.formatTtmlTimestamp = formatTtmlTimestamp;
   window.detectLyricLanguage = detectLyricLanguage;
   window.exportCurrentTtml = exportCurrentTtml;
+  window.exportLyricsBundle = exportLyricsBundle;
 }
 
 if (typeof module !== "undefined" && module.exports) {
@@ -3614,9 +3859,11 @@ if (typeof module !== "undefined" && module.exports) {
     getTimingWarningsVisible: () => timingWarningsVisible,
     syncSyllablesOnWordChange,
     formatLrcTimestamp,
+    convertScript,
     exportCurrentLrc,
     formatTtmlTimestamp,
     detectLyricLanguage,
     exportCurrentTtml,
+    exportLyricsBundle,
   };
 }

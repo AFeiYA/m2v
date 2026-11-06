@@ -919,16 +919,45 @@ async def delete_task(
 async def download_file(
     task_id: str,
     file_type: str,
+    lang: str | None = Query(None, description="zh-Hans | zh-Hant | en"),
+    ruby: str | None = Query(None, description="pinyin"),
+    pinyin: bool = Query(False, description="是否输出带拼音的双行 LRC"),
     user: User = Depends(get_current_user_flexible),
     db: AsyncSession = Depends(get_db),
 ):
     """
     下载任务产物
 
-    file_type: mp4 | ass | lrc | ttml | alignment | mp3 | lyrics
+    file_type: mp4 | ass | lrc | ttml | alignment | mp3 | lyrics | zip
     """
     task = await _get_user_task(db, user.id, task_id)
     storage = get_storage()
+
+    # 动态即时生成所有歌词格式全套分发包 (.zip)
+    if file_type in ("zip", "bundle"):
+        if not task.alignment_json_key and not task.output_ass_key:
+            raise HTTPException(404, "Alignment data has not been generated for this task.")
+        import tempfile
+        from src.ass2ttml import build_lyrics_bundle_zip, make_content_disposition
+        data = None
+        if task.alignment_json_key:
+            with tempfile.TemporaryDirectory(prefix="m2v-zip-dl-") as td:
+                align_local = Path(td) / "alignment.json"
+                await storage.load(task.alignment_json_key, align_local)
+                data = json.loads(align_local.read_text(encoding="utf-8"))
+        zip_bytes = build_lyrics_bundle_zip(
+            data or {"lines": []},
+            title=task.song_title or task.title or "",
+            artist=getattr(task, "artist", "") or "",
+        )
+        base_name = task.song_title or task.title or "lyrics"
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": make_content_disposition(f"{base_name}_lyrics", "zip"),
+            },
+        )
 
     # 动态即时生成 Apple Music TTML 歌词：基于最新的 alignment.json 逐字生成标准 TTML
     if file_type == "ttml":
@@ -946,6 +975,8 @@ async def download_file(
                     data,
                     title=task.song_title or task.title or "",
                     artist=getattr(task, "artist", "") or "",
+                    lang=lang,
+                    ruby=ruby,
                 )
         elif task.output_ass_key:
             with tempfile.TemporaryDirectory(prefix="m2v-ttml-ass-dl-") as td:
@@ -955,9 +986,13 @@ async def download_file(
                     ass_local.read_text(encoding="utf-8-sig"),
                     title=task.song_title or task.title or "",
                     artist=getattr(task, "artist", "") or "",
+                    lang=lang,
+                    ruby=ruby,
                 )
 
-        filename = task.song_title or task.title or "lyrics"
+        base_name = task.song_title or task.title or "lyrics"
+        suffix = f"_{lang}" if lang else ("_pinyin_ruby" if ruby else "")
+        filename = f"{base_name}{suffix}"
         return Response(
             content=ttml_content,
             media_type="application/xml; charset=utf-8",
@@ -983,6 +1018,8 @@ async def download_file(
                     data,
                     title=task.song_title or task.title or "",
                     artist=getattr(task, "artist", "") or "",
+                    lang=lang,
+                    pinyin=pinyin,
                 )
         elif task.output_ass_key:
             with tempfile.TemporaryDirectory(prefix="m2v-lrc-ass-dl-") as td:
@@ -991,7 +1028,9 @@ async def download_file(
                 lrc_lines = ass_text_to_lrc(ass_local.read_text(encoding="utf-8-sig"))
                 lrc_content = "\n".join(lrc_lines) + "\n"
 
-        filename = task.song_title or task.title or "lyrics"
+        base_name = task.song_title or task.title or "lyrics"
+        suffix = f"_{lang}" if lang else ("_pinyin" if pinyin else "")
+        filename = f"{base_name}{suffix}"
         return Response(
             content=lrc_content,
             media_type="text/plain; charset=utf-8",

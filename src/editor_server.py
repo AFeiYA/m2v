@@ -18,7 +18,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from sqlalchemy import select
@@ -161,6 +161,8 @@ async def get_alignment(
 @router.get("/tasks/{task_id}/lrc")
 async def get_task_lrc(
     task_id: str,
+    lang: str | None = Query(None, description="zh-Hans | zh-Hant"),
+    pinyin: bool = Query(False, description="是否输出带拼音的双行 LRC"),
     user: User = Depends(get_current_user_flexible),
     db: AsyncSession = Depends(get_db),
 ):
@@ -179,8 +181,12 @@ async def get_task_lrc(
         payload,
         title=task.song_title or task.title or "",
         artist=getattr(task, "artist", "") or "",
+        lang=lang,
+        pinyin=pinyin,
     )
-    filename = task.song_title or task.title or "lyrics"
+    base_name = task.song_title or task.title or "lyrics"
+    suffix = f"_{lang}" if lang else ("_pinyin" if pinyin else "")
+    filename = f"{base_name}{suffix}"
     return Response(
         content=lrc_content,
         media_type="text/plain; charset=utf-8",
@@ -193,6 +199,8 @@ async def get_task_lrc(
 @router.get("/tasks/{task_id}/ttml")
 async def get_task_ttml(
     task_id: str,
+    lang: str | None = Query(None, description="zh-Hans | zh-Hant | en"),
+    ruby: str | None = Query(None, description="pinyin"),
     user: User = Depends(get_current_user_flexible),
     db: AsyncSession = Depends(get_db),
 ):
@@ -210,13 +218,48 @@ async def get_task_ttml(
         payload,
         title=task.song_title or task.title or "",
         artist=getattr(task, "artist", "") or "",
+        lang=lang,
+        ruby=ruby,
     )
-    filename = task.song_title or task.title or "lyrics"
+    base_name = task.song_title or task.title or "lyrics"
+    suffix = f"_{lang}" if lang else ("_pinyin_ruby" if ruby else "")
+    filename = f"{base_name}{suffix}"
     return Response(
         content=ttml_content,
         media_type="application/xml; charset=utf-8",
         headers={
             "Content-Disposition": make_content_disposition(filename, "ttml"),
+        },
+    )
+
+
+@router.get("/tasks/{task_id}/lyrics-bundle")
+async def get_task_lyrics_bundle(
+    task_id: str,
+    user: User = Depends(get_current_user_flexible),
+    db: AsyncSession = Depends(get_db),
+):
+    """打包下载任务所有格式与变体的完整歌词分发包 (.zip)"""
+    task = await _get_user_task(db, user.id, task_id)
+    if not task.alignment_json_key:
+        raise HTTPException(404, "该任务没有对齐数据")
+
+    storage = get_storage()
+    payload = await _load_alignment(storage, task.alignment_json_key)
+    payload = await _hydrate_source_sections(storage, task, payload)
+
+    from src.ass2ttml import build_lyrics_bundle_zip, make_content_disposition
+    zip_bytes = build_lyrics_bundle_zip(
+        payload,
+        title=task.song_title or task.title or "",
+        artist=getattr(task, "artist", "") or "",
+    )
+    base_name = task.song_title or task.title or "lyrics"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": make_content_disposition(f"{base_name}_lyrics", "zip"),
         },
     )
 

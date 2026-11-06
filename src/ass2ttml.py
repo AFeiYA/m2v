@@ -233,15 +233,79 @@ def normalize_ttml_lang(lang: str | None) -> str:
 	return cleaned
 
 
+def convert_script(text: str, target_lang: str) -> str:
+	"""Convert Chinese text script to traditional or simplified if requested."""
+	if not text:
+		return ""
+	if target_lang == "zh-Hant":
+		try:
+			import opencc
+
+			return opencc.OpenCC("s2t").convert(text)
+		except Exception:
+			return text
+	elif target_lang == "zh-Hans":
+		try:
+			import opencc
+
+			return opencc.OpenCC("t2s").convert(text)
+		except Exception:
+			return text
+	return text
+
+
+def format_ruby_spans(text: str, start_str: str = "", end_str: str = "") -> str:
+	"""Format Han characters with W3C TTML ruby tags and pinyin."""
+	if not text:
+		return ""
+	timing = f' begin="{start_str}" end="{end_str}"' if start_str and end_str else ""
+	if not re.search(r"[\u4e00-\u9fff]", text):
+		return f"<span{timing}>{escape_xml(text)}</span>" if timing else escape_xml(text)
+
+	try:
+		from pypinyin import Style, pinyin
+
+		py_list = pinyin(text, style=Style.TONE)
+		chars = list(text)
+		if len(chars) == len(py_list):
+			spans = []
+			for c, py in zip(chars, py_list):
+				if re.match(r"[\u4e00-\u9fff]", c):
+					spans.append(
+						f'<span tts:ruby="container">'
+						f'<span tts:ruby="base"{timing}>{escape_xml(c)}</span>'
+						f'<span tts:ruby="textContainer">'
+						f'<span tts:ruby="text"{timing}>{escape_xml(py[0])}</span>'
+						f"</span></span>"
+					)
+				else:
+					spans.append(f"<span{timing}>{escape_xml(c)}</span>" if timing else escape_xml(c))
+			return "".join(spans)
+		else:
+			py_full = " ".join(p[0] for p in py_list)
+			return (
+				f'<span tts:ruby="container">'
+				f'<span tts:ruby="base"{timing}>{escape_xml(text)}</span>'
+				f'<span tts:ruby="textContainer">'
+				f'<span tts:ruby="text"{timing}>{escape_xml(py_full)}</span>'
+				f"</span></span>"
+			)
+	except Exception:
+		return f"<span{timing}>{escape_xml(text)}</span>" if timing else escape_xml(text)
+
+
 def alignment_to_ttml(
 	alignment: Any,
 	title: str = "",
 	artist: str = "",
 	lang: str | None = None,
+	ruby: str | bool | None = None,
 ) -> str:
 	"""Convert alignment data to Apple Music Timed Text Markup Language (TTML) format.
 
 	If lang is omitted or empty, it will be automatically detected from the lyric text.
+	If ruby is enabled (e.g. ruby="pinyin" or True), Han characters will be wrapped in
+	W3C TTML <span tts:ruby="container"> blocks with pinyin pronunciation.
 	"""
 	if not lang or str(lang).strip().lower() == "auto":
 		resolved_lang = detect_lyric_lang(alignment)
@@ -266,6 +330,10 @@ def alignment_to_ttml(
 	meta_title = meta_title or "Untitled"
 	meta_artist = meta_artist or "Unknown Artist"
 
+	if resolved_lang in ("zh-Hant", "zh-Hans"):
+		meta_title = convert_script(meta_title, resolved_lang)
+		meta_artist = convert_script(meta_artist, resolved_lang)
+
 	# Compute total duration from max line end
 	max_end = 0.0
 	for line in lines_data:
@@ -282,6 +350,7 @@ def alignment_to_ttml(
 		'<?xml version="1.0" encoding="UTF-8"?>',
 		'<tt xmlns="http://www.w3.org/ns/ttml"',
 		'    xmlns:ttm="http://www.w3.org/ns/ttml#metadata"',
+		'    xmlns:tts="http://www.w3.org/ns/ttml#styling"',
 		'    xmlns:itunes="http://music.apple.com/lyric-ttml-extensions"',
 		f'    xml:lang="{escape_xml(resolved_lang)}">',
 		"  <head>",
@@ -293,6 +362,8 @@ def alignment_to_ttml(
 		f'  <body dur="{dur_str}">',
 		"    <div>",
 	]
+
+	use_ruby = bool(ruby)
 
 	for line in lines_data:
 		if hasattr(line, "start"):
@@ -318,6 +389,9 @@ def alignment_to_ttml(
 		if not clean_text and not words:
 			continue
 
+		if resolved_lang in ("zh-Hant", "zh-Hans"):
+			clean_text = convert_script(clean_text, resolved_lang)
+
 		p_begin = seconds_to_ttml_time(start)
 		p_end = seconds_to_ttml_time(end)
 
@@ -329,15 +403,26 @@ def alignment_to_ttml(
 				w_text = w.get("word", "") if isinstance(w, dict) else getattr(w, "word", "")
 				if not w_text:
 					continue
-				span_parts.append(
-					f'<span begin="{seconds_to_ttml_time(w_start)}" end="{seconds_to_ttml_time(w_end)}">{escape_xml(w_text)}</span>'
-				)
+				if resolved_lang in ("zh-Hant", "zh-Hans"):
+					w_text = convert_script(w_text, resolved_lang)
+
+				w_begin_str = seconds_to_ttml_time(w_start)
+				w_end_str = seconds_to_ttml_time(w_end)
+
+				if use_ruby:
+					span_parts.append(format_ruby_spans(w_text, w_begin_str, w_end_str))
+				else:
+					span_parts.append(
+						f'<span begin="{w_begin_str}" end="{w_end_str}">{escape_xml(w_text)}</span>'
+					)
 			if span_parts:
 				xml_lines.append(f'      <p begin="{p_begin}" end="{p_end}">{"".join(span_parts)}</p>')
 			else:
-				xml_lines.append(f'      <p begin="{p_begin}" end="{p_end}">{escape_xml(clean_text)}</p>')
+				content_str = format_ruby_spans(clean_text) if use_ruby else escape_xml(clean_text)
+				xml_lines.append(f'      <p begin="{p_begin}" end="{p_end}">{content_str}</p>')
 		else:
-			xml_lines.append(f'      <p begin="{p_begin}" end="{p_end}">{escape_xml(clean_text)}</p>')
+			content_str = format_ruby_spans(clean_text) if use_ruby else escape_xml(clean_text)
+			xml_lines.append(f'      <p begin="{p_begin}" end="{p_end}">{content_str}</p>')
 
 	xml_lines.extend([
 		"    </div>",
@@ -354,12 +439,13 @@ def convert_alignment_to_ttml(
 	title: str = "",
 	artist: str = "",
 	lang: str | None = None,
+	ruby: str | bool | None = None,
 ) -> Path:
 	"""Read alignment JSON file, convert to Apple Music TTML, and write to output_path."""
 	if output_path is None:
 		output_path = input_path.with_suffix(".ttml")
 	raw = json.loads(input_path.read_text(encoding="utf-8"))
-	content = alignment_to_ttml(raw, title=title, artist=artist, lang=lang)
+	content = alignment_to_ttml(raw, title=title, artist=artist, lang=lang, ruby=ruby)
 	output_path.parent.mkdir(parents=True, exist_ok=True)
 	output_path.write_text(content, encoding="utf-8")
 	return output_path
@@ -370,6 +456,7 @@ def ass_text_to_ttml(
 	title: str = "",
 	artist: str = "",
 	lang: str | None = None,
+	ruby: str | bool | None = None,
 ) -> str:
 	"""Convert ASS dialogue lines into Apple Music TTML format."""
 	event_format: list[str] | None = None
@@ -408,7 +495,57 @@ def ass_text_to_ttml(
 
 	# If lang is not provided, detect from the ass text or lines_data
 	resolved_lang = lang if lang else detect_lyric_lang({"lines": lines_data})
-	return alignment_to_ttml({"lines": lines_data}, title=title, artist=artist, lang=resolved_lang)
+	return alignment_to_ttml(
+		{"lines": lines_data}, title=title, artist=artist, lang=resolved_lang, ruby=ruby
+	)
+
+
+def build_lyrics_bundle_zip(alignment: Any, title: str = "", artist: str = "") -> bytes:
+	"""Package all common lyric formats (TTML zh-Hans/zh-Hant/Ruby and LRC Standard/zh-Hant/Pinyin) into a zip bundle."""
+	import io
+	import zipfile
+	from src.ass2lrc import alignment_to_lrc
+
+	buf = io.BytesIO()
+	clean_name = sanitize_download_filename(title or "lyrics")
+	with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+		# 1. Apple Music TTML Auto-detected
+		zf.writestr(
+			f"{clean_name}_AppleMusic_Auto.ttml",
+			alignment_to_ttml(alignment, title=title, artist=artist),
+		)
+		# 2. Apple Music TTML Simplified Chinese
+		zf.writestr(
+			f"{clean_name}_AppleMusic_zh-Hans.ttml",
+			alignment_to_ttml(alignment, title=title, artist=artist, lang="zh-Hans"),
+		)
+		# 3. Apple Music TTML Traditional Chinese
+		zf.writestr(
+			f"{clean_name}_AppleMusic_zh-Hant.ttml",
+			alignment_to_ttml(alignment, title=title, artist=artist, lang="zh-Hant"),
+		)
+		# 4. Apple Music TTML Ruby Pinyin
+		zf.writestr(
+			f"{clean_name}_AppleMusic_PinyinRuby.ttml",
+			alignment_to_ttml(alignment, title=title, artist=artist, ruby="pinyin"),
+		)
+		# 5. Standard LRC
+		zf.writestr(
+			f"{clean_name}_Standard.lrc",
+			alignment_to_lrc(alignment, title=title, artist=artist),
+		)
+		# 6. Traditional LRC
+		zf.writestr(
+			f"{clean_name}_zh-Hant.lrc",
+			alignment_to_lrc(alignment, title=title, artist=artist, lang="zh-Hant"),
+		)
+		# 7. Dual-line Pinyin LRC
+		zf.writestr(
+			f"{clean_name}_Pinyin_DualLine.lrc",
+			alignment_to_lrc(alignment, title=title, artist=artist, pinyin=True),
+		)
+
+	return buf.getvalue()
 
 
 def main() -> int:
@@ -423,6 +560,13 @@ def main() -> int:
 		default=None,
 		help="Language code (e.g. zh-Hans, zh-Hant, en). If omitted, automatically detected from lyrics.",
 	)
+	parser.add_argument(
+		"--ruby",
+		type=str,
+		default=None,
+		choices=["pinyin"],
+		help="Generate W3C TTML ruby phonetic annotations (e.g. pinyin).",
+	)
 	args = parser.parse_args()
 
 	in_file: Path = args.input
@@ -432,7 +576,12 @@ def main() -> int:
 
 	if in_file.suffix.lower() == ".json":
 		out_file = convert_alignment_to_ttml(
-			in_file, args.output, title=args.title, artist=args.artist, lang=args.lang
+			in_file,
+			args.output,
+			title=args.title,
+			artist=args.artist,
+			lang=args.lang,
+			ruby=args.ruby,
 		)
 	elif in_file.suffix.lower() == ".ass":
 		out_file = args.output or in_file.with_suffix(".ttml")
@@ -441,6 +590,7 @@ def main() -> int:
 			title=args.title,
 			artist=args.artist,
 			lang=args.lang,
+			ruby=args.ruby,
 		)
 		out_file.parent.mkdir(parents=True, exist_ok=True)
 		out_file.write_text(ttml_text, encoding="utf-8")
