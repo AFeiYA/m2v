@@ -42,7 +42,12 @@ export function compileSongLayout(project:Project,W:number,H:number,measure:Meas
  const cover:SongText[]=rows.map((text,i)=>({text,x:titleX,y:titleY+(i-(rows.length-1)/2)*lineHeight,fontSize:size,weight:800,anchor:'middle'}));
  if(artist)cover.push({text:artist,x:titleX,y:titleY+(rows.length-1)/2*lineHeight+size*.85,fontSize:fit(artist,base*.037,maxWidth,500),weight:500,anchor:'middle'});
  const first=project.lines[0]?.start||0,last=Math.max(0,...project.lines.map(l=>l.end));
- const introEnd=identity.show_intro&&first>=1?first:0;
+ // 前奏封面展示时机：必须在歌词出来前已彻底淡出完成，避免封面与首句字幕发生视觉重叠
+ // 歌词提前量（TV预览/Apple聚焦/动效入场）：长前奏预留约1.5-2秒，中短前奏按比例预留，加留白缓冲
+ const lyricLeadIn=first>=6?2.0:first>=3?Math.min(1.8,Math.max(0.7,first*0.28)):Math.max(0.4,first*0.25);
+ const breathingGap=first>=4?0.35:0.2;
+ const targetIntroEnd=first-lyricLeadIn-breathingGap;
+ const introEnd=identity.show_intro&&first>=1.5&&targetIntroEnd>=0.8?targetIntroEnd:0;
  const outroStart=identity.show_outro&&project.duration-last>=1.5?last+.3:project.duration;
  const sections:SongLayout['sections']=[];
  if(identity.show_section&&identity.style==='editorial'){
@@ -59,7 +64,8 @@ export function songLayoutAt(layout:SongLayout|null,t:number){
  if(!layout)return {texts:[] as SongText[],alpha:0,cover:false,rule:false,section:''};
  const intro=t>=0&&t<layout.introEnd,outro=t>=layout.outroStart&&t<layout.duration,cover=intro||outro;
  const start=intro?0:layout.outroStart,end=intro?layout.introEnd:layout.duration;
- const alpha=cover?Math.max(0,Math.min(1,(t-start)/.3,(end-t)/.3)):1;
+ const fadeDur=intro?Math.min(0.35,layout.introEnd*0.3):0.3;
+ const alpha=cover?Math.max(0,Math.min(1,(t-start)/.3,(end-t)/fadeDur)):1;
  const section=layout.sections.filter(s=>s.start<=t&&t<s.end).at(-1)?.name||'';
  return {texts:cover?layout.cover:layout.header,alpha,cover,rule:layout.editorial,section:cover?'':section};
 }

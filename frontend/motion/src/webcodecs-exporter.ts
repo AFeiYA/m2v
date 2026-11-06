@@ -98,6 +98,8 @@ export function renderCanvasFrame(
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, W, H);
 
+  const songFrame = songLayoutAt(songLayout, t);
+
   // 2. Cover image background & artwork card
   if (coverImage) {
     const opacity = coverOpacityAt(songLayout, t);
@@ -108,7 +110,6 @@ export function renderCanvasFrame(
       ctx.drawImage(coverImage, placement.x, placement.y, placement.width, placement.height);
       ctx.restore();
     }
-    const songFrame = songLayoutAt(songLayout, t);
     if (songFrame.cover && songLayout?.artwork) {
       const art = songLayout.artwork;
       const artPlacement = coverPlacement(project, art);
@@ -128,33 +129,34 @@ export function renderCanvasFrame(
   }
 
   // 3. Intro Title animation
-  if (intro) {
-    const introState = introTitleState(intro, t, H);
-    if (introState.alpha > 0) {
-      ctx.save();
-      ctx.globalAlpha = introState.alpha;
-      ctx.translate(intro.cx, intro.cy + introState.dy);
-      ctx.scale(introState.scale, introState.scale);
-      ctx.font = `${intro.weight} ${intro.fontSize}px ${POSTER_FONT}`;
-      ctx.fillStyle = intro.color;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'alphabetic';
-      ctx.fillText(intro.text, intro.x - intro.cx, intro.y - intro.cy);
-      ctx.restore();
-    }
+  const introState = intro ? introTitleState(intro, t, H) : null;
+  if (intro && introState && introState.alpha > 0) {
+    ctx.save();
+    ctx.globalAlpha = introState.alpha;
+    ctx.translate(intro.cx, intro.cy + introState.dy);
+    ctx.scale(introState.scale, introState.scale);
+    ctx.font = `${intro.weight} ${intro.fontSize}px ${POSTER_FONT}`;
+    ctx.fillStyle = intro.color;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(intro.text, intro.x - intro.cx, intro.y - intro.cy);
+    ctx.restore();
   }
 
-  // 4. Lyrics presentation
-  if (visualMode === 'tv' && streamOptions?.ktvLayout) {
-    paintKtvDualCanvas(ctx, streamOptions.ktvLayout, t, POSTER_FONT);
-  } else if (visualMode === 'apple' && streamOptions?.appleLayout) {
-    paintAppleScrollCanvas(ctx, streamOptions.appleLayout, t, POSTER_FONT);
-  } else if (layouts) {
-    const plan = visiblePosterAt(layouts, t);
-    const feature = featuresAt(project, t);
-    const beatVal = feature.kick || feature.beat * 0.3;
-    if (plan) {
-      paintCompiledPoster(ctx, plan, t, beatVal, false);
+  // 4. Lyrics presentation (仅在前奏封面或标题淡出后渲染，杜绝任何视觉重叠)
+  const isCoverActive = songFrame.cover || (songLayout?.introEnd ? t < songLayout.introEnd : false) || (introState ? introState.alpha > 0 : false);
+  if (!isCoverActive) {
+    if (visualMode === 'tv' && streamOptions?.ktvLayout) {
+      paintKtvDualCanvas(ctx, streamOptions.ktvLayout, t, POSTER_FONT);
+    } else if (visualMode === 'apple' && streamOptions?.appleLayout) {
+      paintAppleScrollCanvas(ctx, streamOptions.appleLayout, t, POSTER_FONT);
+    } else if (layouts) {
+      const plan = visiblePosterAt(layouts, t);
+      const feature = featuresAt(project, t);
+      const beatVal = feature.kick || feature.beat * 0.3;
+      if (plan) {
+        paintCompiledPoster(ctx, plan, t, beatVal, false);
+      }
     }
   }
 

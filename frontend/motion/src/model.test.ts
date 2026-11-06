@@ -745,3 +745,66 @@ test('portrait accommodates a complete short payoff without stranding its ending
    assert.equal(clips.find(c => c.id === 'chorus')!.available, false);
    assert.equal(clips.find(c => c.id === 'highlight')!.available, true);
  });
+
+test('intro cover completely fades out before lyrics appear, eliminating visual overlap', async () => {
+  const { compileSongLayout, songLayoutAt } = await import('./song-layout.ts');
+  const { compileKtvDualLayout, compileAppleScrollLayout, appleScrollStateAt } = await import('./stream-layout.ts');
+
+  const measure = (text: string, size: number) => ({ width: Array.from(text).length * size, ascent: size * 0.8, descent: size * 0.2 });
+  const palette = {
+    background: '#0d120a',
+    foreground: '#f4f9ed',
+    accent: '#b7f34a',
+    accentSecondary: '#8be222',
+    accentDark: '#4a7515',
+    highlightPending: '#5a6b52',
+    dimColor: '#4d5c48',
+    muted: '#5a6b52',
+  };
+
+  const project = normalizeProject({
+    title: '海风吹拂',
+    artist: '测试歌手',
+    duration: 30,
+    song_identity: {
+      version: 'motion-song-identity-v1',
+      title: '海风吹拂',
+      artist: '测试歌手',
+      style: 'editorial',
+      show_intro: true,
+      show_signature: true,
+      show_section: false,
+      show_outro: true,
+    },
+    lines: [
+      { text: '海风轻轻吹过宁静海岸', start: 6.0, end: 10.0, words: [{ word: '海风轻轻吹过宁静海岸', start: 6.0, end: 10.0 }] },
+      { text: '海鸥飞向辽阔的远方', start: 10.5, end: 14.0, words: [{ word: '海鸥飞向辽阔的远方', start: 10.5, end: 14.0 }] }
+    ]
+  });
+
+  const songLayout = compileSongLayout(project, 1280, 720, measure)!;
+  assert.ok(songLayout.introEnd > 0);
+  assert.ok(songLayout.introEnd < 6.0);
+
+  // 1. 验证封面淡出时机：在 introEnd 处封面已彻底淡出完毕
+  const atIntroMid = songLayoutAt(songLayout, 2.0);
+  assert.equal(atIntroMid.cover, true);
+  assert.equal(atIntroMid.alpha, 1);
+
+  const atIntroEnd = songLayoutAt(songLayout, songLayout.introEnd);
+  assert.equal(atIntroEnd.cover, false);
+
+  // 2. 验证 TV KTV 双行模式：第一句预览时间严格在 introEnd 之后
+  const ktv = compileKtvDualLayout(project, 1280, 720, measure, palette);
+  assert.ok(ktv.lines[0].previewStart >= songLayout.introEnd);
+
+  // 3. 验证 Apple Scroll 模式：在 introEnd 之前，歌词处于隐藏状态 (items 为空)
+  const apple = compileAppleScrollLayout(project, 1280, 720, measure, palette);
+  const stateDuringCover = appleScrollStateAt(apple, 1.5);
+  assert.equal(stateDuringCover.items.length, 0);
+
+  // 在 introEnd 之后且在开唱前，歌词平滑显现且聚焦
+  const stateAfterCover = appleScrollStateAt(apple, songLayout.introEnd + 0.5);
+  assert.ok(stateAfterCover.items.length > 0);
+  assert.ok(stateAfterCover.items[0].alpha > 0);
+});
