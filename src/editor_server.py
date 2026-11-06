@@ -174,17 +174,18 @@ async def get_task_lrc(
     payload = await _hydrate_source_sections(storage, task, payload)
 
     from src.ass2lrc import alignment_to_lrc
+    from src.ass2ttml import make_content_disposition
     lrc_content = alignment_to_lrc(
         payload,
         title=task.song_title or task.title or "",
         artist=getattr(task, "artist", "") or "",
     )
-    safe_filename = re.sub(r'[^\w.\-\u4e00-\u9fa5]', '_', task.song_title or task.title or "lyrics").strip('.') or "lyrics"
+    filename = task.song_title or task.title or "lyrics"
     return Response(
         content=lrc_content,
         media_type="text/plain; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="{safe_filename}.lrc"',
+            "Content-Disposition": make_content_disposition(filename, "lrc"),
         },
     )
 
@@ -204,18 +205,18 @@ async def get_task_ttml(
     payload = await _load_alignment(storage, task.alignment_json_key)
     payload = await _hydrate_source_sections(storage, task, payload)
 
-    from src.ass2ttml import alignment_to_ttml
+    from src.ass2ttml import alignment_to_ttml, make_content_disposition
     ttml_content = alignment_to_ttml(
         payload,
         title=task.song_title or task.title or "",
         artist=getattr(task, "artist", "") or "",
     )
-    safe_filename = re.sub(r'[^\w.\-\u4e00-\u9fa5]', '_', task.song_title or task.title or "lyrics").strip('.') or "lyrics"
+    filename = task.song_title or task.title or "lyrics"
     return Response(
         content=ttml_content,
         media_type="application/xml; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="{safe_filename}.ttml"',
+            "Content-Disposition": make_content_disposition(filename, "ttml"),
         },
     )
 

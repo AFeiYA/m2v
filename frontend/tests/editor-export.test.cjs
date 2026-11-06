@@ -238,12 +238,59 @@ test('exportCurrentTtml exports Apple Music TTML format with word spans', () => 
   const ttml = s.context.exportCurrentTtml();
   assert.match(ttml, /<\?xml version="1.0" encoding="UTF-8"\?>/);
   assert.match(ttml, /<tt xmlns="http:\/\/www\.w3\.org\/ns\/ttml"/);
+  assert.match(ttml, /xml:lang="en"/);
   assert.match(ttml, /<ttm:title>My Song<\/ttm:title>/);
   assert.match(ttml, /<ttm:agent type="person" xml:id="v1">Singer<\/ttm:agent>/);
   assert.match(ttml, /<p begin="00:00:02\.500" end="00:00:06\.000">/);
   assert.match(ttml, /<span begin="00:00:02\.500" end="00:00:03\.500">Hello<\/span>/);
   assert.match(ttml, /<span begin="00:00:03\.600" end="00:00:06\.000">world<\/span>/);
   assert.match(ttml, /<p begin="00:00:07\.250" end="00:00:12\.000">Second line<\/p>/);
+});
+
+test('detectLyricLanguage detects English, Simplified Chinese, and Traditional Chinese', () => {
+  const { detectLyricLanguage } = require('../local/lyric_editor.js');
+  assert.equal(detectLyricLanguage('Hello world, I love singing this song'), 'en');
+  assert.equal(detectLyricLanguage('海风轻轻吹过海岸，夜色温柔'), 'zh-Hans');
+  assert.equal(detectLyricLanguage('海風輕輕吹過海岸，夜色溫柔'), 'zh-Hant');
+  assert.equal(detectLyricLanguage(''), 'zh-Hans');
+  assert.equal(detectLyricLanguage('123 456 789'), 'zh-Hans');
+});
+
+test('exportCurrentTtml generates standard Apple Music xml:lang according to lyric language', () => {
+  const s = setup();
+
+  // Simplified Chinese lyrics -> zh-Hans
+  s.context.state.alignment = {
+    title: '简中歌曲',
+    lines: [
+      { start: 1.0, end: 4.0, text: '海风轻轻吹拂' },
+      { start: 4.5, end: 8.0, text: '我们在沙滩漫步' },
+    ],
+  };
+  const ttmlSimp = s.context.exportCurrentTtml();
+  assert.match(ttmlSimp, /xml:lang="zh-Hans"/);
+  assert.doesNotMatch(ttmlSimp, /xml:lang="zh-CN"/);
+
+  // Traditional Chinese lyrics -> zh-Hant
+  s.context.state.alignment = {
+    title: '繁中歌曲',
+    lines: [
+      { start: 1.0, end: 4.0, text: '海風輕輕吹拂' },
+      { start: 4.5, end: 8.0, text: '我們在沙灘漫步' },
+    ],
+  };
+  const ttmlTrad = s.context.exportCurrentTtml();
+  assert.match(ttmlTrad, /xml:lang="zh-Hant"/);
+  assert.doesNotMatch(ttmlTrad, /xml:lang="zh-CN"/);
+
+  // Explicit override normalization (zh-CN -> zh-Hans)
+  s.context.state.alignment = {
+    title: '覆盖测试',
+    lang: 'zh-CN',
+    lines: [{ start: 1.0, end: 3.0, text: 'Hello world' }],
+  };
+  const ttmlOverride = s.context.exportCurrentTtml();
+  assert.match(ttmlOverride, /xml:lang="zh-Hans"/);
 });
 
 

@@ -935,7 +935,7 @@ async def download_file(
         if not task.alignment_json_key and not task.output_ass_key:
             raise HTTPException(404, "Alignment data has not been generated for this task.")
         import tempfile
-        from src.ass2ttml import alignment_to_ttml, ass_text_to_ttml
+        from src.ass2ttml import alignment_to_ttml, ass_text_to_ttml, make_content_disposition
         ttml_content = ""
         if task.alignment_json_key:
             with tempfile.TemporaryDirectory(prefix="m2v-ttml-dl-") as td:
@@ -957,12 +957,12 @@ async def download_file(
                     artist=getattr(task, "artist", "") or "",
                 )
 
-        safe_filename = re.sub(r'[^\w.\-\u4e00-\u9fa5]', '_', task.song_title or task.title or "lyrics").strip('.') or "lyrics"
+        filename = task.song_title or task.title or "lyrics"
         return Response(
             content=ttml_content,
             media_type="application/xml; charset=utf-8",
             headers={
-                "Content-Disposition": f'attachment; filename="{safe_filename}.ttml"',
+                "Content-Disposition": make_content_disposition(filename, "ttml"),
             },
         )
 
@@ -972,6 +972,7 @@ async def download_file(
             raise HTTPException(404, "Alignment data has not been generated for this task.")
         import tempfile
         from src.ass2lrc import alignment_to_lrc, ass_text_to_lrc
+        from src.ass2ttml import make_content_disposition
         lrc_content = ""
         if task.alignment_json_key:
             with tempfile.TemporaryDirectory(prefix="m2v-lrc-dl-") as td:
@@ -990,12 +991,12 @@ async def download_file(
                 lrc_lines = ass_text_to_lrc(ass_local.read_text(encoding="utf-8-sig"))
                 lrc_content = "\n".join(lrc_lines) + "\n"
 
-        safe_filename = re.sub(r'[^\w.\-\u4e00-\u9fa5]', '_', task.song_title or task.title or "lyrics").strip('.') or "lyrics"
+        filename = task.song_title or task.title or "lyrics"
         return Response(
             content=lrc_content,
             media_type="text/plain; charset=utf-8",
             headers={
-                "Content-Disposition": f'attachment; filename="{safe_filename}.lrc"',
+                "Content-Disposition": make_content_disposition(filename, "lrc"),
             },
         )
 
@@ -1006,6 +1007,7 @@ async def download_file(
         if task.alignment_json_key:
             import tempfile
             from src.aligner import AlignmentResult
+            from src.ass2ttml import make_content_disposition
             from src.subtitle import generate_ass
             with tempfile.TemporaryDirectory(prefix="m2v-ass-dl-") as td:
                 align_local = Path(td) / "alignment.json"
@@ -1014,12 +1016,12 @@ async def download_file(
                 ass_local = Path(td) / f"{task.title or 'subtitles'}.ass"
                 generate_ass(alignment=alignment, output_path=ass_local)
                 ass_content = ass_local.read_text(encoding="utf-8")
-            safe_filename = re.sub(r'[^\w.\-\u4e00-\u9fa5]', '_', task.title or "lyrics").strip('.') or "lyrics"
+            filename = task.title or task.song_title or "subtitles"
             return Response(
                 content=ass_content,
                 media_type="text/plain; charset=utf-8",
                 headers={
-                    "Content-Disposition": f'attachment; filename="{safe_filename}.ass"',
+                    "Content-Disposition": make_content_disposition(filename, "ass"),
                 },
             )
 

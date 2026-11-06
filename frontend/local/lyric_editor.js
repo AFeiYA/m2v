@@ -3446,6 +3446,44 @@ function escapeXmlForTtml(text) {
     .replace(/'/g, "&apos;");
 }
 
+const COMMON_TRAD_CHARS = new Set("愛風雲夢飛傷淚誰遠見離邊聽語話聲詞會動變換點樣歲懷戀憶歸尋難獨樂牽續終覺間問關開門頭臉發帶隨處別盡雙線轉車輕選進遺還這麼給讓請說讀們國時經學對長兩條實東電幾後當過來氣無書應體歡萬視傳華熱與為".split(""));
+const COMMON_SIMP_CHARS = new Set("爱风云梦飞伤泪谁远见离边听话声词会动变换点样岁怀恋忆归寻难独乐牵续终觉间问关开门头脸发带随处别尽双线转车轻选进遗还这么给让请说读们国时经学对长两条实东电几后当过来气无书应体欢万视传华热与为".split(""));
+
+function detectLyricLanguage(input) {
+  let text = "";
+  if (typeof input === "string") {
+    text = input;
+  } else if (Array.isArray(input)) {
+    text = input.map(l => l.text || (l.words || []).map(w => w.word || "").join("")).join(" ");
+  } else if (input && Array.isArray(input.lines)) {
+    text = input.lines.map(l => l.text || (l.words || []).map(w => w.word || "").join("")).join(" ");
+  } else if (input && typeof input === "object") {
+    text = String(input.text || "");
+  }
+
+  const hanMatches = text.match(/[\u4e00-\u9fff]/g) || [];
+  const latinMatches = text.match(/[a-zA-Z]/g) || [];
+
+  if (latinMatches.length > hanMatches.length) {
+    return "en";
+  }
+  if (hanMatches.length === 0) {
+    return "zh-Hans";
+  }
+
+  let tradCount = 0;
+  let simpCount = 0;
+  for (const ch of hanMatches) {
+    if (COMMON_TRAD_CHARS.has(ch)) tradCount++;
+    if (COMMON_SIMP_CHARS.has(ch)) simpCount++;
+  }
+
+  if (tradCount > simpCount) {
+    return "zh-Hant";
+  }
+  return "zh-Hans";
+}
+
 function exportCurrentTtml() {
   const lines = state.alignment?.lines || [];
   if (!lines.length) {
@@ -3459,12 +3497,24 @@ function exportCurrentTtml() {
   const maxEnd = Math.max(0, ...lines.map(l => Number(l.end || l.start || 0)));
   const durStr = formatTtmlTimestamp(maxEnd);
 
+  const explicitLang = state.alignment?.lang;
+  let lang = "zh-Hans";
+  if (explicitLang) {
+    const l = String(explicitLang).trim().toLowerCase().replace("_", "-");
+    if (["zh-cn", "zh-sg", "zh-hans", "zh"].includes(l)) lang = "zh-Hans";
+    else if (["zh-tw", "zh-hk", "zh-mo", "zh-hant"].includes(l)) lang = "zh-Hant";
+    else if (l.startsWith("en")) lang = "en";
+    else lang = explicitLang;
+  } else {
+    lang = detectLyricLanguage(lines);
+  }
+
   const out = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<tt xmlns="http://www.w3.org/ns/ttml"',
     '    xmlns:ttm="http://www.w3.org/ns/ttml#metadata"',
     '    xmlns:itunes="http://music.apple.com/lyric-ttml-extensions"',
-    '    xml:lang="zh-CN">',
+    `    xml:lang="${escapeXmlForTtml(lang)}">`,
     '  <head>',
     '    <metadata>',
     `      <ttm:title>${escapeXmlForTtml(title)}</ttm:title>`,
@@ -3548,6 +3598,7 @@ if (typeof window !== "undefined") {
   window.formatLrcTimestamp = formatLrcTimestamp;
   window.exportCurrentLrc = exportCurrentLrc;
   window.formatTtmlTimestamp = formatTtmlTimestamp;
+  window.detectLyricLanguage = detectLyricLanguage;
   window.exportCurrentTtml = exportCurrentTtml;
 }
 
@@ -3565,6 +3616,7 @@ if (typeof module !== "undefined" && module.exports) {
     formatLrcTimestamp,
     exportCurrentLrc,
     formatTtmlTimestamp,
+    detectLyricLanguage,
     exportCurrentTtml,
   };
 }
