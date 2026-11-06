@@ -478,12 +478,30 @@ export function computeAppleEdgeFade(centerY: number, height: number): number {
   return 1;
 }
 
+export interface AppleCountInDot {
+  index: number;
+  x: number;
+  y: number;
+  radius: number;
+  lit: boolean;
+  scale: number;
+  alpha: number;
+  glowAlpha: number;
+}
+
+export interface AppleCountInState {
+  targetLineIndex: number;
+  dots: [AppleCountInDot, AppleCountInDot, AppleCountInDot];
+  overallAlpha: number;
+}
+
 export function appleScrollStateAt(
   layout: AppleScrollCompiled,
   t: number
 ): {
   items: AppleLineRenderItem[];
   currentScrollY: number;
+  countIn?: AppleCountInState | null;
 } {
   const lines = layout.lines;
   if (!lines.length) return { items: [], currentScrollY: 0 };
@@ -578,9 +596,77 @@ export function appleScrollStateAt(
     });
   }
 
+  // 3. 计算 Apple 伴唱起拍 3 拍小圆点 (Count-in Dots)
+  let countIn: AppleCountInState | null = null;
+  const COUNT_IN_LEAD = 1.5;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const prevEnd = i > 0 ? lines[i - 1].end : introEnd;
+    const gap = line.start - prevEnd;
+
+    // 前奏或间奏空隙 >= 2.0s 时激活起拍圆点
+    if (gap >= 2.0) {
+      const countInStart = line.start - COUNT_IN_LEAD;
+      const countInEnd = line.start + 0.15;
+
+      if (t >= countInStart && t <= countInEnd) {
+        if (introEnd > 0 && t < introEnd) {
+          continue;
+        }
+
+        const targetItem = items.find(it => it.compiled.lineIndex === i);
+        const targetY = targetItem
+          ? targetItem.y
+          : Math.round(focalCenterY + (line.centerY - focalWorldY) - line.sentenceHeight / 2);
+        const targetX = line.rows[0]?.x ?? layout.startX;
+
+        const relTime = t - countInStart;
+        const entranceFade = Math.min(1, Math.max(0, relTime / 0.25));
+        const exitFade = t > line.start ? Math.max(0, 1 - (t - line.start) / 0.15) : 1;
+        const overallAlpha = Number((entranceFade * exitFade * introFade).toFixed(3));
+
+        if (overallAlpha > 0.01) {
+          const dotRadius = Math.max(4.5, Math.round(layout.activeFontSize * 0.12));
+          const dotSpacing = Math.round(dotRadius * 3.6);
+          const dotsY = targetY - Math.round(layout.activeFontSize * 0.72);
+          const dotsStartX = targetX + dotRadius;
+
+          const dots: [AppleCountInDot, AppleCountInDot, AppleCountInDot] = [0, 1, 2].map(dIdx => {
+            const beatStart = dIdx * 0.5;
+            const isLit = relTime >= beatStart;
+            const dt = Math.max(0, relTime - beatStart);
+            const scale = isLit ? Number((1.0 + Math.max(0, 0.40 * Math.exp(-dt * 5.0))).toFixed(3)) : 1.0;
+            const glowAlpha = isLit ? Number(Math.max(0, Math.exp(-dt * 3.5)).toFixed(3)) : 0;
+            const alpha = isLit ? 1.0 : 0.28;
+
+            return {
+              index: dIdx,
+              x: dotsStartX + dIdx * dotSpacing,
+              y: dotsY,
+              radius: dotRadius,
+              lit: isLit,
+              scale,
+              alpha,
+              glowAlpha,
+            };
+          }) as unknown as [AppleCountInDot, AppleCountInDot, AppleCountInDot];
+
+          countIn = {
+            targetLineIndex: i,
+            dots,
+            overallAlpha,
+          };
+          break;
+        }
+      }
+    }
+  }
+
   return {
     items,
     currentScrollY: focalCenterY - focalWorldY,
+    countIn,
   };
 }
 
@@ -607,7 +693,7 @@ export function paintAppleScrollCanvas(
   t: number,
   fontFamily: string
 ): void {
-  const { items } = appleScrollStateAt(layout, t);
+  const { items, countIn } = appleScrollStateAt(layout, t);
 
   // 1. 绘制焦点区域轻微的环境氛围晕光 (Ambient Glow)
   if (typeof ctx.createRadialGradient === 'function') {
@@ -662,6 +748,34 @@ export function paintAppleScrollCanvas(
         ctx.fillText(targetRow.text, targetRow.x, item.y + targetRow.yOffset);
         ctx.restore();
       }
+    }
+    ctx.restore();
+  }
+
+  // 3. 绘制 Apple 伴唱起跑 3 拍小圆点 (Count-in Dots)
+  if (countIn && countIn.overallAlpha > 0.01) {
+    ctx.save();
+    ctx.globalAlpha = countIn.overallAlpha;
+    for (const dot of countIn.dots) {
+      ctx.save();
+      ctx.translate(dot.x, dot.y);
+      ctx.scale(dot.scale, dot.scale);
+
+      if (dot.lit && dot.glowAlpha > 0.01) {
+        ctx.beginPath();
+        ctx.arc(0, 0, dot.radius * 2.2, 0, Math.PI * 2);
+        ctx.fillStyle = hexToRgba(layout.palette.accent, dot.glowAlpha * 0.45);
+        ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.arc(0, 0, dot.radius, 0, Math.PI * 2);
+      ctx.fillStyle = dot.lit
+        ? layout.palette.accent
+        : hexToRgba(layout.palette.foreground, dot.alpha);
+      ctx.fill();
+
+      ctx.restore();
     }
     ctx.restore();
   }

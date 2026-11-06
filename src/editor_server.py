@@ -189,6 +189,37 @@ async def get_task_lrc(
     )
 
 
+@router.get("/tasks/{task_id}/ttml")
+async def get_task_ttml(
+    task_id: str,
+    user: User = Depends(get_current_user_flexible),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取并导出任务最新的 Apple Music TTML (.ttml) 逐字同步歌词"""
+    task = await _get_user_task(db, user.id, task_id)
+    if not task.alignment_json_key:
+        raise HTTPException(404, "该任务没有对齐数据")
+
+    storage = get_storage()
+    payload = await _load_alignment(storage, task.alignment_json_key)
+    payload = await _hydrate_source_sections(storage, task, payload)
+
+    from src.ass2ttml import alignment_to_ttml
+    ttml_content = alignment_to_ttml(
+        payload,
+        title=task.song_title or task.title or "",
+        artist=getattr(task, "artist", "") or "",
+    )
+    safe_filename = re.sub(r'[^\w.\-\u4e00-\u9fa5]', '_', task.song_title or task.title or "lyrics").strip('.') or "lyrics"
+    return Response(
+        content=ttml_content,
+        media_type="application/xml; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_filename}.ttml"',
+        },
+    )
+
+
 @router.get("/tasks/{task_id}/review")
 async def get_task_review(
     task_id: str,
@@ -282,6 +313,27 @@ async def save_alignment(
                 lrc_tmp.unlink(missing_ok=True)
         except Exception as lrc_err:
             log.warning("存储 .lrc 失败: task=%s (%s)", task_id, lrc_err)
+
+        # 自动生成并存储最新 .ttml (Apple Music) 歌词文件
+        try:
+            from src.ass2ttml import alignment_to_ttml
+            ttml_text = alignment_to_ttml(
+                data,
+                title=task.song_title or task.title or "",
+                artist=getattr(task, "artist", "") or "",
+            )
+            ttml_key = task.alignment_json_key.rsplit(".json", 1)[0] + ".ttml"
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".ttml", delete=False, encoding="utf-8"
+            ) as tf:
+                tf.write(ttml_text)
+                ttml_tmp = Path(tf.name)
+            try:
+                await storage.save(ttml_key, ttml_tmp)
+            finally:
+                ttml_tmp.unlink(missing_ok=True)
+        except Exception as ttml_err:
+            log.warning("存储 .ttml 失败: task=%s (%s)", task_id, ttml_err)
     finally:
         tmp_path.unlink(missing_ok=True)
 

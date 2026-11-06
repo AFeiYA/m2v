@@ -808,7 +808,23 @@ test('intro cover completely fades out before lyrics appear, eliminating visual 
   assert.ok(stateAfterCover.items.length > 0);
   assert.ok(stateAfterCover.items[0].alpha > 0);
 
-  // 4. 验证共用函数与 style === 'none' 统一拦截
+  // 4. 验证 Apple 伴唱起跑 3 拍小圆点 (Count-in Dots)
+  const countInEarly = appleScrollStateAt(apple, 5.2).countIn;
+  assert.ok(countInEarly);
+  assert.equal(countInEarly.targetLineIndex, 0);
+  assert.equal(countInEarly.dots.length, 3);
+  assert.equal(countInEarly.dots[0].lit, true);
+  assert.equal(countInEarly.dots[1].lit, true);
+  assert.equal(countInEarly.dots[2].lit, false);
+
+  const countInLate = appleScrollStateAt(apple, 5.8).countIn;
+  assert.ok(countInLate);
+  assert.equal(countInLate.dots[2].lit, true);
+
+  const countInDuringSinging = appleScrollStateAt(apple, 7.0).countIn;
+  assert.equal(countInDuringSinging, null);
+
+  // 5. 验证共用函数与 style === 'none' 统一拦截
   const { computeIntroEnd, hasSongIntro } = await import('./song-layout.ts');
   assert.equal(computeIntroEnd(project), songLayout.introEnd);
   assert.equal(hasSongIntro(project), true);
