@@ -22,12 +22,47 @@ def seconds_to_lrc_time(seconds: float) -> str:
 	return f"{minutes:02d}:{secs:02d}.{centis:02d}"
 
 
+def _convert_lrc_script(text: str, target_lang: str | None) -> str:
+	if not text or not target_lang:
+		return text
+	lower = str(target_lang).strip().lower().replace("_", "-")
+	if lower in ("zh-hant", "zh-tw", "zh-hk", "zh-mo", "trad"):
+		try:
+			import opencc
+
+			return opencc.OpenCC("s2t").convert(text)
+		except Exception:
+			return text
+	elif lower in ("zh-hans", "zh-cn", "zh", "simp"):
+		try:
+			import opencc
+
+			return opencc.OpenCC("t2s").convert(text)
+		except Exception:
+			return text
+	return text
+
+
+def _format_pinyin_line(text: str) -> str:
+	if not text or not re.search(r"[\u4e00-\u9fff]", text):
+		return ""
+	try:
+		from pypinyin import Style, pinyin
+
+		py_list = pinyin(text, style=Style.TONE)
+		return " ".join(p[0] for p in py_list if p and p[0].strip())
+	except Exception:
+		return ""
+
+
 def alignment_to_lrc(
 	alignment: Any,
 	title: str = "",
 	artist: str = "",
 	*,
 	enhanced: bool = False,
+	lang: str | None = None,
+	pinyin: bool = False,
 ) -> str:
 	"""Convert alignment data (AlignmentResult, dict, or list of lines) to standard LRC format."""
 	lines_data = []
@@ -44,6 +79,10 @@ def alignment_to_lrc(
 		meta_artist = meta_artist or alignment.get("artist") or ""
 	elif isinstance(alignment, list):
 		lines_data = alignment
+
+	if lang:
+		meta_title = _convert_lrc_script(meta_title, lang)
+		meta_artist = _convert_lrc_script(meta_artist, lang)
 
 	out: list[str] = []
 	if meta_title:
@@ -75,16 +114,25 @@ def alignment_to_lrc(
 		if not clean_text and not words:
 			continue
 
+		if lang:
+			clean_text = _convert_lrc_script(clean_text, lang)
+
 		if enhanced and words:
 			word_parts = []
 			for w in words:
 				w_start = w.get("start", 0.0) if isinstance(w, dict) else getattr(w, "start", 0.0)
 				w_text = w.get("word", "") if isinstance(w, dict) else getattr(w, "word", "")
+				if lang:
+					w_text = _convert_lrc_script(w_text, lang)
 				word_parts.append(f"<{seconds_to_lrc_time(float(w_start))}>{w_text}")
 			line_str = f"[{start_time_str}]{''.join(word_parts) if word_parts else clean_text}"
 		else:
 			line_str = f"[{start_time_str}]{clean_text}"
 
+		if pinyin:
+			py_line = _format_pinyin_line(clean_text)
+			if py_line:
+				out.append(f"[{start_time_str}]{py_line}")
 		out.append(line_str)
 
 	return "\n".join(out) + "\n"
@@ -97,12 +145,16 @@ def convert_alignment_to_lrc(
 	artist: str = "",
 	*,
 	enhanced: bool = False,
+	lang: str | None = None,
+	pinyin: bool = False,
 ) -> Path:
 	"""Read alignment JSON file, convert to LRC, and write to output_path."""
 	if output_path is None:
 		output_path = input_path.with_suffix(".lrc")
 	raw = json.loads(input_path.read_text(encoding="utf-8"))
-	content = alignment_to_lrc(raw, title=title, artist=artist, enhanced=enhanced)
+	content = alignment_to_lrc(
+		raw, title=title, artist=artist, enhanced=enhanced, lang=lang, pinyin=pinyin
+	)
 	output_path.parent.mkdir(parents=True, exist_ok=True)
 	output_path.write_text(content, encoding="utf-8")
 	return output_path
