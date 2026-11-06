@@ -639,6 +639,7 @@ if (typeof document !== "undefined") {
     dom.songSelect          = $("#song-select");
     dom.btnSave             = $("#btn-save");
     dom.btnExportLrc        = $("#btn-export-lrc");
+    dom.btnExportTtml       = $("#btn-export-ttml");
     dom.btnUndo             = $("#btn-undo");
     dom.btnRedo             = $("#btn-redo");
     dom.sunoUrlInput        = $("#suno-url-input");
@@ -729,6 +730,7 @@ function bindLyricEvents() {
   }
   if (dom.btnSave) dom.btnSave.addEventListener("click", saveAlignment);
   if (dom.btnExportLrc) dom.btnExportLrc.addEventListener("click", exportCurrentLrc);
+  if (dom.btnExportTtml) dom.btnExportTtml.addEventListener("click", exportCurrentTtml);
   if (dom.btnUndo) dom.btnUndo.addEventListener("click", undo);
   if (dom.btnRedo) dom.btnRedo.addEventListener("click", redo);
 
@@ -3424,6 +3426,106 @@ function exportCurrentLrc() {
   return lrcContent;
 }
 
+function formatTtmlTimestamp(seconds) {
+  const totalMs = Math.round(Math.max(0, Number(seconds) || 0) * 1000);
+  const ms = totalMs % 1000;
+  const totalS = Math.floor(totalMs / 1000);
+  const s = totalS % 60;
+  const totalM = Math.floor(totalS / 60);
+  const m = totalM % 60;
+  const h = Math.floor(totalM / 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+}
+
+function escapeXmlForTtml(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function exportCurrentTtml() {
+  const lines = state.alignment?.lines || [];
+  if (!lines.length) {
+    if (typeof status === "function") {
+      status(window.t ? t("msg_no_lyrics_to_export") : "No lyrics to export", true);
+    }
+    return "";
+  }
+  const title = state.currentFile?.name || state.alignment?.title || "lyrics";
+  const artist = state.alignment?.artist || "";
+  const maxEnd = Math.max(0, ...lines.map(l => Number(l.end || l.start || 0)));
+  const durStr = formatTtmlTimestamp(maxEnd);
+
+  const out = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<tt xmlns="http://www.w3.org/ns/ttml"',
+    '    xmlns:ttm="http://www.w3.org/ns/ttml#metadata"',
+    '    xmlns:itunes="http://music.apple.com/lyric-ttml-extensions"',
+    '    xml:lang="zh-CN">',
+    '  <head>',
+    '    <metadata>',
+    `      <ttm:title>${escapeXmlForTtml(title)}</ttm:title>`,
+    `      <ttm:agent type="person" xml:id="v1">${escapeXmlForTtml(artist || "Unknown Artist")}</ttm:agent>`,
+    '    </metadata>',
+    '  </head>',
+    `  <body dur="${durStr}">`,
+    '    <div>',
+  ];
+
+  for (const line of lines) {
+    const start = Number(line.start || 0);
+    const end = Number(line.end || start + 1.0);
+    const pBegin = formatTtmlTimestamp(start);
+    const pEnd = formatTtmlTimestamp(end);
+    const words = line.words || [];
+    const text = (line.text || words.map(w => w.word || "").join("")).trim();
+
+    if (!text && !words.length) continue;
+
+    if (words.length > 0) {
+      const spans = words
+        .filter(w => (w.word || "").trim())
+        .map(w => {
+          const wStart = formatTtmlTimestamp(w.start ?? start);
+          const wEnd = formatTtmlTimestamp(w.end ?? (w.start ? w.start + 0.3 : end));
+          return `<span begin="${wStart}" end="${wEnd}">${escapeXmlForTtml(w.word)}</span>`;
+        });
+      if (spans.length) {
+        out.push(`      <p begin="${pBegin}" end="${pEnd}">${spans.join("")}</p>`);
+      } else {
+        out.push(`      <p begin="${pBegin}" end="${pEnd}">${escapeXmlForTtml(text)}</p>`);
+      }
+    } else {
+      out.push(`      <p begin="${pBegin}" end="${pEnd}">${escapeXmlForTtml(text)}</p>`);
+    }
+  }
+
+  out.push('    </div>');
+  out.push('  </body>');
+  out.push('</tt>');
+
+  const ttmlContent = out.join("\n") + "\n";
+  if (typeof document !== "undefined" && typeof URL !== "undefined" && typeof Blob !== "undefined") {
+    const blob = new Blob([ttmlContent], { type: "application/xml;charset=utf-8" });
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    const safeFilename = title.replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").slice(0, 100) || "lyrics";
+    a.download = `${safeFilename}.ttml`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+    if (typeof status === "function") {
+      status(window.t ? t("msg_ttml_exported") : "Apple TTML lyrics exported successfully!");
+    }
+  }
+  return ttmlContent;
+}
+
 if (typeof window !== "undefined") {
   window.addEventListener("languagechange", () => {
     renderLyrics();
@@ -3445,6 +3547,8 @@ if (typeof window !== "undefined") {
   window.syncSyllablesOnWordChange = syncSyllablesOnWordChange;
   window.formatLrcTimestamp = formatLrcTimestamp;
   window.exportCurrentLrc = exportCurrentLrc;
+  window.formatTtmlTimestamp = formatTtmlTimestamp;
+  window.exportCurrentTtml = exportCurrentTtml;
 }
 
 if (typeof module !== "undefined" && module.exports) {
@@ -3460,5 +3564,7 @@ if (typeof module !== "undefined" && module.exports) {
     syncSyllablesOnWordChange,
     formatLrcTimestamp,
     exportCurrentLrc,
+    formatTtmlTimestamp,
+    exportCurrentTtml,
   };
 }

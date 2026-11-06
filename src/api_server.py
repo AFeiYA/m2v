@@ -925,10 +925,46 @@ async def download_file(
     """
     下载任务产物
 
-    file_type: mp4 | ass | lrc | alignment | mp3 | lyrics
+    file_type: mp4 | ass | lrc | ttml | alignment | mp3 | lyrics
     """
     task = await _get_user_task(db, user.id, task_id)
     storage = get_storage()
+
+    # 动态即时生成 Apple Music TTML 歌词：基于最新的 alignment.json 逐字生成标准 TTML
+    if file_type == "ttml":
+        if not task.alignment_json_key and not task.output_ass_key:
+            raise HTTPException(404, "Alignment data has not been generated for this task.")
+        import tempfile
+        from src.ass2ttml import alignment_to_ttml, ass_text_to_ttml
+        ttml_content = ""
+        if task.alignment_json_key:
+            with tempfile.TemporaryDirectory(prefix="m2v-ttml-dl-") as td:
+                align_local = Path(td) / "alignment.json"
+                await storage.load(task.alignment_json_key, align_local)
+                data = json.loads(align_local.read_text(encoding="utf-8"))
+                ttml_content = alignment_to_ttml(
+                    data,
+                    title=task.song_title or task.title or "",
+                    artist=getattr(task, "artist", "") or "",
+                )
+        elif task.output_ass_key:
+            with tempfile.TemporaryDirectory(prefix="m2v-ttml-ass-dl-") as td:
+                ass_local = Path(td) / "subtitles.ass"
+                await storage.load(task.output_ass_key, ass_local)
+                ttml_content = ass_text_to_ttml(
+                    ass_local.read_text(encoding="utf-8-sig"),
+                    title=task.song_title or task.title or "",
+                    artist=getattr(task, "artist", "") or "",
+                )
+
+        safe_filename = re.sub(r'[^\w.\-\u4e00-\u9fa5]', '_', task.song_title or task.title or "lyrics").strip('.') or "lyrics"
+        return Response(
+            content=ttml_content,
+            media_type="application/xml; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_filename}.ttml"',
+            },
+        )
 
     # 动态即时生成 LRC 歌词：基于最新的 alignment.json，确保导出的歌词时间轴与用户编辑完全一致
     if file_type == "lrc":
