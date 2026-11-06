@@ -43,6 +43,7 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
  const complete=plan?Math.max(...plan.nodes.map(n=>n.settled)):Infinity;
  const introState=intro?introTitleState(intro,t,height):null;
  const songFrame=songLayoutAt(songLayout,t);
+ const isCoverActive=songFrame.cover||(songLayout?.introEnd?t<songLayout.introEnd:false)||(introState?introState.alpha>0:false);
  const backgroundImage=coverPlacement(project,{x:0,y:0,width,height});
  const artworkImage=songLayout?.artwork?coverPlacement(project,songLayout.artwork):null;
  const pulse=1+(feature.kick||feature.beat*.3)*.012;
@@ -59,7 +60,7 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
 
    {/* Lyric presentation: TV Karaoke dual-line / Apple Scroll / Kinetic Posters */}
    <g>
-    {!songFrame.cover && activeVisualMode === 'tv' && ktvLayout && (()=>{
+    {!isCoverActive && activeVisualMode === 'tv' && ktvLayout && (()=>{
       const { upper, lower } = ktvDualStateAt(ktvLayout, t);
       const slots = [upper, lower].filter((s): s is NonNullable<typeof upper> => Boolean(s));
       return slots.map(slot => {
@@ -91,7 +92,7 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
       });
     })()}
 
-    {!songFrame.cover && activeVisualMode === 'apple' && appleLayout && (()=>{
+    {!isCoverActive && activeVisualMode === 'apple' && appleLayout && (()=>{
       const { items } = appleScrollStateAt(appleLayout, t);
       const maskGradId = `apple-scroll-fade-grad-${highlightId}`;
       const maskId = `apple-scroll-fade-mask-${highlightId}`;
@@ -203,7 +204,7 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
       );
     })()}
 
-    {!songFrame.cover && activeVisualMode === 'kinetic' && plan?.nodes.map((n,i)=>{
+    {!isCoverActive && activeVisualMode === 'kinetic' && plan?.nodes.map((n,i)=>{
       const state=posterNodeState(n,t,height);
       const {drift,pulse:nodePulse}=posterHoldState(n,t,complete,width,height,feature.kick||feature.beat*.3);
       const cx=n.x+n.width/2,cy=n.y+n.height/2,scale=state.scale*nodePulse;
