@@ -807,4 +807,16 @@ test('intro cover completely fades out before lyrics appear, eliminating visual 
   const stateAfterCover = appleScrollStateAt(apple, songLayout.introEnd + 0.5);
   assert.ok(stateAfterCover.items.length > 0);
   assert.ok(stateAfterCover.items[0].alpha > 0);
+
+  // 4. 验证共用函数与 style === 'none' 统一拦截
+  const { computeIntroEnd, hasSongIntro } = await import('./song-layout.ts');
+  assert.equal(computeIntroEnd(project), songLayout.introEnd);
+  assert.equal(hasSongIntro(project), true);
+
+  const disabledProject = normalizeProject({
+    ...project,
+    song_identity: { ...project.song_identity!, style: 'none' }
+  });
+  assert.equal(hasSongIntro(disabledProject), false);
+  assert.equal(computeIntroEnd(disabledProject), 0);
 });
