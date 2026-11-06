@@ -110,3 +110,27 @@ Dialogue: 0,0:00:14.61,0:00:17.01,Karaoke,,0,0,0,,{\\k40}V{\\k40}e{\\k40}r{\\k40
     output_path = convert_ass_to_lrc(input_path)
 
     assert output_path.read_text(encoding="utf-8") == "[00:14.61]Verse\n"
+
+
+def test_alignment_to_lrc_traditional_script() -> None:
+    align = {
+        "title": "海风吹拂",
+        "artist": "歌手",
+        "lines": [{"start": 2.5, "text": "海风轻轻吹过海岸"}],
+    }
+    lrc = alignment_to_lrc(align, lang="zh-Hant")
+    assert "[ti:海風吹拂]" in lrc
+    assert "[ar:歌手]" in lrc
+    assert "[00:02.50]海風輕輕吹過海岸" in lrc
+
+
+def test_alignment_to_lrc_dual_line_pinyin() -> None:
+    align = {
+        "title": "拼音测试",
+        "lines": [{"start": 2.5, "text": "海风轻轻吹过海岸"}],
+    }
+    lrc = alignment_to_lrc(align, pinyin=True)
+    lines = lrc.strip().splitlines()
+    # Pinyin line precedes the Chinese lyric line
+    assert "[00:02.50]hǎi fēng qīng qīng chuī guò hǎi àn" in lines
+    assert "[00:02.50]海风轻轻吹过海岸" in lines

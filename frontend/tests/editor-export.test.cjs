@@ -238,6 +238,7 @@ test('exportCurrentTtml exports Apple Music TTML format with word spans', () => 
   const ttml = s.context.exportCurrentTtml();
   assert.match(ttml, /<\?xml version="1.0" encoding="UTF-8"\?>/);
   assert.match(ttml, /<tt xmlns="http:\/\/www\.w3\.org\/ns\/ttml"/);
+  assert.match(ttml, /xml:lang="en"/);
   assert.match(ttml, /<ttm:title>My Song<\/ttm:title>/);
   assert.match(ttml, /<ttm:agent type="person" xml:id="v1">Singer<\/ttm:agent>/);
   assert.match(ttml, /<p begin="00:00:02\.500" end="00:00:06\.000">/);
@@ -245,5 +246,123 @@ test('exportCurrentTtml exports Apple Music TTML format with word spans', () => 
   assert.match(ttml, /<span begin="00:00:03\.600" end="00:00:06\.000">world<\/span>/);
   assert.match(ttml, /<p begin="00:00:07\.250" end="00:00:12\.000">Second line<\/p>/);
 });
+
+test('detectLyricLanguage detects English, Simplified Chinese, and Traditional Chinese', () => {
+  const { detectLyricLanguage } = require('../local/lyric_editor.js');
+  assert.equal(detectLyricLanguage('Hello world, I love singing this song'), 'en');
+  assert.equal(detectLyricLanguage('海风轻轻吹过海岸，夜色温柔'), 'zh-Hans');
+  assert.equal(detectLyricLanguage('海風輕輕吹過海岸，夜色溫柔'), 'zh-Hant');
+  assert.equal(detectLyricLanguage(''), 'zh-Hans');
+  assert.equal(detectLyricLanguage('123 456 789'), 'zh-Hans');
+});
+
+test('exportCurrentTtml generates standard Apple Music xml:lang according to lyric language', () => {
+  const s = setup();
+
+  // Simplified Chinese lyrics -> zh-Hans
+  s.context.state.alignment = {
+    title: '简中歌曲',
+    lines: [
+      { start: 1.0, end: 4.0, text: '海风轻轻吹拂' },
+      { start: 4.5, end: 8.0, text: '我们在沙滩漫步' },
+    ],
+  };
+  const ttmlSimp = s.context.exportCurrentTtml();
+  assert.match(ttmlSimp, /xml:lang="zh-Hans"/);
+  assert.doesNotMatch(ttmlSimp, /xml:lang="zh-CN"/);
+
+  // Traditional Chinese lyrics -> zh-Hant
+  s.context.state.alignment = {
+    title: '繁中歌曲',
+    lines: [
+      { start: 1.0, end: 4.0, text: '海風輕輕吹拂' },
+      { start: 4.5, end: 8.0, text: '我們在沙灘漫步' },
+    ],
+  };
+  const ttmlTrad = s.context.exportCurrentTtml();
+  assert.match(ttmlTrad, /xml:lang="zh-Hant"/);
+  assert.doesNotMatch(ttmlTrad, /xml:lang="zh-CN"/);
+
+  // Explicit override normalization (zh-CN -> zh-Hans)
+  s.context.state.alignment = {
+    title: '覆盖测试',
+    lang: 'zh-CN',
+    lines: [{ start: 1.0, end: 3.0, text: 'Hello world' }],
+  };
+  const ttmlOverride = s.context.exportCurrentTtml();
+  assert.match(ttmlOverride, /xml:lang="zh-Hans"/);
+});
+
+test('exportCurrentTtml supports zh-Hant conversion and pinyin ruby options', () => {
+  const s = setup();
+  s.context.state.alignment = {
+    title: '海风轻轻',
+    lines: [
+      {
+        start: 1.0,
+        end: 4.0,
+        text: '海风轻轻吹',
+        words: [
+          { word: '海', pinyin: 'hǎi', start: 1.0, end: 1.5 },
+          { word: '风', pinyin: 'fēng', start: 1.5, end: 2.0 },
+          { word: '轻', pinyin: 'qīng', start: 2.0, end: 2.5 },
+          { word: '轻', pinyin: 'qīng', start: 2.5, end: 3.0 },
+          { word: '吹', pinyin: 'chuī', start: 3.0, end: 3.5 },
+        ],
+      },
+    ],
+  };
+
+  // Export Traditional Chinese
+  const ttmlHant = s.context.exportCurrentTtml({ lang: 'zh-Hant' });
+  assert.match(ttmlHant, /xml:lang="zh-Hant"/);
+  assert.match(ttmlHant, /<ttm:title>海風輕輕<\/ttm:title>/);
+  assert.match(ttmlHant, />海<\/span><span[^>]*>風<\/span><span[^>]*>輕<\/span><span[^>]*>輕<\/span><span[^>]*>吹<\/span>/);
+
+  // Export Ruby Pinyin
+  const ttmlRuby = s.context.exportCurrentTtml({ ruby: 'pinyin' });
+  assert.match(ttmlRuby, /xmlns:tts="http:\/\/www\.w3\.org\/ns\/ttml#styling"/);
+  assert.match(ttmlRuby, /tts:ruby="container"/);
+  assert.match(ttmlRuby, /<span tts:ruby="base">海<\/span><span tts:ruby="textContainer"><span tts:ruby="text">hǎi<\/span><\/span>/);
+  assert.match(ttmlRuby, /<span tts:ruby="base">风<\/span><span tts:ruby="textContainer"><span tts:ruby="text">fēng<\/span><\/span>/);
+});
+
+test('exportCurrentLrc supports zh-Hant and pinyin dual-line options', () => {
+  const s = setup();
+  s.context.state.alignment = {
+    title: '海风轻轻',
+    artist: '歌手',
+    lines: [
+      {
+        start: 1.5,
+        end: 4.0,
+        text: '海风轻轻吹',
+        words: [
+          { word: '海', pinyin: 'hǎi' },
+          { word: '风', pinyin: 'fēng' },
+          { word: '轻', pinyin: 'qīng' },
+          { word: '轻', pinyin: 'qīng' },
+          { word: '吹', pinyin: 'chuī' },
+        ],
+      },
+    ],
+  };
+
+  // Traditional LRC
+  const lrcHant = s.context.exportCurrentLrc({ lang: 'zh-Hant' });
+  assert.match(lrcHant, /\[00:01\.50\]海風輕輕吹/);
+
+  // Pinyin Dual-Line LRC
+  const lrcPinyin = s.context.exportCurrentLrc({ pinyin: true });
+  assert.match(lrcPinyin, /\[00:01\.50\]hǎi fēng qīng qīng chuī\n\[00:01\.50\]海风轻轻吹/);
+});
+
+test('convertScript properly converts simplified to traditional Chinese and vice versa', () => {
+  const { convertScript } = require('../local/lyric_editor.js');
+  assert.equal(convertScript('海风轻轻吹拂，梦在远方', 'zh-Hant'), '海風輕輕吹拂，夢在遠方');
+  assert.equal(convertScript('海風輕輕吹拂，夢在遠方', 'zh-Hans'), '海风轻轻吹拂，梦在远方');
+  assert.equal(convertScript('Hello World', 'zh-Hant'), 'Hello World');
+});
+
 
 
