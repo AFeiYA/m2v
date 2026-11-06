@@ -4,6 +4,30 @@ import type {Measure} from './poster-layout';
 export type SongText={text:string;x:number;y:number;fontSize:number;weight:number;anchor:'start'|'middle'|'end';accent?:boolean};
 export type SongLayout={header:SongText[];cover:SongText[];introEnd:number;outroStart:number;duration:number;editorial:boolean;artwork?:{x:number;y:number;width:number;height:number};sections:{start:number;end:number;name:string}[];W:number;H:number};
 
+/**
+ * 判断是否展示前奏封面/曲目信息卡片。
+ * 统一条件：存在 song_identity、style !== 'none'、show_intro 为真且首句歌词开始时间 >= 1.5s
+ */
+export function hasSongIntro(project: Project): boolean {
+ const identity = project.song_identity;
+ const first = project.lines?.[0]?.start || 0;
+ return Boolean(identity && identity.style !== 'none' && identity.show_intro && first >= 1.5);
+}
+
+/**
+ * 计算前奏封面/标题展示结束的时刻 (introEnd)。
+ * 必须在首句歌词出现前彻底淡出完毕（alpha = 0），避免与歌词字幕发生视觉重叠。
+ */
+export function computeIntroEnd(project: Project): number {
+ if (!hasSongIntro(project)) return 0;
+ const first = project.lines?.[0]?.start || 0;
+ // 歌词提前量（TV预览/Apple聚焦/动效入场）：长前奏预留约1.5-2秒，中短前奏按比例预留，加留白缓冲
+ const lyricLeadIn = first >= 6 ? 2.0 : first >= 3 ? Math.min(1.8, Math.max(0.7, first * 0.28)) : Math.max(0.4, first * 0.25);
+ const breathingGap = first >= 4 ? 0.35 : 0.2;
+ const targetIntroEnd = first - lyricLeadIn - breathingGap;
+ return targetIntroEnd >= 0.8 ? targetIntroEnd : 0;
+}
+
 // All presentation geometry is measured once; playback only evaluates opacity.
 export function compileSongLayout(project:Project,W:number,H:number,measure:Measure):SongLayout|null{
  const identity=project.song_identity;if(!identity||identity.style==='none')return null;
@@ -42,7 +66,7 @@ export function compileSongLayout(project:Project,W:number,H:number,measure:Meas
  const cover:SongText[]=rows.map((text,i)=>({text,x:titleX,y:titleY+(i-(rows.length-1)/2)*lineHeight,fontSize:size,weight:800,anchor:'middle'}));
  if(artist)cover.push({text:artist,x:titleX,y:titleY+(rows.length-1)/2*lineHeight+size*.85,fontSize:fit(artist,base*.037,maxWidth,500),weight:500,anchor:'middle'});
  const first=project.lines[0]?.start||0,last=Math.max(0,...project.lines.map(l=>l.end));
- const introEnd=identity.show_intro&&first>=1?first:0;
+ const introEnd=computeIntroEnd(project);
  const outroStart=identity.show_outro&&project.duration-last>=1.5?last+.3:project.duration;
  const sections:SongLayout['sections']=[];
  if(identity.show_section&&identity.style==='editorial'){
@@ -59,7 +83,8 @@ export function songLayoutAt(layout:SongLayout|null,t:number){
  if(!layout)return {texts:[] as SongText[],alpha:0,cover:false,rule:false,section:''};
  const intro=t>=0&&t<layout.introEnd,outro=t>=layout.outroStart&&t<layout.duration,cover=intro||outro;
  const start=intro?0:layout.outroStart,end=intro?layout.introEnd:layout.duration;
- const alpha=cover?Math.max(0,Math.min(1,(t-start)/.3,(end-t)/.3)):1;
+ const fadeDur=intro?Math.min(0.35,layout.introEnd*0.3):0.3;
+ const alpha=cover?Math.max(0,Math.min(1,(t-start)/.3,(end-t)/fadeDur)):1;
  const section=layout.sections.filter(s=>s.start<=t&&t<s.end).at(-1)?.name||'';
  return {texts:cover?layout.cover:layout.header,alpha,cover,rule:layout.editorial,section:cover?'':section};
 }

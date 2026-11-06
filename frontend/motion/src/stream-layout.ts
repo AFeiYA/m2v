@@ -1,5 +1,6 @@
-import { compileHighlightSpans, highlightState, type HighlightSpan } from './karaoke';
-import type { Project, Line } from './model';
+import { compileHighlightSpans, highlightState, type HighlightSpan } from './karaoke.ts';
+import type { Project, Line } from './model.ts';
+import { computeIntroEnd } from './song-layout.ts';
 
 export type TextMeasure = (text: string, size: number, weight: number) => {
   width: number;
@@ -42,6 +43,7 @@ export interface KtvDualCompiled {
   uniformFontSize: number;
   lines: KtvLineCompiled[];
   palette: StreamPalette;
+  introEnd?: number;
 }
 
 export function compileKtvDualLayout(
@@ -56,6 +58,9 @@ export function compileKtvDualLayout(
   const maxWidth = Math.round(width * 0.68);
   const baseFontSize = Math.round(Math.min(width,height*1.5) * 0.038 * (options?.font_scale||1));
   const previewSeconds = options?.preview_seconds ?? 2.5;
+
+  // 首句预览时机计算：若存在前奏封面，必须在封面彻底淡出后才进场预读，杜绝视觉撞车
+  const introEnd = computeIntroEnd(project);
 
   // 1. 预先测量全曲所有歌词单句在基准字号下的宽度，找出最长句
   let maxMeasured = 1.0;
@@ -94,7 +99,8 @@ export function compileKtvDualLayout(
     // 严格槽位衔接：同槽位上一句驻留结束时间 = 同槽位下一句预读开始时间
     let previewStart = 0;
     if (i === 0) {
-      previewStart = Math.max(0, line.start - previewSeconds);
+      const idealPreview = line.start - previewSeconds;
+      previewStart = Math.max(introEnd > 0 ? introEnd + 0.15 : 0, idealPreview);
     } else if (i === 1) {
       previewStart = Math.max(0, lines[0].start);
     } else {
@@ -146,6 +152,7 @@ export function compileKtvDualLayout(
     uniformFontSize,
     lines: compiledLines,
     palette,
+    introEnd,
   };
 }
 
@@ -351,6 +358,7 @@ export interface AppleScrollCompiled {
   lineGap: number;
   lines: AppleLineCompiled[];
   palette: StreamPalette;
+  introEnd?: number;
 }
 
 export function compileAppleScrollLayout(
@@ -370,6 +378,9 @@ export function compileAppleScrollLayout(
   const rowLineHeight = Math.round(activeFontSize * 1.34);
   // 句子间距舒展留白：设为字号的 1.9x，营造优雅呼吸感
   const paragraphGap = Math.round(activeFontSize * 1.9);
+
+  // 首句展示时机：若存在前奏封面，必须在封面彻底淡出后才进场，杜绝视觉撞车
+  const introEnd = computeIntroEnd(project);
 
   const compiledLines: AppleLineCompiled[] = [];
   let cumulativeY = 0;
@@ -432,6 +443,7 @@ export function compileAppleScrollLayout(
     lineGap: paragraphGap,
     lines: compiledLines,
     palette,
+    introEnd,
   };
 }
 
@@ -475,6 +487,13 @@ export function appleScrollStateAt(
 } {
   const lines = layout.lines;
   if (!lines.length) return { items: [], currentScrollY: 0 };
+
+  const introEnd = layout.introEnd ?? 0;
+  // 前奏封面展示期间，Apple 滚动歌词保持隐蔽，避免与封面重叠
+  if (introEnd > 0 && t < introEnd) {
+    return { items: [], currentScrollY: 0 };
+  }
+  const introFade = introEnd > 0 ? Math.min(1, Math.max(0, (t - introEnd) / 0.35)) : 1;
 
   // 1. 确定当前活跃焦点行
   let activeIndex = 0;
@@ -536,7 +555,7 @@ export function appleScrollStateAt(
 
     // 叠加视口边缘平滑羽化衰减，彻底避免靠近边界时顶格
     const edgeFade = computeAppleEdgeFade(itemCenterY, layout.height);
-    const alpha = Number((baseAlpha * edgeFade).toFixed(3));
+    const alpha = Number((baseAlpha * edgeFade * introFade).toFixed(3));
     if (alpha <= 0.02) {
       continue;
     }
