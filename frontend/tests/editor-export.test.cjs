@@ -187,6 +187,14 @@ test('formatLrcTimestamp formats seconds as mm:ss.xx', () => {
   assert.equal(formatLrcTimestamp(125.05), '02:05.05');
 });
 
+test('formatTtmlTimestamp formats seconds as HH:MM:SS.mmm', () => {
+  const { formatTtmlTimestamp } = require('../local/lyric_editor.js');
+  assert.equal(formatTtmlTimestamp(0), '00:00:00.000');
+  assert.equal(formatTtmlTimestamp(5.42), '00:00:05.420');
+  assert.equal(formatTtmlTimestamp(65.125), '00:01:05.125');
+  assert.equal(formatTtmlTimestamp(3665.05), '01:01:05.050');
+});
+
 test('exportCurrentLrc exports standard LRC format from state', () => {
   const s = setup();
   s.context.state.currentFile = { name: 'My Song' };
@@ -205,6 +213,37 @@ test('exportCurrentLrc exports standard LRC format from state', () => {
   assert.match(lrc, /\[by:Fovea MV\]/);
   assert.match(lrc, /\[00:02.50\]First line of lyrics/);
   assert.match(lrc, /\[00:07.25\]Second line of lyrics/);
+});
+
+test('exportCurrentTtml exports Apple Music TTML format with word spans', () => {
+  const s = setup();
+  s.context.state.currentFile = { name: 'My Song' };
+  s.context.state.alignment = {
+    title: 'My Song',
+    artist: 'Singer',
+    lines: [
+      {
+        start: 2.5,
+        end: 6.0,
+        text: 'Hello world',
+        words: [
+          { word: 'Hello', start: 2.5, end: 3.5 },
+          { word: 'world', start: 3.6, end: 6.0 },
+        ],
+      },
+      { start: 7.25, end: 12.0, text: 'Second line' },
+    ],
+  };
+
+  const ttml = s.context.exportCurrentTtml();
+  assert.match(ttml, /<\?xml version="1.0" encoding="UTF-8"\?>/);
+  assert.match(ttml, /<tt xmlns="http:\/\/www\.w3\.org\/ns\/ttml"/);
+  assert.match(ttml, /<ttm:title>My Song<\/ttm:title>/);
+  assert.match(ttml, /<ttm:agent type="person" xml:id="v1">Singer<\/ttm:agent>/);
+  assert.match(ttml, /<p begin="00:00:02\.500" end="00:00:06\.000">/);
+  assert.match(ttml, /<span begin="00:00:02\.500" end="00:00:03\.500">Hello<\/span>/);
+  assert.match(ttml, /<span begin="00:00:03\.600" end="00:00:06\.000">world<\/span>/);
+  assert.match(ttml, /<p begin="00:00:07\.250" end="00:00:12\.000">Second line<\/p>/);
 });
 
 

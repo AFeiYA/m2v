@@ -93,7 +93,7 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
     })()}
 
     {!isCoverActive && activeVisualMode === 'apple' && appleLayout && (()=>{
-      const { items } = appleScrollStateAt(appleLayout, t);
+      const { items, countIn } = appleScrollStateAt(appleLayout, t);
       const maskGradId = `apple-scroll-fade-grad-${highlightId}`;
       const maskId = `apple-scroll-fade-mask-${highlightId}`;
       const ambientGlowId = `apple-ambient-glow-${highlightId}`;
@@ -199,6 +199,32 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
                 </g>
               );
             })}
+
+            {/* Apple 伴唱起拍 3 拍小圆点 (Count-in Dots) */}
+            {countIn && countIn.overallAlpha > 0.01 && (
+              <g opacity={countIn.overallAlpha} key={`apple-count-in-${countIn.targetLineIndex}`}>
+                {countIn.dots.map(dot => (
+                  <g key={dot.index} transform={`translate(${dot.x}, ${dot.y}) scale(${dot.scale})`}>
+                    {dot.lit && dot.glowAlpha > 0.01 && (
+                      <circle
+                        cx={0}
+                        cy={0}
+                        r={dot.radius * 2.2}
+                        fill={appleLayout.palette.accent}
+                        opacity={dot.glowAlpha * 0.45}
+                      />
+                    )}
+                    <circle
+                      cx={0}
+                      cy={0}
+                      r={dot.radius}
+                      fill={dot.lit ? appleLayout.palette.accent : appleLayout.palette.foreground}
+                      opacity={dot.lit ? 1 : dot.alpha}
+                    />
+                  </g>
+                ))}
+              </g>
+            )}
           </g>
         </g>
       );
