@@ -415,6 +415,15 @@
             <div id="matrix-queue-items" style="display:flex; flex-direction:column; gap:4px; max-height:160px; overflow-y:auto;"></div>
           </div>
 
+          <div style="margin-bottom:12px;">
+            <label for="export-audio-track-ms" style="font-size:11px; color:#96c8a0; display:block; margin-bottom:4px;" data-i18n="ms_lbl_audio_track">Audio Track (Karaoke)</label>
+            <select id="export-audio-track-ms" style="width:100%; height:32px; background:#0d120a; border:1px solid #233420; border-radius:6px; color:#e2e8f0; font-size:11px; padding:0 8px;">
+              <option value="mix" data-i18n="ms_opt_track_mix">🎵 原声混音 (Full Mix / Vocals + Accompaniment)</option>
+              <option value="instrumental" data-i18n="ms_opt_track_inst">🎤 纯伴奏乐器 (Karaoke / Instrumental Only)</option>
+            </select>
+            <p id="export-audio-track-hint" style="display:none; font-size:10px; color:#f59e0b; margin-top:4px; line-height:1.4;"></p>
+          </div>
+
           <label id="lbl-export-fast-mode" hidden style="display:none !important;" aria-hidden="true">
             <input id="export-fast-webcodecs" type="checkbox" checked>
             <span data-i18n="ms_fast_webcodecs">⚡ 优先尝试本机加速导出 (遇阻转备用云端)</span>

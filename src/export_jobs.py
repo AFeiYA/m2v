@@ -261,6 +261,18 @@ async def run(job_id):
                 alignment, audio = work / "alignment.json", work / ("source"+Path(audio_key).suffix)
                 await storage.load(alignment_key, alignment)
                 await storage.load(audio_key, audio)
+                if options.get("audio_track") == "instrumental":
+                    stem = Path(audio_key).stem
+                    for ext in (".mp3", ".wav", ".flac"):
+                        for name in (f"{stem}_instrumental{ext}", f"{task_id}_instrumental{ext}", f"source_instrumental{ext}"):
+                            inst_key = f"results/{task_id}/{name}"
+                            if await storage.exists(inst_key):
+                                inst_audio = work / ("instrumental" + ext)
+                                await storage.load(inst_key, inst_audio)
+                                audio = inst_audio
+                                break
+                        if audio != work / ("source" + Path(audio_key).suffix):
+                            break
                 payload = json.loads(alignment.read_text())
                 metadata_key, cover_key = source_keys(audio_key)
                 if await storage.exists(metadata_key):

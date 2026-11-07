@@ -37,6 +37,7 @@ class VideoOptions(BaseModel):
     duration_limit: float | None = Field(default=None, gt=0)
     start_time: float = Field(default=0, ge=0)
     end_time: float | None = Field(default=None, gt=0)
+    audio_track: Literal["mix", "instrumental", "vocals"] = "mix"
     snap_to_sentence: bool = False
 
     @model_validator(mode="after")

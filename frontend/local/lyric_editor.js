@@ -1543,6 +1543,20 @@ function initLyricExportModal() {
     });
   });
 
+  // 音轨选择交互 (原声混音 vs 纯伴奏卡拉OK)
+  $$(".audio-track-option").forEach((opt) => {
+    opt.addEventListener("click", () => {
+      $$(".audio-track-option").forEach((o) => {
+        o.classList.remove("active");
+        o.style.borderColor = "var(--border)";
+      });
+      opt.classList.add("active");
+      opt.style.borderColor = "var(--accent)";
+      const radio = opt.querySelector('input[type="radio"]');
+      if (radio) radio.checked = true;
+    });
+  });
+
   $("#export-template-select")?.addEventListener("change", updateLivePreview);
   $("#export-theme-select")?.addEventListener("change", () => {
     activeCuratedTheme = CURATED_EXPORT_THEMES.find(c => c.id === $("#export-theme-select").value) || CURATED_EXPORT_THEMES[0];
@@ -1767,6 +1781,7 @@ function initLyricExportModal() {
 
       const ratio = document.querySelector('input[name="export-ratio"]:checked')?.value || "9:16";
       const bg = document.querySelector('input[name="export-bg"]:checked')?.value || "full_bleed";
+      const audioTrack = document.querySelector('input[name="export-audio-track"]:checked')?.value || "mix";
       const template = exportTemplateForRatio(ratio);
       const theme = $("#export-theme-select")?.value || "impact";
 
@@ -1797,7 +1812,7 @@ function initLyricExportModal() {
         const songTaskId = sourceFile.task_id;
         const payload = {
           ...(cloud ? {accepted_cost:creditQuote.cost} : {json_path: state.currentFile.json_path}),
-          aspect_ratio: ratio, template, theme, background_mode: bg,
+          aspect_ratio: ratio, template, theme, background_mode: bg, audio_track: audioTrack,
           duration_limit: durLimit, start_time: st, end_time: et,
         };
         if (resPreset && resPreset !== "1080p") {

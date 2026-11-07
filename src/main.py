@@ -145,6 +145,11 @@ def main() -> None:
         config.aligner.lyrics_start_time = args.lyrics_start
     if args.disable_subtitles:
         config.compositor.enable_subtitles = False
+    if args.instrumental or (args.audio_track and args.audio_track == "instrumental"):
+        config.use_instrumental = True
+        config.compositor.audio_track = "instrumental"
+    elif args.audio_track:
+        config.compositor.audio_track = args.audio_track
 
     # 背景素材
     background = Path(args.background) if args.background else None
@@ -247,9 +252,33 @@ def process_one(
             log.info("[1-4/5] 跳过 (video_only)，使用已有 ASS: %s", ass_path.name)
             log.info("[5/5] 视频合成 (FFmpeg)…")
             from src.compositor import compose_video
-            output_mp4 = output_dir / f"{stem}.mp4"
+
+            target_audio = mp3_path
+            use_inst = config.use_instrumental or config.compositor.audio_track == "instrumental"
+            if use_inst:
+                inst_candidates = [
+                    output_dir / f"{stem}_instrumental.wav",
+                    output_dir / f"{stem}_instrumental.mp3",
+                    mp3_path.parent / f"{stem}_instrumental.wav",
+                    mp3_path.parent / f"{stem}_instrumental.mp3",
+                ]
+                for c in inst_candidates:
+                    if c.exists():
+                        target_audio = c
+                        break
+                if target_audio == mp3_path:
+                    log.info("未检测到已有伴奏文件，正在提取乐器伴奏音轨…")
+                    from src.separator import separate_vocals
+                    _, inst_path = separate_vocals(mp3_path, temp_dir, config.separator)
+                    if inst_path and inst_path.exists():
+                        out_inst = output_dir / f"{stem}_instrumental{inst_path.suffix}"
+                        shutil.copy2(inst_path, out_inst)
+                        target_audio = out_inst
+
+            output_mp4 = output_dir / (f"{stem}_karaoke.mp4" if use_inst else f"{stem}.mp4")
+            log.info("使用音频合成视频 (%s): %s → %s", "伴奏/Karaoke" if use_inst else "原声混音", target_audio.name, output_mp4.name)
             compose_video(
-                audio_path=mp3_path,
+                audio_path=target_audio,
                 subtitle_path=ass_path,
                 output_path=output_mp4,
                 background=background,
@@ -291,6 +320,11 @@ def process_one(
                         existing_vocals = alt_v
                         existing_inst = output_dir / f"{stem}_instrumental{alt_ext}"
                         break
+
+            use_inst = config.use_instrumental or config.compositor.audio_track == "instrumental"
+            if use_inst and config.skip_separation and not (existing_inst and existing_inst.exists()):
+                log.info("[2/5] 检测到启用纯伴奏卡拉OK模式，自动开启人声分离以提取乐器音轨…")
+                config.skip_separation = False
 
             # 判定是否满足 ZeroGPU 一体化单租借流水线条件
             from src.separator import can_run_zerogpu_composite, separate_and_align
@@ -464,7 +498,34 @@ def process_one(
         _progress("compositing", 80, "视频合成中 (FFmpeg)…")
         log.info("[5/5] 视频合成 (FFmpeg)…")
         from src.compositor import compose_video
-        output_mp4 = output_dir / f"{stem}.mp4"
+
+        target_audio = mp3_path
+        use_inst = config.use_instrumental or config.compositor.audio_track == "instrumental"
+        if use_inst:
+            if instrumental_path and instrumental_path.exists():
+                target_audio = instrumental_path
+            elif existing_inst and existing_inst.exists():
+                target_audio = existing_inst
+            else:
+                for alt_ext in [".mp3", ".wav"]:
+                    cand = output_dir / f"{stem}_instrumental{alt_ext}"
+                    if cand.exists():
+                        target_audio = cand
+                        break
+            if target_audio == mp3_path:
+                log.info("未找到伴奏音轨，正在补充执行人声分离以提取乐器伴奏…")
+                from src.separator import separate_vocals
+                _, inst_p = separate_vocals(mp3_path, temp_dir, config.separator)
+                if inst_p and inst_p.exists():
+                    target_audio = inst_p
+                    output_inst = output_dir / f"{stem}_instrumental{inst_p.suffix}"
+                    shutil.copy2(inst_p, output_inst)
+
+            output_mp4 = output_dir / f"{stem}_karaoke.mp4"
+            log.info("🎵 [伴奏卡拉OK模式] 使用乐器音轨合成: %s → %s", target_audio.name, output_mp4.name)
+        else:
+            output_mp4 = output_dir / f"{stem}.mp4"
+
         # 背景优先级: CLI --background > alignment.json 中的 background > config.default_bg
         effective_bg = background
         if effective_bg is None and hasattr(alignment, 'background') and alignment.background:
@@ -475,7 +536,7 @@ def process_one(
                 log.warning("alignment.json 指定的背景不存在: %s", effective_bg)
                 effective_bg = None
         compose_video(
-            audio_path=mp3_path,
+            audio_path=target_audio,
             subtitle_path=ass_path,
             output_path=output_mp4,
             background=effective_bg,
@@ -603,6 +664,17 @@ def parse_args() -> argparse.Namespace:
         "--disable-subtitles",
         action="store_true",
         help="禁用在合成最终视频时绘制 ASS 字幕（适用于字幕直接内置在 AI 生成视频的场景）",
+    )
+    parser.add_argument(
+        "--instrumental", "--inst",
+        action="store_true",
+        help="仅使用乐器伴奏音轨 (instrumental) 输出卡拉OK视频 (消除原唱人声，输出 _karaoke.mp4)",
+    )
+    parser.add_argument(
+        "--audio-track",
+        choices=["mix", "instrumental", "vocals"],
+        default=None,
+        help="指定合成视频使用的音频音轨: mix(默认原声混音), instrumental(纯伴奏乐器/卡拉OK), vocals(纯人声)",
     )
 
     return parser.parse_args()

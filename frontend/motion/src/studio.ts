@@ -18,6 +18,7 @@ let audioObjectUrl='';
 let audioReady=false;
 let loadSequence=0;
 let project:Project|null=null,plan:MotionPlan|null=null,engine:RemotionPreview|null=null,selected='',currentCue='',dirty=false,jobId='',playing=false;
+let instrumentalAudioUrl='';
 audio.addEventListener('pause',()=>{playing=false;$('play').textContent='▶';});
 let identityDirty=false,settingsDirty=false,saving=false;
 let ruleSeed:MotionPlan|null=null;
@@ -225,6 +226,8 @@ async function load(id:string){
     ensureKineticPlanSilently();
   }
   refresh();listCues();
+  instrumentalAudioUrl = result.instrumental_url || '';
+  updateAudioTrackHint();
   status(result.plan_error||(plan?'Saved director plan loaded · Preparing audio…':'Layout ready · Preparing audio…'));
   (window as any).m2vStudioBridge?.loaded(id,false,project.title);
   let nextAudioUrl='';
@@ -659,6 +662,10 @@ async function runExportVideo() {
       const { task, row, text } = itemRows[i];
       startedCount=i+1;
 
+      const audioTrack = $<HTMLSelectElement>('export-audio-track-ms')?.value || 'mix';
+      const useInst = audioTrack === 'instrumental';
+      let exportAudioSource = (useInst && instrumentalAudioUrl) ? instrumentalAudioUrl : (audioObjectUrl || audio.src || null);
+
       const useWebCodecs = typeof isWebCodecsSupported === 'function' && isWebCodecsSupported() && ($<HTMLInputElement>('export-fast-webcodecs')?.checked ?? true);
       if (useWebCodecs && project) {
         text.textContent = `${task.title} (${task.aspect}): ${isZh ? '正在本地硬件极速压制…' : 'Encoding locally with GPU…'}`;
@@ -676,7 +683,7 @@ async function runExportVideo() {
               length: taskLength,
               visualMode: task.visualMode,
             },
-            audioBlobOrUrl: audioObjectUrl || audio.src || null,
+            audioBlobOrUrl: exportAudioSource,
             onProgress: ({ frame, totalFrames, pct }) => {
               const progMsg = isZh
                 ? `本地极速压制中 ${frame}/${totalFrames} 帧 (${Math.round(pct)}%)`
@@ -691,7 +698,8 @@ async function runExportVideo() {
           const exportTitle = project.title || sourceProject;
           const safeTitle = (exportTitle || 'motion').trim().replace(/[/\\?%*:|"<>]/g, '_');
           const modeTag = task.visualMode === 'apple' ? 'apple' : (task.visualMode === 'tv' ? 'ktv' : 'poster');
-          const filename = `${safeTitle}-${task.title}-${task.aspect.replace(':', '_')}-${modeTag}.mp4`;
+          const trackTag = useInst ? '-karaoke' : '';
+          const filename = `${safeTitle}-${task.title}-${task.aspect.replace(':', '_')}-${modeTag}${trackTag}.mp4`;
           const blobUrl = URL.createObjectURL(blob);
 
           const dlLink = document.createElement('a');
@@ -740,6 +748,7 @@ async function runExportVideo() {
       const renderBody={project_id:sourceProject,aspect:task.aspect,height:sourceOptions.height,
         bloom:sourceOptions.bloom,shake:sourceOptions.shake,post:sourceOptions.post,start:task.start,length:task.length,
         visual_mode:task.visualMode,
+        audio_track:audioTrack,
         ...(cloudService()?{accepted_cost:acceptedCost}:{})};
       const requestIdentity=cloudService()?await motionRequestId(sourceProject,renderBody,sourceRevision):null;
       while (!cancelExportQueue) {
@@ -1003,6 +1012,19 @@ for(const id of ['stream-font-scale','apple-focus-y','karaoke-preview-seconds'])
  if(id==='karaoke-preview-seconds')design.modes.tv.preview_seconds=Number($<HTMLInputElement>(id).value);
  settingsDirty=true;refresh();status('Mode settings updated locally. Save when ready.');
 });
+function updateAudioTrackHint() {
+  const select = $<HTMLSelectElement>('export-audio-track-ms');
+  const hint = $('export-audio-track-hint');
+  if (!select || !hint) return;
+  const isZh = isChineseLocale();
+  if (select.value === 'instrumental' && !instrumentalAudioUrl) {
+    hint.textContent = isZh ? '💡 未在本地目录检测到已有伴奏文件，若使用云端/服务渲染将自动现场提取' : '💡 Instrumental file not detected locally yet; backend will separate on render if needed.';
+    hint.style.display = 'block';
+  } else {
+    hint.style.display = 'none';
+  }
+}
+$<HTMLSelectElement>('export-audio-track-ms')?.addEventListener('change', updateAudioTrackHint);
 $('play').onclick=action(async()=>{if(!project)return;if(!audioReady)throw new Error('Audio is loading. You can preview posters while waiting.');clipEnd=null;if(playing){audio.pause();playing=false;$('play').textContent='▶';}else{await audio.play();playing=true;$('play').textContent='Ⅱ';}});const seek=$<HTMLInputElement>('seek');
 let lastFollowedCue = '';
 function followActiveCue(time: number) {

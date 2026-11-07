@@ -300,6 +300,27 @@
           </div>
         </div>
 
+        <!-- 音轨选择: 原声伴唱 vs 纯伴奏乐器(Karaoke) -->
+        <div>
+          <label style="font-size: 13px; font-weight: 600; color: #cbd5e1; display: block; margin-bottom: 8px;" data-i18n="export_audio_track_label">Audio Track (Karaoke)</label>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <label class="audio-track-option active" style="display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #090a0f; border: 1px solid var(--accent); border-radius: 8px; cursor: pointer;">
+              <input type="radio" name="export-audio-track" value="mix" checked style="accent-color: var(--accent);">
+              <div>
+                <div data-i18n="audio_track_mix_title" style="font-weight: 600; font-size: 12px; color: #fff;">🎵 Full Mix</div>
+                <div data-i18n="audio_track_mix_desc" style="font-size: 10px; color: #8b949e;">Vocals + Accompaniment</div>
+              </div>
+            </label>
+            <label class="audio-track-option" style="display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #090a0f; border: 1px solid var(--border); border-radius: 8px; cursor: pointer;">
+              <input type="radio" name="export-audio-track" value="instrumental" style="accent-color: var(--accent);">
+              <div>
+                <div data-i18n="audio_track_inst_title" style="font-weight: 600; font-size: 12px; color: #fff;">🎤 Instrumental Only</div>
+                <div data-i18n="audio_track_inst_desc" style="font-size: 10px; color: #8b949e;">Vocal-free karaoke video</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
         <!-- 精选完整主题 + 9:16 竖屏安全区实时预览 -->
         <div id="export-palette-preview" style="display: grid; grid-template-columns: 1fr 190px; gap: 14px; align-items: stretch; padding: 12px 14px; background: #090a0f; border: 1px solid var(--border); border-radius: 8px;">
           <div style="display: flex; flex-direction: column; gap: 10px;">
