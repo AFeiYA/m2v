@@ -563,22 +563,75 @@ export function appleScrollStateAt(
   const exitDotsDone = 0.10; // 距开唱 0.10s 时圆点透明度完全归零并彻底消失
 
   let dotsWorldY = 0;
+  let currentInterludeOffset = 0;
 
   if (activeInterlude) {
     const targetIdx = activeInterlude.targetLineIndex;
     focusedLineIdx = targetIdx;
-    dotsWorldY = lines[targetIdx].centerY - layout.paragraphGap;
 
+    // 字形度量与圆点真实包围盒尺寸
+    const F = layout.activeFontSize;
+    const fontAscender = Math.round(F * 0.85);  // 基线向上字形高度 (大写/顶端)
+    const fontDescender = Math.round(F * 0.25); // 基线向下字形延伸 (下延/标点)
+    const dotRadius = Math.max(8, Math.round(F * 0.26));
+    const maxDotRadius = Math.ceil(dotRadius * 1.35); // 圆点高潮点亮时的最大缩放半径
+
+    // 呼吸安全边距：圆点与上下文字之间的视觉舒适留白 (兼顾外圈扩散光晕)
+    const marginAbove = Math.max(Math.round(F * 0.60), maxDotRadius);
+    const marginBelow = Math.max(Math.round(F * 0.60), maxDotRadius);
+
+    let fullInterludeOffset = 0;
+
+    if (targetIdx > 0) {
+      const prevLine = lines[targetIdx - 1];
+      // 上一句在世界坐标系中的真实最底沿边界 (包含全部折行高度与字形下延边界)
+      const prevActualBottom = prevLine.cumulativeY + prevLine.sentenceHeight + fontDescender;
+
+      // 圆点在世界坐标系中的基准视觉中心：严格位于上一句真实底沿下方安全留白处
+      dotsWorldY = prevActualBottom + marginAbove + maxDotRadius;
+
+      // 下一句在开辟间奏空间后所需的实际顶沿边界 (位于圆点下方安全留白处)
+      const targetNextActualTop = dotsWorldY + maxDotRadius + marginBelow;
+      const targetNextCumulativeY = targetNextActualTop + fontAscender;
+
+      // 为圆点与折行歌词预留的真实下推空间 (下一句实际顶沿不与圆点产生任何干涉)
+      const nextLine = lines[targetIdx];
+      fullInterludeOffset = Math.max(
+        Math.round(layout.paragraphGap * 0.60),
+        targetNextCumulativeY - nextLine.cumulativeY
+      );
+    } else {
+      // 歌曲首句前奏
+      const line0ActualTop = lines[0].cumulativeY - fontAscender;
+      dotsWorldY = line0ActualTop - marginBelow - maxDotRadius;
+      fullInterludeOffset = marginAbove + maxDotRadius * 2 + marginBelow;
+    }
+
+    // 入场开辟阶段：前 0.40s 平滑向下推开下一行歌词 (歌词一行行 offset 进入)
+    let openFraction = 1.0;
+    const enterLead = Math.min(0.40, activeInterlude.gap * 0.35);
+    const enterElapsed = t - activeInterlude.startTime;
+    if (enterElapsed < enterLead) {
+      const pe = Math.max(0, enterElapsed / enterLead);
+      openFraction = pe * pe * (3 - 2 * pe);
+    }
+
+    // 退场折叠阶段：开唱前 0.35s 间距平滑归零收拢 (“追行贴上去”，平滑恢复正常句距)
+    let collapseFraction = 1.0;
     const timeUntilSinging = activeInterlude.endTime - t;
+    if (timeUntilSinging < exitLead) {
+      const px = Math.max(0, Math.min(1, (exitLead - timeUntilSinging) / exitLead));
+      collapseFraction = 1.0 - px * px * (3 - 2 * px);
+    }
 
-    if (timeUntilSinging > 0.20) {
+    currentInterludeOffset = Math.round(fullInterludeOffset * openFraction * collapseFraction);
+
+    if (timeUntilSinging > exitLead) {
       // 间奏主阶段：相机稳健对准圆点
       if (targetIdx > 0) {
-        const enterLead = Math.min(0.40, activeInterlude.gap * 0.35);
-        const enterElapsed = t - activeInterlude.startTime;
         if (enterElapsed < enterLead) {
           const pe = Math.max(0, enterElapsed / enterLead);
-          const scrollFraction = 1 - Math.pow(1 - pe, 3);
+          const scrollFraction = pe * pe * (3 - 2 * pe);
           const prevCenter = lines[targetIdx - 1].centerY;
           focalWorldY = prevCenter + (dotsWorldY - prevCenter) * scrollFraction;
         } else {
@@ -588,8 +641,8 @@ export function appleScrollStateAt(
         focalWorldY = dotsWorldY;
       }
     } else {
-      // 间奏尾声 (距开唱 0.20s ~ 0s)：相机平滑对准下一句歌词，下一句淡入并纯白先亮
-      const pe = Math.max(0, Math.min(1, (0.20 - timeUntilSinging) / 0.20));
+      // 间奏尾声 (距开唱 0.35s ~ 0s)：相机平滑对准下一句歌词，下一句淡入并纯白先亮
+      const pe = Math.max(0, Math.min(1, (exitLead - timeUntilSinging) / exitLead));
       const scrollFraction = pe * pe * (3 - 2 * pe);
       focalWorldY = dotsWorldY + (lines[targetIdx].centerY - dotsWorldY) * scrollFraction;
       isFocalPreLight = true;
@@ -634,7 +687,10 @@ export function appleScrollStateAt(
 
   for (let i = 0; i < lines.length; i++) {
     const c = lines[i];
-    const itemCenterY = Math.round(focalCenterY + (c.centerY - focalWorldY));
+    const effectiveCenterY = (activeInterlude && i >= activeInterlude.targetLineIndex)
+      ? c.centerY + currentInterludeOffset
+      : c.centerY;
+    const itemCenterY = Math.round(focalCenterY + (effectiveCenterY - focalWorldY));
     const itemTopY = Math.round(itemCenterY - c.sentenceHeight / 2);
 
     // 剔除进入上下绝对安全保护区的句子

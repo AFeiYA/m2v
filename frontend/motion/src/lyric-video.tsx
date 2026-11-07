@@ -210,16 +210,16 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
                         cx={0}
                         cy={0}
                         r={dot.radius * 2.2}
-                        fill={appleLayout.palette.accent}
-                        opacity={dot.glowAlpha * 0.45}
+                        fill="#ffffff"
+                        opacity={dot.glowAlpha * 0.40}
                       />
                     )}
                     <circle
                       cx={0}
                       cy={0}
                       r={dot.radius}
-                      fill={dot.lit ? appleLayout.palette.accent : appleLayout.palette.foreground}
-                      opacity={dot.lit ? 1 : dot.alpha}
+                      fill="#ffffff"
+                      opacity={dot.alpha}
                     />
                   </g>
                 ))}
