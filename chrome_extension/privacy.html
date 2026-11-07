@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Fovea MV — Privacy</title>
+<html lang="en"><head><meta charset="utf-8"><title>Fovea.si — Privacy</title>
 <style>body{max-width:760px;margin:48px auto;padding:0 24px;font:16px/1.65 system-ui;color:#e2e8f0;background:#0f172a}h1,h2{color:white}a{color:#a5b4fc}</style></head>
-<body><h1>Privacy &amp; data handling</h1><p>Updated: October 9, 2026. Applies to Fovea MV Chrome extension 1.5.4.</p>
+<body><h1>Privacy &amp; data handling</h1><p>Updated: October 9, 2026. Applies to Fovea.si Chrome extension 1.6.1.</p>
 <h2>Rights &amp; publication notice</h2>
 <p>Before each new MP3 download or MP4 creation, you must confirm that the selected song is published, that you own the rights or have authorization to use its audio, lyrics and cover, and that your download and intended use are allowed by Suno’s terms and your plan. Cancel to stop. Public playback or Publish status does not establish ownership, download entitlement or commercial rights.</p>
-<p>This is a user declaration, not verification of rights. It does not override platform terms or authorize bypassing payment, download quotas or content protections. Fovea MV is independent of Suno and is not endorsed by it. Existing audio retrieval paths have not been changed by this notice; the notice alone does not establish their compliance.</p>
+<p>This is a user declaration, not verification of rights. It does not override platform terms or authorize bypassing payment, download quotas or content protections. Fovea.si is independent of Suno and is not endorsed by it. Existing audio retrieval paths have not been changed by this notice; the notice alone does not establish their compliance.</p>
 <h2>What happens when you use it</h2>
 <p>The extension reads song metadata and media addresses on Suno pages. It does not read passwords, browser history or social publishing accounts. When you connect your cloud account, scripting permission calls the existing Firebase Auth client on mv.fovea.si to obtain a short-lived ID token; the token is stored in extension-local storage and sent only to the official backend through Authorization headers. It does not read refresh tokens or cookies. Tokens may be renewed through an open signed-in website tab; Disconnect stops automatic reconnection. It has no analytics or advertising trackers.</p>
 <p><strong>Download MP3:</strong> an available MP3 downloads directly from Suno’s media service. The selected server may receive the song link to verify publication; if the MP3 is unavailable, it downloads/extracts the audio. Both MP3 and MP4 require a publicly published song. Unknown publication status is checked rather than assumed public.</p>
@@ -15,6 +15,6 @@
 <p>Server restarts can interrupt unfinished work. Official cloud song files and completed exports use the configured object storage; temporary job journals can still be lost if the server disk is reset. Local services rely on their own disk persistence.</p>
 <h2>Permissions and control</h2>
 <p>Suno and media-host access detects and downloads songs. Downloads permission saves files and checks completion. Storage remembers settings and jobs. Alarms checks existing jobs after the background worker sleeps. Access to a custom HTTPS server is requested only when you save its address. Cloud communication uses HTTPS; local loopback servers may use HTTP.</p>
-<p>Use your own music or music you have permission to process. Fovea MV is an independent tool, not an official Suno product.</p>
+<p>Use your own music or music you have permission to process. Fovea.si is an independent tool, not an official Suno product.</p>
 <p>Support and deletion requests: <a href="https://github.com/AFeiYA/m2v/issues">project support</a>. Do not post private audio, credentials, task IDs or download links in public issues; ask for a private support channel first.</p>
 </body></html>

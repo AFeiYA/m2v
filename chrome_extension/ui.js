@@ -4,7 +4,7 @@ globalThis.FoveaUI = {
     if (track?.is_public === false) throw new Error("Song is not published. Publish it in Suno first.");
     if (silent) return true;
     if (typeof confirm !== "function") return true;
-    return confirm(`Rights & publication confirmation\n\nSong: ${track?.title || "Selected song"}\n\nI confirm that:\n• This song is published in Suno (Publish).\n• I own the rights or have permission to download and process the song, lyrics and cover.\n• I am allowed to obtain this audio through Suno’s approved download channels and within my plan’s limits.\n• My intended use, including commercial use if applicable, is permitted.\n\nPublic playback is not download permission. This confirmation does not verify ownership, override Suno’s terms or authorize bypassing download limits. Fovea MV is independent of Suno.\n\nChoose OK only if all statements are true. Cancel to stop.`);
+    return confirm(`Rights & publication confirmation\n\nSong: ${track?.title || "Selected song"}\n\nI confirm that:\n• This song is published in Suno (Publish).\n• I own the rights or have permission to download and process the song, lyrics and cover.\n• I am allowed to obtain this audio through Suno’s approved download channels and within my plan’s limits.\n• My intended use, including commercial use if applicable, is permitted.\n\nPublic playback is not download permission. This confirmation does not verify ownership, override Suno’s terms or authorize bypassing download limits. Fovea.si is independent of Suno.\n\nChoose OK only if all statements are true. Cancel to stop.`);
   },
   serverUrl(value) {
     const url = new URL(value);

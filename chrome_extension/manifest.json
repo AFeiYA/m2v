@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "minimum_chrome_version": "110",
-  "name": "Fovea MV - Suno Music Videos",
+  "name": "Fovea.si - Suno Music Videos",
   "version": "1.6.1",
-  "description": "Download Suno songs as MP3 or create vertical lyric videos as MP4.",
+  "description": "Create vertical lyric videos as MP4 for Suno songs with Fovea.si.",
   "permissions": [
     "storage",
     "activeTab",
@@ -32,7 +32,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Fovea MV Music Video Assistant",
+    "default_title": "Fovea.si Music Video Assistant",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

@@ -27,7 +27,7 @@
     routeObserver?.disconnect();
     document.getElementById("fovea-suno-floating-btn")?.remove();
     document.getElementById("fovea-section-dropdown")?.remove();
-    showToast("Extension updated", "Refresh this Suno page to reconnect the MP3 / MP4 controls.", false, "Fovea MV");
+    showToast("Extension updated", "Refresh this Suno page to reconnect the MP4 controls.", false, "Fovea.si");
     return false;
   }
   function applyBarPreferences() {
@@ -38,7 +38,7 @@
     bar.classList.toggle("fovea-collapsed", collapsed);
     bar.style.display = floatingHidden ? "none" : "flex";
     const toggle = bar.querySelector(".fovea-collapse");
-    toggle.textContent = collapsed ? "Fovea MV" : "−";
+    toggle.textContent = collapsed ? "Fovea.si" : "−";
     toggle.title = collapsed ? "Expand controls" : "Minimize controls";
     toggle.setAttribute("aria-expanded", String(!collapsed));
   }
