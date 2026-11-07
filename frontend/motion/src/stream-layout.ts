@@ -552,68 +552,48 @@ export function appleScrollStateAt(
   const interludes = layout.interludes || [];
   const activeInterlude = interludes.find(it => t >= it.startTime && t <= it.endTime);
 
-  // 间奏退场缓冲时长 (0.35s)：在此期间小圆点缩小渐隐，下一行歌词执行“追行贴上去”的 offset 上滑吸附动画
-  const exitLead = 0.35;
+  // 2. 确定平滑世界焦点 Y 坐标与当前聚焦行
+  let focalWorldY = lines[0].centerY;
+  let focusedLineIdx = 0;
+  let isFocalPreLight = false; // 是否处于开唱前的纯白先亮状态 (白色底字就绪)
+  let preLightFadeProgress = 1.0; // 间奏尾声平滑淡入进度 (0.40 -> 1.0)
 
-  let interludeOffset = 0;
+  // 间奏退场缓冲参数：圆点在开唱前 0.35s ~ 0.10s 完全淡出至 0；下一句在 0.20s ~ 0s 上移淡入吸附
+  const exitLead = 0.35;
+  const exitDotsDone = 0.10; // 距开唱 0.10s 时圆点透明度完全归零并彻底消失
+
   let dotsWorldY = 0;
 
   if (activeInterlude) {
     const targetIdx = activeInterlude.targetLineIndex;
-    const fullOffset = layout.paragraphGap;
+    focusedLineIdx = targetIdx;
+    dotsWorldY = lines[targetIdx].centerY - layout.paragraphGap;
 
-    // 入场开辟阶段：前 0.35s 平滑向下推开下一行歌词
-    let openFraction = 1.0;
-    if (targetIdx > 0) {
-      const enterLead = Math.min(0.40, activeInterlude.gap * 0.35);
-      const enterElapsed = t - activeInterlude.startTime;
-      if (enterElapsed < enterLead) {
-        const pe = Math.max(0, enterElapsed / enterLead);
-        openFraction = pe * pe * (3 - 2 * pe);
-      }
-    }
-
-    // 退场折叠阶段：开唱前 0.35s 间距平滑归零收拢 (“追行贴上去”)
-    let collapseFraction = 1.0;
     const timeUntilSinging = activeInterlude.endTime - t;
-    if (timeUntilSinging < exitLead) {
-      const px = Math.max(0, Math.min(1, (exitLead - timeUntilSinging) / exitLead));
-      const hermite = px * px * (3 - 2 * px);
-      collapseFraction = 1.0 - hermite;
-    }
 
-    interludeOffset = Math.round(fullOffset * openFraction * collapseFraction);
-    // 圆点在世界坐标系中稳居目标行原本的基准位置
-    dotsWorldY = lines[targetIdx].centerY;
-  }
-
-  // 动态世界 Y 计算：当前活跃间奏目标行及之后的歌词行叠加 interludeOffset
-  function getLineCenterY(i: number): number {
-    const c = lines[i];
-    if (activeInterlude && i >= activeInterlude.targetLineIndex) {
-      return c.centerY + interludeOffset;
-    }
-    return c.centerY;
-  }
-
-  // 2. 确定平滑世界焦点 Y 坐标
-  let focalWorldY = lines[0].centerY;
-
-  if (activeInterlude) {
-    const targetIdx = activeInterlude.targetLineIndex;
-    if (targetIdx === 0) {
-      focalWorldY = dotsWorldY;
-    } else {
-      const prevCenter = lines[targetIdx - 1].centerY;
-      const enterLead = Math.min(0.40, activeInterlude.gap * 0.35);
-      const enterElapsed = t - activeInterlude.startTime;
-      if (enterElapsed < enterLead) {
-        const pe = Math.max(0, enterElapsed / enterLead);
-        const scrollFraction = 1 - Math.pow(1 - pe, 3);
-        focalWorldY = prevCenter + (dotsWorldY - prevCenter) * scrollFraction;
+    if (timeUntilSinging > 0.20) {
+      // 间奏主阶段：相机稳健对准圆点
+      if (targetIdx > 0) {
+        const enterLead = Math.min(0.40, activeInterlude.gap * 0.35);
+        const enterElapsed = t - activeInterlude.startTime;
+        if (enterElapsed < enterLead) {
+          const pe = Math.max(0, enterElapsed / enterLead);
+          const scrollFraction = 1 - Math.pow(1 - pe, 3);
+          const prevCenter = lines[targetIdx - 1].centerY;
+          focalWorldY = prevCenter + (dotsWorldY - prevCenter) * scrollFraction;
+        } else {
+          focalWorldY = dotsWorldY;
+        }
       } else {
         focalWorldY = dotsWorldY;
       }
+    } else {
+      // 间奏尾声 (距开唱 0.20s ~ 0s)：相机平滑对准下一句歌词，下一句淡入并纯白先亮
+      const pe = Math.max(0, Math.min(1, (0.20 - timeUntilSinging) / 0.20));
+      const scrollFraction = pe * pe * (3 - 2 * pe);
+      focalWorldY = dotsWorldY + (lines[targetIdx].centerY - dotsWorldY) * scrollFraction;
+      isFocalPreLight = true;
+      preLightFadeProgress = scrollFraction;
     }
   } else {
     // 正常歌词行播放滚动
@@ -627,17 +607,22 @@ export function appleScrollStateAt(
     const curLine = lines[curLineIdx];
     if (t <= curLine.end) {
       focalWorldY = curLine.centerY;
+      focusedLineIdx = curLineIdx;
     } else {
-      // 唱完后平滑上滚至下一句
+      // 唱完后：上一句结束，下一句立即先亮白字并平滑上滚至下一句
       const nextLine = lines[curLineIdx + 1];
       if (nextLine) {
+        focusedLineIdx = curLineIdx + 1;
+        isFocalPreLight = true;
+        preLightFadeProgress = 1.0;
         const gap = nextLine.start - curLine.end;
-        const leadDuration = Math.max(0.3, Math.min(1.2, gap));
+        const leadDuration = Math.max(0.3, Math.min(0.8, gap));
         const fraction = Math.max(0, Math.min(1, (t - curLine.end) / leadDuration));
         const scrollFraction = 1 - Math.pow(1 - fraction, 3);
         focalWorldY = curLine.centerY + (nextLine.centerY - curLine.centerY) * scrollFraction;
       } else {
         focalWorldY = curLine.centerY;
+        focusedLineIdx = curLineIdx;
       }
     }
   }
@@ -649,10 +634,7 @@ export function appleScrollStateAt(
 
   for (let i = 0; i < lines.length; i++) {
     const c = lines[i];
-    const worldY = getLineCenterY(i);
-    // 当前句子的视觉中心
-    const itemCenterY = Math.round(focalCenterY + (worldY - focalWorldY));
-    // 当前句子首行基线
+    const itemCenterY = Math.round(focalCenterY + (c.centerY - focalWorldY));
     const itemTopY = Math.round(itemCenterY - c.sentenceHeight / 2);
 
     // 剔除进入上下绝对安全保护区的句子
@@ -660,14 +642,19 @@ export function appleScrollStateAt(
       continue;
     }
 
-    const isActive = t >= c.start && t <= c.end;
+    const isSinging = t >= c.start && t <= c.end;
+    const isTargetPreLight = isFocalPreLight && i === focusedLineIdx;
+
     const distPx = itemCenterY - focalCenterY;
     const distUnits = distPx / (layout.activeFontSize * 1.8);
     const absDist = Math.abs(distUnits);
 
     let baseAlpha = 0;
-    if (isActive) {
+    if (isSinging) {
       baseAlpha = 1.0;
+    } else if (isTargetPreLight) {
+      // 间奏尾声平滑淡入先亮 (0.45 -> 1.0) 或普通跨行直接 1.0
+      baseAlpha = 0.45 + (1.0 - 0.45) * preLightFadeProgress;
     } else if (distUnits < 0) {
       // 上方已唱句子：低调退场
       baseAlpha = Math.max(0, 0.36 * (1 - (absDist - 0.5) / 1.8));
@@ -684,7 +671,12 @@ export function appleScrollStateAt(
     }
 
     // 焦点微缩放层级（非焦点句轻微缩放 0.88 ~ 0.96，焦点句 1.0）
-    const scale = isActive ? 1.0 : Math.max(0.88, 1.0 - absDist * 0.05);
+    let scale = Math.max(0.88, 1.0 - absDist * 0.05);
+    if (isSinging) {
+      scale = 1.0;
+    } else if (isTargetPreLight) {
+      scale = 0.94 + 0.06 * preLightFadeProgress;
+    }
 
     const spansWithProgress = c.spans.map(span => {
       const h = highlightState(span, t, 'sweep');
@@ -696,18 +688,19 @@ export function appleScrollStateAt(
       y: itemTopY,
       scale,
       alpha,
-      isActive,
+      isActive: isSinging, // 仅在正式开唱后激活卡拉OK高亮扫光，待唱时显示完整白色底字
       spansWithProgress,
     });
   }
 
   // 3. 计算 Apple 伴唱起跑 3 拍小圆点行 (Apple Music Interlude Countdown Dots)
-  // 仅在伴奏活跃且未开唱 (t < activeInterlude.endTime) 期间渲染；开唱瞬间圆点彻底消失 (countIn = null)
+  // 仅在伴奏活跃且圆点尚未完全淡出 (t < activeInterlude.endTime - exitDotsDone) 期间渲染
   let countIn: AppleCountInState | null = null;
 
-  if (activeInterlude && t < activeInterlude.endTime) {
-    if (!(introEnd > 0 && t < introEnd)) {
-      // Apple Music 左对齐圆点规范：
+  if (activeInterlude) {
+    const timeUntilSinging = activeInterlude.endTime - t;
+    // 距开唱 0.20s 时圆点已完全消失，绝不在开唱前与文字撞车
+    if (timeUntilSinging > exitDotsDone && !(introEnd > 0 && t < introEnd)) {
       const dotRadius = Math.max(8, Math.round(layout.activeFontSize * 0.26));
       const dotSpacing = Math.round(dotRadius * 3.6);
       const dotsStartX = layout.startX + dotRadius;
@@ -719,43 +712,58 @@ export function appleScrollStateAt(
         const countInStart = activeInterlude.endTime - countInLead;
         const beatDuration = countInLead / 3;
 
-        // 退出阶段 (开唱前 0.35s)：圆点快速缩小 (1.35 -> 1.18 -> 0.40) 并渐隐消失
-        const timeUntilSinging = activeInterlude.endTime - t;
-        const isExitPhase = timeUntilSinging < exitLead;
-        const exitProgress = isExitPhase
-          ? Math.max(0, Math.min(1, (exitLead - timeUntilSinging) / exitLead))
-          : 0;
-
+        // 入场淡入
         let entranceFade = 1.0;
         if (t < activeInterlude.startTime + 0.25) {
           entranceFade = Math.min(1, Math.max(0, (t - activeInterlude.startTime) / 0.25));
         }
 
-        const exitFade = isExitPhase ? Math.max(0, 1 - Math.pow(exitProgress, 1.4)) : 1.0;
+        // 退场淡出：在开唱前 [exitLead, exitDotsDone] (0.35s ~ 0.10s) 区间完全渐隐消失 (1.0 -> 0.0)
+        let exitFade = 1.0;
+        let exitProgress = 0;
+        if (timeUntilSinging < exitLead) {
+          exitProgress = Math.max(0, Math.min(1, (exitLead - timeUntilSinging) / (exitLead - exitDotsDone)));
+          exitFade = 1.0 - exitProgress * exitProgress * (3 - 2 * exitProgress);
+        }
+
         const edgeFade = computeAppleEdgeFade(dotsScreenY, layout.height);
         const overallAlpha = Number((entranceFade * exitFade * edgeFade * introFade).toFixed(3));
 
         if (overallAlpha > 0.01) {
+          const fillDuration = Math.min(0.35, beatDuration * 0.75);
+
           const dots: [AppleCountInDot, AppleCountInDot, AppleCountInDot] = [0, 1, 2].map(dIdx => {
             const beatTime = countInStart + dIdx * beatDuration;
-            const isLit = t >= beatTime;
-            const dt = Math.max(0, t - beatTime);
+            const dt = t - beatTime;
 
+            let fillProgress = 0.0;
             let dotScale = 1.0;
-            if (!isLit) {
-              dotScale = 1.0;
-            } else if (!isExitPhase) {
-              // 伴奏点亮期间饱满绽放 1.35
-              dotScale = 1.35;
-            } else {
-              // 开唱前收缩：1.35 → 1.18 → 0.40
-              dotScale = Number((1.35 - 0.35 * exitProgress - 0.60 * exitProgress * exitProgress).toFixed(3));
+            let dotAlpha = 0.28;
+            let glowAlpha = 0.0;
+            let isLit = false;
+
+            if (t >= beatTime) {
+              isLit = true;
+              if (dt < fillDuration) {
+                // 白色满满过光：0.35s 内平滑充盈
+                const p = Math.max(0, Math.min(1, dt / fillDuration));
+                fillProgress = p * p * (3 - 2 * p);
+                dotScale = 1.0 + 0.35 * Math.sin(p * Math.PI / 2);
+                dotAlpha = 0.28 + (1.0 - 0.28) * fillProgress;
+                glowAlpha = fillProgress * 0.85;
+              } else {
+                fillProgress = 1.0;
+                dotScale = 1.35;
+                dotAlpha = 1.0;
+                const afterDt = dt - fillDuration;
+                glowAlpha = Math.max(0, 0.85 * Math.exp(-afterDt * 2.5));
+              }
             }
 
-            const glowAlpha = (isLit && !isExitPhase)
-              ? Number(Math.max(0, Math.exp(-dt * 3.5)).toFixed(3))
-              : 0;
-            const dotAlpha = isLit ? 1.0 : 0.28;
+            // 退场收缩：1.35 -> 1.0 -> 0.90
+            if (exitProgress > 0) {
+              dotScale = Number((dotScale - 0.25 * exitProgress - 0.20 * exitProgress * exitProgress).toFixed(3));
+            }
 
             return {
               index: dIdx,
@@ -764,8 +772,8 @@ export function appleScrollStateAt(
               radius: dotRadius,
               lit: isLit,
               scale: dotScale,
-              alpha: dotAlpha,
-              glowAlpha,
+              alpha: Number(dotAlpha.toFixed(3)),
+              glowAlpha: Number(glowAlpha.toFixed(3)),
             };
           }) as unknown as [AppleCountInDot, AppleCountInDot, AppleCountInDot];
 
@@ -877,18 +885,17 @@ export function paintAppleScrollCanvas(
       ctx.translate(dot.x, dot.y);
       ctx.scale(dot.scale, dot.scale);
 
+      // 间奏点点白色满满过光与柔和白色光晕
       if (dot.lit && dot.glowAlpha > 0.01) {
         ctx.beginPath();
         ctx.arc(0, 0, dot.radius * 2.2, 0, Math.PI * 2);
-        ctx.fillStyle = hexToRgba(layout.palette.accent, dot.glowAlpha * 0.45);
+        ctx.fillStyle = `rgba(255, 255, 255, ${Number((dot.glowAlpha * 0.40).toFixed(3))})`;
         ctx.fill();
       }
 
       ctx.beginPath();
       ctx.arc(0, 0, dot.radius, 0, Math.PI * 2);
-      ctx.fillStyle = dot.lit
-        ? layout.palette.accent
-        : hexToRgba(layout.palette.foreground, dot.alpha);
+      ctx.fillStyle = `rgba(255, 255, 255, ${dot.alpha})`;
       ctx.fill();
 
       ctx.restore();
