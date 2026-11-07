@@ -778,7 +778,8 @@ test('intro cover completely fades out before lyrics appear, eliminating visual 
     },
     lines: [
       { text: '海风轻轻吹过宁静海岸', start: 6.0, end: 10.0, words: [{ word: '海风轻轻吹过宁静海岸', start: 6.0, end: 10.0 }] },
-      { text: '海鸥飞向辽阔的远方', start: 10.5, end: 14.0, words: [{ word: '海鸥飞向辽阔的远方', start: 10.5, end: 14.0 }] }
+      { text: '海鸥飞向辽阔的远方', start: 10.5, end: 14.0, words: [{ word: '海鸥飞向辽阔的远方', start: 10.5, end: 14.0 }] },
+      { text: '浪花淘尽世间所有悲伤', start: 18.0, end: 22.0, words: [{ word: '浪花淘尽世间所有悲伤', start: 18.0, end: 22.0 }] }
     ]
   });
 
@@ -808,7 +809,7 @@ test('intro cover completely fades out before lyrics appear, eliminating visual 
   assert.ok(stateAfterCover.items.length > 0);
   assert.ok(stateAfterCover.items[0].alpha > 0);
 
-  // 4. 验证 Apple 伴唱起跑 3 拍小圆点 (Count-in Dots)
+  // 4. 验证 Apple 伴唱起跑 3 拍小圆点 (Count-in Dots) 与独立留白层 (Dedicated Headroom)
   const countInEarly = appleScrollStateAt(apple, 5.2).countIn;
   assert.ok(countInEarly);
   assert.equal(countInEarly.targetLineIndex, 0);
@@ -817,12 +818,26 @@ test('intro cover completely fades out before lyrics appear, eliminating visual 
   assert.equal(countInEarly.dots[1].lit, true);
   assert.equal(countInEarly.dots[2].lit, false);
 
+  // 验证圆点 Y 坐标在文字首行基线上方 1.2 倍字号以上，保留充裕留白杜绝与汉字笔画重叠
+  assert.ok(countInEarly.dots[0].y < stateAfterCover.items[0].y - apple.activeFontSize * 1.2);
+
   const countInLate = appleScrollStateAt(apple, 5.8).countIn;
   assert.ok(countInLate);
   assert.equal(countInLate.dots[2].lit, true);
 
   const countInDuringSinging = appleScrollStateAt(apple, 7.0).countIn;
   assert.equal(countInDuringSinging, null);
+
+  // 验证间奏独立留白空间：第 2 句到第 3 句之间存在 4 秒间奏，排版额外增加独立空间
+  assert.equal(apple.lines[1].hasInterlude, false);
+  assert.equal(apple.lines[2].hasInterlude, true);
+  const interludeDistance = apple.lines[2].cumulativeY - (apple.lines[1].cumulativeY + apple.lines[1].sentenceHeight);
+  assert.ok(interludeDistance >= apple.paragraphGap + Math.round(apple.activeFontSize * 1.5));
+
+  // 验证间奏期间第 3 句的起唱倒计时圆点
+  const countInInterlude = appleScrollStateAt(apple, 17.2).countIn;
+  assert.ok(countInInterlude);
+  assert.equal(countInInterlude.targetLineIndex, 2);
 
   // 5. 验证共用函数与 style === 'none' 统一拦截
   const { computeIntroEnd, hasSongIntro } = await import('./song-layout.ts');

@@ -342,6 +342,8 @@ export interface AppleLineCompiled {
   start: number;
   end: number;
   spans: HighlightSpan[];
+  hasInterlude?: boolean;
+  interludeGap?: number;
 }
 
 export interface AppleScrollCompiled {
@@ -387,6 +389,16 @@ export function compileAppleScrollLayout(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const prevEnd = i > 0 ? lines[i - 1].end : introEnd;
+    const gap = line.start - prevEnd;
+    const hasInterlude = gap >= 2.0;
+
+    // 前奏或间奏空隙 >= 2.0s 时，增加独立的段落起歇留白高度 (Dedicated Headroom)
+    // 使得起拍 3 拍小圆点拥有专属的垂直空行空间，文字向下顺延，杜绝与字体重叠
+    if (i > 0 && hasInterlude) {
+      cumulativeY += Math.round(activeFontSize * 1.6);
+    }
+
     const textRows = wrapSentenceToRows(line.text, activeFontSize, 700, maxWidth, measure);
     const rowList: AppleRowCompiled[] = textRows.map((text, rIdx) => ({
       text,
@@ -424,6 +436,8 @@ export function compileAppleScrollLayout(
       start: line.start,
       end: line.end,
       spans,
+      hasInterlude,
+      interludeGap: gap,
     });
 
     cumulativeY += sentenceHeight + paragraphGap;
@@ -619,7 +633,7 @@ export function appleScrollStateAt(
         const targetY = targetItem
           ? targetItem.y
           : Math.round(focalCenterY + (line.centerY - focalWorldY) - line.sentenceHeight / 2);
-        const targetX = line.rows[0]?.x ?? layout.startX;
+        const targetX = targetItem ? (targetItem.compiled.rows[0]?.x ?? layout.startX) : (line.rows[0]?.x ?? layout.startX);
 
         const relTime = t - countInStart;
         const entranceFade = Math.min(1, Math.max(0, relTime / 0.25));
@@ -629,7 +643,10 @@ export function appleScrollStateAt(
         if (overallAlpha > 0.01) {
           const dotRadius = Math.max(4.5, Math.round(layout.activeFontSize * 0.12));
           const dotSpacing = Math.round(dotRadius * 3.6);
-          const dotsY = targetY - Math.round(layout.activeFontSize * 0.72);
+          // 独立起拍留白层 (Dedicated Spacer Headroom)：
+          // targetY 为句首首行基线。汉字顶端轮廓通常在 targetY - 0.85 * activeFontSize。
+          // 将起拍 3 拍圆点放置在 targetY - 1.55 * activeFontSize，使圆点底边缘与文字顶边缘保留 >0.55 * activeFontSize 的纯净留白，绝对不与字笔画相撞
+          const dotsY = targetY - Math.round(layout.activeFontSize * 1.55);
           const dotsStartX = targetX + dotRadius;
 
           const dots: [AppleCountInDot, AppleCountInDot, AppleCountInDot] = [0, 1, 2].map(dIdx => {
