@@ -306,8 +306,8 @@ test('cloud client falls back to cloud FFmpeg when WebCodecs offscreen fails', a
       if (route === '/api/suno/publish_status') return Response.json({ is_public: true });
       if (route === '/api/tasks/from-suno') return Response.json({ task_id: 'song-task' });
       if (route === '/api/tasks/song-task') return Response.json({ status: 'completed' });
-      if (route.endsWith('/lyric-video')) return Response.json({ task_id: 'abc999' });
-      if (route === '/api/editor/jobs/abc999') return Response.json({ status: 'completed', progress: 100 });
+      if (route.endsWith('/lyric-video') || route === '/api/cloud-motion/render') return Response.json({ id: 'abc999', task_id: 'abc999' });
+      if (route === '/api/cloud-motion/render/abc999' || route === '/api/editor/jobs/abc999') return Response.json({ status: 'done', progress: 100, frames: 100, total: 100 });
       throw Error('Unexpected ' + url);
     },
   });
@@ -321,7 +321,7 @@ test('cloud client falls back to cloud FFmpeg when WebCodecs offscreen fails', a
   assert.equal(res.status, 'ok');
   assert.equal(files.length, 1);
   // Downloaded from cloud endpoint via fallback!
-  assert.equal(files[0].url, 'https://lucazhou-suno2mv-api.hf.space/api/editor/jobs/abc999/video');
-  const lyricVideoCalls = calls.filter(c => c.url.includes('/lyric-video'));
-  assert.equal(lyricVideoCalls.length, 1, 'Fell back to server /lyric-video when WebCodecs failed');
+  assert.ok(files[0].url.includes('/abc999/download') || files[0].url.includes('/jobs/abc999/video'));
+  const cloudRenderCalls = calls.filter(c => c.options.method === 'POST' && (c.url.includes('/cloud-motion/render') || c.url.includes('/lyric-video')));
+  assert.equal(cloudRenderCalls.length, 1, 'Fell back to server cloud-motion/render when WebCodecs failed');
 });

@@ -661,6 +661,7 @@ def export_lyric_video(
         }
     """
     t0 = time.time()
+    log.warning("DEPRECATION: export_lyric_video (旧版 ASS 字幕压制) 已全面弃用下线，所有短视频导出统一由 Motion Studio 渲染。")
     if not check_ffmpeg():
         raise RuntimeError("系统未检测到可用的 FFmpeg！请确保安装了 ffmpeg-full 或将其加入 PATH。")
 

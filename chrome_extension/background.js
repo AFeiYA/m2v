@@ -208,9 +208,7 @@ async function submitVideo(blob, track, serverUrl, section, duration, onProgress
   formData.append("cover_url", track.coverUrl || "");
   formData.append("is_public", track.is_public !== false ? "true" : "false");
   formData.append("aspect_ratio", "9:16");
-  formData.append("template", "apple");
-  formData.append("theme", "apple_white");
-  formData.append("background_mode", "blurred_ambient");
+  formData.append("visual_mode", "apple");
   const stored = await chrome.storage.local.get("videoJobs");
   const previous = (stored.videoJobs || []).find(j => j.targetServer === targetServer &&
     j.songId === track.songId && j.section === section && j.duration === duration &&
