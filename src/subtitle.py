@@ -136,7 +136,7 @@ def generate_ass(
     # 生成 Dialogue 行
     if config.render_mode == "tv":
         dialogue_lines = _generate_tv_events(alignment, config, beat_times)
-    elif config.render_mode in ("center_bounce", "bounce", "center"):
+    elif config.render_mode in ("center_bounce", "bounce", "center", "kinetic", "poster"):
         dialogue_lines = _generate_center_bounce_events(alignment, config, beat_times)
     else:
         # Apple Music 滚动效果 (默认)

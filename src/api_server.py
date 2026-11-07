@@ -133,6 +133,7 @@ def origin_is_allowed(origin: str | None) -> bool:
         or _FOVEA_ORIGIN_RE.fullmatch(origin) is not None
         or _PAGES_ORIGIN_RE.fullmatch(origin) is not None
         or _LOCAL_ORIGIN_RE.fullmatch(origin) is not None
+        or origin.startswith("chrome-extension://")
     )
 
 

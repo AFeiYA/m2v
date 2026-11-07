@@ -33,8 +33,9 @@ header, .editor-header {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   white-space: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
+  position: relative;
+  z-index: 1000;
+  overflow: visible;
 }
 header::-webkit-scrollbar { height: 2px; }
 .editor-header-title { font-size: 13px; font-weight: 700; white-space: nowrap; margin: 0; flex-shrink: 0; color: #fff; }
@@ -150,6 +151,26 @@ body.embedded-studio #auth-pill,
 #toolbar {
   display: flex; align-items: center; gap: 8px;
   margin-left: auto; flex-shrink: 0; white-space: nowrap;
+  position: relative;
+  z-index: 1000;
+}
+.dropdown-wrapper {
+  position: relative;
+  display: inline-block;
+  z-index: 1001;
+}
+.dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 280px;
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+  z-index: 99999;
+  padding: 6px 0;
+  text-align: left;
 }
 #toolbar button {
   background: rgba(255, 255, 255, 0.05); color: #cbd5e1;

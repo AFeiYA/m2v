@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "minimum_chrome_version": "110",
   "name": "Fovea.si - Suno Music Videos",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "Create vertical lyric videos as MP4 for Suno songs with Fovea.si.",
   "permissions": [
     "storage",
