@@ -325,3 +325,119 @@ test('cloud client falls back to cloud FFmpeg when WebCodecs offscreen fails', a
   const cloudRenderCalls = calls.filter(c => c.options.method === 'POST' && (c.url.includes('/cloud-motion/render') || c.url.includes('/lyric-video')));
   assert.equal(cloudRenderCalls.length, 1, 'Fell back to server cloud-motion/render when WebCodecs failed');
 });
+
+test('user-saved motion design is directly used without clobbering, while novice song gets default Apple 9:16', async () => {
+  const state = { authToken: 'alice-token', authUserId: 'alice', authServer: 'https://mv.fovea.si' };
+  const calls = [];
+  const files = [];
+  let capturedMessage = null;
+
+  const ctx = vm.createContext({
+    URL,
+    FormData,
+    AbortSignal,
+    AbortController,
+    crypto: webcrypto,
+    console,
+    Date,
+    setTimeout: fn => { queueMicrotask(fn); return 1; },
+    clearTimeout() {},
+    chrome: {
+      runtime: {
+        getURL: path => `chrome-extension://test-id/${path}`,
+        onMessage: { addListener() {}, removeListener() {} },
+        sendMessage: async msg => {
+          if (msg.target === 'offscreen' && msg.action === 'CHECK_WEBCODECS_SUPPORT') {
+            return { status: 'ok', supported: true };
+          }
+          if (msg.target === 'offscreen' && msg.action === 'RENDER_WEBCODECS') {
+            capturedMessage = msg;
+            return {
+              status: 'ok',
+              data: {
+                blobUrl: 'blob:chrome-extension://test-id/webcodecs_video.mp4',
+                filename: `${msg.title}_Chorus_${msg.aspect === '16:9' ? '16x9' : '9x16'}.mp4`,
+              },
+            };
+          }
+          return null;
+        },
+      },
+      offscreen: {
+        createDocument: async () => {},
+        hasDocument: async () => true,
+      },
+      storage: {
+        local: {
+          get: async keys => Object.fromEntries((Array.isArray(keys) ? keys : [keys]).map(k => [k, state[k]])),
+          set: async d => Object.assign(state, d),
+        },
+      },
+      tabs: { query: async () => [{ id: 9, url: 'https://mv.fovea.si/' }], sendMessage() {} },
+      scripting: { executeScript: async () => [{ result: 'fresh-token' }] },
+      downloads: {
+        download: async opt => {
+          const id = files.length + 1;
+          files.push({ id, ...opt, state: 'complete' });
+          return id;
+        },
+      },
+    },
+    fetch: async (url, options = {}) => {
+      calls.push({ url, options });
+      const route = new URL(url).pathname;
+      if (route === '/api/auth/me') return Response.json({ id: 'alice', display_name: 'Alice' });
+      if (route === '/api/suno/publish_status') return Response.json({ is_public: true });
+      if (route === '/api/tasks/from-suno') return Response.json({ task_id: 'saved-song-task' });
+      if (route === '/api/tasks/saved-song-task') return Response.json({ status: 'completed' });
+      if (route === '/api/cloud-motion/project') {
+        return Response.json({
+          has_saved_design: true,
+          has_saved_identity: true,
+          project: {
+            title: 'Custom TV Track',
+            duration: 120,
+            lines: [{ start: 0, end: 10, text: 'lyrics' }],
+            motion_design: {
+              version: 'motion-design-v1',
+              active_mode: 'tv',
+              theme: { palette: 'sunset', background: 'dark' },
+              modes: { tv: { aspect: '16:9', font_scale: 1.2, preview_seconds: 3.0 } },
+            },
+            song_identity: {
+              title: 'Custom TV Track',
+              artist: 'DJ Producer',
+              style: 'classic',
+              show_signature: false,
+              show_intro: false,
+              show_outro: false,
+              cover_mode: 'card',
+            },
+          },
+        });
+      }
+      if (route.endsWith('/audio')) return new Response(new Uint8Array([0xff, 0xfb, 0x90, 0x44]));
+      if (route === '/api/cloud-motion/unlock') return Response.json({ unlocked: true });
+      throw Error('Unexpected ' + url);
+    },
+  });
+
+  ctx.importScripts = file => vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), ctx);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../background.js'), 'utf8'), ctx);
+
+  const song = { songId: 'custom-song-uuid', title: 'Custom TV Track', is_public: true };
+  const res = await ctx.exportVideoAndDownload(null, song, 'https://mv.fovea.si', 'chorus', 30);
+
+  assert.equal(res.status, 'ok');
+  assert.ok(capturedMessage, 'offscreen message captured');
+  // 1. Verify user's saved TV mode and 16:9 aspect were preserved, NOT clobbered by Apple mode!
+  assert.equal(capturedMessage.visualMode, 'tv');
+  assert.equal(capturedMessage.aspect, '16:9');
+  assert.equal(capturedMessage.project.motion_design.active_mode, 'tv');
+  assert.equal(capturedMessage.project.motion_design.theme.palette, 'sunset');
+  assert.equal(capturedMessage.project.song_identity.style, 'classic');
+  assert.equal(capturedMessage.project.song_identity.show_signature, false);
+
+  // 2. Verify filename accurately reflects 16x9
+  assert.equal(files[0].filename, 'Custom TV Track_Chorus_16x9.mp4');
+});

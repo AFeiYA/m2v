@@ -98,7 +98,8 @@ async function handleRenderWebCodecs(message) {
   const blobUrl = URL.createObjectURL(videoBlob);
   const suffix = { chorus: '_Chorus', verse1: '_Verse1', intro: '_Intro' }[section] || '';
   const safeTitle = (title || normalizedProject.title || 'lyric-video').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').slice(0, 110);
-  const filename = `${safeTitle}${suffix}_9x16.mp4`;
+  const aspectSuffix = range.aspect === '16:9' ? '_16x9' : '_9x16';
+  const filename = `${safeTitle}${suffix}${aspectSuffix}.mp4`;
 
   return {
     blobUrl,
