@@ -46,6 +46,8 @@ def test_server_draft_is_not_used_and_history_clear_keeps_active_jobs():
             page.add_script_tag(path=str(root / 'popup.js'))
             page.evaluate('document.dispatchEvent(new Event("DOMContentLoaded"))')
             page.wait_for_function('document.querySelectorAll("#jobSelect option").length === 2')
+            if not page.locator('#serverInput').is_visible():
+                page.locator('#advancedSettings summary').click()
             page.locator('#serverInput').fill('http://insecure.example')
             page.locator('#btnDownloadMp3').click()
             page.wait_for_function('sent.length === 1')

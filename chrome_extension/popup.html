@@ -130,82 +130,12 @@
       opacity: 0.45;
       cursor: not-allowed;
     }
-    .settings-row {
-      margin-top: 12px;
-      padding-top: 10px;
-      border-top: 1px solid rgba(255, 255, 255, 0.06);
-      font-size: 11px;
-      color: #94a3b8;
-    }
-    .node-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 6px;
-    }
-    .node-btns {
-      display: flex;
-      gap: 4px;
-    }
-    .node-btn {
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: #94a3b8;
-      font-size: 10px;
-      padding: 3px 8px;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .node-btn:hover {
-      background: rgba(255, 255, 255, 0.12);
-      color: #fff;
-    }
-    .node-btn.active {
-      background: rgba(99, 102, 241, 0.3);
-      border-color: #6366f1;
-      color: #a5b4fc;
-      font-weight: 600;
-    }
-    .server-input-group {
-      display: flex;
-      gap: 6px;
-      margin-top: 4px;
-    }
-    .input-server {
-      flex: 1;
-      background: #0f172a;
-      border: 1px solid #334155;
-      color: #cbd5e1;
-      padding: 6px 8px;
-      border-radius: 6px;
-      font-size: 11px;
-    }
-    .input-server:focus {
-      outline: none;
-      border-color: #6366f1;
-    }
-    .btn-save-server {
-      background: #1e293b;
-      border: 1px solid #334155;
-      color: #94a3b8;
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-size: 11px;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: all 0.2s;
-    }
-    .btn-save-server:hover {
-      background: #334155;
-      color: #f1f5f9;
-    }
     .auth-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
       margin-top: 10px;
-      padding: 6px 10px;
+      padding: 7px 10px;
       background: rgba(255, 255, 255, 0.03);
       border-radius: 8px;
       border: 1px solid rgba(255, 255, 255, 0.05);
@@ -254,6 +184,95 @@
       line-height: 1.4;
       text-align: center;
     }
+    /* 高级自定义设置折叠抽屉 */
+    details.advanced-drawer {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 10px;
+      color: #475569;
+    }
+    details.advanced-drawer summary {
+      cursor: pointer;
+      outline: none;
+      user-select: none;
+      color: #475569;
+      font-size: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: color 0.2s;
+    }
+    details.advanced-drawer summary:hover {
+      color: #818cf8;
+    }
+    .advanced-body {
+      padding-top: 8px;
+    }
+    .node-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 10px;
+    }
+    .node-btns {
+      display: flex;
+      gap: 4px;
+    }
+    .node-btn {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: #94a3b8;
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .node-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+    }
+    .node-btn.active {
+      background: rgba(99, 102, 241, 0.3);
+      border-color: #6366f1;
+      color: #a5b4fc;
+      font-weight: 600;
+    }
+    .server-input-group {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .input-server {
+      flex: 1;
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #cbd5e1;
+      padding: 5px 7px;
+      border-radius: 6px;
+      font-size: 10px;
+    }
+    .input-server:focus {
+      outline: none;
+      border-color: #6366f1;
+    }
+    .btn-save-server {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #94a3b8;
+      padding: 5px 8px;
+      border-radius: 6px;
+      font-size: 10px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .btn-save-server:hover {
+      background: #334155;
+      color: #f1f5f9;
+    }
     a {
       color: #818cf8;
       text-decoration: none;
@@ -261,9 +280,9 @@
     a:hover {
       text-decoration: underline;
     }
-    details {
+    details#errorDetails {
       margin-top: 6px;
-      color: #64748b;
+      color: #f87171;
       font-size: 10px;
       overflow-wrap: anywhere;
     }
@@ -305,25 +324,10 @@
   <div class="status-row" id="recentDownload" role="status" aria-live="polite"></div>
   <button class="node-btn" id="btnRetryDownload" hidden>重试下载</button>
 
-  <div class="settings-row">
-    <div class="node-header">
-      <label>渲染节点:</label>
-      <div class="node-btns">
-        <button type="button" id="btnCloudNode" class="node-btn active">☁️ 云端</button>
-        <button type="button" id="btnLocalNode" class="node-btn">💻 本地</button>
-      </div>
-    </div>
-    <div class="server-input-group">
-      <input type="text" class="input-server" id="serverInput" value="https://mv.fovea.si" spellcheck="false" />
-      <button type="button" class="btn-save-server" id="btnSaveServer">保存</button>
-    </div>
-    <div class="status-row" id="serverStatus" role="status"></div>
-  </div>
-
   <!-- 静默自动同步账号状态栏 -->
   <div class="auth-bar" id="authSection">
     <div class="auth-left">
-      <span style="color:#94a3b8;font-size:11px;">云端账号</span>
+      <span style="color:#94a3b8;font-size:11px;">官网账号</span>
       <span id="authBadge" class="badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border-color: rgba(148, 163, 184, 0.25);">未登录</span>
     </div>
     <div style="display:flex;align-items:center;gap:6px;">
@@ -338,17 +342,36 @@
     </div>
   </div>
 
-  <details id="errorDetails" hidden>
-    <summary>错误详情</summary>
-    <div id="errorText"></div>
-  </details>
-
   <div class="footer-actions">
     <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
       <input type="checkbox" id="hideBar" style="accent-color:#6366f1;" /> 隐藏网页浮窗
     </label>
     <button type="button" class="link-btn" id="btnClearHistory">清空历史任务</button>
   </div>
+
+  <!-- 高级自定义服务（默认折叠隐藏，开发者专属，普通用户无感知） -->
+  <details class="advanced-drawer" id="advancedSettings">
+    <summary>⚙️ 高级自定义服务</summary>
+    <div class="advanced-body">
+      <div class="node-header">
+        <label>服务端节点:</label>
+        <div class="node-btns">
+          <button type="button" id="btnCloudNode" class="node-btn active">☁️ 官方云端</button>
+          <button type="button" id="btnLocalNode" class="node-btn">💻 本地服务</button>
+        </div>
+      </div>
+      <div class="server-input-group">
+        <input type="text" class="input-server" id="serverInput" value="https://mv.fovea.si" spellcheck="false" />
+        <button type="button" class="btn-save-server" id="btnSaveServer">保存</button>
+      </div>
+      <div class="status-row" id="serverStatus" role="status"></div>
+    </div>
+  </details>
+
+  <details id="errorDetails" hidden>
+    <summary>错误详情</summary>
+    <div id="errorText"></div>
+  </details>
 
   <div class="footer-tip" id="footerTip">
     生成 MV 与下载 MP3 需确保歌曲已公开 (Publish)。
