@@ -574,11 +574,7 @@ export function appleScrollStateAt(
     const fontAscender = Math.round(F * 0.85);  // 基线向上字形高度 (大写/顶端)
     const fontDescender = Math.round(F * 0.25); // 基线向下字形延伸 (下延/标点)
     const dotRadius = Math.max(8, Math.round(F * 0.26));
-    const maxDotRadius = Math.ceil(dotRadius * 1.35); // 圆点高潮点亮时的最大缩放半径
-
-    // 呼吸安全边距：圆点与上下文字之间的视觉舒适留白 (兼顾外圈扩散光晕)
-    const marginAbove = Math.max(Math.round(F * 0.60), maxDotRadius);
-    const marginBelow = Math.max(Math.round(F * 0.60), maxDotRadius);
+    const margin = Math.round(F * 0.50); // 呼吸安全留白
 
     let fullInterludeOffset = 0;
 
@@ -587,24 +583,21 @@ export function appleScrollStateAt(
       // 上一句在世界坐标系中的真实最底沿边界 (包含全部折行高度与字形下延边界)
       const prevActualBottom = prevLine.cumulativeY + prevLine.sentenceHeight + fontDescender;
 
-      // 圆点在世界坐标系中的基准视觉中心：严格位于上一句真实底沿下方安全留白处
-      dotsWorldY = prevActualBottom + marginAbove + maxDotRadius;
+      // 圆点在世界坐标系中的基准视觉中心：位于上一句真实底沿下方安全留白处
+      dotsWorldY = prevActualBottom + margin + dotRadius;
 
       // 下一句在开辟间奏空间后所需的实际顶沿边界 (位于圆点下方安全留白处)
-      const targetNextActualTop = dotsWorldY + maxDotRadius + marginBelow;
+      const targetNextActualTop = dotsWorldY + dotRadius + margin;
       const targetNextCumulativeY = targetNextActualTop + fontAscender;
 
       // 为圆点与折行歌词预留的真实下推空间 (下一句实际顶沿不与圆点产生任何干涉)
       const nextLine = lines[targetIdx];
-      fullInterludeOffset = Math.max(
-        Math.round(layout.paragraphGap * 0.60),
-        targetNextCumulativeY - nextLine.cumulativeY
-      );
+      fullInterludeOffset = Math.max(0, targetNextCumulativeY - nextLine.cumulativeY);
     } else {
-      // 歌曲首句前奏
+      // 歌曲首句前奏：无前序歌词，首句无需下推，圆点自然置于首句上方舒适距离
       const line0ActualTop = lines[0].cumulativeY - fontAscender;
-      dotsWorldY = line0ActualTop - marginBelow - maxDotRadius;
-      fullInterludeOffset = marginAbove + maxDotRadius * 2 + marginBelow;
+      dotsWorldY = line0ActualTop - margin - dotRadius;
+      fullInterludeOffset = 0;
     }
 
     // 入场开辟阶段：前 0.40s 平滑向下推开下一行歌词 (歌词一行行 offset 进入)
@@ -795,30 +788,24 @@ export function appleScrollStateAt(
             let fillProgress = 0.0;
             let dotScale = 1.0;
             let dotAlpha = 0.28;
-            let glowAlpha = 0.0;
             let isLit = false;
 
             if (t >= beatTime) {
               isLit = true;
               if (dt < fillDuration) {
-                // 白色满满过光：0.35s 内平滑充盈
+                // 白色过光：按时间平滑充盈 (0.28 -> 1.0)
                 const p = Math.max(0, Math.min(1, dt / fillDuration));
                 fillProgress = p * p * (3 - 2 * p);
-                dotScale = 1.0 + 0.35 * Math.sin(p * Math.PI / 2);
                 dotAlpha = 0.28 + (1.0 - 0.28) * fillProgress;
-                glowAlpha = fillProgress * 0.85;
               } else {
                 fillProgress = 1.0;
-                dotScale = 1.35;
                 dotAlpha = 1.0;
-                const afterDt = dt - fillDuration;
-                glowAlpha = Math.max(0, 0.85 * Math.exp(-afterDt * 2.5));
               }
             }
 
-            // 退场收缩：1.35 -> 1.0 -> 0.90
+            // 退出缩放动画：开唱前平滑缩小 (1.0 -> 0.70)
             if (exitProgress > 0) {
-              dotScale = Number((dotScale - 0.25 * exitProgress - 0.20 * exitProgress * exitProgress).toFixed(3));
+              dotScale = Number((1.0 - 0.30 * exitProgress).toFixed(3));
             }
 
             return {
@@ -829,7 +816,7 @@ export function appleScrollStateAt(
               lit: isLit,
               scale: dotScale,
               alpha: Number(dotAlpha.toFixed(3)),
-              glowAlpha: Number(glowAlpha.toFixed(3)),
+              glowAlpha: 0,
             };
           }) as unknown as [AppleCountInDot, AppleCountInDot, AppleCountInDot];
 
@@ -940,14 +927,6 @@ export function paintAppleScrollCanvas(
       ctx.save();
       ctx.translate(dot.x, dot.y);
       ctx.scale(dot.scale, dot.scale);
-
-      // 间奏点点白色满满过光与柔和白色光晕
-      if (dot.lit && dot.glowAlpha > 0.01) {
-        ctx.beginPath();
-        ctx.arc(0, 0, dot.radius * 2.2, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255, 255, 255, ${Number((dot.glowAlpha * 0.40).toFixed(3))})`;
-        ctx.fill();
-      }
 
       ctx.beginPath();
       ctx.arc(0, 0, dot.radius, 0, Math.PI * 2);
