@@ -88,6 +88,7 @@ class RegenRequest(BaseModel):
     mode: Literal["ass", "video"] = Field(default="ass", description="生成模式")
     tag_type: Literal["k", "kf"] = Field(default="kf", description="卡拉OK标签类型")
     render_mode: Literal["apple", "tv"] = Field(default="apple", description="字幕渲染模式")
+    audio_track: Literal["mix", "instrumental", "vocals"] = Field(default="mix", description="音频轨道选择: mix(原声伴唱), instrumental(仅乐器伴奏/卡拉OK)")
 
 
 class RealignRequest(BaseModel):
@@ -1240,8 +1241,29 @@ def regen_ass(req: RegenRequest):
         if req.mode == "video" and audio_path:
             # 执行视频合成
             from src.compositor import compose_video, CompositorConfig
-            video_path = json_path.parent / f"{stem}.mp4"
+            target_audio = audio_path
+            use_inst = req.audio_track == "instrumental"
+            if use_inst:
+                tracks = _find_audio_tracks(stem, song_output_dir=json_path.parent)
+                inst_p = tracks.get("instrumental")
+                if inst_p and Path(inst_p).exists():
+                    target_audio = Path(inst_p)
+                else:
+                    log.info("未找到伴奏音轨，尝试分离人声以获取伴奏…")
+                    try:
+                        from src.separator import separate_vocals
+                        from src.config import SeparatorConfig
+                        _, sep_inst = separate_vocals(audio_path, json_path.parent, SeparatorConfig())
+                        if sep_inst and sep_inst.exists():
+                            target_audio = sep_inst
+                    except Exception as exc:
+                        log.warning("分离伴奏失败，回退至原音频: %s", exc)
+                video_path = json_path.parent / f"{stem}_karaoke.mp4"
+            else:
+                video_path = json_path.parent / f"{stem}.mp4"
+
             compositor_config = getattr(app.state, "compositor_config", CompositorConfig())
+            compositor_config.audio_track = req.audio_track
 
             # 背景优先级: alignment.json 中的 background 字段 > 纯黑
             background: Path | None = None
@@ -1253,10 +1275,10 @@ def regen_ass(req: RegenRequest):
                 else:
                     log.warning("alignment.json 指定的背景不存在: %s", bg_p)
 
-            log.info("开始合成视频: %s (背景: %s, 分镜: %d 个)",
-                     video_path.name, background, len(alignment.storyboard))
+            log.info("开始合成视频: %s (音轨: %s, 背景: %s, 分镜: %d 个)",
+                     video_path.name, target_audio.name, background, len(alignment.storyboard))
             compose_video(
-                audio_path=audio_path,
+                audio_path=target_audio,
                 subtitle_path=ass_path,
                 output_path=video_path,
                 background=background,
@@ -1266,6 +1288,7 @@ def regen_ass(req: RegenRequest):
             log.info("视频合成完成: %s", video_path.name)
             res["video_path"] = str(video_path)
             res["mode"] = "video"
+            res["audio_track"] = req.audio_track
         
         return res
     except Exception as e:
@@ -1600,6 +1623,7 @@ def api_suno_download_mp3(url: str, request: Request = None):
 class LyricVideoExportRequest(BaseModel):
     json_path: str = Field(..., description="alignment.json 路径")
     audio_path: str | None = Field(default=None, description="音频路径 (可选)")
+    audio_track: Literal["mix", "instrumental", "vocals"] = Field(default="mix", description="导出视频音轨: mix(完整原曲), instrumental(纯伴奏乐器/卡拉OK)")
     aspect_ratio: str = Field(default="9:16", description="视频比例: 9:16 或 16:9")
     template: str = Field(default="apple", description="歌词排版模板: apple, center_bounce, tv")
     theme: str = Field(default="apple_white", description="主题调色板")
@@ -1639,10 +1663,28 @@ def api_export_lyric_video(req: LyricVideoExportRequest):
     if not audio_path:
         raise HTTPException(404, f"未找到可用的音频文件: {stem}")
 
+    # 纯伴奏乐器模式 (Karaoke)
+    if req.audio_track == "instrumental":
+        tracks = _find_audio_tracks(stem, song_output_dir=song_dir)
+        inst_track = tracks.get("instrumental")
+        if inst_track and Path(inst_track).exists():
+            audio_path = Path(inst_track)
+        else:
+            log.info("未找到已有伴奏音轨，尝试分离人声以获取伴奏…")
+            try:
+                from src.separator import separate_vocals
+                from src.config import SeparatorConfig
+                _, sep_inst = separate_vocals(audio_path, song_dir, SeparatorConfig())
+                if sep_inst and sep_inst.exists():
+                    audio_path = sep_inst
+            except Exception as exc:
+                log.warning("分离伴奏失败，回退至原音频: %s", exc)
+
     # 规范化输出路径: output/{song_name}/{song_name}_lyric_{ratio}_{template}.mp4
     clean_ratio = req.aspect_ratio.replace(":", "x")
     seg_tag = f"_{int(req.start_time)}s" if req.start_time > 0 else ""
-    out_mp4 = song_dir / f"{stem}_lyric_{clean_ratio}_{req.template}{seg_tag}.mp4"
+    track_tag = "_karaoke" if req.audio_track == "instrumental" else ""
+    out_mp4 = song_dir / f"{stem}_lyric_{clean_ratio}_{req.template}{track_tag}{seg_tag}.mp4"
 
     task_id = f"lyric_{uuid.uuid4().hex[:8]}"
     _lyric_video_tasks[task_id] = {
@@ -1677,6 +1719,7 @@ def api_export_lyric_video(req: LyricVideoExportRequest):
                 duration_limit=req.duration_limit,
                 start_time=req.start_time,
                 end_time=req.end_time,
+                audio_track=req.audio_track,
                 progress_callback=_on_prog,
             )
 

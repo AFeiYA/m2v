@@ -640,6 +640,7 @@ def export_lyric_video(
     start_time: float = 0.0,
     end_time: float | None = None,
     resolution: str = "1080p",
+    audio_track: str = "mix",
     progress_callback: Callable[[float, str], None] | None = None,
 ) -> dict[str, Any]:
     """
@@ -681,6 +682,38 @@ def export_lyric_video(
     else:
         alignment = alignment_source
         song_dir = out_p.parent
+
+    # 针对纯伴奏卡拉OK模式 (audio_track == "instrumental") 解析乐器音轨
+    if audio_track == "instrumental":
+        if "_instrumental" not in audio_p.stem.lower():
+            inst_found = None
+            search_dirs = [audio_p.parent, song_dir]
+            for d in search_dirs:
+                if not d or not d.exists():
+                    continue
+                for ext in [".wav", ".mp3", ".flac", ".m4a"]:
+                    for name in [f"{audio_p.stem}_instrumental{ext}", f"{song_dir.name}_instrumental{ext}"]:
+                        cand = d / name
+                        if cand.exists():
+                            inst_found = cand
+                            break
+                    if inst_found:
+                        break
+                if inst_found:
+                    break
+            if inst_found:
+                log.info("🎵 [伴奏卡拉OK模式] 使用找到的伴奏音频: %s", inst_found.name)
+                audio_p = inst_found
+            else:
+                log.info("未找到伴奏音轨，尝试分离提取乐器伴奏: %s", audio_p.name)
+                try:
+                    from src.separator import separate_vocals
+                    from src.config import SeparatorConfig
+                    _, sep_inst = separate_vocals(audio_p, song_dir, SeparatorConfig())
+                    if sep_inst and sep_inst.exists():
+                        audio_p = sep_inst
+                except Exception as sep_err:
+                    log.warning("自动伴奏分离失败，回退使用原始音频: %s", sep_err)
 
     # 2. 匹配时间裁剪区间 (支持副歌、主歌或自定义起止时间)
     effective_st = max(0.0, float(start_time or 0.0))
@@ -808,4 +841,5 @@ def export_lyric_video(
         "template": template,
         "theme": theme,
         "background_mode": background_mode,
+        "audio_track": audio_track,
     }

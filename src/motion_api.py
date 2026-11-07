@@ -80,6 +80,7 @@ class RenderRequest(ProjectRequest):
     scene: Literal['poster', 'rhythm'] = 'poster'
     aspect: Literal['16:9', '9:16'] = '16:9'
     visual_mode: Literal['tv', 'apple', 'kinetic'] = 'kinetic'
+    audio_track: Literal['mix', 'instrumental', 'vocals'] = 'mix'
     height: Literal[360, 720] = 720
     start: float = Field(default=0, ge=0, allow_inf_nan=False)
     length: float | None = Field(default=None, gt=0, allow_inf_nan=False)
@@ -184,7 +185,8 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
     @router.get('/project')
     def project(project_id: str):
         path, payload = read(project_id)
-        audio = find_audio(path.stem.removesuffix('_alignment').removesuffix('_project'), song_output_dir=path.parent)
+        stem = path.stem.removesuffix('_alignment').removesuffix('_project')
+        audio = find_audio(stem, song_output_dir=path.parent)
         saved = previous(path)
         error = ''
         plan_needs_sync = False
@@ -196,12 +198,34 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
         design = design_document(path).model_dump()
         design['modes']['kinetic']['plan'] = saved
         payload['motion_design'] = design
+
+        # 伴奏音轨探测
+        inst_found = None
+        song_name = path.parent.name
+        base_stem = stem.replace("_vocals", "").replace("_instrumental", "")
+        search_dirs = [path.parent, get_scan_dir() / stem, get_scan_dir() / song_name, get_scan_dir().parent / "input" / song_name]
+        for d in search_dirs:
+            if not d.exists(): continue
+            for ext in ['.wav', '.mp3', '.flac', '.m4a']:
+                for prefix in [stem, base_stem, song_name]:
+                    cand = d / f"{prefix}_instrumental{ext}"
+                    if cand.exists():
+                        inst_found = cand
+                        break
+                if inst_found: break
+            if inst_found: break
+        inst_url = (
+            '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(inst_found))
+            if inst_found else None
+        )
+
         return {'project': payload, 'plan': saved, 'plan_error': error, 'plan_needs_sync': plan_needs_sync, 'design': design,
                 'has_saved_design': plan_path(path).exists(),
                 'has_saved_identity': identity_path(path).exists(),
                 'rule_seed': rule_plan(payload, None if plan_needs_sync else saved).model_dump(),
                 'audio_url': (audio_url(project_id) if audio_url is not None else
-                              '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(audio))) if audio_url is not None or audio else None}
+                              '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(audio))) if audio_url is not None or audio else None,
+                'instrumental_url': inst_url}
 
     def rhythm_path(path):
         return path.with_name(path.stem.removesuffix('_alignment').removesuffix('_project') + '_rhythm_settings.json')
@@ -531,8 +555,35 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                 except ValueError as exc: raise HTTPException(422, str(exc)) from exc
             else:
                 plan = saved  # Streaming modes never depend on poster validity.
-        audio = find_audio(path.stem.removesuffix('_alignment').removesuffix('_project'), song_output_dir=path.parent)
-        if not audio: raise HTTPException(404, '没有原曲音频，无法输出带音乐的 MP4')
+        stem = path.stem.removesuffix('_alignment').removesuffix('_project')
+        audio = find_audio(stem, song_output_dir=path.parent)
+        if getattr(req, 'audio_track', 'mix') == 'instrumental':
+            inst_found = None
+            song_name = path.parent.name
+            base_stem = stem.replace("_vocals", "").replace("_instrumental", "")
+            search_dirs = [path.parent, get_scan_dir() / stem, get_scan_dir() / song_name, get_scan_dir().parent / "input" / song_name]
+            for d in search_dirs:
+                if not d.exists(): continue
+                for ext in ['.wav', '.mp3', '.flac', '.m4a']:
+                    for prefix in [stem, base_stem, song_name]:
+                        cand = d / f"{prefix}_instrumental{ext}"
+                        if cand.exists():
+                            inst_found = cand
+                            break
+                    if inst_found: break
+                if inst_found: break
+            if inst_found:
+                audio = inst_found
+            elif audio:
+                try:
+                    from src.separator import separate_vocals
+                    from src.config import SeparatorConfig
+                    _, sep_inst = separate_vocals(audio, path.parent, SeparatorConfig())
+                    if sep_inst and sep_inst.exists():
+                        audio = sep_inst
+                except Exception:
+                    pass
+        if not audio: raise HTTPException(404, '没有可用的音频文件，无法输出带音乐的 MP4')
         audio = validate_path(audio)
         import soundfile as sf
         # Export duration follows actual audio, never the last sung word.

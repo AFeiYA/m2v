@@ -82,6 +82,7 @@ class CompositorConfig:
     pixel_format: str = "yuv420p"
     default_bg: Path = ASSETS_DIR / "default_bg.jpg"
     enable_subtitles: bool = True
+    audio_track: str = "mix"              # "mix" (原声混音伴唱) 或 "instrumental" (纯伴奏乐器/卡拉OK)
 
 # ---------------------------------------------------------------------------
 # 歌词预处理
@@ -112,6 +113,7 @@ class PipelineConfig:
     alignment_json: Path | None = None    # 复用已有对齐结果，跳过对齐
     video_only: bool = False              # 直接从已有 ASS 合成视频，跳过 1-4 步
     ass_file: Path | None = None          # video_only 时指定 ASS 路径 (支持 {stem})
+    use_instrumental: bool = False        # 是否仅使用乐器伴奏音轨输出卡拉OK视频
 
     @classmethod
     def from_file(cls, path: Path | str) -> "PipelineConfig":
@@ -146,6 +148,9 @@ class PipelineConfig:
             cfg.ass_only = bool(pipeline_data.get("ass_only", cfg.ass_only))
             cfg.video_only = bool(pipeline_data.get("video_only", cfg.video_only))
             cfg.keep_temp = bool(pipeline_data.get("keep_temp", cfg.keep_temp))
+            cfg.use_instrumental = bool(pipeline_data.get("use_instrumental", cfg.use_instrumental))
+            if cfg.use_instrumental:
+                cfg.compositor.audio_track = "instrumental"
             if pipeline_data.get("alignment_json"):
                 cfg.alignment_json = Path(pipeline_data["alignment_json"])
             if pipeline_data.get("ass_file"):
@@ -181,6 +186,13 @@ class PipelineConfig:
                 cfg.subtitle.enable_beat_effects = bool(subtitle_data["enable_beat_effects"])
             if subtitle_data.get("beat_scale") is not None:
                 cfg.subtitle.beat_scale = float(subtitle_data["beat_scale"])
+
+        compositor_data = data.get("compositor", {})
+        if isinstance(compositor_data, dict):
+            if "audio_track" in compositor_data and compositor_data["audio_track"] is not None:
+                cfg.compositor.audio_track = str(compositor_data["audio_track"])
+                if cfg.compositor.audio_track == "instrumental":
+                    cfg.use_instrumental = True
 
         return cfg
 
