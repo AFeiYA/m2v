@@ -1,15 +1,15 @@
 # Standard Development and Release Workflow
 
-All development, bug fixes, and feature additions in this repository must strictly adhere to the following 5-step development and release lifecycle. Never bypass steps or merge automatically without human approval.
+All development, bug fixes, and feature additions in this repository adhere to the following 5-step development and release lifecycle. PRs to `staging` can be automatically merged once local tests pass; merging from `staging` to `main` strictly requires explicit human approval after manual testing.
 
 ## 5-Step Lifecycle
 
 ```
 1. Feature/Fix Branch (from staging)
        ↓
-2. Commit, Push & Create PR to staging → [HALT: Wait for Code Review] ⏸️
-       ↓ (After user approves Review)
-3. Merge PR into staging branch
+2. Local Tests, Commit, Push & Create PR to staging
+       ↓
+3. Auto-merge PR into staging branch (verified)
        ↓
 4. Deploy / Verify staging → [HALT: Wait for Manual Testing] ⏸️
        ↓ (After user confirms manual testing passed)
@@ -28,7 +28,7 @@ All development, bug fixes, and feature additions in this repository must strict
 
 ---
 
-### Step 2: Push, Create PR to Staging, and Wait for Review
+### Step 2 & 3: Push, Create PR, and Merge to Staging
 - Push the branch to remote:
   ```bash
   git push -u origin <type>/<description>
@@ -37,12 +37,7 @@ All development, bug fixes, and feature additions in this repository must strict
   ```bash
   gh pr create --base staging --head <type>/<description> --title "..." --body "..."
   ```
-- **CRITICAL HALT**: Output the PR link to the user and **STOP**. Do NOT merge into `staging` yet. Wait for the user to review and explicitly approve the PR.
-
----
-
-### Step 3: Merge PR into Staging
-- Only after the user confirms that code review has passed (e.g. "PR review 通过" / "可以合入 staging"), merge the PR into `staging`:
+- Once local tests and checks pass, automatically merge the PR into `staging`:
   ```bash
   gh pr merge <pr_number_or_url> --merge
   ```
@@ -51,7 +46,7 @@ All development, bug fixes, and feature additions in this repository must strict
 ---
 
 ### Step 4: Wait for Manual Testing on Staging
-- **CRITICAL HALT**: Notify the user that changes are merged to `staging`.
+- **CRITICAL HALT**: Notify the user that changes are merged to `staging` and deployed.
 - **STOP and wait** for the user to conduct manual verification/testing on the staging environment ("等人工测试staging"). Do NOT proceed to `main` until explicit user sign-off is given.
 
 ---
