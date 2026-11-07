@@ -144,7 +144,11 @@ function syncModeControls(){
   const currentModeSettings = design.modes[design.active_mode as 'apple'|'tv'];
   if(currentModeSettings && 'font_scale' in currentModeSettings) $<HTMLInputElement>('stream-font-scale').value=String(currentModeSettings.font_scale);
   $('apple-mode-controls').hidden=design.active_mode!=='apple';$('karaoke-mode-controls').hidden=design.active_mode!=='tv';
-  if(design.modes.apple) $<HTMLInputElement>('apple-focus-y').value=String(design.modes.apple.focus_y);
+  if(design.modes.apple){
+   $<HTMLInputElement>('apple-focus-y').value=String(design.modes.apple.focus_y);
+   const countInEl=$<HTMLInputElement>('apple-count-in');
+   if(countInEl) countInEl.checked=Boolean(design.modes.apple.count_in);
+  }
   if(design.modes.tv) $<HTMLInputElement>('karaoke-preview-seconds').value=String(design.modes.tv.preview_seconds);
  }
  if($('mode-state-hint'))$('mode-state-hint').textContent=visualModes[design.active_mode].label+' · Changes are kept separately for each mode.';
@@ -1011,6 +1015,12 @@ for(const id of ['stream-font-scale','apple-focus-y','karaoke-preview-seconds'])
  if(id==='apple-focus-y')design.modes.apple.focus_y=Number($<HTMLInputElement>(id).value);
  if(id==='karaoke-preview-seconds')design.modes.tv.preview_seconds=Number($<HTMLInputElement>(id).value);
  settingsDirty=true;refresh();status('Mode settings updated locally. Save when ready.');
+});
+$('apple-count-in')?.addEventListener('change',()=>{
+ if(design.active_mode==='apple'){
+  design.modes.apple.count_in=$<HTMLInputElement>('apple-count-in').checked;
+  settingsDirty=true;refresh();status('Mode settings updated locally. Save when ready.');
+ }
 });
 function updateAudioTrackHint() {
   const select = $<HTMLSelectElement>('export-audio-track-ms');

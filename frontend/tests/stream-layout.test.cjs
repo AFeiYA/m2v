@@ -272,7 +272,7 @@ test('Apple Scroll interlude row: left-aligned dots light up one by one, exit sh
 
   const width = 1080;
   const height = 1920;
-  const compiled = compileAppleScrollLayout(project, width, height, measure, palette);
+  const compiled = compileAppleScrollLayout(project, width, height, measure, palette, { count_in: true });
 
   // 1. 验证间奏行独立编排
   assert.ok(compiled.interludes);
@@ -349,7 +349,7 @@ test('Apple Scroll interlude clearance with multi-line lyrics, font bounds, and 
 
   const width = 720;
   const height = 1280;
-  const compiled = compileAppleScrollLayout(project, width, height, measure, palette);
+  const compiled = compileAppleScrollLayout(project, width, height, measure, palette, { count_in: true });
 
   const line0 = compiled.lines[0];
   assert.ok(line0.rows.length >= 2, 'Line 0 must wrap into multiple rows');
@@ -421,4 +421,28 @@ test('Apple Scroll interlude clearance with multi-line lyrics, font bounds, and 
   const introGap = introLine0Top - (introDot.y + introDot.radius);
   assert.ok(introGap > 0 && introGap < F * 1.2,
     `Intro dots gap to line 0 (${introGap}px) must be comfortably close (less than ${F * 1.2}px)`);
+});
+
+test('Apple Scroll interlude countdown dots disabled by default (clean stream mode)', () => {
+  const project = {
+    duration: 30,
+    lines: [
+      { id: '0', text: 'Line one', start: 4.0, end: 8.0, words: [] },
+      { id: '1', text: 'Line two after 6s solo', start: 14.0, end: 18.0, words: [] }
+    ]
+  };
+  // Default without count_in (or count_in: false)
+  const compiled = compileAppleScrollLayout(project, 1080, 1920, measure, palette);
+  assert.equal(compiled.interludes.length, 0, 'Interludes must be disabled when count_in is not true');
+
+  // At t = 10.0s (in the middle of the 6s gap):
+  const stateAt10 = appleScrollStateAt(compiled, 10.0);
+  assert.equal(stateAt10.countIn, null, 'No count-in dots rendered');
+  // Spacing between line 0 and line 1 is strictly standard paragraphGap with no extra offset
+  const item0 = stateAt10.items.find(it => it.compiled.lineIndex === 0);
+  const item1 = stateAt10.items.find(it => it.compiled.lineIndex === 1);
+  if (item0 && item1) {
+    assert.equal(item1.y - (item0.y + item0.compiled.sentenceHeight), compiled.paragraphGap,
+      'Spacing between sentences is strictly standard paragraphGap');
+  }
 });

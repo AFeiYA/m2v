@@ -2,7 +2,7 @@ import type {MotionPlan, Options, VisualMode} from './model';
 export type Theme = {palette:string;background:'auto'|'dark'|'light'};
 export type ModeSettings = {aspect:Options['aspect'];theme:Theme|null;post:boolean;bloom:number;shake:number};
 export type KineticDesign = ModeSettings & {layout:'smart'|'random'|'single'|'two-stack'|'three-stack'|'word-by-word';highlight:'none'|'word'|'sweep';plan:MotionPlan|null};
-export type AppleDesign = ModeSettings & {font_scale:number;focus_y:number};
+export type AppleDesign = ModeSettings & {font_scale:number;focus_y:number;count_in?:boolean};
 export type KaraokeDesign = ModeSettings & {font_scale:number;preview_seconds:number};
 export type MotionDesign = {version:'motion-design-v1';active_mode:VisualMode;theme:Theme;height:360|720;modes:{kinetic:KineticDesign;apple:AppleDesign;tv:KaraokeDesign}};
 
@@ -80,7 +80,7 @@ export function createMotionDesign():MotionDesign {
  const mode=(aspect:Options['aspect']):ModeSettings=>({aspect,theme:null,post:true,bloom:.7,shake:.65});
  return {version:'motion-design-v1',active_mode:'kinetic',theme:{palette:'impact',background:'auto'},height:720,modes:{
   kinetic:{...mode('16:9'),layout:'smart',highlight:'none',plan:null},
-  apple:{...mode('9:16'),font_scale:1,focus_y:.42},
+  apple:{...mode('9:16'),font_scale:1,focus_y:.42,count_in:false},
   tv:{...mode('16:9'),font_scale:1,preview_seconds:2.5},
  }};
 }
