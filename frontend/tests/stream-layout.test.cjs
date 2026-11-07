@@ -245,8 +245,8 @@ test('Apple Scroll viewport maintains continuous reading stream with safe margin
   [0.5, 9.0, 18.0, 30.0].forEach(t => {
     const state = appleScrollStateAt(compiled, t);
 
-    // 1. Maintain continuous reading stream without overfilling or truncating (5-7 visible lines)
-    assert.ok(state.items.length >= 1 && state.items.length <= 8, `At t=${t}s, lines count ${state.items.length} must be <= 8`);
+    // 1. Maintain continuous reading stream without overfilling or truncating (5-9 visible lines)
+    assert.ok(state.items.length >= 1 && state.items.length <= 10, `At t=${t}s, lines count ${state.items.length} must be <= 10`);
 
     // 2. Never touch borders (no 顶格):
     // All visible items must stay within safe margins (8% ~ 96% of height)
@@ -261,7 +261,7 @@ test('Apple Scroll viewport maintains continuous reading stream with safe margin
   });
 });
 
-test('Apple Scroll interlude row: left-aligned dots light up one by one with 1.35->1.2->1.0 animation and smooth font-line transition', () => {
+test('Apple Scroll interlude row: left-aligned dots light up one by one, exit shrink, and catch-up spring offset animation', () => {
   const project = {
     duration: 30,
     lines: [
@@ -307,21 +307,31 @@ test('Apple Scroll interlude row: left-aligned dots light up one by one with 1.3
   assert.equal(stateAt13_5.countIn.dots[2].lit, true);
   assert.equal(stateAt13_5.countIn.dots[2].scale, 1.35);
 
-  // 4. 开唱前过渡动效：1.35 → 1.2 → 1.0
+  // 4. 开唱前过渡动效：圆点缩小渐隐 (1.35 → 1.18 → 0.40) 同时歌词追行贴上去
   const stateAt13_8 = appleScrollStateAt(compiled, 13.825);
   assert.ok(stateAt13_8.countIn);
-  assert.ok(stateAt13_8.countIn.dots[0].scale >= 1.05 && stateAt13_8.countIn.dots[0].scale <= 1.25,
-    `Dot scale ${stateAt13_8.countIn.dots[0].scale} should smoothly transition around 1.2 before singing`);
+  assert.ok(stateAt13_8.countIn.dots[0].scale >= 0.95 && stateAt13_8.countIn.dots[0].scale <= 1.25,
+    `Dot scale ${stateAt13_8.countIn.dots[0].scale} should smoothly transition around 1.0~1.2 before singing`);
 
-  // 5. 开唱瞬间 (t = 14.0s)：圆点稳定在 1.0 当字体行上滚，下一句开唱
+  // 5. 开唱瞬间 (t = 14.0s)：圆点彻底消失 (countIn = null)，下一句歌词追行贴上去吸附至准确焦点
   const stateAt14 = appleScrollStateAt(compiled, 14.0);
-  assert.ok(stateAt14.countIn);
-  assert.equal(stateAt14.countIn.dots[0].scale, 1.0);
+  assert.equal(stateAt14.countIn, null);
   const activeLine = stateAt14.items.find(it => it.isActive);
   assert.ok(activeLine);
   assert.equal(activeLine.compiled.lineIndex, 1);
+  const expectedFocusTopY = Math.round(height * (compiled.focusY ?? 0.42) - activeLine.compiled.sentenceHeight / 2);
+  assert.equal(activeLine.y, expectedFocusTopY);
 
-  // 6. 开唱后平滑融入历史文本并退出
-  const stateAt14_6 = appleScrollStateAt(compiled, 14.6);
-  assert.equal(stateAt14_6.countIn, null);
+  // 6. 验证最小间奏时长要求 MIN_INTERLUDE_GAP = 3.0s
+  const projectShortGap = {
+    duration: 20,
+    lines: [
+      { id: '0', text: 'Line one', start: 1.0, end: 3.0, words: [] },
+      { id: '1', text: 'Line two with 2s breath pause', start: 5.0, end: 7.0, words: [] } // gap = 2.0s < 3.0s
+    ]
+  };
+  const compiledShort = compileAppleScrollLayout(projectShortGap, width, height, measure, palette);
+  assert.equal(compiledShort.interludes.length, 0, 'Gaps under 3.0s must not create interlude count-in dots');
+  const stateShortAt4 = appleScrollStateAt(compiledShort, 4.0);
+  assert.equal(stateShortAt4.countIn, null, 'No count-in dots for short breath pauses');
 });
