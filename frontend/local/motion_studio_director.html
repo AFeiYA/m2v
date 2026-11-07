@@ -9,7 +9,7 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="/motion-lab.css?v=20261029_flex">
-  <script src="/static/i18n.js?v=20261016_locale"></script>
+  <script src="/static/i18n.js?v=20261108_audio_track"></script>
   <script src="/static/song-select.js?v=20261027_dropdown"></script>
 </head>
 <body>
@@ -425,8 +425,8 @@
           <div style="margin-bottom:12px;">
             <label for="export-audio-track-ms" style="font-size:11px; color:#96c8a0; display:block; margin-bottom:4px;" data-i18n="ms_lbl_audio_track">Audio Track (Karaoke)</label>
             <select id="export-audio-track-ms" style="width:100%; height:32px; background:#0d120a; border:1px solid #233420; border-radius:6px; color:#e2e8f0; font-size:11px; padding:0 8px;">
-              <option value="mix" data-i18n="ms_opt_track_mix">🎵 原声混音 (Full Mix / Vocals + Accompaniment)</option>
-              <option value="instrumental" data-i18n="ms_opt_track_inst">🎤 纯伴奏乐器 (Karaoke / Instrumental Only)</option>
+              <option value="mix" data-i18n="ms_opt_track_mix">🎵 Full Mix (Vocals + Accompaniment · Default)</option>
+              <option value="instrumental" data-i18n="ms_opt_track_inst">🎤 Instrumental Only (Vocal-free Karaoke)</option>
             </select>
             <p id="export-audio-track-hint" style="display:none; font-size:10px; color:#f59e0b; margin-top:4px; line-height:1.4;"></p>
           </div>
@@ -461,7 +461,7 @@
     </div>
   </dialog>
 
-  <script type="module" src="/motion/studio.js?v=20261108_count_in_toggle"></script>
+  <script type="module" src="/motion/studio.js?v=20261108_audio_track"></script>
   <script>
     if (window.parent && window.parent !== window) {
       document.body.classList.add("embedded-studio");
