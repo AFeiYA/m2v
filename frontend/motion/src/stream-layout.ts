@@ -379,7 +379,7 @@ export function compileAppleScrollLayout(
   height: number,
   measure: TextMeasure,
   palette: StreamPalette,
-  options?: {font_scale?:number;focus_y?:number}
+  options?: {font_scale?:number;focus_y?:number;count_in?:boolean}
 ): AppleScrollCompiled {
   const lines = project.lines || [];
   // Apple Music 移动端规范：左边距安全边距约 8%，给歌词留出 84% 舒适阅读宽度
@@ -398,8 +398,9 @@ export function compileAppleScrollLayout(
   const interludes: AppleInterludeCompiled[] = [];
   let cumulativeY = 0;
 
-  // 官方标准：伴奏空隙达到 3.0s 时才作为独立间奏段，展示 3 拍起跑倒计时圆点
+  // 官方标准：伴奏空隙达到 3.0s 且启用了 count_in 开关时才作为独立间奏段，展示 3 拍起跑倒计时圆点
   const MIN_INTERLUDE_GAP = 3.0;
+  const enableCountIn = options?.count_in === true;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -407,8 +408,8 @@ export function compileAppleScrollLayout(
     const gap = line.start - prevEnd;
     const hasInterlude = (i === 0 ? line.start >= MIN_INTERLUDE_GAP : gap >= MIN_INTERLUDE_GAP);
 
-    // 前奏或间奏空隙 >= 3.0s 时，注册独立间奏段
-    if (hasInterlude) {
+    // 前奏或间奏空隙 >= 3.0s 且用户开启了间奏倒计时小圆点时，注册独立间奏段
+    if (hasInterlude && enableCountIn) {
       interludes.push({
         targetLineIndex: i,
         startTime: prevEnd,

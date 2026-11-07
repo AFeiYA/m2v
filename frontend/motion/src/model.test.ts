@@ -800,7 +800,7 @@ test('intro cover completely fades out before lyrics appear, eliminating visual 
   assert.ok(ktv.lines[0].previewStart >= songLayout.introEnd);
 
   // 3. 验证 Apple Scroll 模式：在 introEnd 之前，歌词处于隐藏状态 (items 为空)
-  const apple = compileAppleScrollLayout(project, 1280, 720, measure, palette);
+  const apple = compileAppleScrollLayout(project, 1280, 720, measure, palette, { count_in: true });
   const stateDuringCover = appleScrollStateAt(apple, 1.5);
   assert.equal(stateDuringCover.items.length, 0);
 
