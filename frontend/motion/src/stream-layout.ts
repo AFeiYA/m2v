@@ -346,6 +346,15 @@ export interface AppleLineCompiled {
   interludeGap?: number;
 }
 
+export interface AppleInterludeCompiled {
+  targetLineIndex: number;
+  startTime: number;
+  endTime: number;
+  gap: number;
+  centerY: number;
+  height: number;
+}
+
 export interface AppleScrollCompiled {
   focusY?: number;
   aspect: '16:9' | '9:16';
@@ -359,6 +368,7 @@ export interface AppleScrollCompiled {
   paragraphGap: number;
   lineGap: number;
   lines: AppleLineCompiled[];
+  interludes?: AppleInterludeCompiled[];
   palette: StreamPalette;
   introEnd?: number;
 }
@@ -385,6 +395,7 @@ export function compileAppleScrollLayout(
   const introEnd = computeIntroEnd(project);
 
   const compiledLines: AppleLineCompiled[] = [];
+  const interludes: AppleInterludeCompiled[] = [];
   let cumulativeY = 0;
 
   for (let i = 0; i < lines.length; i++) {
@@ -393,10 +404,20 @@ export function compileAppleScrollLayout(
     const gap = line.start - prevEnd;
     const hasInterlude = gap >= 2.0;
 
-    // 前奏或间奏空隙 >= 2.0s 时，增加独立的段落起歇留白高度 (Dedicated Headroom)
-    // 使得起拍 3 拍小圆点拥有专属的垂直空行空间，文字向下顺延，杜绝与字体重叠
-    if (i > 0 && hasInterlude) {
-      cumulativeY += Math.round(activeFontSize * 1.6);
+    // 前奏或间奏空隙 >= 2.0s 时，编排独立的间奏 3 拍小圆点行 (Apple Music Interlude Row)
+    if (hasInterlude) {
+      const interludeHeight = rowLineHeight;
+      const interludeCenterY = cumulativeY + interludeHeight / 2;
+      interludes.push({
+        targetLineIndex: i,
+        startTime: prevEnd,
+        endTime: line.start,
+        gap,
+        centerY: interludeCenterY,
+        height: interludeHeight,
+      });
+      // 间奏行独立留白高度：interludeHeight + Math.round(activeFontSize * 1.6)
+      cumulativeY += interludeHeight + Math.round(activeFontSize * 1.6);
     }
 
     const textRows = wrapSentenceToRows(line.text, activeFontSize, 700, maxWidth, measure);
@@ -456,6 +477,7 @@ export function compileAppleScrollLayout(
     paragraphGap,
     lineGap: paragraphGap,
     lines: compiledLines,
+    interludes,
     palette,
     introEnd,
   };
@@ -527,39 +549,78 @@ export function appleScrollStateAt(
   }
   const introFade = introEnd > 0 ? Math.min(1, Math.max(0, (t - introEnd) / 0.35)) : 1;
 
-  // 1. 确定当前活跃焦点行
-  let activeIndex = 0;
+  // 1. 构建全曲时序焦点序列（歌词行与间奏行）
+  interface FocalSegment {
+    kind: 'interlude' | 'line';
+    index: number;
+    start: number;
+    end: number;
+    centerY: number;
+  }
+
+  const segments: FocalSegment[] = [];
+  const interludes = layout.interludes || [];
+
   for (let i = 0; i < lines.length; i++) {
-    if (t >= lines[i].start) {
-      activeIndex = i;
+    const inter = interludes.find(it => it.targetLineIndex === i);
+    if (inter) {
+      segments.push({
+        kind: 'interlude',
+        index: i,
+        start: inter.startTime,
+        end: inter.endTime,
+        centerY: inter.centerY,
+      });
+    }
+    segments.push({
+      kind: 'line',
+      index: i,
+      start: lines[i].start,
+      end: lines[i].end,
+      centerY: lines[i].centerY,
+    });
+  }
+  segments.sort((a, b) => a.start - b.start);
+
+  // 2. 确定当前活跃的时间段索引与平滑世界焦点 Y 坐标
+  let activeSegIdx = 0;
+  for (let s = 0; s < segments.length; s++) {
+    if (t >= segments[s].start) {
+      activeSegIdx = s;
     }
   }
 
-  // 2. 平滑过渡因子 (如果正在接近下一行，平滑上滚)
-  const currentLine = lines[activeIndex];
-  const nextLine = lines[activeIndex + 1];
-  let scrollFraction = 0.0;
-  if (nextLine && t > currentLine.end) {
-    const leadDuration = Math.max(0.3, Math.min(1.5, nextLine.start - currentLine.end));
-    scrollFraction = Math.max(0, Math.min(1, (t - currentLine.end) / leadDuration));
-    // 平滑缓动 (ease-out cubic)
-    scrollFraction = 1 - Math.pow(1 - scrollFraction, 3);
+  const curSeg = segments[activeSegIdx];
+  const nextSeg = segments[activeSegIdx + 1];
+
+  let focalWorldY = curSeg ? curSeg.centerY : lines[0].centerY;
+
+  if (curSeg && nextSeg) {
+    if (curSeg.kind === 'line') {
+      // 歌词行唱完后，平滑上滚到下一段（歌词或间奏）
+      if (t > curSeg.end) {
+        const leadDuration = Math.max(0.3, Math.min(1.2, nextSeg.start - curSeg.end));
+        const fraction = Math.max(0, Math.min(1, (t - curSeg.end) / leadDuration));
+        const scrollFraction = 1 - Math.pow(1 - fraction, 3);
+        focalWorldY = curSeg.centerY + (nextSeg.centerY - curSeg.centerY) * scrollFraction;
+      }
+    } else {
+      // 间奏段：在开唱前 0.20s 开始平滑对准下一句歌词
+      const exitLead = 0.20;
+      if (t >= curSeg.end - exitLead) {
+        const fraction = Math.max(0, Math.min(1, (t - (curSeg.end - exitLead)) / exitLead));
+        const scrollFraction = Math.pow(fraction, 2.0);
+        focalWorldY = curSeg.centerY + (nextSeg.centerY - curSeg.centerY) * scrollFraction;
+      }
+    }
   }
 
   // Apple Music 移动端光学焦点约在视口高 42% 偏上方，留给下方预读更多空间
   const focalCenterY = Math.round(layout.height * (layout.focusY ?? .42));
-  const focalWorldY = currentLine.centerY + (nextLine ? (nextLine.centerY - currentLine.centerY) * scrollFraction : 0);
-  const continuousIndex = activeIndex + scrollFraction;
 
   const items: AppleLineRenderItem[] = [];
 
   for (let i = 0; i < lines.length; i++) {
-    const distUnits = i - continuousIndex;
-    // 限制视口渲染行数：上方最多 1.5 行、下方最多 2.5 行，彻底杜绝满屏与拥挤
-    if (distUnits < -1.8 || distUnits > 2.8) {
-      continue;
-    }
-
     const c = lines[i];
     // 当前句子的视觉中心
     const itemCenterY = Math.round(focalCenterY + (c.centerY - focalWorldY));
@@ -571,7 +632,9 @@ export function appleScrollStateAt(
       continue;
     }
 
-    const isActive = i === activeIndex;
+    const isActive = t >= c.start && t <= c.end;
+    const distPx = itemCenterY - focalCenterY;
+    const distUnits = distPx / (layout.activeFontSize * 1.8);
     const absDist = Math.abs(distUnits);
 
     let baseAlpha = 0;
@@ -592,7 +655,7 @@ export function appleScrollStateAt(
       continue;
     }
 
-    // 焦点微缩放层级（非焦点句轻微缩放 0.90 ~ 0.96，焦点句 1.0）
+    // 焦点微缩放层级（非焦点句轻微缩放 0.88 ~ 0.96，焦点句 1.0）
     const scale = isActive ? 1.0 : Math.max(0.88, 1.0 - absDist * 0.05);
 
     const spansWithProgress = c.spans.map(span => {
@@ -610,72 +673,78 @@ export function appleScrollStateAt(
     });
   }
 
-  // 3. 计算 Apple 伴唱起拍 3 拍小圆点 (Count-in Dots)
+  // 4. 计算 Apple 伴唱起跑 3 拍小圆点行 (Apple Music Interlude Countdown Dots)
   let countIn: AppleCountInState | null = null;
-  const COUNT_IN_LEAD = 1.5;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const prevEnd = i > 0 ? lines[i - 1].end : introEnd;
-    const gap = line.start - prevEnd;
+  for (const inter of interludes) {
+    if (t >= inter.startTime && t <= inter.endTime) {
+      if (introEnd > 0 && t < introEnd) {
+        continue;
+      }
 
-    // 前奏或间奏空隙 >= 2.0s 时激活起拍圆点
-    if (gap >= 2.0) {
-      const countInStart = line.start - COUNT_IN_LEAD;
-      const countInEnd = line.start + 0.15;
+      // 倒计时间隔与起跑时机
+      const countInLead = Math.min(2.4, Math.max(1.5, inter.gap * 0.6));
+      const countInStart = inter.endTime - countInLead;
+      const exitLead = 0.20; // 下一句开唱前 0.2 秒突然缩放变小消失
 
-      if (t >= countInStart && t <= countInEnd) {
-        if (introEnd > 0 && t < introEnd) {
-          continue;
-        }
+      // Apple Music 左对齐圆点规范：
+      // 半径约为活动字号的 0.18（在标准字号下约 7~10px，醒目且不显臃肿）
+      const dotRadius = Math.max(7, Math.round(layout.activeFontSize * 0.18));
+      const dotSpacing = Math.round(dotRadius * 3.0);
 
-        const targetItem = items.find(it => it.compiled.lineIndex === i);
-        const targetY = targetItem
-          ? targetItem.y
-          : Math.round(focalCenterY + (line.centerY - focalWorldY) - line.sentenceHeight / 2);
-        const targetX = targetItem ? (targetItem.compiled.rows[0]?.x ?? layout.startX) : (line.rows[0]?.x ?? layout.startX);
+      // 横向左对齐：与歌词文本首列严格对齐 (startX + dotRadius)
+      const dotsStartX = layout.startX + dotRadius;
 
-        const relTime = t - countInStart;
-        const entranceFade = Math.min(1, Math.max(0, relTime / 0.25));
-        const exitFade = t > line.start ? Math.max(0, 1 - (t - line.start) / 0.15) : 1;
-        const overallAlpha = Number((entranceFade * exitFade * introFade).toFixed(3));
+      // 纵向位置：跟随间奏行的实时视口世界坐标
+      const dotsY = Math.round(focalCenterY + (inter.centerY - focalWorldY));
 
-        if (overallAlpha > 0.01) {
-          const dotRadius = Math.max(4.5, Math.round(layout.activeFontSize * 0.12));
-          const dotSpacing = Math.round(dotRadius * 3.6);
-          // 独立起拍留白层 (Dedicated Spacer Headroom)：
-          // targetY 为句首首行基线。汉字顶端轮廓通常在 targetY - 0.85 * activeFontSize。
-          // 将起拍 3 拍圆点放置在 targetY - 1.55 * activeFontSize，使圆点底边缘与文字顶边缘保留 >0.55 * activeFontSize 的纯净留白，绝对不与字笔画相撞
-          const dotsY = targetY - Math.round(layout.activeFontSize * 1.55);
-          const dotsStartX = targetX + dotRadius;
+      // 间奏播放期间：三个小点来回平滑呼吸缩放 (Breathe scale)
+      const breatheCycle = (t - inter.startTime) * Math.PI * 1.5;
+      const breatheScale = 1.0 + 0.12 * Math.sin(breatheCycle);
 
-          const dots: [AppleCountInDot, AppleCountInDot, AppleCountInDot] = [0, 1, 2].map(dIdx => {
-            const beatStart = dIdx * 0.5;
-            const isLit = relTime >= beatStart;
-            const dt = Math.max(0, relTime - beatStart);
-            const scale = isLit ? Number((1.0 + Math.max(0, 0.40 * Math.exp(-dt * 5.0))).toFixed(3)) : 1.0;
-            const glowAlpha = isLit ? Number(Math.max(0, Math.exp(-dt * 3.5)).toFixed(3)) : 0;
-            const alpha = isLit ? 1.0 : 0.28;
+      // 开唱前 0.2 秒突然缩小消失动画 (Sudden Shrink)
+      let shrinkScale = 1.0;
+      let exitFade = 1.0;
+      if (t >= inter.endTime - exitLead) {
+        const exitProgress = Math.min(1, Math.max(0, (t - (inter.endTime - exitLead)) / exitLead));
+        // 开唱前 0.2 秒向内快速收缩消失：从 1.0 骤降到 0.0
+        shrinkScale = Math.max(0, Math.pow(1.0 - exitProgress, 2.0));
+        exitFade = Math.max(0, Math.pow(1.0 - exitProgress, 2.0));
+      }
 
-            return {
-              index: dIdx,
-              x: dotsStartX + dIdx * dotSpacing,
-              y: dotsY,
-              radius: dotRadius,
-              lit: isLit,
-              scale,
-              alpha,
-              glowAlpha,
-            };
-          }) as unknown as [AppleCountInDot, AppleCountInDot, AppleCountInDot];
+      const entranceFade = Math.min(1, Math.max(0, (t - inter.startTime) / 0.25));
+      const overallAlpha = Number((entranceFade * exitFade * introFade).toFixed(3));
 
-          countIn = {
-            targetLineIndex: i,
-            dots,
-            overallAlpha,
+      if (overallAlpha > 0.01) {
+        const dots: [AppleCountInDot, AppleCountInDot, AppleCountInDot] = [0, 1, 2].map(dIdx => {
+          const beatTime = countInStart + dIdx * (countInLead / 3);
+          const isLit = t >= beatTime;
+          const dt = Math.max(0, t - beatTime);
+
+          // 点亮时微弹跳，平时来回缩放呼吸
+          const popScale = isLit ? Math.max(0, 0.28 * Math.exp(-dt * 4.5)) : 0;
+          const dotScale = Number(((breatheScale + popScale) * shrinkScale).toFixed(3));
+          const glowAlpha = isLit ? Number(Math.max(0, Math.exp(-dt * 3.5)).toFixed(3)) : 0;
+          const dotAlpha = isLit ? 1.0 : 0.28;
+
+          return {
+            index: dIdx,
+            x: dotsStartX + dIdx * dotSpacing,
+            y: dotsY,
+            radius: dotRadius,
+            lit: isLit,
+            scale: dotScale,
+            alpha: dotAlpha,
+            glowAlpha,
           };
-          break;
-        }
+        }) as unknown as [AppleCountInDot, AppleCountInDot, AppleCountInDot];
+
+        countIn = {
+          targetLineIndex: inter.targetLineIndex,
+          dots,
+          overallAlpha,
+        };
+        break;
       }
     }
   }

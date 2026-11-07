@@ -260,3 +260,62 @@ test('Apple Scroll viewport restricts visible lines to 3-4, preserves top/bottom
     }
   });
 });
+
+test('Apple Scroll interlude row: left-aligned dots breathing back and forth, suddenly shrinks and vanishes 0.2s before vocals start', () => {
+  const project = {
+    duration: 30,
+    lines: [
+      { id: '0', text: 'First verse singing', start: 4.0, end: 8.0, words: [{ word: 'First', start: 4.0, end: 5.0 }, { word: 'verse', start: 5.0, end: 6.5 }, { word: 'singing', start: 6.5, end: 8.0 }] },
+      { id: '1', text: 'Second verse after solo', start: 14.0, end: 18.0, words: [{ word: 'Second', start: 14.0, end: 15.0 }, { word: 'verse', start: 15.0, end: 16.5 }, { word: 'after', start: 16.5, end: 17.0 }, { word: 'solo', start: 17.0, end: 18.0 }] }
+    ]
+  };
+
+  const width = 1080;
+  const height = 1920;
+  const compiled = compileAppleScrollLayout(project, width, height, measure, palette);
+
+  // 1. 验证间奏行独立编排
+  assert.ok(compiled.interludes);
+  assert.equal(compiled.interludes.length, 2); // intro interlude before 4.0s, and 6s solo between 8.0s and 14.0s
+  const soloInterlude = compiled.interludes.find(it => it.targetLineIndex === 1);
+  assert.ok(soloInterlude);
+  assert.equal(soloInterlude.startTime, 8.0);
+  assert.equal(soloInterlude.endTime, 14.0);
+
+  // 2. 间奏期间 (如 t = 10.0s)：三个圆点左对齐，并保持来回平滑呼吸缩放
+  const stateAt10 = appleScrollStateAt(compiled, 10.0);
+  assert.ok(stateAt10.countIn);
+  assert.equal(stateAt10.countIn.targetLineIndex, 1);
+  assert.equal(stateAt10.countIn.dots.length, 3);
+
+  // 验证左对齐规范：
+  // 第一个圆点严格对齐歌词左边距 startX
+  assert.equal(stateAt10.countIn.dots[0].x, compiled.startX + stateAt10.countIn.dots[0].radius);
+  // 点 1 与点 2 顺延等距向右排列
+  const spacing = stateAt10.countIn.dots[1].x - stateAt10.countIn.dots[0].x;
+  assert.ok(spacing > stateAt10.countIn.dots[0].radius * 2);
+  assert.equal(stateAt10.countIn.dots[2].x - stateAt10.countIn.dots[1].x, spacing);
+
+  // 验证来回缩放 (呼吸动效在正常尺度 0.88 ~ 1.12 之间)
+  assert.ok(stateAt10.countIn.dots[0].scale >= 0.85 && stateAt10.countIn.dots[0].scale <= 1.15);
+
+  // 3. 验证倒计时推进点亮 (t = 12.8s 进入点亮阶段，t = 13.5s 第三点点亮)
+  const stateAt13_5 = appleScrollStateAt(compiled, 13.5);
+  assert.ok(stateAt13_5.countIn);
+  assert.equal(stateAt13_5.countIn.dots[0].lit, true);
+  assert.equal(stateAt13_5.countIn.dots[1].lit, true);
+  assert.equal(stateAt13_5.countIn.dots[2].lit, true);
+
+  // 4. 验证开唱前 0.2 秒突然缩放变小消失 (Sudden Shrink):
+  // 在 13.9s (离开唱仅 0.1s，处于最后 0.2s 窗口内)，缩放骤降 (scale < 0.5)
+  const stateAt13_9 = appleScrollStateAt(compiled, 13.9);
+  assert.ok(stateAt13_9.countIn);
+  assert.ok(stateAt13_9.countIn.dots[0].scale < 0.5, `Dot scale ${stateAt13_9.countIn.dots[0].scale} must suddenly shrink < 0.5 before singing`);
+
+  // 5. 验证开唱瞬间 (t = 14.05s)：小圆点完全退出消失，下一句开唱
+  const stateAt14 = appleScrollStateAt(compiled, 14.05);
+  assert.equal(stateAt14.countIn, null);
+  const activeLine = stateAt14.items.find(it => it.isActive);
+  assert.ok(activeLine);
+  assert.equal(activeLine.compiled.lineIndex, 1);
+});
