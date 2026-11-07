@@ -197,6 +197,8 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
         design['modes']['kinetic']['plan'] = saved
         payload['motion_design'] = design
         return {'project': payload, 'plan': saved, 'plan_error': error, 'plan_needs_sync': plan_needs_sync, 'design': design,
+                'has_saved_design': plan_path(path).exists(),
+                'has_saved_identity': identity_path(path).exists(),
                 'rule_seed': rule_plan(payload, None if plan_needs_sync else saved).model_dump(),
                 'audio_url': (audio_url(project_id) if audio_url is not None else
                               '/api/audio?path=' + __import__('urllib.parse', fromlist=['quote']).quote(str(audio))) if audio_url is not None or audio else None}

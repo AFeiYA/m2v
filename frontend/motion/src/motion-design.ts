@@ -80,7 +80,7 @@ export function createMotionDesign():MotionDesign {
  const mode=(aspect:Options['aspect']):ModeSettings=>({aspect,theme:null,post:true,bloom:.7,shake:.65});
  return {version:'motion-design-v1',active_mode:'kinetic',theme:{palette:'impact',background:'auto'},height:720,modes:{
   kinetic:{...mode('16:9'),layout:'smart',highlight:'none',plan:null},
-  apple:{...mode('9:16'),font_scale:1,focus_y:.42,theme:{palette:'impact',background:'auto'}},
+  apple:{...mode('9:16'),font_scale:1,focus_y:.42},
   tv:{...mode('16:9'),font_scale:1,preview_seconds:2.5},
  }};
 }

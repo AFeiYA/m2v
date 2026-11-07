@@ -196,54 +196,55 @@ var FoveaCloud = (() => {
 
     onProgress({ ...job, task_id: job.songTaskId || job.requestId, message: 'Loading song project data…' });
     let project = null;
+    let hasSavedDesign = false;
+    let hasSavedIdentity = false;
     try {
       const motionRes = await request('/api/cloud-motion/project?project_id=' + encodeURIComponent(job.songTaskId), {}, job.ownerUid);
       project = motionRes?.project || motionRes;
+      hasSavedDesign = Boolean(motionRes?.has_saved_design);
+      hasSavedIdentity = Boolean(motionRes?.has_saved_identity);
     } catch (_) {
       project = await request('/api/editor/tasks/' + encodeURIComponent(job.songTaskId) + '/align', {}, job.ownerUid);
     }
     if (!project) throw new Error('Project data could not be loaded');
 
-    // Configure Motion Studio's default template for Apple Music (Impact Green + Auto Background)
-    project.motion_design = {
-      version: 'motion-design-v1',
-      active_mode: 'apple',
-      theme: { palette: 'impact', background: 'auto' },
-      height: 720,
-      modes: {
-        kinetic: { aspect: '16:9', layout: 'smart', highlight: 'none', plan: null, bloom: 0.7, shake: 0.65, post: true },
-        apple: {
-          aspect: '9:16',
-          font_scale: 1,
-          focus_y: 0.42,
-          bloom: 0.7,
-          shake: 0.65,
-          post: true,
-          theme: { palette: 'impact', background: 'auto' },
-          ...(project.motion_design?.modes?.apple || {}),
+    // 1. 模版设计 (Motion Design)：
+    // 新手（尚未在 Motion Studio 自定义保存过）：生成默认的 Apple Scroll 竖屏模版（荧绿 + 自动跟随背景）
+    // 后续已保存设计的用户：100% 选用用户保存的配置，绝不强行覆盖
+    if (!hasSavedDesign || !project.motion_design) {
+      project.motion_design = {
+        version: 'motion-design-v1',
+        active_mode: 'apple',
+        theme: { palette: 'impact', background: 'auto' },
+        height: 720,
+        modes: {
+          kinetic: { aspect: '16:9', layout: 'smart', highlight: 'none', plan: null, bloom: 0.7, shake: 0.65, post: true },
+          apple: { aspect: '9:16', font_scale: 1, focus_y: 0.42, bloom: 0.7, shake: 0.65, post: true, theme: null },
+          tv: { aspect: '16:9', font_scale: 1, preview_seconds: 2.5, bloom: 0.7, shake: 0.65, post: true, theme: null },
         },
-        tv: { aspect: '16:9', font_scale: 1, preview_seconds: 2.5, bloom: 0.7, shake: 0.65, post: true, theme: null },
-        ...(project.motion_design?.modes || {}),
-      },
-    };
+      };
+    }
 
-    // Ensure song_identity is configured so Motion Studio draws signature header (title, artist, divider line)
-    const trackTitle = job.track?.title || project.title || 'Untitled';
-    const trackArtist = job.track?.artist || project.artist || '';
-    project.song_identity = {
-      ...(project.song_identity || {}),
-      title: trackTitle,
-      artist: trackArtist,
-      style: 'editorial',
-      show_signature: true,
-      show_intro: false,
-      show_outro: false,
-      cover_mode: 'full',
-    };
-    project.title = trackTitle;
-    project.artist = trackArtist;
+    // 2. 歌曲签名与封面排版 (Song Identity)：
+    // 新手：默认生成杂志风标题、歌手名签名栏与全屏环境光封面
+    // 已保存：保留用户在编辑器中自定义的排版与封面模式
+    if (!hasSavedIdentity || !project.song_identity) {
+      const trackTitle = job.track?.title || project.title || 'Untitled';
+      const trackArtist = job.track?.artist || project.artist || '';
+      project.song_identity = {
+        title: trackTitle,
+        artist: trackArtist,
+        style: 'editorial',
+        show_signature: true,
+        show_intro: false,
+        show_outro: false,
+        cover_mode: 'full',
+      };
+      project.title = trackTitle;
+      project.artist = trackArtist;
+    }
 
-    // Preload cover image into data_url if available so Motion Studio paints ambient blur and artwork card
+    // 3. 封面底图预拉取：供背景环境光模糊与卡片展示
     if (!project.song_cover?.data_url) {
       const coverUrl = job.track?.coverUrl || project.song_cover?.source_url || project.song_cover?.url;
       if (coverUrl && typeof fetch !== 'undefined') {
@@ -263,6 +264,9 @@ var FoveaCloud = (() => {
         }
       }
     }
+
+    const activeMode = project.motion_design?.active_mode || 'apple';
+    const activeAspect = project.motion_design?.modes?.[activeMode]?.aspect || (activeMode === 'apple' ? '9:16' : '16:9');
 
     const auth = await token(job.ownerUid);
     const audioUrl = api + '/api/editor/tasks/' + encodeURIComponent(job.songTaskId) + '/audio';
@@ -310,8 +314,8 @@ var FoveaCloud = (() => {
         audioHeaders,
         section: job.section || '',
         duration: job.duration || 0,
-        aspect: '9:16',
-        visualMode: project.motion_design?.active_mode || 'apple',
+        aspect: activeAspect,
+        visualMode: activeMode,
         title: job.title || project.title || 'lyric-video',
       });
     } finally {
