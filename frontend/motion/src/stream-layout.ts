@@ -605,8 +605,8 @@ export function appleScrollStateAt(
         focalWorldY = curSeg.centerY + (nextSeg.centerY - curSeg.centerY) * scrollFraction;
       }
     } else {
-      // 间奏段：在即将开唱前 0.35s 开始平滑对准下一句歌词
-      const exitLead = 0.35;
+      // 间奏段：在开唱前 0.20s 开始平滑对准下一句歌词
+      const exitLead = 0.20;
       if (t >= curSeg.end - exitLead) {
         const fraction = Math.max(0, Math.min(1, (t - (curSeg.end - exitLead)) / exitLead));
         const scrollFraction = Math.pow(fraction, 2.0);
@@ -685,27 +685,30 @@ export function appleScrollStateAt(
       // 倒计时间隔与起跑时机
       const countInLead = Math.min(2.4, Math.max(1.5, inter.gap * 0.6));
       const countInStart = inter.endTime - countInLead;
-      const exitLead = 0.28; // 最后突然缩小的爆发时间窗口
+      const exitLead = 0.20; // 下一句开唱前 0.2 秒突然缩放变小消失
 
-      // 居中大圆点几何规范：
-      // 半径约为活动字号的 0.24（在标准字号下约 9~12px，直径 18~24px，大方醒目）
-      const dotRadius = Math.max(8, Math.round(layout.activeFontSize * 0.24));
-      const dotSpacing = Math.round(dotRadius * 3.4);
+      // Apple Music 左对齐圆点规范：
+      // 半径约为活动字号的 0.18（在标准字号下约 7~10px，醒目且不显臃肿）
+      const dotRadius = Math.max(7, Math.round(layout.activeFontSize * 0.18));
+      const dotSpacing = Math.round(dotRadius * 3.0);
 
-      // 横向绝对居中
-      const centerX = Math.round(layout.width / 2);
-      const dotsStartX = centerX - dotSpacing;
+      // 横向左对齐：与歌词文本首列严格对齐 (startX + dotRadius)
+      const dotsStartX = layout.startX + dotRadius;
 
       // 纵向位置：跟随间奏行的实时视口世界坐标
       const dotsY = Math.round(focalCenterY + (inter.centerY - focalWorldY));
 
-      // 最后突然缩小动画 (Sudden Shrink)
+      // 间奏播放期间：三个小点来回平滑呼吸缩放 (Breathe scale)
+      const breatheCycle = (t - inter.startTime) * Math.PI * 1.5;
+      const breatheScale = 1.0 + 0.12 * Math.sin(breatheCycle);
+
+      // 开唱前 0.2 秒突然缩小消失动画 (Sudden Shrink)
       let shrinkScale = 1.0;
       let exitFade = 1.0;
       if (t >= inter.endTime - exitLead) {
         const exitProgress = Math.min(1, Math.max(0, (t - (inter.endTime - exitLead)) / exitLead));
-        // 剧烈向内快速收缩缩小：从 1.0 骤降到 0.0
-        shrinkScale = Math.max(0, Math.pow(1.0 - exitProgress, 1.8));
+        // 开唱前 0.2 秒向内快速收缩消失：从 1.0 骤降到 0.0
+        shrinkScale = Math.max(0, Math.pow(1.0 - exitProgress, 2.0));
         exitFade = Math.max(0, Math.pow(1.0 - exitProgress, 2.0));
       }
 
@@ -718,9 +721,9 @@ export function appleScrollStateAt(
           const isLit = t >= beatTime;
           const dt = Math.max(0, t - beatTime);
 
-          // 点亮时微弹跳，平时呼吸感
-          const popScale = isLit ? Math.max(0, 0.35 * Math.exp(-dt * 5.0)) : 0;
-          const dotScale = Number(((1.0 + popScale) * shrinkScale).toFixed(3));
+          // 点亮时微弹跳，平时来回缩放呼吸
+          const popScale = isLit ? Math.max(0, 0.28 * Math.exp(-dt * 4.5)) : 0;
+          const dotScale = Number(((breatheScale + popScale) * shrinkScale).toFixed(3));
           const glowAlpha = isLit ? Number(Math.max(0, Math.exp(-dt * 3.5)).toFixed(3)) : 0;
           const dotAlpha = isLit ? 1.0 : 0.28;
 
