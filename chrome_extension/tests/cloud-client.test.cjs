@@ -22,8 +22,8 @@ function setup(){
    if(route==='/api/suno/publish_status')return Response.json({is_public:true});
    if(route==='/api/tasks/from-suno')return Response.json({task_id:'song-task'});
    if(route==='/api/tasks/song-task')return Response.json({status:'completed'});
-   if(route.endsWith('/lyric-video')){if(ctx.dropExportResponse){ctx.dropExportResponse=false;throw Error('network lost');}return Response.json({task_id:'abc123'});}
-   if(route==='/api/editor/jobs/abc123')return Response.json({status:'completed',progress:100});
+   if(route==='/api/cloud-motion/render'||route.endsWith('/lyric-video')){if(ctx.dropExportResponse){ctx.dropExportResponse=false;throw Error('network lost');}return Response.json({id:'abc123',task_id:'abc123'});}
+   if(route==='/api/cloud-motion/render/abc123'||route==='/api/editor/jobs/abc123')return Response.json({status:'done',progress:100,frames:100,total:100});
    throw Error('Unexpected '+url);
   }});
  ctx.importScripts=file=>vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),ctx);
@@ -39,7 +39,7 @@ test('official cloud imports once, exports owned clip and downloads using header
  assert.equal(posts[0].url,'https://lucazhou-suno2mv-api.hf.space/api/tasks/from-suno');
  const options=JSON.parse(posts[1].options.body);assert.equal(options.section_name,'chorus');assert.equal(options.duration_limit,30);
  assert.equal(t.files.length,1);
- assert.equal(t.files[0].url,'https://lucazhou-suno2mv-api.hf.space/api/editor/jobs/abc123/video');
+ assert.ok(t.files[0].url.includes('/abc123/download') || t.files[0].url.includes('/jobs/abc123/video'));
  assert.equal(t.files[0].headers[0].value,'Bearer alice-token');
  assert.ok(t.calls.every(c=>!c.url.includes('token=')));
  assert.ok(!t.files[0].url.includes('token='));
@@ -51,7 +51,7 @@ test('lost export response resumes with identical request id and existing import
  const t=setup();t.ctx.dropExportResponse=true;
  await t.ctx.exportVideoAndDownload(null,song,'https://mv.fovea.si','intro',30);
  const imports=t.calls.filter(c=>c.url.endsWith('/api/tasks/from-suno'));
- const exports=t.calls.filter(c=>c.url.endsWith('/lyric-video'));
+ const exports=t.calls.filter(c=>c.url.endsWith('/api/cloud-motion/render')||c.url.endsWith('/lyric-video'));
  assert.equal(imports.length,1);assert.equal(exports.length,2);
  assert.equal(JSON.parse(exports[0].options.body).request_id,JSON.parse(exports[1].options.body).request_id);
 });

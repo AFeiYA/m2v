@@ -52,7 +52,7 @@ var FoveaCloud = (() => {
   }
   const post=(path,body,owner)=>request(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)},owner);
   async function download(path,filename,owner,tabId,taskId,kind='MP4') {
-    if (!/^\/api\/(?:editor\/jobs\/[a-f0-9]+\/video|suno\/download_mp3\?)/.test(path)) throw new Error('Invalid private download URL');
+    if (!/^\/api\/(?:editor\/jobs\/[a-f0-9]+\/video|cloud-motion\/render\/[a-f0-9]+\/download|motion\/render\/[a-f0-9]+\/download|suno\/download_mp3\?)/.test(path)) throw new Error('Invalid private download URL');
     const user=await request('/api/auth/me',{},owner);
     if(user.id!==owner)throw new Error('Account mismatch. Sync the original account.');
     const auth = await token(owner);
@@ -88,25 +88,40 @@ var FoveaCloud = (() => {
                 const exported=await exportWebCodecs(job,onProgress);
                 if(exported)return exported;
               }catch(wcErr){
-                console.warn('[FoveaCloud] WebCodecs export failed, falling back to cloud FFmpeg:',wcErr);
+                console.warn('[FoveaCloud] WebCodecs export failed, falling back to Motion Studio cloud render:',wcErr);
                 job.fallbackToCloud=true;await saveJob(job);
               }
             }
-            const result=await post('/api/editor/tasks/'+encodeURIComponent(job.songTaskId)+'/lyric-video',{
-              request_id:job.requestId,section_name:job.section||'',aspect_ratio:'9:16',template:'apple',theme:'apple_white',
-              background_mode:'blurred_ambient',...(job.duration>0?{duration_limit:job.duration}:{})},job.ownerUid);
-            job.exportId=result.task_id;job.taskId=result.task_id;job.status='running';await saveJob(job);
+            // Motion Studio Cloud Render Fallback (NOT legacy ASS)
+            const renderBody = {
+              project_id: job.songTaskId,
+              section_name: job.section || '',
+              duration_limit: job.duration || 0,
+              aspect: '9:16',
+              visual_mode: 'apple',
+              height: 720,
+              bloom: 0.7,
+              shake: 0.65,
+              post: true,
+              start: 0,
+              length: job.duration > 0 ? job.duration : null,
+              request_id: job.requestId,
+            };
+            const result=await post('/api/cloud-motion/render', renderBody, job.ownerUid);
+            job.exportId=result.id || result.job_id || result.task_id;job.taskId=job.exportId;job.status='running';await saveJob(job);
           }
         }
         if(job.exportId){
-          const result=await request('/api/editor/jobs/'+encodeURIComponent(job.exportId),{},job.ownerUid);
-          if(['failed','interrupted'].includes(result.status))throw new Error(result.error||'Rendering interrupted. Create a new video.');
-          job.status=result.status;job.progress=65+Number(result.progress||0)*.35;await saveJob(job);
-          onProgress({...job,task_id:job.exportId||job.songTaskId||job.requestId,message:result.status==='completed'?'Video ready. Starting download…':'Rendering your video…'});
-          if(result.status==='completed'){
+          const result=await request('/api/cloud-motion/render/'+encodeURIComponent(job.exportId),{},job.ownerUid);
+          if(['failed','cancelled','interrupted'].includes(result.status))throw new Error(result.error||'Rendering interrupted or failed. Create a new video.');
+          job.status=result.status==='done'?'completed':'running';
+          const frames=Number(result.frames||0);const total=Number(result.total||1);
+          job.progress=65+Math.round((frames/Math.max(1,total))*35);await saveJob(job);
+          onProgress({...job,task_id:job.exportId||job.songTaskId||job.requestId,message:job.status==='completed'?'Video ready. Starting download…':`Rendering ${frames}/${total} frames…`});
+          if(job.status==='completed'){
             const suffix={chorus:'_Chorus',verse1:'_Verse1',intro:'_Intro'}[job.section]||'';
-            const filename=(job.title||'lyric-video').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').slice(0,110)+suffix+'_9x16.mp4';
-            const downloaded=await download('/api/editor/jobs/'+job.exportId+'/video',filename,job.ownerUid,job.tabId,job.taskId);
+            const filename=(job.title||'motion-video').replace(/[\\/:*?"<>|\x00-\x1f]/g,'_').slice(0,110)+suffix+'_9x16.mp4';
+            const downloaded=await download('/api/cloud-motion/render/'+job.exportId+'/download',filename,job.ownerUid,job.tabId,job.taskId);
             job.downloadId=downloaded.downloadId;return downloaded;
           }
           if(once)return {status:'pending'};
@@ -202,6 +217,22 @@ var FoveaCloud = (() => {
         ...(project.motion_design?.modes || {}),
       },
     };
+
+    // Ensure song_identity is configured so Motion Studio draws signature header (title, artist, divider line)
+    const trackTitle = job.track?.title || project.title || 'Untitled';
+    const trackArtist = job.track?.artist || project.artist || '';
+    project.song_identity = {
+      ...(project.song_identity || {}),
+      title: trackTitle,
+      artist: trackArtist,
+      style: 'editorial',
+      show_signature: true,
+      show_intro: false,
+      show_outro: false,
+      cover_mode: 'full',
+    };
+    project.title = trackTitle;
+    project.artist = trackArtist;
 
     // Preload cover image into data_url if available so Motion Studio paints ambient blur and artwork card
     if (!project.song_cover?.data_url) {
