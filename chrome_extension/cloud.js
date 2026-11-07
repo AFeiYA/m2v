@@ -204,24 +204,21 @@ var FoveaCloud = (() => {
     }
     if (!project) throw new Error('Project data could not be loaded');
 
-    // Configure Motion Studio's default template for Apple Music (Impact Green + Auto Background)
+    // Configure Motion Studio's template for Apple Music (respect saved theme, fallback to Impact Green + Auto Background)
+    const savedTheme = project.motion_design?.theme;
+    const defaultTheme = {
+      palette: savedTheme?.palette || 'impact',
+      background: savedTheme?.background || 'auto',
+    };
+
     project.motion_design = {
       version: 'motion-design-v1',
       active_mode: 'apple',
-      theme: { palette: 'impact', background: 'auto' },
+      theme: defaultTheme,
       height: 720,
       modes: {
         kinetic: { aspect: '16:9', layout: 'smart', highlight: 'none', plan: null, bloom: 0.7, shake: 0.65, post: true },
-        apple: {
-          aspect: '9:16',
-          font_scale: 1,
-          focus_y: 0.42,
-          bloom: 0.7,
-          shake: 0.65,
-          post: true,
-          theme: { palette: 'impact', background: 'auto' },
-          ...(project.motion_design?.modes?.apple || {}),
-        },
+        apple: { aspect: '9:16', font_scale: 1, focus_y: 0.42, bloom: 0.7, shake: 0.65, post: true, theme: null },
         tv: { aspect: '16:9', font_scale: 1, preview_seconds: 2.5, bloom: 0.7, shake: 0.65, post: true, theme: null },
         ...(project.motion_design?.modes || {}),
       },
