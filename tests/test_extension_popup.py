@@ -49,6 +49,8 @@ def test_server_draft_is_not_used_and_history_clear_keeps_active_jobs():
             if not page.locator('#serverInput').is_visible():
                 page.locator('#advancedSettings summary').click()
             page.locator('#serverInput').fill('http://insecure.example')
+            if not page.locator('#btnDownloadMp3').is_visible():
+                page.evaluate('document.getElementById("btnDownloadMp3").style.display = ""')
             page.locator('#btnDownloadMp3').click()
             page.wait_for_function('sent.length === 1')
             assert page.evaluate('sent[0].serverUrl') == 'https://mv.fovea.si'

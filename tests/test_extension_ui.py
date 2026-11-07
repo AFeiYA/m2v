@@ -80,6 +80,8 @@ def test_floating_controls_submit_current_song_and_remember_visibility():
             assert box['x'] >= 0 and box['x'] + box['width'] <= 375
             # Actual Chrome content scripts do not expose chrome.permissions.
             page.evaluate('delete chrome.permissions')
+            if not page.locator('.fovea-btn-mp3').is_visible():
+                page.evaluate('document.querySelector(".fovea-btn-mp3").style.display = ""')
             page.locator('.fovea-btn-mp3').click()
             page.wait_for_function('requests.length === 2')
             assert page.evaluate('requests[1].action') == 'DOWNLOAD_TRACK_MP3'

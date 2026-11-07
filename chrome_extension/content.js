@@ -165,8 +165,8 @@
         <span class="fovea-pulse-dot"></span>
         <span class="fovea-btn-text">Current song</span>
       </div>
-      <div class="fovea-btn-divider"></div>
-      <button type="button" class="fovea-btn-mp3" title="Download the full song as MP3">🎵 Download MP3</button>
+      <div class="fovea-btn-divider" style="display: none;"></div>
+      <button type="button" class="fovea-btn-mp3" title="Download the full song as MP3" style="display: none;">🎵 Download MP3</button>
       <div class="fovea-btn-divider"></div>
       <div class="fovea-video-controls">
         <button type="button" class="fovea-btn-main" title="Create a vertical lyric video">🎬 Create MP4</button>
