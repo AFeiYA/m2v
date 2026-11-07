@@ -189,6 +189,41 @@ var FoveaCloud = (() => {
     }
     if (!project) throw new Error('Project data could not be loaded');
 
+    // Configure Motion Studio's default template for Apple Music
+    project.motion_design = {
+      version: 'motion-design-v1',
+      active_mode: 'apple',
+      theme: project.motion_design?.theme || { palette: 'impact', background: 'auto' },
+      height: 720,
+      modes: {
+        kinetic: { aspect: '16:9', layout: 'smart', highlight: 'none', plan: null, bloom: 0.7, shake: 0.65, post: true },
+        apple: { aspect: '9:16', font_scale: 1, focus_y: 0.42, bloom: 0.7, shake: 0.65, post: true, theme: null },
+        tv: { aspect: '16:9', font_scale: 1, preview_seconds: 2.5, bloom: 0.7, shake: 0.65, post: true, theme: null },
+        ...(project.motion_design?.modes || {}),
+      },
+    };
+
+    // Preload cover image into data_url if available so Motion Studio paints ambient blur and artwork card
+    if (!project.song_cover?.data_url) {
+      const coverUrl = job.track?.coverUrl || project.song_cover?.source_url || project.song_cover?.url;
+      if (coverUrl && typeof fetch !== 'undefined') {
+        try {
+          const coverResp = await fetch(coverUrl, { signal: AbortSignal.timeout(15000) });
+          if (coverResp.ok && typeof FileReader !== 'undefined') {
+            const coverBlob = await coverResp.blob();
+            const reader = new FileReader();
+            const dataUrl = await new Promise((resolve) => {
+              reader.onloadend = () => resolve(reader.result);
+              reader.readAsDataURL(coverBlob);
+            });
+            project.song_cover = { ...(project.song_cover || {}), data_url: dataUrl, source: 'suno', source_url: coverUrl };
+          }
+        } catch (cErr) {
+          console.warn('[FoveaCloud] Pre-fetching cover for Motion Studio failed:', cErr);
+        }
+      }
+    }
+
     const auth = await token(job.ownerUid);
     const audioUrl = api + '/api/editor/tasks/' + encodeURIComponent(job.songTaskId) + '/audio';
     const audioHeaders = { Authorization: 'Bearer ' + auth.value };
@@ -236,7 +271,7 @@ var FoveaCloud = (() => {
         section: job.section || '',
         duration: job.duration || 0,
         aspect: '9:16',
-        visualMode: project.motion_design?.active_mode || 'kinetic',
+        visualMode: project.motion_design?.active_mode || 'apple',
         title: job.title || project.title || 'lyric-video',
       });
     } finally {

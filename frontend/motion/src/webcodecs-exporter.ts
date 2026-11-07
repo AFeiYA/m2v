@@ -201,9 +201,11 @@ export async function exportMotionWebCodecs(params: {
 
   // Preload cover image if available
   let coverImage: HTMLImageElement | null = null;
-  if (project.song_cover?.data_url) {
+  const coverSrc = project.song_cover?.data_url || project.song_cover?.source_url || (project.song_cover as any)?.url;
+  if (coverSrc) {
     coverImage = new Image();
-    coverImage.src = project.song_cover.data_url;
+    coverImage.crossOrigin = 'anonymous';
+    coverImage.src = coverSrc;
     try {
       await coverImage.decode();
     } catch {

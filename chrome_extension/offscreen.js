@@ -31,7 +31,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function handleRenderWebCodecs(message) {
-  const { project, audioUrl, audioHeaders, section, duration, aspect = '9:16', visualMode = 'kinetic', requestId, title } = message;
+  const { project, audioUrl, audioHeaders, section, duration, aspect = '9:16', visualMode = 'apple', requestId, title } = message;
 
   if (typeof FoveaWebCodecs === 'undefined' || !FoveaWebCodecs.isWebCodecsSupported()) {
     throw new Error('WebCodecs is not supported in this browser environment');
@@ -67,7 +67,7 @@ async function handleRenderWebCodecs(message) {
     aspect: aspect || '9:16',
     start: rangeInfo.start,
     length: rangeInfo.length,
-    visualMode: visualMode || 'kinetic',
+    visualMode: visualMode || 'apple',
   };
 
   // 4. Progress callback
