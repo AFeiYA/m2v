@@ -299,19 +299,19 @@ test('Apple Scroll interlude row: left-aligned dots light up one by one, exit sh
   // 验证静止期比例为 1.0
   assert.equal(stateAt10.countIn.dots[0].scale, 1.0);
 
-  // 3. 伴奏期间小圆点依次点亮，到达 1.35
+  // 3. 伴奏期间小圆点依次点亮，保持基准比例 1.0 (仅保留过光，无外圈膨胀)
   const stateAt13_5 = appleScrollStateAt(compiled, 13.5);
   assert.ok(stateAt13_5.countIn);
   assert.equal(stateAt13_5.countIn.dots[0].lit, true);
   assert.equal(stateAt13_5.countIn.dots[1].lit, true);
   assert.equal(stateAt13_5.countIn.dots[2].lit, true);
-  assert.equal(stateAt13_5.countIn.dots[2].scale, 1.35);
+  assert.equal(stateAt13_5.countIn.dots[2].scale, 1.0);
 
-  // 4. 开唱前过渡动效：圆点缩小渐隐 (1.35 → 1.18 → 0.40) 同时歌词追行贴上去
+  // 4. 开唱前过渡动效：退出缩放动画 (1.0 → 0.70) 同时歌词追行贴上去
   const stateAt13_8 = appleScrollStateAt(compiled, 13.825);
   assert.ok(stateAt13_8.countIn);
-  assert.ok(stateAt13_8.countIn.dots[0].scale >= 0.95 && stateAt13_8.countIn.dots[0].scale <= 1.25,
-    `Dot scale ${stateAt13_8.countIn.dots[0].scale} should smoothly transition around 1.0~1.2 before singing`);
+  assert.ok(stateAt13_8.countIn.dots[0].scale < 1.0 && stateAt13_8.countIn.dots[0].scale >= 0.70,
+    `Dot scale ${stateAt13_8.countIn.dots[0].scale} should smoothly shrink before singing`);
 
   // 5. 开唱瞬间 (t = 14.0s)：圆点彻底消失 (countIn = null)，下一句歌词追行贴上去吸附至准确焦点
   const stateAt14 = appleScrollStateAt(compiled, 14.0);
@@ -338,12 +338,12 @@ test('Apple Scroll interlude row: left-aligned dots light up one by one, exit sh
 
 test('Apple Scroll interlude clearance with multi-line lyrics, font bounds, and smooth spacing restoration', () => {
   // Line 0 is a 2-line wrapped sentence: "它问我：你是不是 比他们想象的 更骄傲？在黑夜里可曾低头？"
-  // Followed by a 4.0s interlude before Line 1.
+  // Followed by a 5.0s interlude before Line 1. Intro gap is 5.0s (>= 3.0s).
   const project = {
     duration: 30,
     lines: [
-      { id: '0', text: '它问我：你是不是 比他们想象的 更骄傲？在黑夜里可曾低头？', start: 2.0, end: 6.0, words: [] },
-      { id: '1', text: '他们经过我身边 带着自诩聪明的傲慢', start: 10.0, end: 14.0, words: [] }
+      { id: '0', text: '它问我：你是不是 比他们想象的 更骄傲？在黑夜里可曾低头？', start: 5.0, end: 9.0, words: [] },
+      { id: '1', text: '他们经过我身边 带着自诩聪明的傲慢', start: 14.0, end: 18.0, words: [] }
     ]
   };
 
@@ -359,20 +359,19 @@ test('Apple Scroll interlude clearance with multi-line lyrics, font bounds, and 
   const fontAscender = Math.round(F * 0.85);
   const fontDescender = Math.round(F * 0.25);
 
-  // 1. Entrance animation (t = 6.2s, 0.2s into interlude):
+  // 1. Entrance animation for middle interlude (t = 9.2s, 0.2s into interlude):
   // Offset is opening up smoothly
-  const stateAt6_2 = appleScrollStateAt(compiled, 6.2);
-  assert.ok(stateAt6_2.countIn);
+  const stateAt9_2 = appleScrollStateAt(compiled, 9.2);
+  assert.ok(stateAt9_2.countIn);
 
-  // 2. Main interlude countdown phase (t = 8.0s):
+  // 2. Main interlude countdown phase (t = 11.5s):
   // Real clearance between prev line bottom and dots, and dots and next line top
-  const stateAt8 = appleScrollStateAt(compiled, 8.0);
-  assert.ok(stateAt8.countIn);
-  const dot = stateAt8.countIn.dots[0];
-  const maxDotRadius = Math.ceil(dot.radius * 1.35);
+  const stateAt11_5 = appleScrollStateAt(compiled, 11.5);
+  assert.ok(stateAt11_5.countIn);
+  const dot = stateAt11_5.countIn.dots[0];
 
-  const item0 = stateAt8.items.find(it => it.compiled.lineIndex === 0);
-  const item1 = stateAt8.items.find(it => it.compiled.lineIndex === 1);
+  const item0 = stateAt11_5.items.find(it => it.compiled.lineIndex === 0);
+  const item1 = stateAt11_5.items.find(it => it.compiled.lineIndex === 1);
   assert.ok(item0 && item1, 'Both lines visible in viewport');
 
   // Prev line actual bottom (taking into account all wrapped rows + font descenders)
@@ -381,33 +380,45 @@ test('Apple Scroll interlude clearance with multi-line lyrics, font bounds, and 
   const nextLineActualTop = item1.y - fontAscender;
 
   // Verify: dots are strictly below prevLineActualBottom with safety margin
-  assert.ok(dot.y - maxDotRadius > prevLineActualBottom,
-    `Dot top (${dot.y - maxDotRadius}) must be below prevLineActualBottom (${prevLineActualBottom})`);
+  assert.ok(dot.y - dot.radius > prevLineActualBottom,
+    `Dot top (${dot.y - dot.radius}) must be below prevLineActualBottom (${prevLineActualBottom})`);
 
   // Verify: nextLineActualTop is strictly below dot bottom with safety margin
-  assert.ok(nextLineActualTop > dot.y + maxDotRadius,
-    `Next line top (${nextLineActualTop}) must be below dot bottom (${dot.y + maxDotRadius})`);
+  assert.ok(nextLineActualTop > dot.y + dot.radius,
+    `Next line top (${nextLineActualTop}) must be below dot bottom (${dot.y + dot.radius})`);
 
-  // 3. Exit phase (t = 9.85s, 0.15s before singing):
+  // 3. Exit phase (t = 13.85s, 0.15s before singing):
   // The extra offset is collapsing back
-  const stateAt9_85 = appleScrollStateAt(compiled, 9.85);
-  assert.ok(stateAt9_85.items.length >= 2);
+  const stateAt13_85 = appleScrollStateAt(compiled, 13.85);
+  assert.ok(stateAt13_85.items.length >= 2);
 
-  // 4. Singing start (t = 10.0s):
+  // 4. Singing start (t = 14.0s):
   // Dots are completely gone, spacing has smoothly restored to standard paragraphGap
-  const stateAt10 = appleScrollStateAt(compiled, 10.0);
-  assert.equal(stateAt10.countIn, null, 'Dots must be completely removed at singing start');
+  const stateAt14 = appleScrollStateAt(compiled, 14.0);
+  assert.equal(stateAt14.countIn, null, 'Dots must be completely removed at singing start');
 
-  const activeLine = stateAt10.items.find(it => it.isActive);
+  const activeLine = stateAt14.items.find(it => it.isActive);
   assert.ok(activeLine);
   assert.equal(activeLine.compiled.lineIndex, 1);
 
   // Check that the distance between line 0 and line 1 is back to standard paragraphGap
-  const sungLine0 = stateAt10.items.find(it => it.compiled.lineIndex === 0);
+  const sungLine0 = stateAt14.items.find(it => it.compiled.lineIndex === 0);
   if (sungLine0) {
     const line0Baseline = sungLine0.y + sungLine0.compiled.sentenceHeight;
     const line1Baseline = activeLine.y;
     assert.equal(line1Baseline - line0Baseline, compiled.paragraphGap,
       'Sentence spacing between line 0 and line 1 must cleanly restore to standard paragraphGap');
   }
+
+  // 5. 验证首句前奏 (targetIdx === 0) 的第一组三个点距离舒适紧凑，绝不远离歌词
+  const stateAtIntro = appleScrollStateAt(compiled, 2.5);
+  assert.ok(stateAtIntro.countIn, 'Intro count-in dots must exist');
+  assert.equal(stateAtIntro.countIn.targetLineIndex, 0);
+  const introDot = stateAtIntro.countIn.dots[0];
+  const introLine0 = stateAtIntro.items.find(it => it.compiled.lineIndex === 0);
+  assert.ok(introLine0, 'Line 0 visible during intro');
+  const introLine0Top = introLine0.y - fontAscender;
+  const introGap = introLine0Top - (introDot.y + introDot.radius);
+  assert.ok(introGap > 0 && introGap < F * 1.2,
+    `Intro dots gap to line 0 (${introGap}px) must be comfortably close (less than ${F * 1.2}px)`);
 });
