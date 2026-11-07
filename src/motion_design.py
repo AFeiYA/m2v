@@ -31,6 +31,7 @@ class AppleDesign(ModeSettings):
     aspect: Literal['16:9', '9:16'] = '9:16'
     font_scale: float = Field(default=1, ge=.7, le=1.4, allow_inf_nan=False)
     focus_y: float = Field(default=.42, ge=.3, le=.6, allow_inf_nan=False)
+    count_in: bool = Field(default=False)
 
 
 class KaraokeDesign(ModeSettings):

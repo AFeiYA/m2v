@@ -99,3 +99,21 @@ def test_plan_preserved_when_lyrics_updated_and_design_saved(song):
         assert reloaded['plan'] is not None
         assert reloaded['design']['modes']['kinetic']['plan'] is not None
         assert reloaded['design']['active_mode'] == 'apple'
+
+
+def test_apple_design_count_in_toggle_round_trip(song):
+    _, project_id = song
+    with TestClient(app) as client:
+        initial = client.get('/api/motion/project', params={'project_id': project_id}).json()
+        design = initial['design']
+        assert design['modes']['apple'].get('count_in') is False
+        design['modes']['apple']['count_in'] = True
+        res = client.put('/api/motion/design', json={'project_id': project_id, 'design': design})
+        assert res.status_code == 200, res.text
+        assert res.json()['design']['modes']['apple']['count_in'] is True
+
+        design['modes']['apple']['count_in'] = False
+        res2 = client.put('/api/motion/design', json={'project_id': project_id, 'design': design})
+        assert res2.status_code == 200, res2.text
+        assert res2.json()['design']['modes']['apple']['count_in'] is False
+

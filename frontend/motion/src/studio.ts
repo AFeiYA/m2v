@@ -1035,6 +1035,7 @@ function updateAudioTrackHint() {
   }
 }
 $<HTMLSelectElement>('export-audio-track-ms')?.addEventListener('change', updateAudioTrackHint);
+window.addEventListener('languagechange', updateAudioTrackHint);
 $('play').onclick=action(async()=>{if(!project)return;if(!audioReady)throw new Error('Audio is loading. You can preview posters while waiting.');clipEnd=null;if(playing){audio.pause();playing=false;$('play').textContent='▶';}else{await audio.play();playing=true;$('play').textContent='Ⅱ';}});const seek=$<HTMLInputElement>('seek');
 let lastFollowedCue = '';
 function followActiveCue(time: number) {
