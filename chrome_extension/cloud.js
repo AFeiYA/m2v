@@ -94,7 +94,7 @@ var FoveaCloud = (() => {
             }
             const result=await post('/api/editor/tasks/'+encodeURIComponent(job.songTaskId)+'/lyric-video',{
               request_id:job.requestId,section_name:job.section||'',aspect_ratio:'9:16',template:'apple',theme:'apple_white',
-              background_mode:'full_bleed',...(job.duration>0?{duration_limit:job.duration}:{})},job.ownerUid);
+              background_mode:'blurred_ambient',...(job.duration>0?{duration_limit:job.duration}:{})},job.ownerUid);
             job.exportId=result.task_id;job.taskId=result.task_id;job.status='running';await saveJob(job);
           }
         }
@@ -193,6 +193,19 @@ var FoveaCloud = (() => {
     const audioUrl = api + '/api/editor/tasks/' + encodeURIComponent(job.songTaskId) + '/audio';
     const audioHeaders = { Authorization: 'Bearer ' + auth.value };
 
+    let audioArrayBuffer = null;
+    try {
+      const audioResp = await fetch(audioUrl, {
+        headers: audioHeaders,
+        signal: AbortSignal.timeout(35000),
+      });
+      if (audioResp.ok) {
+        audioArrayBuffer = await audioResp.arrayBuffer();
+      }
+    } catch (fetchErr) {
+      console.warn('[FoveaCloud] Pre-fetching audio buffer in worker failed, will try via offscreen URL:', fetchErr);
+    }
+
     onProgress({ ...job, task_id: job.songTaskId || job.requestId, progress: 65, message: 'Encoding lyric video with WebCodecs GPU…' });
     const key = job.requestId;
     const progressHandler = (msg) => {
@@ -217,12 +230,13 @@ var FoveaCloud = (() => {
         action: 'RENDER_WEBCODECS',
         requestId: job.requestId,
         project,
+        audioArrayBuffer,
         audioUrl,
         audioHeaders,
         section: job.section || '',
         duration: job.duration || 0,
         aspect: '9:16',
-        visualMode: 'apple',
+        visualMode: project.motion_design?.active_mode || 'kinetic',
         title: job.title || project.title || 'lyric-video',
       });
     } finally {

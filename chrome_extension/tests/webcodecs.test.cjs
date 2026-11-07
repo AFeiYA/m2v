@@ -229,6 +229,7 @@ test('cloud client uses WebCodecs when chrome.offscreen is available', async () 
           project: { title: 'My song', duration: 120, lines: [{ start: 0, end: 10, text: 'lyrics' }] },
         });
       }
+      if (route.endsWith('/audio')) return new Response(new Uint8Array([0xff, 0xfb, 0x90, 0x44]));
       if (route === '/api/cloud-motion/unlock') return Response.json({ unlocked: true });
       throw Error('Unexpected ' + url);
     },
