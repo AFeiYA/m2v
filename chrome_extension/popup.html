@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>Fovea MV Music Video Assistant</title>
+  <title>Fovea MV 动效视频助手</title>
   <style>
     * {
       box-sizing: border-box;
@@ -11,23 +11,24 @@
     }
     body {
       width: 320px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      background: #090d16;
       color: #f8fafc;
       padding: 16px;
+      user-select: none;
     }
     .header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
       padding-bottom: 10px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
     .brand {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       font-weight: 700;
       font-size: 15px;
       background: linear-gradient(135deg, #818cf8, #c084fc, #f472b6);
@@ -36,26 +37,28 @@
     }
     .badge {
       font-size: 10px;
-      padding: 2px 6px;
+      padding: 2px 8px;
       border-radius: 9999px;
-      background: rgba(99, 102, 241, 0.2);
+      background: rgba(99, 102, 241, 0.15);
       color: #818cf8;
-      border: 1px solid rgba(99, 102, 241, 0.3);
+      border: 1px solid rgba(99, 102, 241, 0.25);
       font-weight: 600;
     }
     .card {
-      background: rgba(30, 41, 59, 0.7);
+      background: #131b2e;
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 12px;
-      padding: 12px;
+      padding: 12px 14px;
       margin-bottom: 12px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
     }
     .card-title {
-      font-size: 11px;
-      color: #94a3b8;
+      font-size: 10px;
+      color: #64748b;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       margin-bottom: 4px;
+      font-weight: 600;
     }
     .song-name {
       font-size: 14px;
@@ -66,16 +69,18 @@
       text-overflow: ellipsis;
     }
     .status-row {
-      margin-top: 6px;
+      margin-top: 5px;
       font-size: 11px;
       font-weight: 500;
+      color: #94a3b8;
+      overflow-wrap: anywhere;
     }
     .btn-primary {
       width: 100%;
       background: linear-gradient(135deg, #6366f1, #a855f7);
       color: #fff;
       border: none;
-      padding: 10px;
+      padding: 11px 14px;
       border-radius: 10px;
       font-size: 13px;
       font-weight: 600;
@@ -85,19 +90,50 @@
       justify-content: center;
       gap: 6px;
       transition: all 0.2s;
-      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+      box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
     }
     .btn-primary:hover:not(:disabled) {
       opacity: 0.95;
       transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(99, 102, 241, 0.45);
     }
     .btn-primary:disabled {
       opacity: 0.45;
       cursor: not-allowed;
       filter: grayscale(0.5);
+      transform: none;
+      box-shadow: none;
+    }
+    .btn-secondary {
+      width: 100%;
+      background: #1e293b;
+      color: #cbd5e1;
+      border: 1px solid #334155;
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 8px;
+      transition: all 0.2s;
+    }
+    .btn-secondary:hover:not(:disabled) {
+      background: #283548;
+      color: #f1f5f9;
+      border-color: #475569;
+    }
+    .btn-secondary:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
     .settings-row {
-      margin-top: 10px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
       font-size: 11px;
       color: #94a3b8;
     }
@@ -105,53 +141,135 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 4px;
+      margin-bottom: 6px;
     }
     .node-btns {
       display: flex;
       gap: 4px;
     }
     .node-btn {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
       color: #94a3b8;
       font-size: 10px;
-      padding: 2px 7px;
-      border-radius: 4px;
+      padding: 3px 8px;
+      border-radius: 6px;
       cursor: pointer;
       transition: all 0.2s;
     }
     .node-btn:hover {
-      background: rgba(255, 255, 255, 0.15);
+      background: rgba(255, 255, 255, 0.12);
       color: #fff;
     }
     .node-btn.active {
-      background: rgba(99, 102, 241, 0.35);
+      background: rgba(99, 102, 241, 0.3);
       border-color: #6366f1;
       color: #a5b4fc;
       font-weight: 600;
     }
+    .server-input-group {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
     .input-server {
-      width: 100%;
+      flex: 1;
       background: #0f172a;
       border: 1px solid #334155;
       color: #cbd5e1;
       padding: 6px 8px;
       border-radius: 6px;
       font-size: 11px;
-      margin-top: 4px;
     }
-    .footer-tip {
+    .input-server:focus {
+      outline: none;
+      border-color: #6366f1;
+    }
+    .btn-save-server {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #94a3b8;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    .btn-save-server:hover {
+      background: #334155;
+      color: #f1f5f9;
+    }
+    .auth-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 10px;
+      padding: 6px 10px;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      font-size: 11px;
+    }
+    .auth-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow: hidden;
+    }
+    .auth-status-text {
+      color: #64748b;
+      font-size: 10px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .footer-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 12px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
       font-size: 11px;
       color: #64748b;
-      margin-top: 12px;
-      line-height: 1.4;
-      text-align: left;
     }
-    [hidden] { display: none !important; }
-    select { width: 100%; background: #0f172a; color: #cbd5e1; padding: 6px; border: 1px solid #334155; border-radius: 6px; margin: 8px 0; }
-    a { color: #a5b4fc; }
-    details { color: #94a3b8; font-size: 11px; margin-top: 8px; overflow-wrap: anywhere; }
+    .link-btn {
+      background: none;
+      border: none;
+      color: #64748b;
+      font-size: 11px;
+      cursor: pointer;
+      padding: 0;
+      transition: color 0.2s;
+    }
+    .link-btn:hover {
+      color: #94a3b8;
+      text-decoration: underline;
+    }
+    .footer-tip {
+      font-size: 10px;
+      color: #475569;
+      margin-top: 8px;
+      line-height: 1.4;
+      text-align: center;
+    }
+    a {
+      color: #818cf8;
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    details {
+      margin-top: 6px;
+      color: #64748b;
+      font-size: 10px;
+      overflow-wrap: anywhere;
+    }
+    [hidden] {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
@@ -159,75 +277,82 @@
     <div class="brand">
       <span>✨ Fovea MV</span>
     </div>
-    <span class="badge">9:16 Lyric MP4</span>
+    <span class="badge">9:16 动效 MP4</span>
   </div>
 
   <div class="card">
-    <div class="card-title">Current song</div>
-    <div class="song-name" id="songName">Detecting song...</div>
+    <div class="card-title">当前检测歌曲</div>
+    <div class="song-name" id="songName">正在检测播放中歌曲...</div>
     <div class="status-row" id="publishStatus"></div>
   </div>
 
-  <button class="btn-primary" id="btnDownloadMp3" style="background: #334155; box-shadow: none;" disabled>
-    🎵 Download MP3
+  <button class="btn-primary" id="btnExport" disabled>
+    <span>🎬 一键生成 9:16 MV</span>
+  </button>
+
+  <button class="btn-secondary" id="btnDownloadMp3" disabled>
+    <span>🎵 下载原版 MP3</span>
   </button>
   <div class="status-row" id="downloadStatus" role="status" aria-live="polite"></div>
 
-  <button class="btn-primary" id="btnExport" style="margin-top: 8px;" disabled>
-    <span>🎬 Create MP4</span>
-  </button>
-
-  <button class="btn-primary" id="btnResumeVideo" style="margin-top: 8px; background: #334155;" hidden>Resume last video</button>
+  <button class="btn-secondary" id="btnResumeVideo" style="margin-top: 8px;" hidden>恢复上次视频任务</button>
   <select id="jobSelect" aria-label="Video jobs" hidden></select>
-  <p style="font-size:11px;margin-top:8px;"><a id="openEditor" hidden target="_blank" rel="noopener">Edit lyric timing ↗</a> &nbsp; <a id="openMotion" hidden target="_blank" rel="noopener">Motion Studio ↗</a></p>
+  <p style="font-size:11px;margin-top:6px;display:flex;gap:12px;justify-content:center;">
+    <a id="openEditor" hidden target="_blank" rel="noopener">歌词动效编辑器 ↗</a>
+    <a id="openMotion" hidden target="_blank" rel="noopener">Motion Studio ↗</a>
+  </p>
   <div class="status-row" id="videoTaskStatus" role="status" aria-live="polite"></div>
   <div class="status-row" id="recentDownload" role="status" aria-live="polite"></div>
-  <button class="node-btn" id="btnRetryDownload" hidden>Retry download</button>
-  <button class="node-btn" id="btnClearHistory">Clear finished history</button>
-  <details id="errorDetails" hidden><summary>Technical details</summary><div id="errorText"></div></details>
+  <button class="node-btn" id="btnRetryDownload" hidden>重试下载</button>
 
   <div class="settings-row">
     <div class="node-header">
-      <label>Server:</label>
+      <label>渲染节点:</label>
       <div class="node-btns">
-        <button type="button" id="btnCloudNode" class="node-btn active">☁️ Cloud</button>
-        <button type="button" id="btnLocalNode" class="node-btn">💻 Local</button>
+        <button type="button" id="btnCloudNode" class="node-btn active">☁️ 云端</button>
+        <button type="button" id="btnLocalNode" class="node-btn">💻 本地</button>
       </div>
     </div>
-    <input type="text" class="input-server" id="serverInput" value="https://mv.fovea.si" />
-    <button class="node-btn" id="btnSaveServer" style="margin-top: 6px;">Save server</button>
+    <div class="server-input-group">
+      <input type="text" class="input-server" id="serverInput" value="https://mv.fovea.si" spellcheck="false" />
+      <button type="button" class="btn-save-server" id="btnSaveServer">保存</button>
+    </div>
     <div class="status-row" id="serverStatus" role="status"></div>
   </div>
 
-  <div class="settings-row" id="authSection" style="margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
-    <div class="node-header">
-      <label>Cloud Account:</label>
-      <span id="authBadge" class="badge" style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; border-color: rgba(148, 163, 184, 0.3);">Not connected</span>
+  <!-- 静默自动同步账号状态栏 -->
+  <div class="auth-bar" id="authSection">
+    <div class="auth-left">
+      <span style="color:#94a3b8;font-size:11px;">云端账号</span>
+      <span id="authBadge" class="badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border-color: rgba(148, 163, 184, 0.25);">未登录</span>
     </div>
-    <p style="font-size:11px;margin-top:6px;"><a href="https://mv.fovea.si" target="_blank" rel="noopener">Sign in at mv.fovea.si ↗</a></p><div style="display: flex; gap: 6px; margin-top: 6px;">
-      <button type="button" class="btn-primary" id="btnSyncAuth" style="flex: 1; padding: 6px 10px; font-size: 11px; margin: 0; box-shadow: none;">
-        🔄 Sync website account
-      </button>
-      <button type="button" class="node-btn" id="btnToggleManualToken" title="Manual access token">
-        ✏️ Manual token
-      </button>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <span class="auth-status-text" id="authStatus">登录 mv.fovea.si 自动连接</span>
+      <button type="button" class="node-btn" id="btnSyncAuth" title="手动从官网同步">同步</button>
     </div>
-    <div id="manualTokenBox" hidden style="margin-top: 6px;">
-      <input type="password" class="input-server" id="tokenInput" placeholder="Access token (advanced)" />
-      <div style="display: flex; gap: 6px; margin-top: 4px;">
-        <button type="button" class="node-btn" id="btnSaveToken" style="flex: 1;">Save token</button>
-        <button type="button" class="node-btn" id="btnClearToken">Disconnect</button>
-      </div>
+    <button type="button" id="btnToggleManualToken" hidden></button>
+    <div id="manualTokenBox" hidden>
+      <input type="password" id="tokenInput" />
+      <button type="button" id="btnSaveToken"></button>
+      <button type="button" id="btnClearToken"></button>
     </div>
-    <div class="status-row" id="authStatus" role="status"></div>
+  </div>
+
+  <details id="errorDetails" hidden>
+    <summary>错误详情</summary>
+    <div id="errorText"></div>
+  </details>
+
+  <div class="footer-actions">
+    <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+      <input type="checkbox" id="hideBar" style="accent-color:#6366f1;" /> 隐藏网页浮窗
+    </label>
+    <button type="button" class="link-btn" id="btnClearHistory">清空历史任务</button>
   </div>
 
   <div class="footer-tip" id="footerTip">
-    MP3 / MP4 require a published song and your ownership or permission. Publish does not grant download or commercial rights. Follow Suno’s terms and download limits. Files are saved to Chrome’s download folder.
+    生成 MV 与下载 MP3 需确保歌曲已公开 (Publish)。
   </div>
-  <div class="footer-tip"><a href="privacy.html" target="_blank" rel="noopener">Privacy &amp; data handling</a></div>
-  <div class="footer-tip">Independent tool, not affiliated with Suno. We cannot verify copyright or download entitlement; your confirmation does not override platform rules.</div>
-  <label class="footer-tip" style="display:block;"><input type="checkbox" id="hideBar" /> Hide floating controls on Suno</label>
 
   <script src="ui.js"></script>
   <script src="popup.js"></script>

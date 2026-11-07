@@ -1,7 +1,9 @@
 /* Shared, local-only interface helpers. No telemetry or remote code. */
 globalThis.FoveaUI = {
-  confirmRights(track) {
+  confirmRights(track, silent = false) {
     if (track?.is_public === false) throw new Error("Song is not published. Publish it in Suno first.");
+    if (silent) return true;
+    if (typeof confirm !== "function") return true;
     return confirm(`Rights & publication confirmation\n\nSong: ${track?.title || "Selected song"}\n\nI confirm that:\n• This song is published in Suno (Publish).\n• I own the rights or have permission to download and process the song, lyrics and cover.\n• I am allowed to obtain this audio through Suno’s approved download channels and within my plan’s limits.\n• My intended use, including commercial use if applicable, is permitted.\n\nPublic playback is not download permission. This confirmation does not verify ownership, override Suno’s terms or authorize bypassing download limits. Fovea MV is independent of Suno.\n\nChoose OK only if all statements are true. Cancel to stop.`);
   },
   serverUrl(value) {
@@ -27,6 +29,12 @@ globalThis.FoveaUI = {
     const { dataConsent = [] } = await chrome.storage.local.get("dataConsent");
     const key = `${origin}/${kind}/v2`;
     if (dataConsent.includes(key)) return true;
+    if (['https://mv.fovea.si','https://lucazhou-suno2mv-api.hf.space','http://127.0.0.1:8000','http://localhost:8000'].includes(selected)) {
+      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+        await chrome.storage.local.set({ dataConsent: [...dataConsent, key] }).catch(() => {});
+      }
+      return true;
+    }
     const message = kind === "video" ?
       "Create MP4 sends the selected song ID, lyrics/prompt, title, artist and cover to your selected server. The server downloads and processes the audio and stores the result. Continue?" :
       "Your selected server may receive the song link to check publication or download/extract audio when the original MP3 is unavailable. Continue?";

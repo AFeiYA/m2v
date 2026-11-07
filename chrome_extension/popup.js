@@ -138,29 +138,43 @@ document.addEventListener("DOMContentLoaded", async () => {
   function renderAuthUI(tokenVal) {
     if (tokenVal) {
       if (authBadge) {
-        authBadge.textContent = "Connected";
+        authBadge.textContent = "已连接";
         authBadge.style.color = "#4ade80";
-        authBadge.style.backgroundColor = "rgba(74, 222, 128, 0.2)";
-        authBadge.style.borderColor = "rgba(74, 222, 128, 0.3)";
+        authBadge.style.backgroundColor = "rgba(74, 222, 128, 0.15)";
+        authBadge.style.borderColor = "rgba(74, 222, 128, 0.25)";
       }
-      if (authStatus) authStatus.textContent = "Connected to your cloud account.";
+      if (authStatus) authStatus.textContent = "已连接到您的云端账号。";
       if (tokenInput) tokenInput.value = '';
     } else {
       if (authBadge) {
-        authBadge.textContent = "Not connected";
+        authBadge.textContent = "未登录";
         authBadge.style.color = "#94a3b8";
-        authBadge.style.backgroundColor = "rgba(148, 163, 184, 0.2)";
-        authBadge.style.borderColor = "rgba(148, 163, 184, 0.3)";
+        authBadge.style.backgroundColor = "rgba(148, 163, 184, 0.15)";
+        authBadge.style.borderColor = "rgba(148, 163, 184, 0.25)";
       }
-      if (authStatus) authStatus.textContent = "Sign in at mv.fovea.si, keep that tab open, then sync here.";
+      if (authStatus) authStatus.textContent = "登录 mv.fovea.si 即可全自动关联";
       if (tokenInput) tokenInput.value = "";
     }
   }
 
   chrome.storage.local.get(["authToken","authUserName"], (res) => {
     renderAuthUI(res?.authToken || "");
-    if(res?.authToken&&res?.authUserName)authStatus.textContent="Connected: "+res.authUserName;
+    if(res?.authToken&&res?.authUserName)authStatus.textContent="已连接: "+res.authUserName;
   });
+
+  // 真实浏览器环境中如果有 cookies 权限且未连接，可静默触发一次同步
+  if (typeof chrome !== "undefined" && chrome.cookies) {
+    chrome.cookies.get({ url: "https://mv.fovea.si", name: "m2v_token" }, (cookie) => {
+      if (cookie && cookie.value) {
+        chrome.runtime.sendMessage({ action: "SYNC_CLOUD_AUTH" }, (result) => {
+          if (result?.status === "ok") {
+            renderAuthUI(true);
+            if (authStatus) authStatus.textContent = "已连接: " + (result.data?.name || "云端账号");
+          }
+        });
+      }
+    });
+  }
 
   if (btnToggleManualToken) {
     btnToggleManualToken.addEventListener("click", () => {

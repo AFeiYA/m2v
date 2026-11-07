@@ -13,11 +13,20 @@ var FoveaCloud = (() => {
     return {userId:user.id,name:user.display_name||user.email||user.id};
   }
   async function sync(expectedUid) {
+    if (typeof chrome !== "undefined" && chrome.cookies) {
+      try {
+        const cookie = await chrome.cookies.get({ url: web, name: "m2v_token" });
+        if (cookie && cookie.value) {
+          const val = decodeURIComponent(cookie.value);
+          return await acceptToken(val, expectedUid);
+        }
+      } catch (_) {}
+    }
     const tabs = (await chrome.tabs.query({url:web+'/*'})).filter(tab=>tab.url&&new URL(tab.url).origin===web);
     if (!tabs.length) throw new Error('Open mv.fovea.si and sign in, then click Sync website account.');
     const results = await chrome.scripting.executeScript({target:{tabId:tabs[0].id},world:'MAIN',
       func:async () => {
-        if (!window.m2vAuth) return null;
+        if (!window.m2vAuth) return (typeof localStorage !== "undefined" ? localStorage.getItem("m2v_token") : null) || null;
         await window.m2vAuth.ready;
         return window.m2vAuth.getIdToken(true);
       }});
