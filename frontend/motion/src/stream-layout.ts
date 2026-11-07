@@ -387,9 +387,13 @@ export function compileAppleScrollLayout(
   const maxWidth = width - startX * 2;
   const activeFontSize = Math.round(Math.min(width,height*.9) * 0.052 * (options?.font_scale||1));
   const contextFontSize = Math.round(activeFontSize * 0.72);
-  const rowLineHeight = Math.round(activeFontSize * 1.34);
-  // 句子间距舒展留白：设为字号的 1.9x，营造优雅呼吸感
-  const paragraphGap = Math.round(activeFontSize * 1.9);
+  const rowLineHeight = Math.round(activeFontSize * 1.32);
+  // Apple Music 三级间距体系：
+  // 1. 同段落句子间距 lineGap (紧凑聚合，约 0.70x 字号，避免强行拉大产生松散割裂感)
+  const lineGap = Math.round(activeFontSize * 0.70);
+  // 2. 跨段落/间奏段留白 stanzaGap (段落呼吸与起跑缓冲，约 1.95x 字号)
+  const stanzaGap = Math.round(activeFontSize * 1.95);
+  const paragraphGap = stanzaGap;
 
   // 首句展示时机：若存在前奏封面，必须在封面彻底淡出后才进场，杜绝视觉撞车
   const introEnd = computeIntroEnd(project);
@@ -398,26 +402,26 @@ export function compileAppleScrollLayout(
   const interludes: AppleInterludeCompiled[] = [];
   let cumulativeY = 0;
 
+  // 官方标准：伴奏空隙达到 3.0s 时才作为独立间奏段，展示 3 拍起跑倒计时圆点
+  const MIN_INTERLUDE_GAP = 3.0;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const prevEnd = i > 0 ? lines[i - 1].end : introEnd;
     const gap = line.start - prevEnd;
-    const hasInterlude = gap >= 2.0;
+    const hasInterlude = (i === 0 ? line.start >= MIN_INTERLUDE_GAP : gap >= MIN_INTERLUDE_GAP);
 
-    // 前奏或间奏空隙 >= 2.0s 时，编排独立的间奏 3 拍小圆点行 (Apple Music Interlude Row)
+    // 前奏或间奏空隙 >= 3.0s 时，注册独立间奏段
     if (hasInterlude) {
-      const interludeHeight = rowLineHeight;
-      const interludeCenterY = cumulativeY;
+      const interHeight = Math.round(activeFontSize * 1.5);
       interludes.push({
         targetLineIndex: i,
         startTime: prevEnd,
         endTime: line.start,
         gap,
-        centerY: interludeCenterY,
-        height: interludeHeight,
+        centerY: 0, // 在 appleScrollStateAt 中结合视觉焦点动态计算
+        height: interHeight,
       });
-      // 间奏行当作标准字体行排版：间距采用标准段落留白 paragraphGap，避免人工堆叠额外空间导致下方歌词被分页推远
-      cumulativeY += paragraphGap;
     }
 
     const textRows = wrapSentenceToRows(line.text, activeFontSize, 700, maxWidth, measure);
@@ -461,7 +465,21 @@ export function compileAppleScrollLayout(
       interludeGap: gap,
     });
 
-    cumulativeY += sentenceHeight + paragraphGap;
+    // 句间距计算（三级间距体系）：
+    // 若下一句存在间奏，或跨段落/大空隙（>= 2.5s），采用段落留白 stanzaGap；
+    // 同段内的句子采用紧凑句距 lineGap，紧凑聚合，消除“字体拉开怪”的松散感。
+    let nextGap = lineGap;
+    if (i + 1 < lines.length) {
+      const nextLine = lines[i + 1];
+      const gapToNext = nextLine.start - line.end;
+      const isNextInterlude = gapToNext >= MIN_INTERLUDE_GAP;
+      const isSectionChange = !!(line.section && nextLine.section && line.section !== nextLine.section);
+      if (isNextInterlude || isSectionChange || gapToNext >= 2.5) {
+        nextGap = stanzaGap;
+      }
+    }
+
+    cumulativeY += sentenceHeight + nextGap;
   }
 
   return {
@@ -475,7 +493,7 @@ export function compileAppleScrollLayout(
     contextFontSize,
     rowLineHeight,
     paragraphGap,
-    lineGap: paragraphGap,
+    lineGap,
     lines: compiledLines,
     interludes,
     palette,
@@ -549,68 +567,113 @@ export function appleScrollStateAt(
   }
   const introFade = introEnd > 0 ? Math.min(1, Math.max(0, (t - introEnd) / 0.35)) : 1;
 
-  // 1. 构建全曲时序焦点序列（歌词行与间奏行）
-  interface FocalSegment {
-    kind: 'interlude' | 'line';
-    index: number;
-    start: number;
-    end: number;
-    centerY: number;
-  }
-
-  const segments: FocalSegment[] = [];
+  // 1. 查找当前时刻是否有正在进行的独立间奏段 (空隙 >= 3.0s)
   const interludes = layout.interludes || [];
+  const activeInterlude = interludes.find(it => t >= it.startTime && t <= it.endTime);
 
-  for (let i = 0; i < lines.length; i++) {
-    const inter = interludes.find(it => it.targetLineIndex === i);
-    if (inter) {
-      segments.push({
-        kind: 'interlude',
-        index: i,
-        start: inter.startTime,
-        end: inter.endTime,
-        centerY: inter.centerY,
-      });
+  // 间奏退场缓冲时长 (0.35s)：在此期间小圆点缩小渐隐，下一行歌词执行“追行贴上去”的 offset 上滑吸附动画
+  const exitLead = 0.35;
+  const enterLead = 0.30;
+
+  let interludeOffset = 0;
+  let dotsWorldY = 0;
+
+  if (activeInterlude) {
+    const fullOffset = activeInterlude.height;
+    // 入场开辟阶段：前 0.30s 平滑撑开间距 (如果是首句前奏则立即就位)
+    let openFraction = 1.0;
+    if (activeInterlude.targetLineIndex > 0) {
+      const enterElapsed = t - activeInterlude.startTime;
+      if (enterElapsed < enterLead) {
+        const pe = Math.max(0, enterElapsed / enterLead);
+        openFraction = pe * pe * (3 - 2 * pe);
+      }
     }
-    segments.push({
-      kind: 'line',
-      index: i,
-      start: lines[i].start,
-      end: lines[i].end,
-      centerY: lines[i].centerY,
-    });
-  }
-  segments.sort((a, b) => a.start - b.start);
 
-  // 2. 确定当前活跃的时间段索引与平滑世界焦点 Y 坐标
-  let activeSegIdx = 0;
-  for (let s = 0; s < segments.length; s++) {
-    if (t >= segments[s].start) {
-      activeSegIdx = s;
+    // 退场折叠阶段：开唱前 0.35s 间奏高度平滑归零收拢 (“追行贴上去”)
+    let collapseFraction = 1.0;
+    const timeUntilSinging = activeInterlude.endTime - t;
+    if (timeUntilSinging < exitLead) {
+      const px = Math.max(0, Math.min(1, (exitLead - timeUntilSinging) / exitLead));
+      const hermite = px * px * (3 - 2 * px);
+      collapseFraction = 1.0 - hermite;
+    }
+
+    interludeOffset = Math.round(fullOffset * openFraction * collapseFraction);
+
+    const targetIdx = activeInterlude.targetLineIndex;
+    if (targetIdx === 0) {
+      // 前奏圆点位于首句上方
+      const baseLineY = lines[0].centerY;
+      dotsWorldY = baseLineY - (lines[0].sentenceHeight / 2 + layout.paragraphGap);
+    } else {
+      // 间奏圆点位于上一句底部与下一句顶部之间居中
+      const prevBottom = lines[targetIdx - 1].centerY + lines[targetIdx - 1].sentenceHeight / 2;
+      const nextBaseTop = lines[targetIdx].centerY - lines[targetIdx].sentenceHeight / 2;
+      dotsWorldY = Math.round((prevBottom + nextBaseTop + interludeOffset) / 2);
     }
   }
 
-  const curSeg = segments[activeSegIdx];
-  const nextSeg = segments[activeSegIdx + 1];
+  // 动态世界 Y 计算：当前活跃间奏及之后的歌词行叠加 interludeOffset
+  function getLineCenterY(i: number): number {
+    const c = lines[i];
+    if (activeInterlude && i >= activeInterlude.targetLineIndex) {
+      return c.centerY + interludeOffset;
+    }
+    return c.centerY;
+  }
 
-  let focalWorldY = curSeg ? curSeg.centerY : lines[0].centerY;
+  // 2. 确定平滑世界焦点 Y 坐标
+  let focalWorldY = lines[0].centerY;
 
-  if (curSeg && nextSeg) {
-    if (curSeg.kind === 'line') {
-      // 歌词行唱完后，平滑上滚到下一段（歌词或间奏）
-      if (t > curSeg.end) {
-        const leadDuration = Math.max(0.3, Math.min(1.2, nextSeg.start - curSeg.end));
-        const fraction = Math.max(0, Math.min(1, (t - curSeg.end) / leadDuration));
-        const scrollFraction = 1 - Math.pow(1 - fraction, 3);
-        focalWorldY = curSeg.centerY + (nextSeg.centerY - curSeg.centerY) * scrollFraction;
+  if (activeInterlude) {
+    const timeUntilSinging = activeInterlude.endTime - t;
+    const isExitPhase = timeUntilSinging < exitLead;
+    if (!isExitPhase) {
+      // 间奏进行期：焦点稳定在小圆点上
+      if (activeInterlude.targetLineIndex > 0) {
+        const enterElapsed = t - activeInterlude.startTime;
+        if (enterElapsed < enterLead) {
+          const pe = Math.max(0, enterElapsed / enterLead);
+          const scrollFraction = pe * pe * (3 - 2 * pe);
+          const prevCenter = lines[activeInterlude.targetLineIndex - 1].centerY;
+          focalWorldY = prevCenter + (dotsWorldY - prevCenter) * scrollFraction;
+        } else {
+          focalWorldY = dotsWorldY;
+        }
+      } else {
+        focalWorldY = dotsWorldY;
       }
     } else {
-      // 间奏段：在开唱前 0.25s 开始平滑对准下一句歌词
-      const exitLead = 0.25;
-      if (t >= curSeg.end - exitLead) {
-        const fraction = Math.max(0, Math.min(1, (t - (curSeg.end - exitLead)) / exitLead));
-        const scrollFraction = fraction * fraction * (3 - 2 * fraction);
-        focalWorldY = curSeg.centerY + (nextSeg.centerY - curSeg.centerY) * scrollFraction;
+      // 间奏退场过渡期：相机平滑从圆点对准下一句歌词 (“追行贴上去”)
+      const targetCenterY = getLineCenterY(activeInterlude.targetLineIndex);
+      const px = Math.max(0, Math.min(1, (exitLead - timeUntilSinging) / exitLead));
+      const scrollFraction = px * px * (3 - 2 * px);
+      focalWorldY = dotsWorldY + (targetCenterY - dotsWorldY) * scrollFraction;
+    }
+  } else {
+    // 正常歌词行播放滚动
+    let curLineIdx = 0;
+    for (let i = 0; i < lines.length; i++) {
+      if (t >= lines[i].start) {
+        curLineIdx = i;
+      }
+    }
+
+    const curLine = lines[curLineIdx];
+    if (t <= curLine.end) {
+      focalWorldY = curLine.centerY;
+    } else {
+      // 唱完后平滑上滚至下一句
+      const nextLine = lines[curLineIdx + 1];
+      if (nextLine) {
+        const gap = nextLine.start - curLine.end;
+        const leadDuration = Math.max(0.3, Math.min(1.2, gap));
+        const fraction = Math.max(0, Math.min(1, (t - curLine.end) / leadDuration));
+        const scrollFraction = 1 - Math.pow(1 - fraction, 3);
+        focalWorldY = curLine.centerY + (nextLine.centerY - curLine.centerY) * scrollFraction;
+      } else {
+        focalWorldY = curLine.centerY;
       }
     }
   }
@@ -622,8 +685,9 @@ export function appleScrollStateAt(
 
   for (let i = 0; i < lines.length; i++) {
     const c = lines[i];
+    const worldY = getLineCenterY(i);
     // 当前句子的视觉中心
-    const itemCenterY = Math.round(focalCenterY + (c.centerY - focalWorldY));
+    const itemCenterY = Math.round(focalCenterY + (worldY - focalWorldY));
     // 当前句子首行基线
     const itemTopY = Math.round(itemCenterY - c.sentenceHeight / 2);
 
@@ -673,101 +737,80 @@ export function appleScrollStateAt(
     });
   }
 
-  // 4. 计算 Apple 伴唱起跑 3 拍小圆点行 (Apple Music Interlude Countdown Dots)
+  // 3. 计算 Apple 伴唱起跑 3 拍小圆点行 (Apple Music Interlude Countdown Dots)
+  // 仅在伴奏活跃且未开唱 (t < activeInterlude.endTime) 期间渲染；开唱瞬间圆点彻底消失 (countIn = null)
   let countIn: AppleCountInState | null = null;
 
-  for (const inter of interludes) {
-    // 间奏小圆点生命周期：从伴奏开始，到开唱后 0.45s 顺畅滑入历史文本行并淡出
-    if (t >= inter.startTime && t <= inter.endTime + 0.45) {
-      if (introEnd > 0 && t < introEnd) {
-        continue;
-      }
-
+  if (activeInterlude && t < activeInterlude.endTime) {
+    if (!(introEnd > 0 && t < introEnd)) {
       // Apple Music 左对齐圆点规范：
-      // 半径约为活动字号的 0.26（标准字号下醒目饱满）
       const dotRadius = Math.max(8, Math.round(layout.activeFontSize * 0.26));
       const dotSpacing = Math.round(dotRadius * 3.6);
-
-      // 横向左对齐：圆点左边缘与歌词文本首列严格对齐 (startX + dotRadius)
       const dotsStartX = layout.startX + dotRadius;
+      const dotsScreenY = Math.round(focalCenterY + (dotsWorldY - focalWorldY));
 
-      // 纵向位置：跟随间奏行在世界坐标系中的视觉位置 (作为字体行平滑上滚)
-      const dotsY = Math.round(focalCenterY + (inter.centerY - focalWorldY));
+      if (dotsScreenY >= layout.height * 0.08 && dotsScreenY <= layout.height * 0.96) {
+        // 倒计时间隔与起跑时机
+        const countInLead = Math.min(2.7, Math.max(1.8, activeInterlude.gap * 0.75));
+        const countInStart = activeInterlude.endTime - countInLead;
+        const beatDuration = countInLead / 3;
 
-      // 若已滑出视口顶部安全区，停止渲染
-      if (dotsY < layout.height * 0.08) {
-        continue;
-      }
+        // 退出阶段 (开唱前 0.35s)：圆点快速缩小 (1.35 -> 1.18 -> 0.40) 并渐隐消失
+        const timeUntilSinging = activeInterlude.endTime - t;
+        const isExitPhase = timeUntilSinging < exitLead;
+        const exitProgress = isExitPhase
+          ? Math.max(0, Math.min(1, (exitLead - timeUntilSinging) / exitLead))
+          : 0;
 
-      // 倒计时间隔与起跑时机
-      const countInLead = Math.min(2.7, Math.max(1.8, inter.gap * 0.75));
-      const countInStart = inter.endTime - countInLead;
-      const beatDuration = countInLead / 3;
+        let entranceFade = 1.0;
+        if (t < activeInterlude.startTime + 0.25) {
+          entranceFade = Math.min(1, Math.max(0, (t - activeInterlude.startTime) / 0.25));
+        }
 
-      // 动画节奏：1.35 → 1.35 → 1.35 → 1.2 → 1.0
-      // 点亮顺序：第 0 点亮 (1.35) → 第 1 点亮 (1.35) → 第 2 点亮 (1.35)
-      // 随后在开唱前的过渡期（约最后 0.35s）收敛：1.35 → 1.2 → 1.0，开唱后定格为 1.0 当字体行随歌词上滚
-      const transitionDuration = Math.min(0.35, beatDuration * 0.8);
-      const transitionStart = inter.endTime - transitionDuration;
+        const exitFade = isExitPhase ? Math.max(0, 1 - Math.pow(exitProgress, 1.4)) : 1.0;
+        const edgeFade = computeAppleEdgeFade(dotsScreenY, layout.height);
+        const overallAlpha = Number((entranceFade * exitFade * edgeFade * introFade).toFixed(3));
 
-      // 计算入场与开唱后淡出
-      let overallAlpha = 1.0;
-      if (t < inter.startTime + 0.25) {
-        overallAlpha = Math.min(1, Math.max(0, (t - inter.startTime) / 0.25));
-      } else if (t > inter.endTime) {
-        // 开唱后当作已唱历史行：透明度平滑衰减，跟随上滚融入背景
-        const pastFade = Math.max(0, 1 - (t - inter.endTime) / 0.45);
-        overallAlpha = pastFade * 0.36;
-      }
+        if (overallAlpha > 0.01) {
+          const dots: [AppleCountInDot, AppleCountInDot, AppleCountInDot] = [0, 1, 2].map(dIdx => {
+            const beatTime = countInStart + dIdx * beatDuration;
+            const isLit = t >= beatTime;
+            const dt = Math.max(0, t - beatTime);
 
-      const edgeFade = computeAppleEdgeFade(dotsY, layout.height);
-      overallAlpha = Number((overallAlpha * edgeFade * introFade).toFixed(3));
+            let dotScale = 1.0;
+            if (!isLit) {
+              dotScale = 1.0;
+            } else if (!isExitPhase) {
+              // 伴奏点亮期间饱满绽放 1.35
+              dotScale = 1.35;
+            } else {
+              // 开唱前收缩：1.35 → 1.18 → 0.40
+              dotScale = Number((1.35 - 0.35 * exitProgress - 0.60 * exitProgress * exitProgress).toFixed(3));
+            }
 
-      if (overallAlpha > 0.01) {
-        const dots: [AppleCountInDot, AppleCountInDot, AppleCountInDot] = [0, 1, 2].map(dIdx => {
-          const beatTime = countInStart + dIdx * beatDuration;
-          const isLit = t >= beatTime;
-          const dt = Math.max(0, t - beatTime);
+            const glowAlpha = (isLit && !isExitPhase)
+              ? Number(Math.max(0, Math.exp(-dt * 3.5)).toFixed(3))
+              : 0;
+            const dotAlpha = isLit ? 1.0 : 0.28;
 
-          let dotScale = 1.0;
-          if (!isLit) {
-            dotScale = 1.0;
-          } else if (t < transitionStart) {
-            // 点亮期间保持 1.35
-            dotScale = 1.35;
-          } else if (t <= inter.endTime) {
-            // 过渡期间：1.35 → 1.2 → 1.0
-            const p = Math.min(1, Math.max(0, (t - transitionStart) / transitionDuration));
-            // 二次平滑插值：p=0 时 1.35, p=0.5 时约 1.19~1.20, p=1 时 1.00
-            dotScale = Number((1.35 - 0.30 * p - 0.05 * p * p).toFixed(3));
-          } else {
-            // 开唱后稳定在 1.0（标准文字尺寸）
-            dotScale = 1.0;
-          }
+            return {
+              index: dIdx,
+              x: dotsStartX + dIdx * dotSpacing,
+              y: dotsScreenY,
+              radius: dotRadius,
+              lit: isLit,
+              scale: dotScale,
+              alpha: dotAlpha,
+              glowAlpha,
+            };
+          }) as unknown as [AppleCountInDot, AppleCountInDot, AppleCountInDot];
 
-          const glowAlpha = (isLit && t <= inter.endTime)
-            ? Number(Math.max(0, Math.exp(-dt * 3.5)).toFixed(3))
-            : 0;
-          const dotAlpha = isLit ? 1.0 : 0.28;
-
-          return {
-            index: dIdx,
-            x: dotsStartX + dIdx * dotSpacing,
-            y: dotsY,
-            radius: dotRadius,
-            lit: isLit,
-            scale: dotScale,
-            alpha: dotAlpha,
-            glowAlpha,
+          countIn = {
+            targetLineIndex: activeInterlude.targetLineIndex,
+            dots,
+            overallAlpha,
           };
-        }) as unknown as [AppleCountInDot, AppleCountInDot, AppleCountInDot];
-
-        countIn = {
-          targetLineIndex: inter.targetLineIndex,
-          dots,
-          overallAlpha,
-        };
-        break;
+        }
       }
     }
   }

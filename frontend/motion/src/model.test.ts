@@ -828,16 +828,26 @@ test('intro cover completely fades out before lyrics appear, eliminating visual 
   const countInDuringSinging = appleScrollStateAt(apple, 7.0).countIn;
   assert.equal(countInDuringSinging, null);
 
-  // 验证间奏独立留白空间：第 2 句到第 3 句之间存在 4 秒间奏，排版额外增加独立空间
+  // 验证三级间距体系：同段句子紧凑聚合 (lineGap)，跨段/间奏具有呼吸留白 (stanzaGap)
   assert.equal(apple.lines[1].hasInterlude, false);
   assert.equal(apple.lines[2].hasInterlude, true);
-  const interludeDistance = apple.lines[2].cumulativeY - (apple.lines[1].cumulativeY + apple.lines[1].sentenceHeight);
-  assert.ok(interludeDistance >= apple.paragraphGap + Math.round(apple.activeFontSize * 1.5));
+  const intraStanzaDistance = apple.lines[1].cumulativeY - (apple.lines[0].cumulativeY + apple.lines[0].sentenceHeight);
+  const interStanzaDistance = apple.lines[2].cumulativeY - (apple.lines[1].cumulativeY + apple.lines[1].sentenceHeight);
+  assert.equal(intraStanzaDistance, apple.lineGap);
+  assert.equal(interStanzaDistance, apple.paragraphGap);
+  assert.ok(interStanzaDistance >= Math.round(intraStanzaDistance * 2.5));
 
-  // 验证间奏期间第 3 句的起唱倒计时圆点
+  // 验证间奏期间第 3 句的起唱倒计时圆点与动态起跑空间
   const countInInterlude = appleScrollStateAt(apple, 17.2).countIn;
   assert.ok(countInInterlude);
   assert.equal(countInInterlude.targetLineIndex, 2);
+
+  // 验证开唱瞬间 (t = 18.0s)：圆点彻底消失，目标歌词追行贴上去吸附至焦点
+  const stateAtSinging = appleScrollStateAt(apple, 18.0);
+  assert.equal(stateAtSinging.countIn, null);
+  const activeLine = stateAtSinging.items.find(it => it.isActive);
+  assert.ok(activeLine);
+  assert.equal(activeLine.compiled.lineIndex, 2);
 
   // 5. 验证共用函数与 style === 'none' 统一拦截
   const { computeIntroEnd, hasSongIntro } = await import('./song-layout.ts');
