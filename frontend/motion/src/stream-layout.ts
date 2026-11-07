@@ -387,13 +387,9 @@ export function compileAppleScrollLayout(
   const maxWidth = width - startX * 2;
   const activeFontSize = Math.round(Math.min(width,height*.9) * 0.052 * (options?.font_scale||1));
   const contextFontSize = Math.round(activeFontSize * 0.72);
-  const rowLineHeight = Math.round(activeFontSize * 1.32);
-  // Apple Music 三级间距体系：
-  // 1. 同段落句子间距 lineGap (紧凑聚合，约 0.70x 字号，避免强行拉大产生松散割裂感)
-  const lineGap = Math.round(activeFontSize * 0.70);
-  // 2. 跨段落/间奏段留白 stanzaGap (段落呼吸与起跑缓冲，约 1.95x 字号)
-  const stanzaGap = Math.round(activeFontSize * 1.95);
-  const paragraphGap = stanzaGap;
+  const rowLineHeight = Math.round(activeFontSize * 1.34);
+  // Apple Music 句子间距舒展留白：设为字号的 1.9x，营造优雅自然的呼吸感
+  const paragraphGap = Math.round(activeFontSize * 1.9);
 
   // 首句展示时机：若存在前奏封面，必须在封面彻底淡出后才进场，杜绝视觉撞车
   const introEnd = computeIntroEnd(project);
@@ -413,14 +409,13 @@ export function compileAppleScrollLayout(
 
     // 前奏或间奏空隙 >= 3.0s 时，注册独立间奏段
     if (hasInterlude) {
-      const interHeight = Math.round(activeFontSize * 1.5);
       interludes.push({
         targetLineIndex: i,
         startTime: prevEnd,
         endTime: line.start,
         gap,
         centerY: 0, // 在 appleScrollStateAt 中结合视觉焦点动态计算
-        height: interHeight,
+        height: paragraphGap,
       });
     }
 
@@ -465,21 +460,7 @@ export function compileAppleScrollLayout(
       interludeGap: gap,
     });
 
-    // 句间距计算（三级间距体系）：
-    // 若下一句存在间奏，或跨段落/大空隙（>= 2.5s），采用段落留白 stanzaGap；
-    // 同段内的句子采用紧凑句距 lineGap，紧凑聚合，消除“字体拉开怪”的松散感。
-    let nextGap = lineGap;
-    if (i + 1 < lines.length) {
-      const nextLine = lines[i + 1];
-      const gapToNext = nextLine.start - line.end;
-      const isNextInterlude = gapToNext >= MIN_INTERLUDE_GAP;
-      const isSectionChange = !!(line.section && nextLine.section && line.section !== nextLine.section);
-      if (isNextInterlude || isSectionChange || gapToNext >= 2.5) {
-        nextGap = stanzaGap;
-      }
-    }
-
-    cumulativeY += sentenceHeight + nextGap;
+    cumulativeY += sentenceHeight + paragraphGap;
   }
 
   return {
@@ -493,7 +474,7 @@ export function compileAppleScrollLayout(
     contextFontSize,
     rowLineHeight,
     paragraphGap,
-    lineGap,
+    lineGap: paragraphGap,
     lines: compiledLines,
     interludes,
     palette,
@@ -573,16 +554,18 @@ export function appleScrollStateAt(
 
   // 间奏退场缓冲时长 (0.35s)：在此期间小圆点缩小渐隐，下一行歌词执行“追行贴上去”的 offset 上滑吸附动画
   const exitLead = 0.35;
-  const enterLead = 0.30;
 
   let interludeOffset = 0;
   let dotsWorldY = 0;
 
   if (activeInterlude) {
-    const fullOffset = activeInterlude.height;
-    // 入场开辟阶段：前 0.30s 平滑撑开间距 (如果是首句前奏则立即就位)
+    const targetIdx = activeInterlude.targetLineIndex;
+    const fullOffset = layout.paragraphGap;
+
+    // 入场开辟阶段：前 0.35s 平滑向下推开下一行歌词
     let openFraction = 1.0;
-    if (activeInterlude.targetLineIndex > 0) {
+    if (targetIdx > 0) {
+      const enterLead = Math.min(0.40, activeInterlude.gap * 0.35);
       const enterElapsed = t - activeInterlude.startTime;
       if (enterElapsed < enterLead) {
         const pe = Math.max(0, enterElapsed / enterLead);
@@ -590,7 +573,7 @@ export function appleScrollStateAt(
       }
     }
 
-    // 退场折叠阶段：开唱前 0.35s 间奏高度平滑归零收拢 (“追行贴上去”)
+    // 退场折叠阶段：开唱前 0.35s 间距平滑归零收拢 (“追行贴上去”)
     let collapseFraction = 1.0;
     const timeUntilSinging = activeInterlude.endTime - t;
     if (timeUntilSinging < exitLead) {
@@ -600,21 +583,11 @@ export function appleScrollStateAt(
     }
 
     interludeOffset = Math.round(fullOffset * openFraction * collapseFraction);
-
-    const targetIdx = activeInterlude.targetLineIndex;
-    if (targetIdx === 0) {
-      // 前奏圆点位于首句上方
-      const baseLineY = lines[0].centerY;
-      dotsWorldY = baseLineY - (lines[0].sentenceHeight / 2 + layout.paragraphGap);
-    } else {
-      // 间奏圆点位于上一句底部与下一句顶部之间居中
-      const prevBottom = lines[targetIdx - 1].centerY + lines[targetIdx - 1].sentenceHeight / 2;
-      const nextBaseTop = lines[targetIdx].centerY - lines[targetIdx].sentenceHeight / 2;
-      dotsWorldY = Math.round((prevBottom + nextBaseTop + interludeOffset) / 2);
-    }
+    // 圆点在世界坐标系中稳居目标行原本的基准位置
+    dotsWorldY = lines[targetIdx].centerY;
   }
 
-  // 动态世界 Y 计算：当前活跃间奏及之后的歌词行叠加 interludeOffset
+  // 动态世界 Y 计算：当前活跃间奏目标行及之后的歌词行叠加 interludeOffset
   function getLineCenterY(i: number): number {
     const c = lines[i];
     if (activeInterlude && i >= activeInterlude.targetLineIndex) {
@@ -627,29 +600,20 @@ export function appleScrollStateAt(
   let focalWorldY = lines[0].centerY;
 
   if (activeInterlude) {
-    const timeUntilSinging = activeInterlude.endTime - t;
-    const isExitPhase = timeUntilSinging < exitLead;
-    if (!isExitPhase) {
-      // 间奏进行期：焦点稳定在小圆点上
-      if (activeInterlude.targetLineIndex > 0) {
-        const enterElapsed = t - activeInterlude.startTime;
-        if (enterElapsed < enterLead) {
-          const pe = Math.max(0, enterElapsed / enterLead);
-          const scrollFraction = pe * pe * (3 - 2 * pe);
-          const prevCenter = lines[activeInterlude.targetLineIndex - 1].centerY;
-          focalWorldY = prevCenter + (dotsWorldY - prevCenter) * scrollFraction;
-        } else {
-          focalWorldY = dotsWorldY;
-        }
+    const targetIdx = activeInterlude.targetLineIndex;
+    if (targetIdx === 0) {
+      focalWorldY = dotsWorldY;
+    } else {
+      const prevCenter = lines[targetIdx - 1].centerY;
+      const enterLead = Math.min(0.40, activeInterlude.gap * 0.35);
+      const enterElapsed = t - activeInterlude.startTime;
+      if (enterElapsed < enterLead) {
+        const pe = Math.max(0, enterElapsed / enterLead);
+        const scrollFraction = 1 - Math.pow(1 - pe, 3);
+        focalWorldY = prevCenter + (dotsWorldY - prevCenter) * scrollFraction;
       } else {
         focalWorldY = dotsWorldY;
       }
-    } else {
-      // 间奏退场过渡期：相机平滑从圆点对准下一句歌词 (“追行贴上去”)
-      const targetCenterY = getLineCenterY(activeInterlude.targetLineIndex);
-      const px = Math.max(0, Math.min(1, (exitLead - timeUntilSinging) / exitLead));
-      const scrollFraction = px * px * (3 - 2 * px);
-      focalWorldY = dotsWorldY + (targetCenterY - dotsWorldY) * scrollFraction;
     }
   } else {
     // 正常歌词行播放滚动

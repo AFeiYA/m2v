@@ -828,14 +828,14 @@ test('intro cover completely fades out before lyrics appear, eliminating visual 
   const countInDuringSinging = appleScrollStateAt(apple, 7.0).countIn;
   assert.equal(countInDuringSinging, null);
 
-  // 验证三级间距体系：同段句子紧凑聚合 (lineGap)，跨段/间奏具有呼吸留白 (stanzaGap)
+  // 验证标准句子间距留白：每句保持 1.9x 字号舒展留白，彻底杜绝行间字体堆叠与碰撞
   assert.equal(apple.lines[1].hasInterlude, false);
   assert.equal(apple.lines[2].hasInterlude, true);
-  const intraStanzaDistance = apple.lines[1].cumulativeY - (apple.lines[0].cumulativeY + apple.lines[0].sentenceHeight);
-  const interStanzaDistance = apple.lines[2].cumulativeY - (apple.lines[1].cumulativeY + apple.lines[1].sentenceHeight);
-  assert.equal(intraStanzaDistance, apple.lineGap);
-  assert.equal(interStanzaDistance, apple.paragraphGap);
-  assert.ok(interStanzaDistance >= Math.round(intraStanzaDistance * 2.5));
+  const sentenceDistance1 = apple.lines[1].cumulativeY - (apple.lines[0].cumulativeY + apple.lines[0].sentenceHeight);
+  const sentenceDistance2 = apple.lines[2].cumulativeY - (apple.lines[1].cumulativeY + apple.lines[1].sentenceHeight);
+  assert.equal(sentenceDistance1, apple.paragraphGap);
+  assert.equal(sentenceDistance2, apple.paragraphGap);
+  assert.ok(apple.paragraphGap >= Math.round(apple.activeFontSize * 1.8));
 
   // 验证间奏期间第 3 句的起唱倒计时圆点与动态起跑空间
   const countInInterlude = appleScrollStateAt(apple, 17.2).countIn;
