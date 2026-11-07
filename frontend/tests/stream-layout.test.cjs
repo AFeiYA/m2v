@@ -227,7 +227,7 @@ test('Apple Scroll multi-line sentences compile exact rows, dynamic height, and 
   assert.ok(fillTexts.length >= 2, 'All sub-rows of active multi-line sentence are painted');
 });
 
-test('Apple Scroll viewport restricts visible lines to 3-4, preserves top/bottom safe breathing space and never touches borders', () => {
+test('Apple Scroll viewport maintains continuous reading stream with safe margins and natural density', () => {
   const project = {
     duration: 60,
     lines: Array.from({ length: 15 }, (_, i) => ({
@@ -245,14 +245,14 @@ test('Apple Scroll viewport restricts visible lines to 3-4, preserves top/bottom
   [0.5, 9.0, 18.0, 30.0].forEach(t => {
     const state = appleScrollStateAt(compiled, t);
 
-    // 1. Never overfill screen: visible line count must be between 1 and 4
-    assert.ok(state.items.length >= 1 && state.items.length <= 4, `At t=${t}s, lines count ${state.items.length} must be <= 4`);
+    // 1. Maintain continuous reading stream without overfilling or truncating (5-7 visible lines)
+    assert.ok(state.items.length >= 1 && state.items.length <= 8, `At t=${t}s, lines count ${state.items.length} must be <= 8`);
 
     // 2. Never touch borders (no 顶格):
-    // All visible items must stay within 16% ~ 82% of height
+    // All visible items must stay within safe margins (8% ~ 96% of height)
     for (const item of state.items) {
-      assert.ok(item.y > 1920 * 0.14, `Line ${item.compiled.lineIndex} y=${item.y} must not exceed top safe margin`);
-      assert.ok(item.y < 1920 * 0.82, `Line ${item.compiled.lineIndex} y=${item.y} must not exceed bottom safe margin`);
+      assert.ok(item.y > 1920 * 0.08, `Line ${item.compiled.lineIndex} y=${item.y} must not exceed top safe margin`);
+      assert.ok(item.y < 1920 * 0.96, `Line ${item.compiled.lineIndex} y=${item.y} must not exceed bottom safe margin`);
       assert.ok(item.alpha > 0.02, 'Rendered item must have noticeable alpha');
       if (item.isActive) {
         assert.equal(item.alpha, 1.0, 'Active line must have full opacity 1.0');
@@ -261,7 +261,7 @@ test('Apple Scroll viewport restricts visible lines to 3-4, preserves top/bottom
   });
 });
 
-test('Apple Scroll interlude row: left-aligned dots breathing back and forth, suddenly shrinks and vanishes 0.2s before vocals start', () => {
+test('Apple Scroll interlude row: left-aligned dots light up one by one with 1.35->1.2->1.0 animation and smooth font-line transition', () => {
   const project = {
     duration: 30,
     lines: [
@@ -282,7 +282,7 @@ test('Apple Scroll interlude row: left-aligned dots breathing back and forth, su
   assert.equal(soloInterlude.startTime, 8.0);
   assert.equal(soloInterlude.endTime, 14.0);
 
-  // 2. 间奏期间 (如 t = 10.0s)：三个圆点左对齐，并保持来回平滑呼吸缩放
+  // 2. 间奏期间 (如 t = 10.0s)：三个圆点左对齐，处于文字基准字号 scale = 1.0
   const stateAt10 = appleScrollStateAt(compiled, 10.0);
   assert.ok(stateAt10.countIn);
   assert.equal(stateAt10.countIn.targetLineIndex, 1);
@@ -296,26 +296,32 @@ test('Apple Scroll interlude row: left-aligned dots breathing back and forth, su
   assert.ok(spacing > stateAt10.countIn.dots[0].radius * 2);
   assert.equal(stateAt10.countIn.dots[2].x - stateAt10.countIn.dots[1].x, spacing);
 
-  // 验证来回缩放 (呼吸动效在正常尺度 0.88 ~ 1.12 之间)
-  assert.ok(stateAt10.countIn.dots[0].scale >= 0.85 && stateAt10.countIn.dots[0].scale <= 1.15);
+  // 验证静止期比例为 1.0
+  assert.equal(stateAt10.countIn.dots[0].scale, 1.0);
 
-  // 3. 验证倒计时推进点亮 (t = 12.8s 进入点亮阶段，t = 13.5s 第三点点亮)
+  // 3. 伴奏期间小圆点依次点亮，到达 1.35
   const stateAt13_5 = appleScrollStateAt(compiled, 13.5);
   assert.ok(stateAt13_5.countIn);
   assert.equal(stateAt13_5.countIn.dots[0].lit, true);
   assert.equal(stateAt13_5.countIn.dots[1].lit, true);
   assert.equal(stateAt13_5.countIn.dots[2].lit, true);
+  assert.equal(stateAt13_5.countIn.dots[2].scale, 1.35);
 
-  // 4. 验证开唱前 0.2 秒突然缩放变小消失 (Sudden Shrink):
-  // 在 13.9s (离开唱仅 0.1s，处于最后 0.2s 窗口内)，缩放骤降 (scale < 0.5)
-  const stateAt13_9 = appleScrollStateAt(compiled, 13.9);
-  assert.ok(stateAt13_9.countIn);
-  assert.ok(stateAt13_9.countIn.dots[0].scale < 0.5, `Dot scale ${stateAt13_9.countIn.dots[0].scale} must suddenly shrink < 0.5 before singing`);
+  // 4. 开唱前过渡动效：1.35 → 1.2 → 1.0
+  const stateAt13_8 = appleScrollStateAt(compiled, 13.825);
+  assert.ok(stateAt13_8.countIn);
+  assert.ok(stateAt13_8.countIn.dots[0].scale >= 1.05 && stateAt13_8.countIn.dots[0].scale <= 1.25,
+    `Dot scale ${stateAt13_8.countIn.dots[0].scale} should smoothly transition around 1.2 before singing`);
 
-  // 5. 验证开唱瞬间 (t = 14.05s)：小圆点完全退出消失，下一句开唱
-  const stateAt14 = appleScrollStateAt(compiled, 14.05);
-  assert.equal(stateAt14.countIn, null);
+  // 5. 开唱瞬间 (t = 14.0s)：圆点稳定在 1.0 当字体行上滚，下一句开唱
+  const stateAt14 = appleScrollStateAt(compiled, 14.0);
+  assert.ok(stateAt14.countIn);
+  assert.equal(stateAt14.countIn.dots[0].scale, 1.0);
   const activeLine = stateAt14.items.find(it => it.isActive);
   assert.ok(activeLine);
   assert.equal(activeLine.compiled.lineIndex, 1);
+
+  // 6. 开唱后平滑融入历史文本并退出
+  const stateAt14_6 = appleScrollStateAt(compiled, 14.6);
+  assert.equal(stateAt14_6.countIn, null);
 });

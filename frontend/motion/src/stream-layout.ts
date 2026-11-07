@@ -407,7 +407,7 @@ export function compileAppleScrollLayout(
     // 前奏或间奏空隙 >= 2.0s 时，编排独立的间奏 3 拍小圆点行 (Apple Music Interlude Row)
     if (hasInterlude) {
       const interludeHeight = rowLineHeight;
-      const interludeCenterY = cumulativeY + interludeHeight / 2;
+      const interludeCenterY = cumulativeY;
       interludes.push({
         targetLineIndex: i,
         startTime: prevEnd,
@@ -416,8 +416,8 @@ export function compileAppleScrollLayout(
         centerY: interludeCenterY,
         height: interludeHeight,
       });
-      // 间奏行独立留白高度：interludeHeight + Math.round(activeFontSize * 1.6)
-      cumulativeY += interludeHeight + Math.round(activeFontSize * 1.6);
+      // 间奏行当作标准字体行排版：间距采用标准段落留白 paragraphGap，避免人工堆叠额外空间导致下方歌词被分页推远
+      cumulativeY += paragraphGap;
     }
 
     const textRows = wrapSentenceToRows(line.text, activeFontSize, 700, maxWidth, measure);
@@ -497,10 +497,10 @@ export interface AppleLineRenderItem {
  * 顶部 16% 与底部 20% 属于受保护的负空间呼吸区，歌词接近边缘时平滑融入背景。
  */
 export function computeAppleEdgeFade(centerY: number, height: number): number {
-  const topFadeStart = height * 0.16; // 顶部 16% 呼吸安全区
-  const topFadeEnd = height * 0.30;   // 30% 处达到全透
-  const bottomFadeStart = height * 0.65; // 65% 开始衰减
-  const bottomFadeEnd = height * 0.80;   // 底部 20% 呼吸安全区
+  const topFadeStart = height * 0.10; // 顶部 10% 呼吸安全区
+  const topFadeEnd = height * 0.22;   // 22% 处达到全透
+  const bottomFadeStart = height * 0.78; // 78% 开始衰减
+  const bottomFadeEnd = height * 0.95;   // 底部 95% 呼吸安全区
 
   if (centerY <= topFadeStart || centerY >= bottomFadeEnd) return 0;
   if (centerY < topFadeEnd) {
@@ -605,11 +605,11 @@ export function appleScrollStateAt(
         focalWorldY = curSeg.centerY + (nextSeg.centerY - curSeg.centerY) * scrollFraction;
       }
     } else {
-      // 间奏段：在开唱前 0.20s 开始平滑对准下一句歌词
-      const exitLead = 0.20;
+      // 间奏段：在开唱前 0.25s 开始平滑对准下一句歌词
+      const exitLead = 0.25;
       if (t >= curSeg.end - exitLead) {
         const fraction = Math.max(0, Math.min(1, (t - (curSeg.end - exitLead)) / exitLead));
-        const scrollFraction = Math.pow(fraction, 2.0);
+        const scrollFraction = fraction * fraction * (3 - 2 * fraction);
         focalWorldY = curSeg.centerY + (nextSeg.centerY - curSeg.centerY) * scrollFraction;
       }
     }
@@ -628,7 +628,7 @@ export function appleScrollStateAt(
     const itemTopY = Math.round(itemCenterY - c.sentenceHeight / 2);
 
     // 剔除进入上下绝对安全保护区的句子
-    if (itemCenterY < layout.height * 0.14 || itemCenterY > layout.height * 0.82) {
+    if (itemCenterY < layout.height * 0.08 || itemCenterY > layout.height * 0.96) {
       continue;
     }
 
@@ -642,10 +642,10 @@ export function appleScrollStateAt(
       baseAlpha = 1.0;
     } else if (distUnits < 0) {
       // 上方已唱句子：低调退场
-      baseAlpha = Math.max(0, 0.36 * (1 - (absDist - 0.5) / 1.5));
+      baseAlpha = Math.max(0, 0.36 * (1 - (absDist - 0.5) / 1.8));
     } else {
-      // 下方即将唱的句子：适度清晰方便伴唱预读
-      baseAlpha = Math.max(0, 0.48 * (1 - (absDist - 0.5) / 2.2));
+      // 下方即将唱的句子：适度清晰方便伴唱预读，自然延伸至视口底部
+      baseAlpha = 0.45;
     }
 
     // 叠加视口边缘平滑羽化衰减，彻底避免靠近边界时顶格
@@ -677,54 +677,77 @@ export function appleScrollStateAt(
   let countIn: AppleCountInState | null = null;
 
   for (const inter of interludes) {
-    if (t >= inter.startTime && t <= inter.endTime) {
+    // 间奏小圆点生命周期：从伴奏开始，到开唱后 0.45s 顺畅滑入历史文本行并淡出
+    if (t >= inter.startTime && t <= inter.endTime + 0.45) {
       if (introEnd > 0 && t < introEnd) {
         continue;
       }
 
-      // 倒计时间隔与起跑时机
-      const countInLead = Math.min(2.4, Math.max(1.5, inter.gap * 0.6));
-      const countInStart = inter.endTime - countInLead;
-      const exitLead = 0.20; // 下一句开唱前 0.2 秒突然缩放变小消失
-
       // Apple Music 左对齐圆点规范：
-      // 半径约为活动字号的 0.18（在标准字号下约 7~10px，醒目且不显臃肿）
-      const dotRadius = Math.max(7, Math.round(layout.activeFontSize * 0.18));
-      const dotSpacing = Math.round(dotRadius * 3.0);
+      // 半径约为活动字号的 0.26（标准字号下醒目饱满）
+      const dotRadius = Math.max(8, Math.round(layout.activeFontSize * 0.26));
+      const dotSpacing = Math.round(dotRadius * 3.6);
 
-      // 横向左对齐：与歌词文本首列严格对齐 (startX + dotRadius)
+      // 横向左对齐：圆点左边缘与歌词文本首列严格对齐 (startX + dotRadius)
       const dotsStartX = layout.startX + dotRadius;
 
-      // 纵向位置：跟随间奏行的实时视口世界坐标
+      // 纵向位置：跟随间奏行在世界坐标系中的视觉位置 (作为字体行平滑上滚)
       const dotsY = Math.round(focalCenterY + (inter.centerY - focalWorldY));
 
-      // 间奏播放期间：三个小点来回平滑呼吸缩放 (Breathe scale)
-      const breatheCycle = (t - inter.startTime) * Math.PI * 1.5;
-      const breatheScale = 1.0 + 0.12 * Math.sin(breatheCycle);
-
-      // 开唱前 0.2 秒突然缩小消失动画 (Sudden Shrink)
-      let shrinkScale = 1.0;
-      let exitFade = 1.0;
-      if (t >= inter.endTime - exitLead) {
-        const exitProgress = Math.min(1, Math.max(0, (t - (inter.endTime - exitLead)) / exitLead));
-        // 开唱前 0.2 秒向内快速收缩消失：从 1.0 骤降到 0.0
-        shrinkScale = Math.max(0, Math.pow(1.0 - exitProgress, 2.0));
-        exitFade = Math.max(0, Math.pow(1.0 - exitProgress, 2.0));
+      // 若已滑出视口顶部安全区，停止渲染
+      if (dotsY < layout.height * 0.08) {
+        continue;
       }
 
-      const entranceFade = Math.min(1, Math.max(0, (t - inter.startTime) / 0.25));
-      const overallAlpha = Number((entranceFade * exitFade * introFade).toFixed(3));
+      // 倒计时间隔与起跑时机
+      const countInLead = Math.min(2.7, Math.max(1.8, inter.gap * 0.75));
+      const countInStart = inter.endTime - countInLead;
+      const beatDuration = countInLead / 3;
+
+      // 动画节奏：1.35 → 1.35 → 1.35 → 1.2 → 1.0
+      // 点亮顺序：第 0 点亮 (1.35) → 第 1 点亮 (1.35) → 第 2 点亮 (1.35)
+      // 随后在开唱前的过渡期（约最后 0.35s）收敛：1.35 → 1.2 → 1.0，开唱后定格为 1.0 当字体行随歌词上滚
+      const transitionDuration = Math.min(0.35, beatDuration * 0.8);
+      const transitionStart = inter.endTime - transitionDuration;
+
+      // 计算入场与开唱后淡出
+      let overallAlpha = 1.0;
+      if (t < inter.startTime + 0.25) {
+        overallAlpha = Math.min(1, Math.max(0, (t - inter.startTime) / 0.25));
+      } else if (t > inter.endTime) {
+        // 开唱后当作已唱历史行：透明度平滑衰减，跟随上滚融入背景
+        const pastFade = Math.max(0, 1 - (t - inter.endTime) / 0.45);
+        overallAlpha = pastFade * 0.36;
+      }
+
+      const edgeFade = computeAppleEdgeFade(dotsY, layout.height);
+      overallAlpha = Number((overallAlpha * edgeFade * introFade).toFixed(3));
 
       if (overallAlpha > 0.01) {
         const dots: [AppleCountInDot, AppleCountInDot, AppleCountInDot] = [0, 1, 2].map(dIdx => {
-          const beatTime = countInStart + dIdx * (countInLead / 3);
+          const beatTime = countInStart + dIdx * beatDuration;
           const isLit = t >= beatTime;
           const dt = Math.max(0, t - beatTime);
 
-          // 点亮时微弹跳，平时来回缩放呼吸
-          const popScale = isLit ? Math.max(0, 0.28 * Math.exp(-dt * 4.5)) : 0;
-          const dotScale = Number(((breatheScale + popScale) * shrinkScale).toFixed(3));
-          const glowAlpha = isLit ? Number(Math.max(0, Math.exp(-dt * 3.5)).toFixed(3)) : 0;
+          let dotScale = 1.0;
+          if (!isLit) {
+            dotScale = 1.0;
+          } else if (t < transitionStart) {
+            // 点亮期间保持 1.35
+            dotScale = 1.35;
+          } else if (t <= inter.endTime) {
+            // 过渡期间：1.35 → 1.2 → 1.0
+            const p = Math.min(1, Math.max(0, (t - transitionStart) / transitionDuration));
+            // 二次平滑插值：p=0 时 1.35, p=0.5 时约 1.19~1.20, p=1 时 1.00
+            dotScale = Number((1.35 - 0.30 * p - 0.05 * p * p).toFixed(3));
+          } else {
+            // 开唱后稳定在 1.0（标准文字尺寸）
+            dotScale = 1.0;
+          }
+
+          const glowAlpha = (isLit && t <= inter.endTime)
+            ? Number(Math.max(0, Math.exp(-dt * 3.5)).toFixed(3))
+            : 0;
           const dotAlpha = isLit ? 1.0 : 0.28;
 
           return {
