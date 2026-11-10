@@ -69,9 +69,22 @@ def detect_macro_interludes(
     if not blocks:
         return [], []
 
+    # 1b. 过滤孤立微短瞬态杂音 (如 Demucs 分离残留的钢琴踏板敲击或鼓点泄漏，持续时间 < 2.5s 且前后均有较长纯静音)
+    filtered_blocks: list[tuple[float, float]] = []
+    for idx, b in enumerate(blocks):
+        dur = b[1] - b[0]
+        pre_gap = b[0] if idx == 0 else (b[0] - blocks[idx - 1][1])
+        post_gap = 999.0 if idx == len(blocks) - 1 else (blocks[idx + 1][0] - b[1])
+        if dur < 2.5 and pre_gap >= 4.0 and post_gap >= 3.5:
+            continue
+        filtered_blocks.append(b)
+
+    if not filtered_blocks:
+        filtered_blocks = blocks
+
     # 2. 合并句间正常呼吸与微短停顿 (< 2.8s)
     clusters: list[tuple[float, float]] = []
-    for b in blocks:
+    for b in filtered_blocks:
         if not clusters:
             clusters.append(b)
         else:
@@ -98,6 +111,9 @@ def partition_lyrics_by_interludes(
     interludes: list[tuple[float, float]],
     rough_starts: list[float],
     total_audio_sec: float,
+    first_voice_start: float = 0.0,
+    last_voice_end: float | None = None,
+    rough_ends: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     """根据粗对齐时间戳与宏观间奏区间，将歌词及对应时间窗口划分到互不侵占的安全物理窗口中。"""
     if not interludes or not lyrics or len(rough_starts) != len(lyrics):
@@ -114,7 +130,8 @@ def partition_lyrics_by_interludes(
         # 寻找首个落在间奏内或间奏后的歌词行索引
         chosen_split = len(lyrics)
         for idx, st in enumerate(rough_starts):
-            if st >= gap_s - 0.2:
+            et = rough_ends[idx] if (rough_ends and idx < len(rough_ends)) else st
+            if st >= gap_s - 0.5 or et >= gap_e - 0.5 or (st + et) / 2.0 >= gap_s:
                 chosen_split = idx
                 break
         split_indices.append(chosen_split)
@@ -122,7 +139,7 @@ def partition_lyrics_by_interludes(
     # 构建安全分区
     partitions: list[dict[str, Any]] = []
     prev_idx = 0
-    prev_t = 0.0
+    prev_t = max(0.0, first_voice_start - 0.5) if first_voice_start >= 3.0 else 0.0
     for i, s_idx in enumerate(split_indices):
         gap_s, gap_e = interludes[i]
         part_lyrics = lyrics[prev_idx:s_idx]
@@ -140,11 +157,14 @@ def partition_lyrics_by_interludes(
     # 最后一段
     tail_lyrics = lyrics[prev_idx:]
     if tail_lyrics:
+        tail_end = total_audio_sec
+        if last_voice_end is not None and (total_audio_sec - last_voice_end >= 4.0):
+            tail_end = min(total_audio_sec, last_voice_end + 1.0)
         partitions.append(
             {
                 "lyrics": tail_lyrics,
                 "window_start": prev_t,
-                "window_end": total_audio_sec,
+                "window_end": tail_end,
             }
         )
 
@@ -234,7 +254,9 @@ def align_with_interlude_guard(
     wav_16k = torchaudio.functional.resample(wav_t, orig_freq=sr, new_freq=16000).squeeze(0).numpy()
     total_audio_sec = len(wav_16k) / 16000.0
 
-    interludes, _clusters = detect_macro_interludes(wav_16k, sr=16000, min_gap_sec=min_gap_sec)
+    interludes, clusters = detect_macro_interludes(wav_16k, sr=16000, min_gap_sec=min_gap_sec)
+    first_voice_start = clusters[0][0] if clusters else 0.0
+    last_voice_end = clusters[-1][1] if clusters else total_audio_sec
 
     from src.align.cjk_disambiguation import prepare_line_for_alignment, reconcile_aligned_words
 
@@ -250,14 +272,31 @@ def align_with_interlude_guard(
     log.info("🛡️ [间奏硬保护] 检测到 %d 个长间奏/器乐Solo: %s", len(interludes), interludes)
 
     try:
-        # 粗测第一遍获取大致行分布 (显式禁用底层静音片段切碎，防止子块回滚引发张量维度异常)
+        # 粗测第一遍获取大致行分布 (若存在较长前奏 >= 3.0s，粗测前向裁切前奏静音，杜绝 Whisper 在前奏无声区发生幻觉或挤压)
+        intro_trim = max(0.0, first_voice_start - buffer_sec) if first_voice_start >= 3.0 else 0.0
+        if intro_trim > 0.0:
+            rough_wav = wav_16k[int(intro_trim * 16000):]
+        else:
+            rough_wav = wav_16k
+
         rough_align_opts: dict[str, Any] = {"language": default_lang, "original_split": True, "nonspeech_skip": nonspeech_skip}
-        rough_res = model.align(wav_16k, full_text, **rough_align_opts)
-        rough_starts = [float(s.start) for s in (rough_res.segments if rough_res is not None else [])]
+        rough_res = model.align(rough_wav, full_text, **rough_align_opts)
+        rough_starts = [float(s.start) + intro_trim for s in (rough_res.segments if rough_res is not None else [])]
+        rough_ends = [float(s.end) + intro_trim for s in (rough_res.segments if rough_res is not None else [])]
         while len(rough_starts) < len(lyrics):
             rough_starts.append(total_audio_sec)
+        while len(rough_ends) < len(lyrics):
+            rough_ends.append(total_audio_sec)
 
-        partitions = partition_lyrics_by_interludes(lyrics, interludes, rough_starts, total_audio_sec)
+        partitions = partition_lyrics_by_interludes(
+            lyrics,
+            interludes,
+            rough_starts,
+            total_audio_sec,
+            first_voice_start=first_voice_start,
+            last_voice_end=last_voice_end,
+            rough_ends=rough_ends,
+        )
         log.info("🛡️ [间奏硬保护] 歌词与音频切分为 %d 个独立安全簇:", len(partitions))
         for p_i, p in enumerate(partitions):
             log.info("  簇 %d: [%.2fs ~ %.2fs] (%d 行歌词)", p_i + 1, p["window_start"], p["window_end"], len(p["lyrics"]))
@@ -274,9 +313,10 @@ def align_with_interlude_guard(
             n_lyrics = len(p_lyrics)
             p_rough_segs = rough_segments[cur_lyric_offset : cur_lyric_offset + n_lyrics]
 
-            # 优化：若当前簇位于首个间奏前，且所有行均在间奏起始前闭合，直接复用首轮结果，避免弱 CPU 重复对齐
+            # 优化：若当前簇位于首个间奏前，且无前奏裁切干扰，所有行均在间奏起始前闭合，直接复用首轮结果，避免弱 CPU 重复对齐
             can_reuse = (
                 p_i == 0
+                and intro_trim == 0.0
                 and len(p_rough_segs) == n_lyrics
                 and all(
                     float(s.end) <= p["window_end"] + 0.35
