@@ -398,6 +398,8 @@ async def plugin_direct_export_video(
     is_public: bool | str | None = Form(True),
     aspect_ratio: str = Form("9:16"),
     template: str = Form("apple"),
+    visual_mode: str = Form(""),
+    audio_track: str = Form("mix"),
     theme: str = Form("apple_white"),
     background_mode: str = Form("blurred_ambient"),
     cover_url: str = Form(""),
@@ -454,9 +456,10 @@ async def plugin_direct_export_video(
         task_id = f"lyric_{hashlib.sha256(request_id.encode()).hexdigest()}"
     else:
         task_id = f"lyric_{uuid.uuid4().hex}"
+    active_visual_mode = (visual_mode or template or "apple").strip().lower()
     fingerprint = hashlib.sha256(json.dumps(
         [song_id, url, title, section_name, start_time, duration_limit,
-         aspect_ratio, template, theme, background_mode, lyrics, prompt, artist, cover_url],
+         aspect_ratio, template, visual_mode, audio_track, theme, background_mode, lyrics, prompt, artist, cover_url],
         ensure_ascii=False).encode()).hexdigest()
     # Reserve before awaiting uploads so duplicate requests start one worker.
     with _lyric_video_tasks.lock:
@@ -668,7 +671,8 @@ async def plugin_direct_export_video(
                         log.warning("解析乐段切片异常: %s", e)
 
                 clean_ratio = aspect_ratio.replace(":", "x")
-                out_mp4 = output_dir / f"{clean_title}_lyric_{clean_ratio}_{template}{out_suffix}.mp4"
+                mode_slug = active_visual_mode or "apple"
+                out_mp4 = output_dir / f"{clean_title}_lyric_{clean_ratio}_{mode_slug}{out_suffix}.mp4"
                 _lyric_video_tasks[task_id]["title"] = clean_title
                 _update("rendering", 75, "正在渲染歌词视频…")
 
@@ -680,12 +684,13 @@ async def plugin_direct_export_video(
                     audio_path=target_mp3,
                     output_path=out_mp4,
                     aspect_ratio=aspect_ratio,
-                    template=template,
+                    template=mode_slug,
                     theme=theme,
                     background_mode=background_mode,
                     cover_path=cover_file if cover_file.exists() else None,
                     start_time=seg_start,
                     duration_limit=seg_dur,
+                    audio_track=audio_track,
                     progress_callback=_on_prog,
                 )
 
