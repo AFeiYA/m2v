@@ -225,7 +225,7 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
       const state=posterNodeState(n,t,height);
       const {drift,pulse:nodePulse}=posterHoldState(n,t,complete,width,height,feature.kick||feature.beat*.3);
       const cx=n.x+n.width/2,cy=n.y+n.height/2,scale=state.scale*nodePulse;
-      return <g key={i} opacity={state.alpha*(plan?posterExitOpacity(plan,n,t):0)} transform={`translate(${cx+state.dx} ${cy+state.dy+drift}) scale(${scale}) translate(${-cx} ${-cy})`}>
+      return <g key={i} opacity={state.alpha*(plan?posterExitOpacity(plan,n,t):0)} transform={`translate(${cx+state.dx} ${cy+state.dy+drift}) scale(${scale}) translate(${-cx} ${-cy})`} style={state.blur&&state.blur>0.1?{filter:`blur(${state.blur.toFixed(1)}px)`}:undefined}>
        {n.rows.map((row,j)=><text key={j} x={row.x} y={row.y} fill={n.highlight?n.highlight.pending:n.color} fontSize={n.fontSize} fontWeight={n.weight} fontFamily={POSTER_FONT} style={{whiteSpace:'pre'}}>{row.text}</text>)}
        {n.highlight?.spans.map((span,k)=>{const state=highlightState(span,t,n.highlight!.mode);if(!state.progress)return null;const row=n.rows[span.row],id=`karaoke-${highlightId}-${i}-${k}`;return <g key={k} aria-hidden="true"><defs><clipPath id={id}><rect x={span.x} y={span.top} width={span.width*state.progress} height={span.height}/></clipPath></defs><text x={row.x} y={row.y} fill={state.active?n.highlight!.accent:n.highlight!.foreground} clipPath={`url(#${id})`} fontSize={n.fontSize} fontWeight={n.weight} fontFamily={POSTER_FONT} style={{whiteSpace:'pre'}}>{row.text}</text></g>;})}
       </g>;

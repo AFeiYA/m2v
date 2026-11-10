@@ -32,7 +32,7 @@ class PosterNode(BaseModel):
     color_role: Literal['foreground', 'accent', 'muted'] = 'foreground'
     hold: Literal['none', 'drift'] = 'none'
     beat_reaction: Literal['none', 'pulse'] = 'none'
-    entrance: Literal['none', 'fade', 'slide-up', 'slide-left', 'scale-in'] = 'fade'
+    entrance: Literal['none', 'fade', 'slide-up', 'slide-down', 'slide-left', 'slide-right', 'scale-in', 'slam', 'blur-in'] = 'fade'
     settle_fraction: float = Field(default=.25, ge=.05, le=.5, allow_inf_nan=False)
 
 
@@ -461,7 +461,7 @@ poster.nodes 的节点数量必须严格服从 target_nodes 的目标：
 - 颜色层级：整曲 visual_language 定义统一的 background、foreground、accent。默认 primary 使用 color_role=accent，secondary 使用 foreground，support 使用 muted，让最大字号与强调色指向同一个语义焦点，不把鲜明强调色给铺垫而让主视觉退为普通色。每张海报最多一个 accent 节点，且只能是 primary；可因句意采用无强调色的单色方案，此时 primary 使用 foreground，并在 poster.intent 简述原因。muted 只降低辅助信息权重，仍需保持可读；不得给各词组任意新增颜色或让整句全部高亮。重复句、平行句保持相应角色的颜色策略一致，避免强调色随机换到不同语义层。实际字号、颜色对比与显示由代码执行，不声称已完成像素级检查。
 - 海报构图：合理运用 hero-stack、center-stack、right-stack、staggered。节点随演唱 cumulative 累积落位，最终拼合为完整画面，不返回坐标/字号。
 - 动效节制与呼吸感决策：
-  * entrance 限 none/fade/slide-up/slide-left/scale-in；
+  * entrance 限 none/fade/slide-up/slide-down/slide-left/slide-right/scale-in/slam/blur-in；
   * hold 允许 none/drift：紧凑快歌、力量型短句或硬核断点默认采用 hold="none" 保持平面坚实锁定；长音抒情、悬停蓄势或情绪余韵段落，鼓励选用 hold="drift" 赋予字块有机微悬浮呼吸感；
   * beat_reaction：主要为 primary 节点提供重音律动 pulse，短促快唱选用简洁淡入或滑入。
 - 句间衔接：final_hold 必为 available-tail，transition_out 仅 cut/fade，transition_note 阐述意象传承，末句收束。
