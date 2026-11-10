@@ -620,8 +620,8 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
   cursor: pointer;
   position: relative;
   user-select: none;
-  min-width: 24px;
-  padding: 0 6px;
+  min-width: 26px;
+  padding: 0 10px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -647,12 +647,106 @@ main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .word-bar.needs-review { border: 1px dashed #f59e0b; background: rgba(245, 158, 11, 0.15); }
 .word-bar.needs-review::after { content: "⚠待复核"; position: absolute; top: 1px; right: 2px; font-size: 8px; color: #fbbf24; opacity: 0.85; pointer-events: none; }
 .word-bar .word-dur { position: absolute; bottom: 2px; font-size: 9px; color: var(--text-dim); font-family: monospace; }
-.word-bar .drag-handle {
-  position: absolute; right: -6px; top: 0; bottom: 0;
-  width: 12px; cursor: col-resize; z-index: 5;
+
+/* Word Attack / Start Handle */
+.word-bar .handle-word-start {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+  z-index: 8;
+  border-left: 2px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  box-sizing: border-box;
 }
-.word-bar .drag-handle:hover { background: var(--accent); opacity: 0.75; border-radius: 2px; }
-.word-bar .drag-handle:active { background: #c9ff69; opacity: 0.95; }
+.word-bar .handle-word-start:hover {
+  background: rgba(56, 189, 248, 0.35);
+  border-left: 2px solid #38bdf8;
+  border-radius: 4px 0 0 4px;
+}
+.word-bar .handle-word-start:active,
+.word-bar .handle-word-start.dragging {
+  background: rgba(56, 189, 248, 0.65);
+  border-left: 2px solid #38bdf8;
+}
+
+/* Word Release / End Handle */
+.word-bar .handle-word-end,
+.word-bar .drag-handle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+  z-index: 8;
+  border-right: 2px solid transparent;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  box-sizing: border-box;
+}
+.word-bar .handle-word-end:hover,
+.word-bar .drag-handle:hover {
+  background: rgba(183, 243, 74, 0.35);
+  border-right: 2px solid #b7f34a;
+  border-radius: 0 4px 4px 0;
+  opacity: 1;
+}
+.word-bar .handle-word-end:active,
+.word-bar .handle-word-end.dragging,
+.word-bar .drag-handle:active {
+  background: rgba(183, 243, 74, 0.65);
+  border-right: 2px solid #b7f34a;
+  opacity: 1;
+}
+
+/* Word Gap between words */
+.word-gap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-width: 14px;
+  height: 100%;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.word-gap:hover {
+  background: rgba(56, 189, 248, 0.1);
+  border-color: rgba(56, 189, 248, 0.45);
+}
+.word-gap:active {
+  background: rgba(56, 189, 248, 0.2);
+}
+.word-gap.gap-active {
+  background: rgba(56, 189, 248, 0.14);
+  border-color: rgba(56, 189, 248, 0.6);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+}
+.word-gap .gap-badge {
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: var(--text-dim, #94a3b8);
+  opacity: 0.8;
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.25);
+  line-height: 1.2;
+}
+.word-gap:hover .gap-badge,
+.word-gap.gap-active .gap-badge {
+  color: #38bdf8;
+  opacity: 1;
+}
 
 /* Multi-syllable word bar & internal syllable track */
 .word-bar.has-syllables {
