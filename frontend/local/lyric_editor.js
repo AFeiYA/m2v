@@ -2115,10 +2115,14 @@ function handleLyricKey(e) {
     case ctrl && e.code === "KeyS": e.preventDefault(); saveAlignment(); break;
     case ctrl && e.code === "KeyZ" && !e.shiftKey: e.preventDefault(); undo(); break;
     case ctrl && (e.code === "KeyY" || (e.code === "KeyZ" && e.shiftKey)): e.preventDefault(); redo(); break;
-    case e.code === "ArrowLeft" && !ctrl: e.preventDefault(); nudgeWord(-0.01); break;
-    case e.code === "ArrowRight" && !ctrl: e.preventDefault(); nudgeWord(0.01); break;
-    case e.code === "KeyA" && !ctrl: e.preventDefault(); nudgeWord(-0.05); break;
-    case e.code === "KeyD" && !ctrl: e.preventDefault(); nudgeWord(0.05); break;
+    case e.code === "ArrowLeft" && !ctrl && !e.shiftKey: e.preventDefault(); nudgeWord(-0.01); break;
+    case e.code === "ArrowRight" && !ctrl && !e.shiftKey: e.preventDefault(); nudgeWord(0.01); break;
+    case e.code === "ArrowLeft" && !ctrl && e.shiftKey: e.preventDefault(); resizeWordEnd(state.selectedWord, -0.01); break;
+    case e.code === "ArrowRight" && !ctrl && e.shiftKey: e.preventDefault(); resizeWordEnd(state.selectedWord, 0.01); break;
+    case e.code === "KeyA" && !ctrl && !e.shiftKey: e.preventDefault(); nudgeWord(-0.05); break;
+    case e.code === "KeyD" && !ctrl && !e.shiftKey: e.preventDefault(); nudgeWord(0.05); break;
+    case e.code === "KeyA" && !ctrl && e.shiftKey: e.preventDefault(); resizeWordStart(state.selectedWord, -0.01); break;
+    case e.code === "KeyD" && !ctrl && e.shiftKey: e.preventDefault(); resizeWordStart(state.selectedWord, 0.01); break;
     case e.code === "ArrowUp": e.preventDefault(); selectAdjacentLine(-1); break;
     case e.code === "ArrowDown": e.preventDefault(); selectAdjacentLine(1); break;
     case e.code === "Enter": e.preventDefault(); playSelectedLine(); break;
@@ -2128,6 +2132,55 @@ function handleLyricKey(e) {
     case e.code === "BracketLeft" && !ctrl && e.shiftKey: e.preventDefault(); if (state.selectedLine >= 0) resizeLine(state.selectedLine, -0.05, 0.05); break;
     case e.code === "BracketRight" && !ctrl && e.shiftKey: e.preventDefault(); if (state.selectedLine >= 0) resizeLine(state.selectedLine, 0.05, -0.05); break;
   }
+}
+
+function resizeWordEnd(wordIdx, delta) {
+  if (state.selectedLine < 0 || wordIdx < 0) return;
+  const line = state.alignment?.lines?.[state.selectedLine];
+  const words = line?.words;
+  if (!words || !words[wordIdx]) return;
+  const isLastWord = (wordIdx === words.length - 1);
+  const nextLine = state.selectedLine < state.alignment.lines.length - 1 ? state.alignment.lines[state.selectedLine + 1] : null;
+  const audioDur = (ws && ws.getDuration && ws.getDuration() > 0) ? ws.getDuration() : 9999;
+  const minEnd = words[wordIdx].start + 0.02;
+  const maxEnd = isLastWord ? (nextLine ? nextLine.start - 0.01 : audioDur) : (words[wordIdx + 1].end - 0.02);
+  const newEnd = Math.round((words[wordIdx].end + delta) * 1000) / 1000;
+  const clamped = Math.max(minEnd, Math.min(maxEnd, newEnd));
+  if (Math.abs(clamped - words[wordIdx].end) < 0.001) return;
+  pushUndo();
+  words[wordIdx].end = clamped;
+  if (isLastWord) {
+    line.end = clamped;
+  } else if (words[wordIdx + 1] && clamped > words[wordIdx + 1].start) {
+    words[wordIdx + 1].start = clamped;
+    syncSyllablesOnWordChange(words[wordIdx + 1], "start");
+  }
+  syncSyllablesOnWordChange(words[wordIdx], "end");
+  syncLineFromWords(state.selectedLine);
+  renderWords(state.selectedLine);
+  selectWord(wordIdx);
+  markDirty();
+}
+
+function resizeWordStart(wordIdx, delta) {
+  if (state.selectedLine < 0 || wordIdx < 0) return;
+  const line = state.alignment?.lines?.[state.selectedLine];
+  const words = line?.words;
+  if (!words || !words[wordIdx]) return;
+  const prevLine = state.selectedLine > 0 ? state.alignment.lines[state.selectedLine - 1] : null;
+  const minStart = (wordIdx === 0) ? (prevLine ? prevLine.end + 0.01 : 0.0) : words[wordIdx - 1].end;
+  const maxStart = words[wordIdx].end - 0.02;
+  const newStart = Math.round((words[wordIdx].start + delta) * 1000) / 1000;
+  const clamped = Math.max(minStart, Math.min(maxStart, newStart));
+  if (Math.abs(clamped - words[wordIdx].start) < 0.001) return;
+  pushUndo();
+  words[wordIdx].start = clamped;
+  if (wordIdx === 0) line.start = clamped;
+  syncSyllablesOnWordChange(words[wordIdx], "start");
+  syncLineFromWords(state.selectedLine);
+  renderWords(state.selectedLine);
+  selectWord(wordIdx);
+  markDirty();
 }
 
 // ---------------------------------------------------------------------------
@@ -2508,12 +2561,49 @@ function highlightPlayingLine() {
         });
       }
     });
+
+    $$(".word-gap").forEach((gapEl) => {
+      const gi = Number(gapEl.dataset.gapIdx);
+      if (gi > 0 && line.words[gi] && line.words[gi - 1]) {
+        const inGap = t >= line.words[gi - 1].end && t < line.words[gi].start;
+        gapEl.classList.toggle("gap-active", inGap);
+      }
+    });
   }
 
   if (activeLineIdx >= 0) {
     const row = dom.lyricsList.querySelector(`.lyric-row[data-idx="${activeLineIdx}"]`);
     if (row) row.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
+}
+
+let activePlayRangeTimer = null;
+
+function playTimeRange(startTime, endTime) {
+  if (!ws) return;
+  if (activePlayRangeTimer) {
+    cancelAnimationFrame(activePlayRangeTimer);
+    activePlayRangeTimer = null;
+  }
+  const start = Math.max(0, startTime);
+  const end = Math.max(start + 0.04, endTime);
+  ws.setTime(start);
+  ws.play();
+  if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(true);
+  if (wsInst && instReady) { wsInst.setTime(start); wsInst.play(); }
+  const check = () => {
+    if (ws.getCurrentTime() >= end) {
+      ws.pause();
+      if (wsInst && instReady) wsInst.pause();
+      if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(false);
+      activePlayRangeTimer = null;
+    } else if (ws.isPlaying()) {
+      activePlayRangeTimer = requestAnimationFrame(check);
+    } else {
+      activePlayRangeTimer = null;
+    }
+  };
+  activePlayRangeTimer = requestAnimationFrame(check);
 }
 
 // ---------------------------------------------------------------------------
@@ -2569,11 +2659,41 @@ function renderWords(lineIdx) {
   const wordsTrack = document.createElement("div");
   wordsTrack.className = "words-track";
 
-  const totalWordsDur = words.reduce((acc, w) => acc + Math.max(0.05, w.end - w.start), 0) || 1.0;
+  const activeSpan = Math.max(0.1, words[words.length - 1].end - words[0].start);
 
   words.forEach((w, i) => {
+    // 渲染词间间隙 (当两词之间存在 >= 0.02s 的空白停顿/留白时)
+    if (i > 0) {
+      const gapSec = Math.round((w.start - words[i - 1].end) * 1000) / 1000;
+      if (gapSec >= 0.02) {
+        const gapFlex = (gapSec / activeSpan) * 100;
+        const gapEl = document.createElement("div");
+        gapEl.className = "word-gap";
+        gapEl.dataset.gapIdx = i;
+        gapEl.style.flex = `${gapFlex.toFixed(2)} 1 14px`;
+        const gapText = gapSec >= 1.0 ? `${gapSec.toFixed(2)}s` : `${(gapSec * 1000).toFixed(0)}ms`;
+        const gapTitle = window.t
+          ? t("word_gap_title", null, { dur: gapSec.toFixed(2) })
+          : `词间停顿 ${gapSec.toFixed(2)}s | 单击试听间隙 | 双击闭合间隙`;
+        gapEl.title = gapTitle;
+        gapEl.innerHTML = `<span class="gap-badge">${gapText}</span>`;
+
+        gapEl.addEventListener("click", (e) => {
+          e.preventDefault(); e.stopPropagation();
+          playTimeRange(words[i - 1].end, w.start);
+        });
+
+        gapEl.addEventListener("dblclick", (e) => {
+          e.preventDefault(); e.stopPropagation();
+          closeWordGap(lineIdx, i);
+        });
+
+        wordsTrack.appendChild(gapEl);
+      }
+    }
+
     const dur = Math.max(0.02, w.end - w.start);
-    const flexGrow = (dur / totalWordsDur) * 100;
+    const flexGrow = (dur / activeSpan) * 100;
     const isNeedsReview = Boolean(w.needs_review || w.unresolved_compound);
     const hasSyllables = Boolean(w.syllables && w.syllables.length > 1);
     const bar = document.createElement("div");
@@ -2582,9 +2702,11 @@ function renderWords(lineIdx) {
     bar.dataset.idx = i;
     const reviewText = isNeedsReview ? (window.t ? t("word_needs_review") : " [声学边界较弱/连音，建议人工复核]") : "";
     bar.title = `${w.word}  ${fmtTime(w.start)} → ${fmtTime(w.end)}  (${(dur * 1000).toFixed(0)}ms)${reviewText}`;
+
+    const startHandleTitle = window.t ? t("handle_word_start_title") : "拖拽调节本词起唱 (头部留空/间歇) | 双击对齐至播放头";
     const isInternal = (i < words.length - 1);
-    const handleTitle = isInternal
-      ? (window.t ? t("handle_split_title") : "拖拽分割点 | 双击=对齐至当前播放头")
+    const endHandleTitle = isInternal
+      ? (window.t ? t("handle_word_end_title") : "拖拽调节本词收唱 (按住Shift可连动下词) | 双击对齐至播放头")
       : (window.t ? t("handle_end_title") : "拖拽尾字收唱 | 双击=对齐至当前播放头");
 
     if (hasSyllables) {
@@ -2608,8 +2730,12 @@ function renderWords(lineIdx) {
           </div>
         `;
       });
-      sylTrackHtml += `</div><div class="drag-handle" title="${handleTitle}"></div>`;
-      bar.innerHTML = sylTrackHtml;
+      sylTrackHtml += `</div>`;
+      bar.innerHTML = `
+        <div class="handle-word-start" title="${startHandleTitle}"></div>
+        ${sylTrackHtml}
+        <div class="handle-word-end drag-handle" title="${endHandleTitle}"></div>
+      `;
 
       bar.querySelectorAll(".syl-block").forEach((sylEl) => {
         const si = Number(sylEl.dataset.sylIdx);
@@ -2618,18 +2744,7 @@ function renderWords(lineIdx) {
           if (e.target.classList.contains("syl-drag-handle")) return;
           e.preventDefault();
           e.stopPropagation();
-          if (ws) {
-            ws.setTime(s.start); ws.play(); if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(true);
-            if (wsInst && instReady) { wsInst.setTime(s.start); wsInst.play(); }
-            const stopAt = s.end;
-            const check = () => {
-              if (ws.getCurrentTime() >= stopAt) {
-                ws.pause(); if (wsInst && instReady) wsInst.pause();
-                if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(false);
-              } else if (ws.isPlaying()) requestAnimationFrame(check);
-            };
-            requestAnimationFrame(check);
-          }
+          playTimeRange(s.start, s.end);
         });
       });
 
@@ -2639,33 +2754,24 @@ function renderWords(lineIdx) {
       });
     } else {
       bar.innerHTML = `
-        <span>${escHtml(w.word.trim() || w.word)}</span>
+        <div class="handle-word-start" title="${startHandleTitle}"></div>
+        <span class="word-text">${escHtml(w.word.trim() || w.word)}</span>
         <span class="word-dur">${(dur * 1000).toFixed(0)}</span>
-        <div class="drag-handle" title="${handleTitle}"></div>
+        <div class="handle-word-end drag-handle" title="${endHandleTitle}"></div>
       `;
     }
 
     bar.addEventListener("click", (e) => {
-      if (e.target.classList.contains("drag-handle") || e.target.classList.contains("syl-drag-handle")) return;
+      if (e.target.closest(".handle-word-start, .handle-word-end, .drag-handle, .syl-drag-handle")) return;
       selectWord(i);
     });
     bar.addEventListener("dblclick", (e) => {
-      if (e.target.classList.contains("drag-handle") || e.target.classList.contains("syl-drag-handle") || e.target.closest(".syl-block")) return;
-      if (ws) {
-        ws.setTime(w.start); ws.play(); if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(true);
-        if (wsInst && instReady) { wsInst.setTime(w.start); wsInst.play(); }
-        const stopAt = w.end;
-        const check = () => {
-          if (ws.getCurrentTime() >= stopAt) {
-            ws.pause(); if (wsInst && instReady) wsInst.pause();
-            if (typeof updatePlayPauseBtn === "function") updatePlayPauseBtn(false);
-          } else if (ws.isPlaying()) requestAnimationFrame(check);
-        };
-        requestAnimationFrame(check);
-      }
+      if (e.target.closest(".handle-word-start, .handle-word-end, .drag-handle, .syl-drag-handle, .syl-block")) return;
+      playTimeRange(w.start, w.end);
     });
 
-    setupDragHandle(bar, i, lineIdx, wordsTrack);
+    setupWordStartHandle(bar, i, lineIdx, wordsTrack);
+    setupWordEndHandle(bar, i, lineIdx, wordsTrack);
 
     wordsTrack.appendChild(bar);
   });
@@ -2709,7 +2815,7 @@ function clearWordPanel() {
 
 function selectWord(idx) {
   state.selectedWord = idx;
-  $$(".word-bar").forEach((bar, i) => bar.classList.toggle("selected", i === idx));
+  $$(".word-bar").forEach((bar) => bar.classList.toggle("selected", Number(bar.dataset.idx) === idx));
 }
 
 function selectAdjacentWord(delta) {
@@ -3192,8 +3298,99 @@ function setupLineEdgeDragHandle(prePill, postPill, lineIdx, wordsTrack) {
   }
 }
 
-function setupDragHandle(bar, wordIdx, lineIdx, wordsTrack) {
-  const handle = bar.querySelector(".drag-handle");
+function closeWordGap(lineIdx, wordIdx) {
+  const line = state.alignment?.lines?.[lineIdx];
+  if (!line || !line.words || wordIdx <= 0 || wordIdx >= line.words.length) return;
+  const words = line.words;
+  const prevWord = words[wordIdx - 1];
+  const curWord = words[wordIdx];
+  const gap = curWord.start - prevWord.end;
+  if (gap <= 0.005) return;
+
+  pushUndo();
+  const gapMs = (gap * 1000).toFixed(0);
+  curWord.start = prevWord.end;
+  syncSyllablesOnWordChange(curWord, "start");
+  syncLineFromWords(lineIdx);
+  renderWords(lineIdx);
+  selectWord(wordIdx);
+  markDirty();
+  status(window.t ? t("gap_closed_msg", null, { gap: gapMs }) : `已闭合词间停顿 (${gapMs}ms)`);
+}
+
+function snapWordStartToPlayhead(lineIdx, wordIdx) {
+  if (!ws) return;
+  const line = state.alignment?.lines?.[lineIdx];
+  if (!line || !line.words?.length) return;
+  const words = line.words;
+  if (wordIdx < 0 || wordIdx >= words.length) return;
+
+  const lines = state.alignment.lines;
+  const prevLine = lineIdx > 0 ? lines[lineIdx - 1] : null;
+  const minStart = (wordIdx === 0)
+    ? (prevLine ? (prevLine.end + 0.01) : 0.0)
+    : words[wordIdx - 1].end;
+  const maxStart = words[wordIdx].end - 0.02;
+
+  const t = ws.getCurrentTime();
+  const clamped = Math.round(Math.max(minStart, Math.min(maxStart, t)) * 1000) / 1000;
+  if (Math.abs(clamped - words[wordIdx].start) < 0.001) return;
+
+  pushUndo();
+  words[wordIdx].start = clamped;
+  if (wordIdx === 0) line.start = clamped;
+  delete words[wordIdx].needs_review;
+  delete words[wordIdx].unresolved_compound;
+  syncSyllablesOnWordChange(words[wordIdx], "start");
+  syncLineFromWords(lineIdx);
+  renderLyrics();
+  renderWords(lineIdx);
+  selectWord(wordIdx);
+  markDirty();
+  status(window.t ? t("word_start_snapped", null, { time: fmtTimeShort(clamped) }) : `🎯 单词起唱对齐至播放头: ${fmtTimeShort(clamped)}`);
+}
+
+function snapWordEndToPlayhead(lineIdx, wordIdx) {
+  if (!ws) return;
+  const line = state.alignment?.lines?.[lineIdx];
+  if (!line || !line.words?.length) return;
+  const words = line.words;
+  if (wordIdx < 0 || wordIdx >= words.length) return;
+
+  const isLastWord = (wordIdx === words.length - 1);
+  const lines = state.alignment.lines;
+  const nextLine = lineIdx < lines.length - 1 ? lines[lineIdx + 1] : null;
+  const audioDur = (ws && ws.getDuration && ws.getDuration() > 0) ? ws.getDuration() : 9999;
+  const minEnd = words[wordIdx].start + 0.02;
+  const maxEnd = isLastWord
+    ? (nextLine ? (nextLine.start - 0.01) : audioDur)
+    : (words[wordIdx + 1].end - 0.02);
+
+  const t = ws.getCurrentTime();
+  const clamped = Math.round(Math.max(minEnd, Math.min(maxEnd, t)) * 1000) / 1000;
+  if (Math.abs(clamped - words[wordIdx].end) < 0.001) return;
+
+  pushUndo();
+  words[wordIdx].end = clamped;
+  if (isLastWord) {
+    line.end = clamped;
+  } else if (words[wordIdx + 1] && clamped > words[wordIdx + 1].start) {
+    words[wordIdx + 1].start = clamped;
+    syncSyllablesOnWordChange(words[wordIdx + 1], "start");
+  }
+  delete words[wordIdx].needs_review;
+  delete words[wordIdx].unresolved_compound;
+  syncSyllablesOnWordChange(words[wordIdx], "end");
+  syncLineFromWords(lineIdx);
+  renderLyrics();
+  renderWords(lineIdx);
+  selectWord(wordIdx);
+  markDirty();
+  status(window.t ? t("word_end_snapped", null, { time: fmtTimeShort(clamped) }) : `🎯 单词收唱对齐至播放头: ${fmtTimeShort(clamped)}`);
+}
+
+function setupWordStartHandle(bar, wordIdx, lineIdx, wordsTrack) {
+  const handle = bar.querySelector(".handle-word-start");
   if (!handle) return;
 
   let lastClickTime = 0;
@@ -3201,7 +3398,7 @@ function setupDragHandle(bar, wordIdx, lineIdx, wordsTrack) {
   handle.addEventListener("dblclick", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    snapSplitToPlayhead(lineIdx, wordIdx);
+    snapWordStartToPlayhead(lineIdx, wordIdx);
   });
 
   handle.addEventListener("mousedown", (e) => {
@@ -3211,7 +3408,95 @@ function setupDragHandle(bar, wordIdx, lineIdx, wordsTrack) {
     const now = Date.now();
     if (now - lastClickTime < 350) {
       lastClickTime = 0;
-      snapSplitToPlayhead(lineIdx, wordIdx);
+      snapWordStartToPlayhead(lineIdx, wordIdx);
+      return;
+    }
+    lastClickTime = now;
+
+    const line = state.alignment?.lines?.[lineIdx];
+    if (!line || !line.words?.length) return;
+    const words = line.words;
+    if (wordIdx < 0 || wordIdx >= words.length) return;
+
+    const startX = e.clientX;
+    const startStart = words[wordIdx].start;
+    const trackWidth = wordsTrack.getBoundingClientRect().width || 400;
+    const activeSpan = Math.max(0.1, words[words.length - 1].end - words[0].start);
+    const pxPerSec = trackWidth / activeSpan;
+
+    const lines = state.alignment.lines;
+    const prevLine = lineIdx > 0 ? lines[lineIdx - 1] : null;
+    const minStart = (wordIdx === 0)
+      ? (prevLine ? (prevLine.end + 0.01) : 0.0)
+      : words[wordIdx - 1].end;
+    const maxStart = words[wordIdx].end - 0.02;
+
+    let moved = false;
+    let hasPushedUndo = false;
+
+    handle.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    const onMove = (ev) => {
+      const dx = ev.clientX - startX;
+      if (!moved && Math.abs(dx) < 3) return;
+      moved = true;
+      if (!hasPushedUndo) {
+        pushUndo();
+        hasPushedUndo = true;
+      }
+      const dt = dx / pxPerSec;
+      const newStart = Math.round((startStart + dt) * 1000) / 1000;
+      const clamped = Math.max(minStart, Math.min(maxStart, newStart));
+      words[wordIdx].start = clamped;
+      if (wordIdx === 0) {
+        line.start = clamped;
+      }
+      syncSyllablesOnWordChange(words[wordIdx], "start");
+      renderWords(lineIdx);
+      selectWord(wordIdx);
+      markDirty();
+    };
+
+    const onUp = () => {
+      handle.classList.remove("dragging");
+      document.body.style.cursor = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      if (moved) {
+        delete words[wordIdx].needs_review;
+        delete words[wordIdx].unresolved_compound;
+        syncLineFromWords(lineIdx);
+        renderLyrics();
+        renderWords(lineIdx);
+        selectWord(wordIdx);
+      }
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function setupWordEndHandle(bar, wordIdx, lineIdx, wordsTrack) {
+  const handle = bar.querySelector(".handle-word-end") || bar.querySelector(".drag-handle");
+  if (!handle) return;
+
+  let lastClickTime = 0;
+
+  handle.addEventListener("dblclick", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    snapWordEndToPlayhead(lineIdx, wordIdx);
+  });
+
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const now = Date.now();
+    if (now - lastClickTime < 350) {
+      lastClickTime = 0;
+      snapWordEndToPlayhead(lineIdx, wordIdx);
       return;
     }
     lastClickTime = now;
@@ -3231,12 +3516,12 @@ function setupDragHandle(bar, wordIdx, lineIdx, wordsTrack) {
     const lines = state.alignment.lines;
     const nextLine = lineIdx < lines.length - 1 ? lines[lineIdx + 1] : null;
     const audioDur = (ws && ws.getDuration && ws.getDuration() > 0) ? ws.getDuration() : 9999;
-    const minEnd = words[wordIdx].start + 0.01;
-    const maxEnd = isLastWord ? (nextLine ? (nextLine.start - 0.01) : audioDur) : (words[wordIdx + 1].end - 0.01);
+    const minEnd = words[wordIdx].start + 0.02;
 
     let moved = false;
     let hasPushedUndo = false;
 
+    handle.classList.add("dragging");
     document.body.style.cursor = "col-resize";
     const onMove = (ev) => {
       const dx = ev.clientX - startX;
@@ -3247,22 +3532,41 @@ function setupDragHandle(bar, wordIdx, lineIdx, wordsTrack) {
         hasPushedUndo = true;
       }
       const dt = dx / pxPerSec;
+      const isShift = ev.shiftKey;
       const newEnd = Math.round((startEnd + dt) * 1000) / 1000;
+
+      let maxEnd;
+      if (isLastWord) {
+        maxEnd = nextLine ? (nextLine.start - 0.01) : audioDur;
+      } else if (isShift) {
+        maxEnd = words[wordIdx + 1].end - 0.02;
+      } else {
+        maxEnd = words[wordIdx + 1].end - 0.02;
+      }
+
       const clamped = Math.max(minEnd, Math.min(maxEnd, newEnd));
       words[wordIdx].end = clamped;
       syncSyllablesOnWordChange(words[wordIdx], "end");
+
       if (isLastWord) {
         line.end = clamped;
-      } else {
-        words[wordIdx + 1].start = clamped;
-        syncSyllablesOnWordChange(words[wordIdx + 1], "start");
+      } else if (words[wordIdx + 1]) {
+        if (isShift) {
+          words[wordIdx + 1].start = clamped;
+          syncSyllablesOnWordChange(words[wordIdx + 1], "start");
+        } else if (clamped > words[wordIdx + 1].start) {
+          words[wordIdx + 1].start = clamped;
+          syncSyllablesOnWordChange(words[wordIdx + 1], "start");
+        }
       }
+
       renderWords(lineIdx);
       selectWord(wordIdx);
       markDirty();
     };
 
     const onUp = () => {
+      handle.classList.remove("dragging");
       document.body.style.cursor = "";
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
@@ -3279,9 +3583,14 @@ function setupDragHandle(bar, wordIdx, lineIdx, wordsTrack) {
         selectWord(wordIdx);
       }
     };
+
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   });
+}
+
+function setupDragHandle(bar, wordIdx, lineIdx, wordsTrack) {
+  setupWordEndHandle(bar, wordIdx, lineIdx, wordsTrack);
 }
 
 function nudgeWord(delta) {
@@ -3296,22 +3605,19 @@ function nudgeWord(delta) {
   const newEnd   = Math.round((words[idx].end + delta) * 1000) / 1000;
   if (newStart < 0 || newEnd < 0) return;
   if (idx === 0 && prevLine && newStart < prevLine.end + 0.01) return;
-  if (idx > 0 && newStart < words[idx - 1].start + 0.01) return;
-  if (idx < words.length - 1 && newEnd > words[idx + 1].end - 0.01) return;
+  if (idx > 0 && newStart < words[idx - 1].end + 0.005) return;
+  if (idx < words.length - 1 && newEnd > words[idx + 1].start - 0.005) return;
   if (idx === words.length - 1 && nextLine && newEnd > nextLine.start - 0.01) return;
   pushUndo();
-  if (idx > 0) {
-    words[idx - 1].end = newStart;
-    syncSyllablesOnWordChange(words[idx - 1], "end");
-  }
-  if (idx < words.length - 1) {
-    words[idx + 1].start = newEnd;
-    syncSyllablesOnWordChange(words[idx + 1], "start");
-  }
-  words[idx].start = newStart; words[idx].end = newEnd;
+  words[idx].start = newStart;
+  words[idx].end = newEnd;
+  if (idx === 0) line.start = newStart;
+  if (idx === words.length - 1) line.end = newEnd;
   syncSyllablesOnWordChange(words[idx], "shift", { delta });
   syncLineFromWords(state.selectedLine);
-  renderWords(state.selectedLine); selectWord(idx); markDirty();
+  renderWords(state.selectedLine);
+  selectWord(idx);
+  markDirty();
 }
 
 function evenSplitLine() {
