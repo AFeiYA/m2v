@@ -898,3 +898,51 @@ test('intro cover completely fades out before lyrics appear, eliminating visual 
   assert.equal(hasSongIntro(disabledProject), false);
   assert.equal(computeIntroEnd(disabledProject), 0);
 });
+
+test('ambient particles and fluid aurora orbs compute deterministically and stably', async () => {
+  const { computeParticles, computeAmbientOrbs, hexToRgba } = await import('./ambient-particles.ts');
+
+  // 1. hexToRgba 转换验证
+  assert.equal(hexToRgba('#ffffff', 0.5), 'rgba(255,255,255,0.5)');
+  assert.equal(hexToRgba('#b7f34a', 0.14), 'rgba(183,243,74,0.14)');
+  assert.equal(hexToRgba('#abc', 0.8), 'rgba(170,187,204,0.8)');
+  assert.equal(hexToRgba('invalid', 0.5), 'rgba(255,255,255,0.5)');
+
+  // 2. 悬浮微光微尘粒子计算
+  const W = 1920;
+  const H = 1080;
+  const p1 = computeParticles(W, H, 5.0, 48, 1.0);
+  assert.equal(p1.length, 48);
+
+  for (const p of p1) {
+    assert.ok(p.x >= -W * 0.1 && p.x <= W * 1.1, `Particle x out of bounds: ${p.x}`);
+    assert.ok(p.y >= 0 && p.y <= H, `Particle y out of bounds: ${p.y}`);
+    assert.ok(p.radius > 0, `Particle radius must be positive: ${p.radius}`);
+    assert.ok(p.alpha >= 0 && p.alpha <= 1, `Particle alpha must be within [0, 1]: ${p.alpha}`);
+    assert.ok(typeof p.color === 'string' && p.color.length > 0);
+  }
+
+  // 3. 幂等性验证：同一时间戳 t 纯函数计算结果 100% 一致，杜绝渲染抖动
+  const p1Again = computeParticles(W, H, 5.0, 48, 1.0);
+  assert.deepEqual(p1, p1Again);
+
+  // 4. 时间演进验证：随 t 增加粒子平滑循环漂浮上升
+  const p2 = computeParticles(W, H, 6.0, 48, 1.0);
+  assert.notDeepEqual(p1[0].y, p2[0].y);
+
+  // 5. 音频节拍响应脉冲反应验证
+  const pKicked = computeParticles(W, H, 5.0, 48, 1.25);
+  assert.ok(pKicked[0].radius >= p1[0].radius);
+
+  // 6. 极光流体光球位置与半径计算
+  const { orb1, orb2 } = computeAmbientOrbs(W, H, 10.0, '#b7f34a');
+  assert.ok(orb1.cx > 0 && orb1.cx < W);
+  assert.ok(orb1.cy > 0 && orb1.cy < H);
+  assert.ok(orb1.r > Math.max(W, H) * 0.5);
+  assert.ok(orb1.color.startsWith('rgba(183,243,74,'));
+
+  assert.ok(orb2.cx > 0 && orb2.cx < W);
+  assert.ok(orb2.cy > 0 && orb2.cy < H);
+  assert.ok(orb2.r > Math.max(W, H) * 0.5);
+  assert.ok(orb2.color.startsWith('rgba(183,243,74,'));
+});
