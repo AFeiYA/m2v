@@ -803,7 +803,26 @@ export function posterNodeState(node:CompiledNode,t:number,H:number){
   if(t<node.start)return {alpha:0,dx:0,dy:0,scale:1};
   const progress=node.settled===node.start?1:clamp((t-node.start)/(node.settled-node.start)),ease=1-Math.pow(1-progress,3);
   const strength=node.motion_strength??1;
-  return {alpha:node.entrance==='none'?1:ease,dx:node.entrance==='slide-left'?-(1-ease)*H*.025*strength:0,dy:node.entrance==='slide-up'?(1-ease)*H*.025*strength:0,scale:node.entrance==='scale-in'?1-.08*strength*(1-ease):1};
+  const dx=(node.entrance==='slide-left'?-(1-ease)*H*.025*strength:node.entrance==='slide-right'?(1-ease)*H*.025*strength:0)||0;
+  const dy=(node.entrance==='slide-up'?(1-ease)*H*.025*strength:node.entrance==='slide-down'?-(1-ease)*H*.025*strength:0)||0;
+  let scale=1;
+  let alpha=node.entrance==='none'?1:ease;
+  let blur=0;
+
+  if(node.entrance==='scale-in'){
+    scale=1-.08*strength*(1-ease);
+  }else if(node.entrance==='slam'){
+    const springEase=1-Math.pow(2,-8*progress)*Math.cos(progress*Math.PI*2.5);
+    scale=1+(1-springEase)*.8*strength;
+    alpha=Math.min(1,progress*4);
+  }else if(node.entrance==='blur-in'){
+    scale=1+.06*strength*(1-ease);
+    blur=(1-ease)*16*strength;
+  }
+
+  const res: {alpha:number;dx:number;dy:number;scale:number;blur?:number}={alpha,dx,dy,scale};
+  if(blur>0.01)res.blur=blur;
+  return res;
 }
 // Frame-time based and shared by preview, static canvas review and video export.
 export function posterHoldState(node:CompiledNode,t:number,complete:number,W:number,H:number,beat=0){
@@ -841,6 +860,7 @@ export function paintCompiledPoster(c:CanvasRenderingContext2D,plan:CompiledPost
     c.save();c.globalAlpha=alpha*state.alpha*(t===undefined?1:posterExitOpacity(plan,n,t));
     const {drift,pulse}=t===undefined?{drift:0,pulse:1}:posterHoldState(n,t,complete,W,H,beat);
     c.translate(n.x+n.width/2+state.dx,n.y+n.height/2+state.dy+drift);c.scale(state.scale*pulse,state.scale*pulse);
+    if(state.blur&&state.blur>0.1)c.filter=`blur(${state.blur.toFixed(1)}px)`;
     c.font=`${n.weight} ${n.fontSize}px ${POSTER_FONT}`;c.fillStyle=t!==undefined&&n.highlight?n.highlight.pending:n.color;
     for(const row of n.rows)c.fillText(row.text,row.x-(n.x+n.width/2),row.y-(n.y+n.height/2));
     if(t!==undefined&&n.highlight)for(const span of n.highlight.spans){const state=highlightState(span,t,n.highlight.mode);if(!state.progress)continue;const row=n.rows[span.row];c.save();c.beginPath();c.rect(span.x-(n.x+n.width/2),span.top-(n.y+n.height/2),span.width*state.progress,span.height);c.clip();c.fillStyle=state.active?n.highlight.accent:n.highlight.foreground;c.fillText(row.text,row.x-(n.x+n.width/2),row.y-(n.y+n.height/2));c.restore();}

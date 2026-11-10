@@ -271,6 +271,43 @@ test('visual tiers fit both formats, preserve anchors and respect known sections
  assert.equal(dense.visual_intensity,'expanded');assert.equal(dense.nodes[0].entrance,'fade');
 });
 
+test('kinetic entrance animations support slide-right, slide-down, slam, blur-in',()=>{
+ const line={id:'entrances',text:'风起云涌',start:0,end:10,words:[{word:'风起云涌',start:0,end:10}]};
+ const H=720;
+ const entrances=['slide-left','slide-right','slide-up','slide-down','scale-in','slam','blur-in','fade','none'] as const;
+
+ for(const ent of entrances){
+  const poster=automaticPoster(line);
+  poster.nodes[0].entrance=ent;
+  const cue={line_id:line.id,template:'phrase-rise' as const,layout:'center' as const,palette:'impact' as const,intensity:.5,emphasis:'',locked:false,poster};
+  const compiled=compilePoster(line,cue,1280,H,measure);
+  const node=compiled.nodes[0];
+  assert.equal(node.entrance,ent);
+
+  const st0=posterNodeState(node,node.start,H);
+  if(ent==='slide-right'){
+   assert.ok(st0.dx>0,'slide-right should have positive initial dx');
+  }else if(ent==='slide-left'){
+   assert.ok(st0.dx<0,'slide-left should have negative initial dx');
+  }else if(ent==='slide-down'){
+   assert.ok(st0.dy<0,'slide-down should have negative initial dy');
+  }else if(ent==='slide-up'){
+   assert.ok(st0.dy>0,'slide-up should have positive initial dy');
+  }else if(ent==='slam'){
+   assert.ok(st0.scale>1.5,'slam should start enlarged');
+  }else if(ent==='blur-in'){
+   assert.ok((st0.blur||0)>10,'blur-in should start with blur');
+  }
+
+  const settled=posterNodeState(node,node.settled,H);
+  assert.equal(settled.alpha,1);
+  assert.equal(settled.dx,0);
+  assert.equal(settled.dy,0);
+  assert.equal(settled.scale,1);
+  assert.equal(settled.blur,undefined);
+ }
+});
+
 test('legacy breathing is disabled in compiled and old nodes at every frame',async()=>{
  const {posterHoldState}=await import('./poster-layout.ts');
  const line={id:'breath',text:'幻梦',start:0,end:10,words:[{word:'幻梦',start:0,end:10}]},poster=automaticPoster(line);

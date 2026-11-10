@@ -117,3 +117,10 @@ def test_apple_design_count_in_toggle_round_trip(song):
         assert res2.status_code == 200, res2.text
         assert res2.json()['design']['modes']['apple']['count_in'] is False
 
+
+def test_kinetic_entrance_animations_schema_and_plan():
+    from src.motion_director import PosterNode
+    for entrance in ['none', 'fade', 'slide-up', 'slide-down', 'slide-left', 'slide-right', 'scale-in', 'slam', 'blur-in']:
+        node = PosterNode(text='测试', word_indices=[0], role='primary', entrance=entrance)
+        assert node.entrance == entrance
+
