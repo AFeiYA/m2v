@@ -3,7 +3,7 @@ export type Theme = {palette:string;background:'auto'|'dark'|'light'};
 export type ModeSettings = {aspect:Options['aspect'];theme:Theme|null;post:boolean;bloom:number;shake:number};
 export type KineticDesign = ModeSettings & {layout:'smart'|'random'|'single'|'two-stack'|'three-stack'|'word-by-word';highlight:'none'|'word'|'sweep';plan:MotionPlan|null};
 export type AppleDesign = ModeSettings & {font_scale:number;focus_y:number;count_in?:boolean};
-export type KaraokeDesign = ModeSettings & {font_scale:number;preview_seconds:number};
+export type KaraokeDesign = ModeSettings & {font_scale:number;preview_seconds:number;alignment?:'center'|'classic';position_y?:number};
 export type MotionDesign = {version:'motion-design-v1';active_mode:VisualMode;theme:Theme;height:360|720;modes:{kinetic:KineticDesign;apple:AppleDesign;tv:KaraokeDesign}};
 
 export interface VisualTemplate {
@@ -81,7 +81,7 @@ export function createMotionDesign():MotionDesign {
  return {version:'motion-design-v1',active_mode:'kinetic',theme:{palette:'impact',background:'auto'},height:720,modes:{
   kinetic:{...mode('16:9'),layout:'smart',highlight:'none',plan:null},
   apple:{...mode('9:16'),font_scale:1,focus_y:.42,count_in:false},
-  tv:{...mode('16:9'),font_scale:1,preview_seconds:2.5},
+  tv:{...mode('16:9'),font_scale:1,preview_seconds:2.5,alignment:'center',position_y:0.52},
  }};
 }
 export function normalizeMotionDesign(raw?: Partial<MotionDesign> | null): MotionDesign {

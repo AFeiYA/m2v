@@ -28,7 +28,7 @@ export interface KtvLineCompiled {
   y: number;
   width: number;
   fontSize: number;
-  align: 'left' | 'right';
+  align: 'left' | 'right' | 'center';
   previewStart: number;
   activeStart: number;
   activeEnd: number;
@@ -52,7 +52,12 @@ export function compileKtvDualLayout(
   height: number,
   measure: TextMeasure,
   palette: StreamPalette,
-  options?: {font_scale?:number;preview_seconds?:number}
+  options?: {
+    font_scale?: number;
+    preview_seconds?: number;
+    alignment?: 'center' | 'classic';
+    position_y?: number;
+  }
 ): KtvDualCompiled {
   const lines = project.lines || [];
   const maxWidth = Math.round(width * 0.68);
@@ -78,8 +83,13 @@ export function compileKtvDualLayout(
     Math.floor(baseFontSize * Math.min(1.0, maxWidth / maxMeasured))
   );
 
-  const yUpper = Math.round(height * 0.76);
-  const yLower = Math.round(height * 0.88);
+  const alignment = options?.alignment || 'classic';
+  const posY = options?.position_y ?? (alignment === 'center' ? 0.52 : 0.82);
+  const lineSpacing = Math.round(uniformFontSize * 1.85);
+
+  const centerY = Math.round(height * posY);
+  const yUpper = Math.round(centerY - lineSpacing * 0.55);
+  const yLower = Math.round(centerY + lineSpacing * 0.55);
   const leftX = Math.round(width * 0.16);
   const rightBoundaryX = Math.round(width * 0.84);
 
@@ -91,9 +101,16 @@ export function compileKtvDualLayout(
     const y = isUpper ? yUpper : yLower;
     const m = measure(line.text, uniformFontSize, 700);
     const lineWidth = m.width;
-    // 上行靠左，下行靠右 (从右边界往左算起)
-    const x = isUpper ? leftX : Math.max(leftX, rightBoundaryX - lineWidth);
-    const align: 'left' | 'right' = isUpper ? 'left' : 'right';
+
+    let x: number;
+    let align: 'left' | 'right' | 'center';
+    if (alignment === 'center') {
+      x = Math.round((width - lineWidth) / 2);
+      align = 'center';
+    } else {
+      x = isUpper ? leftX : Math.max(leftX, rightBoundaryX - lineWidth);
+      align = isUpper ? 'left' : 'right';
+    }
 
     // ── 状态生命周期计算 ──
     // 严格槽位衔接：同槽位上一句驻留结束时间 = 同槽位下一句预读开始时间
@@ -162,6 +179,8 @@ export interface KtvLineRenderState {
   dimColor: string;
   sungColor: string;
   spansWithProgress: { span: HighlightSpan; progress: number; active: boolean }[];
+  alpha: number;
+  dy: number;
 }
 
 export function ktvDualStateAt(
@@ -176,12 +195,28 @@ export function ktvDualStateAt(
       continue;
     }
     let phase: 'preview' | 'active' | 'stay' = 'stay';
+    let alpha = 1.0;
+    let dy = 0;
+
     if (t < c.activeStart) {
       phase = 'preview';
+      const elapsed = t - c.previewStart;
+      const enterProg = Math.min(1, Math.max(0, elapsed / 0.28));
+      const ease = 1 - Math.pow(1 - enterProg, 3);
+      dy = Math.round((1 - ease) * 10);
+      alpha = Number(ease.toFixed(3));
     } else if (t <= c.activeEnd) {
       phase = 'active';
+      dy = 0;
+      alpha = 1.0;
     } else {
       phase = 'stay';
+      const remaining = c.stayEnd - t;
+      if (remaining < 0.25) {
+        const exitProg = Math.min(1, Math.max(0, remaining / 0.25));
+        alpha = Number(exitProg.toFixed(3));
+        dy = Math.round((1 - exitProg) * -6);
+      }
     }
 
     const spansWithProgress = c.spans.map(span => {
@@ -195,6 +230,8 @@ export function ktvDualStateAt(
       dimColor: layout.palette.muted,
       sungColor: layout.palette.accent,
       spansWithProgress,
+      alpha,
+      dy,
     };
 
     if (c.isUpper) {
@@ -219,6 +256,8 @@ export function paintKtvDualCanvas(
   for (const slot of slots) {
     const c = slot.compiled;
     ctx.save();
+    if (slot.alpha < 1) ctx.globalAlpha = Math.max(0, Math.min(1, slot.alpha));
+    if (slot.dy !== 0) ctx.translate(0, slot.dy);
     ctx.font = `700 ${c.fontSize}px ${fontFamily}`;
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';

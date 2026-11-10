@@ -71,6 +71,32 @@ test('KTV dual layout enforces uniform font size across all lines regardless of 
   assert.equal(compiled.lines[3].align, 'right');
 });
 
+test('KTV dual layout supports modern center alignment and adjustable position_y', () => {
+  const project = {
+    duration: 30,
+    lines: [
+      { id: '1', text: 'Center line one', start: 1, end: 3, words: [] },
+      { id: '2', text: 'Center line two', start: 3.5, end: 6, words: [] },
+    ],
+  };
+
+  const compiled = compileKtvDualLayout(project, 1920, 1080, measure, palette, {
+    alignment: 'center',
+    position_y: 0.55,
+  });
+
+  assert.equal(compiled.lines[0].align, 'center');
+  assert.equal(compiled.lines[1].align, 'center');
+  // Both lines centered horizontally around width / 2
+  const m1 = measure(project.lines[0].text, compiled.uniformFontSize, 700);
+  assert.equal(compiled.lines[0].x, Math.round((1920 - m1.width) / 2));
+  // Y coordinates should be centered around height * 0.55 (594px)
+  const lineSpacing = Math.round(compiled.uniformFontSize * 1.85);
+  const centerY = Math.round(1080 * 0.55);
+  assert.equal(compiled.lines[0].y, Math.round(centerY - lineSpacing * 0.55));
+  assert.equal(compiled.lines[1].y, Math.round(centerY + lineSpacing * 0.55));
+});
+
 test('KTV state machine: preview, active sweep, and continuous stay sung', () => {
   const project = {
     duration: 20,
