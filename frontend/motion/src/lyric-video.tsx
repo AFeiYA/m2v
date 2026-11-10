@@ -6,6 +6,7 @@ import {featuresAt,type Project,type Options} from './model';
 import {stageAt,visiblePosterAt,canvasMeasure,POSTER_FONT,posterNodeState,posterHoldState,posterExitOpacity,posterRings,introTitleState,type CompiledPoster,type CompiledIntroTitle} from './poster-layout';
 import {songLayoutAt,songTextColor,coverPlacement,coverOpacityAt,type SongLayout} from './song-layout';
 import {ktvDualStateAt,type KtvDualCompiled,appleScrollStateAt,type AppleScrollCompiled} from './stream-layout';
+import {computeAmbientOrbs,computeParticles,hexToRgba} from './ambient-particles';
 
 export type VideoProps={project:Project;options:Options;timeOffset?:number;renderLength?:number;transparent?:boolean;surface?:{width:number;height:number}};
 
@@ -52,6 +53,47 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
   {!transparent&&backgroundImage&&<Img src={project.song_cover!.data_url} style={{position:'absolute',left:backgroundImage.x,top:backgroundImage.y,width:backgroundImage.width,height:backgroundImage.height,opacity:coverOpacityAt(songLayout,t)}}/>}
   {songFrame.cover&&songLayout?.artwork&&artworkImage&&<div style={{position:'absolute',left:songLayout.artwork.x,top:songLayout.artwork.y,width:songLayout.artwork.width,height:songLayout.artwork.height,overflow:'hidden',opacity:songFrame.alpha,border:'1px solid #ffffff25'}}><Img src={project.song_cover!.data_url} style={{position:'absolute',left:artworkImage.x-songLayout.artwork.x,top:artworkImage.y-songLayout.artwork.y,width:artworkImage.width,height:artworkImage.height}}/></div>}
   <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{overflow:'hidden',position:'absolute'}} aria-label="歌词海报动画">
+   {!transparent && (() => {
+     const { orb1, orb2 } = computeAmbientOrbs(width, height, t, accent);
+     const particles = computeParticles(width, height, t, 48, pulse);
+     return (
+       <g aria-hidden="true">
+         <defs>
+           <radialGradient id={`ambient-orb1-${highlightId}`} cx="50%" cy="50%" r="50%">
+             <stop offset="0%" stopColor={hexToRgba(accent, 0.14)} />
+             <stop offset="50%" stopColor={hexToRgba(accent, 0.04)} />
+             <stop offset="100%" stopColor={accent} stopOpacity={0} />
+           </radialGradient>
+           <radialGradient id={`ambient-orb2-${highlightId}`} cx="50%" cy="50%" r="50%">
+             <stop offset="0%" stopColor={hexToRgba(accent, 0.09)} />
+             <stop offset="60%" stopColor={hexToRgba(accent, 0.02)} />
+             <stop offset="100%" stopColor={accent} stopOpacity={0} />
+           </radialGradient>
+           <radialGradient id={`ambient-vig-${highlightId}`} cx="50%" cy="50%" r="70%">
+             <stop offset="0%" stopColor="#000000" stopOpacity={0} />
+             <stop offset="45%" stopColor="#000000" stopOpacity={0} />
+             <stop offset="75%" stopColor="#000000" stopOpacity={0.22} />
+             <stop offset="100%" stopColor="#000000" stopOpacity={0.65} />
+           </radialGradient>
+         </defs>
+         <circle cx={orb1.cx} cy={orb1.cy} r={orb1.r} fill={`url(#ambient-orb1-${highlightId})`} />
+         <circle cx={orb2.cx} cy={orb2.cy} r={orb2.r} fill={`url(#ambient-orb2-${highlightId})`} />
+         <g>
+           {particles.map((p, idx) => (
+             <circle
+               key={idx}
+               cx={p.x}
+               cy={p.y}
+               r={p.radius}
+               fill={p.color}
+               opacity={p.alpha}
+             />
+           ))}
+         </g>
+         <rect width={width} height={height} fill={`url(#ambient-vig-${highlightId})`} />
+       </g>
+     );
+   })()}
   <g>
    {!transparent&&(!songFrame.cover||!songLayout?.artwork)&&stage?.motif==='rings'&&posterRings(width,height).map((ring,i)=><ellipse key={i} cx={ring.cx} cy={ring.cy} rx={ring.rx} ry={ring.ry} opacity={ring.opacity} stroke={accent} strokeWidth={Math.min(width,height)*.003} fill="none"/>)}
    {introState&&introState.alpha>0&&intro&&<g opacity={introState.alpha} transform={`translate(${intro.cx} ${intro.cy+introState.dy}) scale(${introState.scale*pulse}) translate(${-intro.cx} ${-intro.cy})`}>

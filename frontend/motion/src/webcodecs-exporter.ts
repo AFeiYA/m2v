@@ -25,6 +25,7 @@ import {
   paintAppleScrollCanvas,
   type AppleScrollCompiled,
 } from './stream-layout';
+import { paintAmbientAuraAndParticles } from './ambient-particles';
 
 export type ExportRange = {
   title: string;
@@ -128,7 +129,12 @@ export function renderCanvasFrame(
     }
   }
 
-  // 3. Intro Title animation
+  // 3. Ambient fluid aurora orbs & floating bokeh particles + vignette
+  const feature = featuresAt(project, t);
+  const pulse = 1 + (feature.kick || feature.beat * 0.3) * 0.012;
+  paintAmbientAuraAndParticles(ctx, W, H, t, accent, pulse);
+
+  // 4. Intro Title animation
   const introState = intro ? introTitleState(intro, t, H) : null;
   if (intro && introState && introState.alpha > 0) {
     ctx.save();
@@ -143,7 +149,7 @@ export function renderCanvasFrame(
     ctx.restore();
   }
 
-  // 4. Lyrics presentation (仅在前奏封面或标题淡出后渲染，杜绝任何视觉重叠)
+  // 5. Lyrics presentation (仅在前奏封面或标题淡出后渲染，杜绝任何视觉重叠)
   const isCoverActive = songFrame.cover || (songLayout?.introEnd ? t < songLayout.introEnd : false) || (introState ? introState.alpha > 0 : false);
   if (!isCoverActive) {
     if (visualMode === 'tv' && streamOptions?.ktvLayout) {
@@ -152,7 +158,6 @@ export function renderCanvasFrame(
       paintAppleScrollCanvas(ctx, streamOptions.appleLayout, t, POSTER_FONT);
     } else if (layouts) {
       const plan = visiblePosterAt(layouts, t);
-      const feature = featuresAt(project, t);
       const beatVal = feature.kick || feature.beat * 0.3;
       if (plan) {
         paintCompiledPoster(ctx, plan, t, beatVal, false);
@@ -160,7 +165,7 @@ export function renderCanvasFrame(
     }
   }
 
-  // 5. Song Layout texts and section indicator
+  // 6. Song Layout texts and section indicator
   paintSongLayout(ctx, songLayout, t, background, accent, POSTER_FONT);
 }
 

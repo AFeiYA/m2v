@@ -11,7 +11,8 @@ for(const mode of ['kinetic','tv','apple'])test(`${mode} preview keeps the same 
  const imports={react,remotion:{AbsoluteFill:'fill',Img:'img',useCurrentFrame:()=>0,useVideoConfig:()=>({fps:30,width:720,height:1280}),useDelayRender:()=>({delayRender:()=>0,continueRender(){},cancelRender(){}})},
   './model':{featuresAt:()=>({kick:0,beat:0})},'./poster-layout':{visiblePosterAt:()=>null,stageAt:()=>null},
   './song-layout':{songLayoutAt:()=>({cover:false,alpha:0,texts:[]}),coverPlacement:()=>null},
-  './stream-layout':{ktvDualStateAt:()=>({upper:null,lower:null}),appleScrollStateAt:()=>({items:[]})},'./karaoke':{}};
+  './stream-layout':{ktvDualStateAt:()=>({upper:null,lower:null}),appleScrollStateAt:()=>({items:[]})},'./karaoke':{},
+  './ambient-particles':{computeAmbientOrbs:()=>({orb1:{cx:0,cy:0,r:100,color:'#fff'},orb2:{cx:0,cy:0,r:100,color:'#fff'}}),computeParticles:()=>[],hexToRgba:(c,a)=>`rgba(255,255,255,${a})`}};
  const context={module:{exports:{}},require:name=>imports[name]};vm.runInNewContext(code,context);
  const render=context.module.exports.LyricVideo,props={project:{duration:2},options:{visualMode:mode}};
  render(props);const first=[...calls];ready=true;index=0;calls=[];render(props);
