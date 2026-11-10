@@ -626,6 +626,193 @@ def build_lyric_video_ffmpeg_cmd(
 # 歌词短视频合成主管线
 # ---------------------------------------------------------------------------
 
+def _render_motion_studio_video(
+    alignment_source: Path | str | AlignmentResult,
+    audio_path: Path,
+    output_path: Path,
+    aspect_ratio: str,
+    template: str,
+    resolved_cover: Path | None,
+    effective_st: float,
+    effective_dur: float | None,
+    song_dir: Path,
+    progress_callback: Callable[[float, str], None] | None = None,
+) -> dict[str, Any] | None:
+    """
+    优先使用 Motion Studio 商业级动效渲染引擎 (Remotion / Apple Scroll / KTV / Poster)。
+    若渲染成功返回结果字典；若环境缺失 Node/Remotion 资产或渲染异常，返回 None 以触发平滑回退。
+    """
+    node_bin = shutil.which("node")
+    if not node_bin:
+        return None
+
+    project_root = Path(__file__).resolve().parent.parent
+    remotion_html = project_root / "frontend" / "local" / "remotion" / "index.html"
+    remotion_script = project_root / "frontend" / "motion" / "scripts" / "render-remotion.mjs"
+    if not remotion_html.exists() or not remotion_script.exists():
+        return None
+
+    import base64
+    import tempfile
+    import soundfile as sf
+    from src.motion_design import MotionDesign
+
+    try:
+        # 1. 提取 project 数据
+        if isinstance(alignment_source, (str, Path)):
+            alignment_path = Path(alignment_source).resolve()
+            try:
+                project_data = json.loads(alignment_path.read_text(encoding="utf-8"))
+            except Exception:
+                from src.aligner import AlignmentResult
+                project_data = AlignmentResult.load_json(alignment_path).model_dump()
+        elif hasattr(alignment_source, "model_dump"):
+            project_data = alignment_source.model_dump()
+        else:
+            project_data = dict(alignment_source)
+
+        title = project_data.get("title") or song_dir.name
+        artist = project_data.get("artist") or "unknown"
+        project_data["title"] = title
+        project_data["artist"] = artist
+
+        # 2. 注入封面
+        if resolved_cover and Path(resolved_cover).exists():
+            cov_p = Path(resolved_cover).resolve()
+            fmt = "png" if cov_p.suffix.lower() == ".png" else "jpeg"
+            b64 = base64.b64encode(cov_p.read_bytes()).decode("ascii")
+            project_data["song_cover"] = {"data_url": f"data:image/{fmt};base64,{b64}", "source": "local"}
+
+        # 3. 映射视觉模式
+        tmpl_lower = (template or "").strip().lower()
+        if tmpl_lower in ("apple", "apple_music"):
+            target_mode = "apple"
+        elif tmpl_lower in ("tv", "karaoke", "ktv"):
+            target_mode = "tv"
+        elif tmpl_lower in ("kinetic", "poster"):
+            target_mode = "kinetic"
+        else:
+            target_mode = "apple"
+
+        aspect = "16:9" if aspect_ratio == "16:9" else "9:16"
+
+        # 4. 载入或生成 MotionDesign
+        design_file = song_dir / f"{song_dir.name}_motion_design.json"
+        if not design_file.exists() and isinstance(alignment_source, (str, Path)):
+            design_file = Path(alignment_source).with_name(Path(alignment_source).stem.removesuffix("_alignment") + "_motion_design.json")
+
+        if design_file.exists():
+            try:
+                design = MotionDesign.model_validate_json(design_file.read_text(encoding="utf-8")).model_dump()
+            except Exception:
+                design = MotionDesign().model_dump()
+        else:
+            design = MotionDesign().model_dump()
+
+        design["active_mode"] = target_mode
+        if aspect in ("16:9", "9:16"):
+            design["modes"][target_mode]["aspect"] = aspect
+        project_data["motion_design"] = design
+
+        if target_mode == "kinetic":
+            from src.motion_director import rule_plan
+            plan = design["modes"]["kinetic"].get("plan")
+            if not plan:
+                plan = rule_plan(project_data).model_dump()
+                design["modes"]["kinetic"]["plan"] = plan
+            project_data["motion_plan"] = plan
+
+        # 5. 音频时长与裁剪区间
+        try:
+            audio_dur = sf.info(str(audio_path)).duration
+        except Exception:
+            audio_dur = float(project_data.get("duration") or 60.0)
+        project_data["duration"] = audio_dur
+
+        start_sec = max(0.0, float(effective_st or 0.0))
+        if effective_dur and effective_dur > 0:
+            render_len = min(float(effective_dur), max(1.0, audio_dur - start_sec))
+        else:
+            render_len = max(1.0, audio_dur - start_sec)
+
+        mode_settings = design["modes"].get(target_mode, {})
+        options = {
+            "aspect": aspect,
+            "height": 720,
+            "visualMode": target_mode,
+            "bloom": mode_settings.get("bloom", 0.7),
+            "shake": mode_settings.get("shake", 0.65),
+            "post": mode_settings.get("post", True),
+            "mode": "phrase",
+            "preset": "editorial",
+        }
+
+        job_snapshot = {
+            "project": project_data,
+            "options": options,
+            "scene": "lyric",
+            "rhythm": None,
+            "audioPath": str(Path(audio_path).resolve()),
+            "start": start_sec,
+            "length": render_len,
+        }
+
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as tf:
+            tf_path = Path(tf.name)
+            json.dump(job_snapshot, tf, ensure_ascii=False, indent=2)
+
+        if progress_callback:
+            progress_callback(35.0, "Motion Studio 渲染管线初始化 (Remotion)...")
+
+        t0 = time.time()
+        try:
+            proc = subprocess.Popen(
+                [node_bin, str(remotion_script), str(tf_path), str(output_path)],
+                cwd=str(project_root),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+            )
+            for line in proc.stdout:
+                if line.startswith("PROGRESS "):
+                    parts = line.split()[1].split("/")
+                    val, tot = int(parts[0]), int(parts[1])
+                    pct = 35.0 + (val / max(1, tot)) * 60.0
+                    if progress_callback:
+                        progress_callback(round(pct, 1), f"Motion Studio 渲染中: {val}/{tot} 帧")
+            code = proc.wait()
+            if code != 0 or not output_path.exists() or output_path.stat().st_size < 1000:
+                log.warning("Motion Studio Remotion 渲染异常 (退出码 %s)，将回退至备用渲染", code)
+                return None
+        finally:
+            tf_path.unlink(missing_ok=True)
+
+        size_mb = round(output_path.stat().st_size / (1024 * 1024), 2)
+        elapsed = round(time.time() - t0, 1)
+        if progress_callback:
+            progress_callback(100.0, "Motion Studio 视频渲染完成！")
+
+        return {
+            "status": "ok",
+            "video_path": str(output_path),
+            "ass_path": str(output_path.with_suffix(".ass")),
+            "cover_path": str(resolved_cover) if resolved_cover else "",
+            "duration": render_len,
+            "size_mb": size_mb,
+            "elapsed_seconds": elapsed,
+            "resolution": [720, 1280] if aspect == "9:16" else [1280, 720],
+            "resolution_preset": "720p",
+            "aspect_ratio": aspect,
+            "template": target_mode,
+            "visual_mode": target_mode,
+            "engine": "motion_studio_remotion",
+        }
+    except Exception as e:
+        log.warning("Motion Studio 准备渲染异常: %s，将回退至备用渲染", e)
+        return None
+
+
 def export_lyric_video(
     alignment_source: Path | str | AlignmentResult,
     audio_path: Path | str,
@@ -751,6 +938,37 @@ def export_lyric_video(
 
     log.info("🎯 歌词视频配置: 比例=%s (%dx%d, %s), 模板=%s, 主题=%s, 背景=%s, 封面=%s",
              aspect_ratio, width, height, res_spec["id"], template, theme, background_mode, resolved_cover.name)
+
+    # 优先使用 Motion Studio 商业级动效渲染引擎 (Remotion 3D/Apple Scroll/KTV/Poster)
+    motion_res = _render_motion_studio_video(
+        alignment_source=alignment_source,
+        audio_path=audio_p,
+        output_path=out_p,
+        aspect_ratio=aspect_ratio,
+        template=template,
+        resolved_cover=resolved_cover,
+        effective_st=effective_st,
+        effective_dur=effective_dur,
+        song_dir=song_dir,
+        progress_callback=progress_callback,
+    )
+    if motion_res is not None:
+        try:
+            ass_path = out_p.with_suffix(".ass")
+            sub_config = SubtitleConfig(
+                font_size=actual_font_size,
+                play_res_x=width,
+                play_res_y=height,
+                margin_x=max(56, int(width * 0.08)) if aspect_ratio == "9:16" else int(width * 0.055),
+                render_mode=template,
+                theme=theme,
+                use_karaoke_gradient=True,
+            )
+            generate_ass(alignment, ass_path, config=sub_config, audio_path=audio_p)
+            motion_res["ass_path"] = str(ass_path)
+        except Exception as ass_err:
+            log.debug("生成补充 ASS 字幕文件跳过: %s", ass_err)
+        return motion_res
 
     if progress_callback:
         progress_callback(30.0, "生成高精度动效 ASS 字幕...")
