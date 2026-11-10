@@ -28,3 +28,18 @@ def test_identity_reads_suno_import_cache_and_preserves_user_override(tmp_path):
     assert loaded['title'] == 'New title'
     assert loaded['artist'] == ''
     assert loaded['source_artist'] == 'Suno artist'
+
+
+def test_identity_particles_mode_defaults_and_override():
+    from src.song_identity import SongIdentity
+    ident = SongIdentity(title="测试", artist="歌手")
+    assert ident.particles_mode == "particles"
+    assert ident.ambient_particles is True
+    assert ident.particles_speed == 0.5
+    assert ident.particles_darken == 0.4
+
+    ident_off = SongIdentity(title="测试", artist="歌手", particles_mode="none", ambient_particles=False, particles_speed=0.2, particles_darken=0.8)
+    assert ident_off.particles_mode == "none"
+    assert ident_off.ambient_particles is False
+    assert ident_off.particles_speed == 0.2
+    assert ident_off.particles_darken == 0.8

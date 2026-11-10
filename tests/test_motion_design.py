@@ -16,10 +16,12 @@ def test_document_round_trip_and_director_edits_are_mode_scoped(song):
         design.update(active_mode='apple', height=360)
         design['modes']['kinetic']['plan'] = plan
         design['modes']['apple'].update(aspect='16:9', focus_y=.5, theme={'palette': 'neon', 'background': 'light'})
-        design['modes']['tv']['preview_seconds'] = 1
+        design['modes']['tv'].update(preview_seconds=1, alignment='center', position_y=0.55)
         result = client.put('/api/motion/design', json={'project_id': project_id, 'design': design})
         assert result.status_code == 200, result.text
         saved = result.json()['design']
+        assert saved['modes']['tv']['alignment'] == 'center'
+        assert saved['modes']['tv']['position_y'] == 0.55
         source = path.read_bytes()
         loaded = client.get('/api/motion/project', params={'project_id': project_id}).json()
         assert loaded['design'] == saved

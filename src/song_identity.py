@@ -18,6 +18,10 @@ class SongIdentity(BaseModel):
     show_outro: bool = True
     visual_theme: Literal["director", "editorial", "neon", "paper"] = "director"
     cover_mode: Literal["background", "none"] = "background"
+    particles_mode: Literal["particles", "none"] = "particles"
+    ambient_particles: bool = True
+    particles_speed: float = Field(default=0.5, ge=0.05, le=5.0)
+    particles_darken: float = Field(default=0.4, ge=0.0, le=1.0)
     cover_x: float = Field(default=50, ge=0, le=100)
     cover_y: float = Field(default=50, ge=0, le=100)
     cover_zoom: float = Field(default=1, ge=1, le=2)

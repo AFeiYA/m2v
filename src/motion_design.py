@@ -37,6 +37,8 @@ class AppleDesign(ModeSettings):
 class KaraokeDesign(ModeSettings):
     font_scale: float = Field(default=1, ge=.7, le=1.4, allow_inf_nan=False)
     preview_seconds: float = Field(default=2.5, ge=0, le=8, allow_inf_nan=False)
+    alignment: Literal['center', 'classic'] = 'center'
+    position_y: float = Field(default=0.52, ge=0.35, le=0.88, allow_inf_nan=False)
 
 
 class Modes(DesignModel):

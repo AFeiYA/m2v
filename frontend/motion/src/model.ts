@@ -6,7 +6,7 @@ export type PosterDirection = {version:'motion-poster-direction-v1';status:'draf
 export type CuePlan = {poster?:PosterDirection|null;whole_line_visible?:true;intent?:string;groups?:PhrasePlan[];line_id:string; template:'word-impact'|'phrase-rise'|'quiet-hold'; layout:'center'|'left'; palette:string; intensity:number; emphasis:string; locked:boolean};
 export type MotionPlan = {version:'motion-plan-v1'; source_signature:string; seed:number; visual_language?:{direction:string;background:string;foreground:string;accent:string;rhythm:string}|null; cues:CuePlan[]};
 export type Line = { id:string; text: string; start: number; end: number; words: Word[]; section?: string };
-export type SongIdentity = {version:'motion-song-identity-v1';title:string;artist:string;style:'editorial'|'minimal'|'none';show_intro:boolean;show_signature:boolean;show_section:boolean;show_outro:boolean;visual_theme?:'director'|'editorial'|'neon'|'paper';cover_mode?:'background'|'none';cover_x?:number;cover_y?:number;cover_zoom?:number;source_title?:string;source_artist?:string;source?:string};
+export type SongIdentity = {version:'motion-song-identity-v1';title:string;artist:string;style:'editorial'|'minimal'|'none';show_intro:boolean;show_signature:boolean;show_section:boolean;show_outro:boolean;visual_theme?:'director'|'editorial'|'neon'|'paper';cover_mode?:'background'|'none';particles_mode?:'particles'|'none';ambient_particles?:boolean;particles_speed?:number;particles_darken?:number;cover_x?:number;cover_y?:number;cover_zoom?:number;source_title?:string;source_artist?:string;source?:string};
 export type Project = {
   sections?:{name:string;start:number;end:number}[];
   title: string; song_cover?:{data_url:string;width:number;height:number;source:string;source_url?:string}; artist?:string; song_identity?:SongIdentity; duration: number; lines: Line[]; motion_plan?:MotionPlan; motion_design?:MotionDesign;
@@ -18,8 +18,9 @@ export type Options = {
   aspect: '16:9' | '9:16'; preset: string; mode: 'slam' | 'phrase';
   height?:360|720; bloom: number; grain: number; shake: number; punch: number; post: boolean;
   visualMode?: VisualMode;
+  ambient_particles?: boolean;
 };
-export const defaults: Options = { aspect: '16:9', preset: 'impact', mode: 'slam', bloom: 0.7, grain: 0.035, shake: 0.65, punch: 0.7, post: true, visualMode: 'kinetic' };
+export const defaults: Options = { aspect: '16:9', preset: 'impact', mode: 'slam', bloom: 0.7, grain: 0.035, shake: 0.65, punch: 0.7, post: true, visualMode: 'kinetic', ambient_particles: true };
 
 export function resolveVisualMode(
   requestedMode: VisualMode | undefined,

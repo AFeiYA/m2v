@@ -48,14 +48,17 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
  const backgroundImage=coverPlacement(project,{x:0,y:0,width,height});
  const artworkImage=songLayout?.artwork?coverPlacement(project,songLayout.artwork):null;
  const pulse=1+(feature.kick||feature.beat*.3)*.012;
+ const isParticlesActive = options?.ambient_particles !== false && project.song_identity?.particles_mode !== 'none' && project.song_identity?.ambient_particles !== false;
 
  return <AbsoluteFill style={{background:transparent?'transparent':background,overflow:'hidden'}}>
   {!transparent&&backgroundImage&&<Img src={project.song_cover!.data_url} style={{position:'absolute',left:backgroundImage.x,top:backgroundImage.y,width:backgroundImage.width,height:backgroundImage.height,opacity:coverOpacityAt(songLayout,t)}}/>}
   {songFrame.cover&&songLayout?.artwork&&artworkImage&&<div style={{position:'absolute',left:songLayout.artwork.x,top:songLayout.artwork.y,width:songLayout.artwork.width,height:songLayout.artwork.height,overflow:'hidden',opacity:songFrame.alpha,border:'1px solid #ffffff25'}}><Img src={project.song_cover!.data_url} style={{position:'absolute',left:artworkImage.x-songLayout.artwork.x,top:artworkImage.y-songLayout.artwork.y,width:artworkImage.width,height:artworkImage.height}}/></div>}
   <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{overflow:'hidden',position:'absolute'}} aria-label="歌词海报动画">
-   {!transparent && (() => {
-     const { orb1, orb2 } = computeAmbientOrbs(width, height, t, accent);
-     const particles = computeParticles(width, height, t, 48, pulse);
+   {!transparent && isParticlesActive && (() => {
+     const particleSpeed = project.song_identity?.particles_speed ?? 0.5;
+     const particleDarken = project.song_identity?.particles_darken ?? 0.4;
+     const { orb1, orb2 } = computeAmbientOrbs(width, height, t, accent, particleSpeed, particleDarken);
+     const particles = computeParticles(width, height, t, 48, pulse, particleSpeed, particleDarken);
      return (
        <g aria-hidden="true">
          <defs>
@@ -70,10 +73,10 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
              <stop offset="100%" stopColor={accent} stopOpacity={0} />
            </radialGradient>
            <radialGradient id={`ambient-vig-${highlightId}`} cx="50%" cy="50%" r="70%">
-             <stop offset="0%" stopColor="#000000" stopOpacity={0} />
-             <stop offset="45%" stopColor="#000000" stopOpacity={0} />
-             <stop offset="75%" stopColor="#000000" stopOpacity={0.22} />
-             <stop offset="100%" stopColor="#000000" stopOpacity={0.65} />
+             <stop offset="0%" stopColor="#000000" stopOpacity={Math.max(0, (particleDarken - 0.35) * 0.4)} />
+             <stop offset="45%" stopColor="#000000" stopOpacity={0.08 + particleDarken * 0.32} />
+             <stop offset="75%" stopColor="#000000" stopOpacity={0.20 + particleDarken * 0.45} />
+             <stop offset="100%" stopColor="#000000" stopOpacity={0.32 + particleDarken * 0.58} />
            </radialGradient>
          </defs>
          <circle cx={orb1.cx} cy={orb1.cy} r={orb1.r} fill={`url(#ambient-orb1-${highlightId})`} />
@@ -108,8 +111,10 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
       return slots.map(slot => {
         const c = slot.compiled;
         const textColor = slot.phase === 'stay' ? slot.sungColor : slot.dimColor;
+        const dy = slot.dy || 0;
+        const alpha = slot.alpha ?? 1;
         return (
-          <g key={c.lineIndex}>
+          <g key={c.lineIndex} opacity={alpha} transform={dy !== 0 ? `translate(0 ${dy})` : undefined}>
             <text x={c.x} y={c.y} fill={textColor} fontSize={c.fontSize} fontWeight={700} fontFamily={POSTER_FONT} style={{whiteSpace:'pre'}}>
               {c.line.text}
             </text>

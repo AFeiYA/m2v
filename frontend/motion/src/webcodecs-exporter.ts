@@ -132,7 +132,12 @@ export function renderCanvasFrame(
   // 3. Ambient fluid aurora orbs & floating bokeh particles + vignette
   const feature = featuresAt(project, t);
   const pulse = 1 + (feature.kick || feature.beat * 0.3) * 0.012;
-  paintAmbientAuraAndParticles(ctx, W, H, t, accent, pulse);
+  const isParticlesActive = project.song_identity?.particles_mode !== 'none' && project.song_identity?.ambient_particles !== false;
+  if (isParticlesActive) {
+    const particleSpeed = project.song_identity?.particles_speed ?? 0.5;
+    const particleDarken = project.song_identity?.particles_darken ?? 0.4;
+    paintAmbientAuraAndParticles(ctx, W, H, t, accent, pulse, particleSpeed, particleDarken);
+  }
 
   // 4. Intro Title animation
   const introState = intro ? introTitleState(intro, t, H) : null;

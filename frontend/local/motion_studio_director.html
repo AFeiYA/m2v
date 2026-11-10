@@ -101,6 +101,11 @@
                 <option value="background" data-i18n="ms_opt_cover_bg">Muted Background Cover</option>
                 <option value="none" data-i18n="ms_opt_cover_none">No Cover · Text Only</option>
               </select>
+              <label for="particles-mode" data-i18n="ms_lbl_particles_mode">Ambient Particles &amp; Aurora</label>
+              <select id="particles-mode">
+                <option value="particles" data-i18n="ms_opt_particles_on">Fluid Aurora &amp; Floating Particles (Default)</option>
+                <option value="none" data-i18n="ms_opt_particles_none">No Particles · Clean Background</option>
+              </select>
               <label for="cover-x" data-i18n="ms_lbl_cover_x">Crop Focus · Horizontal</label>
               <input id="cover-x" type="range" min="0" max="100" value="50">
               <label for="cover-y" data-i18n="ms_lbl_cover_y">Crop Focus · Vertical</label>
@@ -206,6 +211,24 @@
           </select>
           <label for="theme-scope" data-i18n="ms_theme_scope" style="font-size:11px; color:#8ba090; margin-top:6px;">Apply theme to</label>
           <select id="theme-scope" style="font-size:11px;"><option value="mode" data-i18n="ms_theme_mode">This template only</option><option value="all" data-i18n="ms_theme_all">All templates</option></select>
+          <label class="check" style="margin-top:10px; display:flex; align-items:center; gap:8px; cursor:pointer;">
+            <input id="theme-particles" type="checkbox" checked style="cursor:pointer; width:14px; height:14px;">
+            <span data-i18n="ms_chk_particles">Ambient Particles &amp; Fluid Aurora</span>
+          </label>
+          <div id="particles-speed-wrap" style="margin-top:6px;">
+            <label for="particles-speed" style="font-size:11px; color:#8ba090; display:flex; justify-content:space-between;">
+              <span data-i18n="ms_lbl_particles_speed">Particle Drift Speed</span>
+              <span id="particles-speed-val" style="color:#b7f34a; font-family:monospace;">0.5x</span>
+            </label>
+            <input id="particles-speed" type="range" min="0.1" max="2.0" step="0.05" value="0.5" style="width:100%;">
+          </div>
+          <div id="particles-darken-wrap" style="margin-top:6px;">
+            <label for="particles-darken" style="font-size:11px; color:#8ba090; display:flex; justify-content:space-between;">
+              <span data-i18n="ms_lbl_particles_darken">Background Darken</span>
+              <span id="particles-darken-val" style="color:#b7f34a; font-family:monospace;">40%</span>
+            </label>
+            <input id="particles-darken" type="range" min="0" max="0.9" step="0.05" value="0.4" style="width:100%;">
+          </div>
 
           <!-- Stream controls (Apple Scroll & Dual-line Karaoke) -->
           <div id="stream-design-controls" hidden style="margin-top:12px;">
@@ -218,7 +241,22 @@
                 <span data-i18n="ms_apple_count_in">Interlude countdown dots</span>
               </label>
             </div>
-            <div id="karaoke-mode-controls"><label for="karaoke-preview-seconds" data-i18n="ms_karaoke_preview">Preview lyrics before singing (seconds)</label><input id="karaoke-preview-seconds" type="number" min="0" max="8" step="0.5" value="2.5"></div>
+            <div id="karaoke-mode-controls">
+              <label for="karaoke-alignment" data-i18n="ms_karaoke_align">Lyric Alignment</label>
+              <select id="karaoke-alignment">
+                <option value="center" data-i18n="ms_karaoke_align_center">Modern Center (Recommended)</option>
+                <option value="classic" data-i18n="ms_karaoke_align_classic">Classic KTV (Left / Right)</option>
+              </select>
+              <div style="margin-top:6px;">
+                <label for="karaoke-position-y" style="font-size:11px; color:#8ba090; display:flex; justify-content:space-between;">
+                  <span data-i18n="ms_karaoke_pos_y">Vertical Position</span>
+                  <span id="karaoke-position-y-val" style="color:#b7f34a; font-family:monospace;">52%</span>
+                </label>
+                <input id="karaoke-position-y" type="range" min="0.35" max="0.88" step="0.01" value="0.52" style="width:100%;">
+              </div>
+              <label for="karaoke-preview-seconds" data-i18n="ms_karaoke_preview" style="margin-top:6px;">Preview lyrics before singing (seconds)</label>
+              <input id="karaoke-preview-seconds" type="number" min="0" max="8" step="0.5" value="2.5">
+            </div>
           </div>
 
           <!-- Kinetic Poster Controls -->

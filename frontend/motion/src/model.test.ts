@@ -945,4 +945,17 @@ test('ambient particles and fluid aurora orbs compute deterministically and stab
   assert.ok(orb2.cy > 0 && orb2.cy < H);
   assert.ok(orb2.r > Math.max(W, H) * 0.5);
   assert.ok(orb2.color.startsWith('rgba(183,243,74,'));
+
+  // 7. particles_mode 开关支持与独立配置验证
+  const pEnabled = normalizeProject({
+    lines: [{ text: '星光', start: 0, end: 2 }],
+    song_identity: { title: '星光', artist: '', style: 'editorial', show_intro: true, show_signature: true, show_section: false, show_outro: true, particles_mode: 'particles' }
+  });
+  assert.equal(pEnabled.song_identity?.particles_mode, 'particles');
+
+  const pDisabled = normalizeProject({
+    lines: [{ text: '纯净', start: 0, end: 2 }],
+    song_identity: { title: '纯净', artist: '', style: 'editorial', show_intro: true, show_signature: true, show_section: false, show_outro: true, particles_mode: 'none' }
+  });
+  assert.equal(pDisabled.song_identity?.particles_mode, 'none');
 });
