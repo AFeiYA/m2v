@@ -159,9 +159,45 @@ class YouTubeUploader:
         """检查是否有有效凭据"""
         return bool(self.credentials.get("access_token") or self.credentials.get("refresh_token"))
 
+    def refresh_access_token(self) -> bool:
+        """使用 refresh_token 自动续期 access_token"""
+        refresh_token = self.credentials.get("refresh_token") or os.environ.get("YOUTUBE_REFRESH_TOKEN", "")
+        client_id = self.credentials.get("client_id") or os.environ.get("YOUTUBE_CLIENT_ID", "")
+        client_secret = self.credentials.get("client_secret") or os.environ.get("YOUTUBE_CLIENT_SECRET", "")
+        if not refresh_token:
+            return False
+        if not (client_id and client_secret):
+            return False
+        try:
+            r = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                timeout=10,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                new_token = data.get("access_token")
+                if new_token:
+                    self.credentials["access_token"] = new_token
+                    self._save_credentials(self.credentials, self.channel_info)
+                    logger.info("YouTube Access Token 自动刷新成功")
+                    return True
+        except Exception as e:
+            logger.warning(f"刷新 YouTube Token 异常: {e}")
+        return False
+
     def get_account_status(self) -> dict:
         """检查当前 YouTube 频道授权状态"""
         access_token = self.credentials.get("access_token")
+        if not access_token and self.credentials.get("refresh_token"):
+            self.refresh_access_token()
+            access_token = self.credentials.get("access_token")
+
         if access_token:
             try:
                 r = requests.get(
@@ -169,6 +205,13 @@ class YouTubeUploader:
                     headers={"Authorization": f"Bearer {access_token}"},
                     timeout=5,
                 )
+                if r.status_code == 401 and self.refresh_access_token():
+                    access_token = self.credentials.get("access_token")
+                    r = requests.get(
+                        "https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
+                        headers={"Authorization": f"Bearer {access_token}"},
+                        timeout=5,
+                    )
                 if r.status_code == 200:
                     items = r.json().get("items", [])
                     if items:
@@ -198,9 +241,19 @@ class YouTubeUploader:
             "message": "未连接 YouTube 账号，可通过 OAuth2 授权连接",
         }
 
-    def set_tokens(self, access_token: str, refresh_token: str = "") -> dict:
+    def set_tokens(
+        self,
+        access_token: str,
+        refresh_token: str = "",
+        client_id: str = "",
+        client_secret: str = "",
+    ) -> dict:
         """手动设置或更新 OAuth2 Token"""
         self.credentials = {"access_token": access_token.strip(), "refresh_token": refresh_token.strip()}
+        if client_id:
+            self.credentials["client_id"] = client_id.strip()
+        if client_secret:
+            self.credentials["client_secret"] = client_secret.strip()
         self._save_credentials(self.credentials)
         return self.get_account_status()
 
@@ -258,6 +311,9 @@ class YouTubeUploader:
             }
 
         access_token = self.credentials.get("access_token")
+        if not access_token and self.credentials.get("refresh_token"):
+            self.refresh_access_token()
+            access_token = self.credentials.get("access_token")
         if not access_token:
             raise RuntimeError("未配置 YouTube Access Token，请先完成授权")
 
@@ -476,6 +532,9 @@ class YouTubeUploader:
     def update_video_privacy(self, video_id: str, privacy_status: str = "public") -> dict:
         """更新已上传视频的公开范围 (例如从 unlisted 转为 public)"""
         access_token = self.credentials.get("access_token")
+        if not access_token and self.credentials.get("refresh_token"):
+            self.refresh_access_token()
+            access_token = self.credentials.get("access_token")
         if not access_token:
             raise RuntimeError("未配置 YouTube Access Token，请先完成授权")
 
