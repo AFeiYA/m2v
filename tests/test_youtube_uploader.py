@@ -75,7 +75,9 @@ class TestMetadataGenerator:
 # ---------------------------------------------------------------------------
 
 class TestYouTubeUploaderCore:
-    def test_account_status_unauthenticated(self):
+    def test_account_status_unauthenticated(self, monkeypatch):
+        monkeypatch.delenv("YOUTUBE_ACCESS_TOKEN", raising=False)
+        monkeypatch.delenv("YOUTUBE_REFRESH_TOKEN", raising=False)
         with tempfile.TemporaryDirectory() as td:
             cred_path = Path(td) / "credentials.json"
             uploader = YouTubeUploader(credentials_path=cred_path)
