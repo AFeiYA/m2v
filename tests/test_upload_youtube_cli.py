@@ -102,3 +102,20 @@ def test_cli_dry_run_execution(mock_probe, mock_publish, tmp_path):
     kwargs = mock_publish.call_args.kwargs
     assert kwargs["dry_run"] is True
     assert kwargs["privacy_status"] == "unlisted"
+
+
+def test_youtube_credentials_from_env(monkeypatch, tmp_path):
+    """验证 YouTubeUploader 正确读取 YOUTUBE_ACCESS_TOKEN 环境变量"""
+    from src.youtube_uploader import YouTubeUploader
+
+    monkeypatch.setenv("YOUTUBE_ACCESS_TOKEN", "test_env_token_abc123")
+    monkeypatch.setenv("YOUTUBE_REFRESH_TOKEN", "test_env_refresh_xyz789")
+
+    # 指定不存在的文件路径以避免读取本地旧凭据
+    dummy_creds = tmp_path / "non_existent_creds.json"
+    uploader = YouTubeUploader(credentials_path=dummy_creds)
+
+    assert uploader.credentials.get("access_token") == "test_env_token_abc123"
+    assert uploader.credentials.get("refresh_token") == "test_env_refresh_xyz789"
+    assert uploader.is_configured is True
+
