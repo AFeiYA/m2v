@@ -1,0 +1,28 @@
+{
+  "track_number": 9,
+  "title": "God Rest Ye Merry, Gentlemen",
+  "title_cn": "愿上帝赐予你们平安，先生们",
+  "artist": "Fovea Studio (或你的艺人名)",
+  "album": "A Cozy Christmas: Public Domain Carols Vol. 1",
+  "genre": "Holiday / Christmas / Acoustic",
+  "year_composed": 1650,
+  "composer": "Traditional English Carol",
+  "lyricist": "Traditional",
+  "bpm": 104,
+  "key": "E Minor",
+  "mood": "Mysterious, Medieval, Rhythmic, Folk",
+  "public_domain": true,
+  "copyright_status": "100% Public Domain (Composition expired before 1928)",
+  "distrokid_submission_guide": {
+    "is_cover_song": false,
+    "cover_song_explanation": "In DistroKid, select 'I wrote it' or 'Public Domain' (Do NOT buy cover song license; Public Domain carols do not require mechanical royalties).",
+    "songwriter_real_name": "Traditional English Carol",
+    "music_credit": "Traditional English Carol",
+    "lyrics_credit": "Traditional"
+  },
+  "karaoke_strategy": {
+    "youtube_title": "God Rest Ye Merry, Gentlemen (Karaoke / Instrumental with Lyrics) | Made with fovea.si",
+    "recommended_style": "warm_holiday_fireplace",
+    "shorts_plan": "Clip 30-45s chorus hook for Shorts"
+  }
+}
