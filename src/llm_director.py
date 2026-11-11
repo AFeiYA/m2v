@@ -835,7 +835,7 @@ def generate_llm_ass(alignment_path: Path, output_ass_path: Path, config_path: P
     ASS events with dynamic color shifting.
     """
     from src.config import SubtitleConfig
-    from src.subtitle import _load_template_header, _wrap_lines, seconds_to_ass_time
+    from src.subtitle import _load_template_header, _wrap_lines, seconds_to_ass_time, format_word_karaoke
     
     config = SubtitleConfig()
     alignment = AlignmentResult.load_json(alignment_path)
@@ -960,22 +960,10 @@ def generate_llm_ass(alignment_path: Path, output_ass_path: Path, config_path: P
                 karaoke_text = ""
                 current_t = lines[j].start
                 
+                k_tag = "kf" if config.use_karaoke_gradient else "k"
                 for word in lines[j].words:
-                    gap_cs = int((word.start - current_t) * 100)
-                    if gap_cs > 0:
-                        karaoke_text += f"{{\\k{gap_cs}}}"
-                    
-                    dur_cs = int((word.end - max(word.start, current_t)) * 100)
-                    if dur_cs < 0: 
-                        dur_cs = 0
-                        
-                    k_tag = "kf" if config.use_karaoke_gradient else "k"
-                    if word.word.startswith("\\N"):
-                        w_disp = word.word[2:]
-                        karaoke_text += f"\\N{{\\{k_tag}{dur_cs}}}{w_disp}"
-                    else:
-                        karaoke_text += f"{{\\{k_tag}{dur_cs}}}{word.word}"
-                    current_t = max(word.end, current_t)
+                    part_str, current_t = format_word_karaoke(word, current_t, k_tag=k_tag)
+                    karaoke_text += part_str
                 
                 tags_active = f"\\an4{pos_tag}{tag_steady}{anim_tag}"
                 events.append(f"Dialogue: 0,{ass_t_start},{ass_t_end},{config.style_name},,0,0,0,,{{{tags_active}}}{karaoke_text}")
