@@ -758,19 +758,39 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                     job_id = data.get('id', p.stem.replace('_status', ''))
                     song_dir = p.parent.parent
                     song_title = song_dir.name.removesuffix('_project').removesuffix('_alignment')
+                    song_artist = ""
                     job_snapshot = p.with_name(f'{job_id}.json')
                     if job_snapshot.exists():
                         try:
                             snap_data = json.loads(job_snapshot.read_text(encoding='utf-8'))
                             song_title = snap_data.get('project', {}).get('title') or song_title
+                            song_artist = snap_data.get('project', {}).get('artist') or snap_data.get('identity', {}).get('artist') or ""
                         except Exception:
                             pass
+                    if not song_artist:
+                        for id_path in [song_dir / f"{song_dir.name}_motion_identity.json", *song_dir.glob("*_motion_identity.json")]:
+                            if id_path.exists():
+                                try:
+                                    id_data = json.loads(id_path.read_text(encoding="utf-8"))
+                                    song_artist = id_data.get("artist") or ""
+                                    if id_data.get("title") and (not song_title or song_title == song_dir.name):
+                                        song_title = id_data.get("title")
+                                    if song_artist:
+                                        break
+                                except Exception:
+                                    pass
+                    if not song_artist and " - " in song_title:
+                        parts = song_title.split(" - ", 1)
+                        song_artist = parts[0].strip()
+                        song_title = parts[1].strip()
+
                     mp4_file = p.with_name(f'{job_id}.mp4')
                     size = mp4_file.stat().st_size if mp4_file.exists() else data.get('size', 0)
                     total_frames = data.get('total', 0)
                     records.append({
                         'id': job_id,
                         'song_title': song_title,
+                        'artist': song_artist,
                         'created_at': data.get('created_at', p.stat().st_mtime),
                         'width': data.get('width', 1280),
                         'height': data.get('height', 720),

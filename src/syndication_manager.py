@@ -16,9 +16,8 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from src.bilibili_uploader import bilibili_uploader
@@ -36,7 +35,7 @@ from src.session_manager import (
 )
 from src.wechat_uploader import wechat_uploader
 from src.xiaohongshu_uploader import xiaohongshu_uploader
-from src.youtube_uploader import youtube_uploader
+from src.youtube_uploader import is_local_request, youtube_uploader
 
 logger = logging.getLogger("syndication_manager")
 
@@ -90,17 +89,22 @@ class SyndicationPublishRequest(BaseModel):
     cover_source: str = ""
     platforms: list[str] = Field(default_factory=lambda: ["bilibili"])
     bilibili_tid: int = 28
-    youtube_privacy: str = "public"
+    youtube_privacy: str = "unlisted"
+    dry_run: bool = False
 
 
 syndication_router = APIRouter(prefix="/api/syndicate", tags=["Syndication"])
 
 
 @syndication_router.get("/status")
-def get_all_platforms_status(session_id: str = Depends(resolve_session_id)):
+def get_all_platforms_status(
+    request: Request = None,
+    session_id: str = Depends(resolve_session_id),
+):
     """获取指定会话下所有支持平台的连接与认证状态汇总"""
     results = {}
     configured_count = 0
+    is_local = is_local_request(request) if request else True
 
     for pid, meta in PLATFORM_REGISTRY.items():
         try:
@@ -118,6 +122,7 @@ def get_all_platforms_status(session_id: str = Depends(resolve_session_id)):
                 "uname": status.get("uname", ""),
                 "avatar": status.get("avatar") or status.get("face", ""),
                 "message": status.get("message", ""),
+                "is_local": is_local if pid == "youtube" else True,
             }
         except Exception as e:
             results[pid] = {
@@ -129,6 +134,7 @@ def get_all_platforms_status(session_id: str = Depends(resolve_session_id)):
                 "uname": "",
                 "avatar": "",
                 "message": str(e),
+                "is_local": is_local if pid == "youtube" else True,
             }
 
     return {
@@ -136,6 +142,7 @@ def get_all_platforms_status(session_id: str = Depends(resolve_session_id)):
         "configured_count": configured_count,
         "total_count": len(PLATFORM_REGISTRY),
         "session_id": session_id,
+        "is_local": is_local,
     }
 
 
@@ -143,9 +150,11 @@ def get_all_platforms_status(session_id: str = Depends(resolve_session_id)):
 def start_syndication_publish(
     req: SyndicationPublishRequest,
     background_tasks: BackgroundTasks,
+    request: Request = None,
     session_id: str = Depends(resolve_session_id),
 ):
     """一键向勾选的多个社交媒体平台并发分发发布视频 (带会话沙箱与防重复提交保护)"""
+    is_local = is_local_request(request) if request else True
     selected = [p for p in req.platforms if p in PLATFORM_REGISTRY]
     if not selected:
         raise HTTPException(400, "请至少选择一个要发布的平台")
@@ -256,6 +265,10 @@ def start_syndication_publish(
                             progress_callback=_cb,
                         )
                     elif pid == "youtube":
+                        if not is_local and not req.dry_run:
+                            raise ValueError(
+                                "YouTube 上传功能仅限本地运行模式 (127.0.0.1) 使用。云端环境已禁用直接上传至 YouTube 以防耗尽每日公共 API 配额。请在本地机器运行或勾选【演练模式】。"
+                            )
                         res = uploader.publish_video(
                             video_source=req.video_source,
                             title=req.title,
@@ -263,6 +276,7 @@ def start_syndication_publish(
                             tags=req.tags,
                             cover_source=req.cover_source,
                             privacy_status=req.youtube_privacy,
+                            dry_run=req.dry_run,
                             progress_callback=_cb,
                         )
                     else:

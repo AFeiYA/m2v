@@ -932,8 +932,13 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       <!-- 发布表单区域 -->
       <div id="syndicate-form-section">
         <div class="form-group">
-          <label class="form-label">Post title (adapted for each platform)</label>
-          <input type="text" id="syndicate-input-title" class="form-input" maxlength="80" required placeholder="请输入视频发布标题">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <label class="form-label" style="margin:0">Post title (adapted for each platform)</label>
+            <button type="button" id="btn-suggest-metadata" class="btn-action" style="font-size:11px;padding:2px 8px;background:rgba(56,189,248,0.15);color:#38bdf8;border:1px solid rgba(56,189,248,0.3)" title="智能生成适合卡拉OK/歌词视频的高点击率标题、SEO标签与 YouTube Content ID 免责声明">
+              ✨ 智能生成卡拉OK文案 & 免责声明
+            </button>
+          </div>
+          <input type="text" id="syndicate-input-title" class="form-input" maxlength="100" required placeholder="请输入视频发布标题">
         </div>
 
         <div class="form-group">
@@ -943,10 +948,27 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
 
         <div class="form-group">
           <label class="form-label">Description / lyrics</label>
-          <textarea id="syndicate-input-desc" class="form-textarea" rows="3" placeholder="填写作品简介或歌词..."></textarea>
+          <textarea id="syndicate-input-desc" class="form-textarea" rows="4" placeholder="填写作品简介或歌词..."></textarea>
         </div>
 
-        <div style="display:flex;gap:10px;margin-top:20px">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:10px 12px;margin:12px 0">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;color:#fff">
+              <input type="checkbox" id="syndicate-check-dryrun" style="cursor:pointer">
+              <span>🧪 演练模式 (Dry-Run 模拟发布)</span>
+            </label>
+            <span style="font-size:11px;color:#a4bca0;padding:2px 6px;border-radius:4px;background:rgba(164,188,160,0.1)">零配额消耗</span>
+          </div>
+          <p style="margin:6px 0 0 24px;font-size:11px;color:var(--text-muted);line-height:1.4">
+            勾选后将模拟多平台分发流程与格式校验，不真正调用平台发布接口，避免消耗 YouTube 每日 10,000 点配额。
+          </p>
+        </div>
+
+        <div id="youtube-compliance-banner" style="display:none;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.25);border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#fbbf24;line-height:1.4">
+          🛡️ <strong>YouTube 安全合规策略：</strong>视频将默认以「<strong>不公开 (Unlisted)</strong>」模式上传。上传后后台将自动核验 Content ID 状态（排查原作者版权收益声明与国家/地区播放受限），确认完全合规后您可在进度卡片中一键切换为「公开」。
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:16px">
           <button type="button" id="syndicate-btn-cancel" class="btn-action" style="flex:1">Cancel</button>
           <button type="button" id="syndicate-btn-submit" class="btn-action btn-gradient-syndicate" style="flex:2">🚀 Publish to selected platforms</button>
         </div>
@@ -1647,12 +1669,17 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
           actionBtn = `<button class="btn-action" style="font-size:11px;padding:2px 6px" onclick="event.stopPropagation(); logoutPlatform('${pid}')">退出</button>`;
         }
 
+        const modeBadge = (pid === 'youtube' && p.is_local !== undefined)
+          ? `<span style="font-size:10px;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,0.08);color:#94a3b8;margin-left:4px">${p.is_local ? '💻 本机专享' : '☁️ 云端禁用'}</span>`
+          : '';
+
         item.innerHTML = `
           <input type="checkbox" ${isChecked ? 'checked' : ''} style="cursor:pointer" onclick="event.stopPropagation(); togglePlatformSelection('${pid}')">
           <span class="platform-icon">${p.icon}</span>
           <div class="platform-meta">
             <div class="platform-name">
               <span>${p.name}</span>
+              ${modeBadge}
             </div>
             ${statusBadge}
           </div>
@@ -1661,6 +1688,11 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
 
         item.onclick = () => togglePlatformSelection(pid);
         grid.appendChild(item);
+      }
+
+      const ytBanner = $('youtube-compliance-banner');
+      if (ytBanner) {
+        ytBanner.style.display = selectedPlatforms.has('youtube') ? 'block' : 'none';
       }
 
       updateSyndicateSubmitBtn();
@@ -1921,6 +1953,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       }).join('');
 
       try {
+        const dryRun = $('syndicate-check-dryrun')?.checked || false;
         const res = await apiFetch('/api/syndicate/publish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1930,6 +1963,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
             desc,
             tags,
             platforms,
+            dry_run: dryRun,
           })
         });
         const data = await res.json();
@@ -1984,7 +2018,6 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
                   <div style="font-size:12px;font-weight:600;color:#38bdf8;margin-bottom:6px">⚠️ 首次在当前设备发布作品需安全授信（仅需一次）</div>
                   <img src="${s.qr_image}" style="width:140px;height:140px;border-radius:6px;background:#fff;padding:4px;display:inline-block"/>
                   <div style="font-size:11px;color:var(--text-muted);margin-top:6px">请使用【抖音APP】扫码并点击【确认】，授信后本次及后续发布将全自动执行！</div>
-
                 `;
                 const card = $(`prog-card-${pid}`);
                 if (card) card.appendChild(qrBox);
@@ -2006,6 +2039,68 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
               badge.style.color = 'var(--accent)';
             }
 
+            if (pid === 'youtube' && s.result) {
+              const r = s.result;
+              const isDry = !!r.dry_run;
+              const vid = r.video_id;
+              const vurl = r.url || (vid ? `https://youtu.be/${vid}` : '');
+              const privacy = r.privacy_status || 'unlisted';
+              const comp = r.compliance || {};
+
+              if (isDry) {
+                badge.textContent = '🧪 演练成功';
+                badge.style.color = '#38bdf8';
+              }
+
+              let ytBox = document.getElementById('prog-yt-box');
+              if (!ytBox) {
+                ytBox = document.createElement('div');
+                ytBox.id = 'prog-yt-box';
+                ytBox.style.cssText = 'margin:10px 0;padding:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px';
+                const card = $(`prog-card-${pid}`);
+                if (card) card.appendChild(ytBox);
+              }
+
+              let compPill = '';
+              if (isDry) {
+                compPill = '<span style="color:#38bdf8;font-weight:600">🧪 演练模式 (免责声明有效)</span>';
+              } else if (comp.status === 'blocked') {
+                compPill = '<span style="color:#ef4444;font-weight:600">🔴 全球禁播 (Blocked - 建议删除)</span>';
+              } else if (comp.status === 'region_restricted') {
+                compPill = `<span style="color:#f59e0b;font-weight:600">🟠 部分国家/地区禁播 (${(comp.blocked_regions || []).slice(0, 3).join(', ')} 等)</span>`;
+              } else if (comp.safe_claim) {
+                compPill = '<span style="color:#10b981;font-weight:600">🟡 安全索赔 (原唱片方共享收益，正常播放)</span>';
+              } else {
+                compPill = '<span style="color:#07C160;font-weight:600">🟢 完全合规 (Clean: 无版权标记)</span>';
+              }
+
+              let actions = '';
+              if (isDry) {
+                actions = '<div style="font-size:11px;color:var(--text-muted);margin-top:6px">演练模式测试通过，未消耗 YouTube 每日配额。如需真实发布请取消勾选演练模式。</div>';
+              } else if (vid) {
+                actions = `
+                  <div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">
+                    ${privacy === 'unlisted' ? `
+                      <button id="btn-yt-make-public" class="btn-action primary" style="font-size:11px;padding:3px 10px" onclick="setYoutubeVideoPrivacy('${vid}', 'public', this)">🌍 确认合规，一键切换为公开 (Public)</button>
+                    ` : `
+                      <span style="font-size:11px;color:#07C160;font-weight:600">● 视频已设为公开 (Public)</span>
+                    `}
+                    <button class="btn-action" style="font-size:11px;padding:3px 8px" onclick="checkYoutubeComplianceStatus('${vid}', this)">🔍 重新核验 Content ID</button>
+                    <a href="${vurl}" target="_blank" class="btn-action" style="font-size:11px;padding:3px 8px;text-decoration:none">↗ 打开 YouTube 视频</a>
+                  </div>
+                `;
+              }
+
+              ytBox.innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                  <span style="font-size:12px;font-weight:600;color:#fff">🛡️ YouTube Content ID 状态:</span>
+                  <span style="font-size:12px">${compPill}</span>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);line-height:1.4">${comp.summary || '已自动应用卡拉OK免责声明'}</div>
+                ${actions}
+              `;
+            }
+
           }
 
           if (task.status === 'completed' || task.status === 'partial_success' || task.status === 'error') {
@@ -2023,6 +2118,89 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       }, 1500);
     }
 
+    async function suggestVideoMetadata() {
+      if (!currentSyndicateVideo) return;
+      const btn = $('btn-suggest-metadata');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ 正在生成...';
+      }
+      try {
+        const songTitle = currentSyndicateVideo.song_title || 'Music Video';
+        const artist = currentSyndicateVideo.artist || (songTitle.includes(' - ') ? songTitle.split(' - ')[0].trim() : 'Made with fovea.si');
+        const style = currentSyndicateVideo.aspect === '9:16' ? '竖屏沉浸式KTV' : '4K超清卡拉OK伴奏';
+
+        const res = await apiFetch('/api/youtube/metadata/suggest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: songTitle,
+            artist: artist,
+            style: style,
+            extra_tags: ['foveasi', 'karaoke']
+          })
+        });
+        const data = await res.json();
+        if (data.title) $('syndicate-input-title').value = data.title;
+        if (data.tags && Array.isArray(data.tags)) $('syndicate-input-tags').value = data.tags.join(', ');
+        if (data.description) $('syndicate-input-desc').value = data.description;
+        showToast('✨ 已生成高曝光标题、SEO标签与 YouTube 合规版权说明！');
+      } catch (err) {
+        alert('生成文案建议失败: ' + err.message);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '✨ 智能生成卡拉OK文案 & 免责声明';
+        }
+      }
+    }
+
+    async function setYoutubeVideoPrivacy(videoId, privacyStatus, btn) {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ 更新中...';
+      }
+      try {
+        const res = await apiFetch('/api/youtube/privacy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ video_id: videoId, privacy_status: privacyStatus })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '更新隐私状态失败');
+        showToast(`🎉 YouTube 视频已成功更新为「${privacyStatus === 'public' ? '公开 (Public)' : privacyStatus}」！`);
+        if (btn) {
+          btn.outerHTML = '<span style="font-size:11px;color:#07C160;font-weight:600">● 视频已设为公开 (Public)</span>';
+        }
+      } catch (err) {
+        alert('设置失败: ' + err.message);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '🌍 确认合规，一键切换为公开 (Public)';
+        }
+      }
+    }
+
+    async function checkYoutubeComplianceStatus(videoId, btn) {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ 检测中...';
+      }
+      try {
+        const res = await apiFetch(`/api/youtube/compliance/${videoId}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '检测失败');
+        alert(`【YouTube Content ID 检测报告】\n合规判定: ${data.status}\n评估结论: ${data.summary}\n安全建议: ${data.recommendation}`);
+      } catch (err) {
+        alert('检测异常: ' + err.message);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '🔍 重新核验 Content ID';
+        }
+      }
+    }
+
     // 全网分发事件绑定
     $('btn-syndicate-header').onclick = () => openSyndicateModal(allVideos[0]?.id);
     $('btn-syndicate-player').onclick = () => openSyndicateModal(currentBiliVideo?.id || allVideos[0]?.id);
@@ -2033,6 +2211,7 @@ R2_PUBLIC_DOMAIN=https://media.fovea.si</div>
       if (e.target === $('syndicate-modal')) closeSyndicateModal();
     };
     $('syndicate-refresh-status').onclick = loadSyndicateStatus;
+    $('btn-suggest-metadata').onclick = suggestVideoMetadata;
     $('qr-drawer-close').onclick = () => $('syndicate-qr-drawer').style.display = 'none';
     $('syndicate-qr-refresh-btn').onclick = () => currentQrPlatform && openPlatformQr(currentQrPlatform);
     $('syndicate-browser-login-btn').onclick = launchBrowserLoginForCurrentPlatform;

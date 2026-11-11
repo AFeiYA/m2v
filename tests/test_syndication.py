@@ -8,14 +8,9 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
-from src.bilibili_uploader import bilibili_uploader
-from src.douyin_uploader import douyin_uploader
 from src.local_editor import app
 from src.syndication_manager import PLATFORM_REGISTRY, get_all_platforms_status
 from src.session_manager import resolve_session_id
-from src.wechat_uploader import wechat_uploader
-from src.xiaohongshu_uploader import xiaohongshu_uploader
-from src.youtube_uploader import youtube_uploader
 
 
 TEST_SESSION = "syndication_test_session"
@@ -159,3 +154,39 @@ def test_youtube_token_configuration(client, platform_uploaders):
     assert res_logout.json()["success"] is True
     platform_uploaders["youtube"].set_tokens.assert_called_once_with("mock_token_12345", "")
     platform_uploaders["youtube"].logout.assert_called_once_with()
+
+
+def test_syndicate_publish_dry_run_youtube(client, platform_uploaders):
+    """验证全网多发接口正确传递 dry_run 参数至 YouTube 发布器"""
+    platform_uploaders["youtube"].publish_video.return_value = {
+        "status": "success",
+        "video_id": "dry_run_preview_id",
+        "url": "https://youtu.be/dry_run_preview_id",
+        "privacy_status": "unlisted",
+        "dry_run": True,
+        "message": "演练模式成功",
+    }
+
+    res = client.post(
+        "/api/syndicate/publish",
+        json={
+            "video_source": "test.mp4",
+            "title": "测试歌曲",
+            "platforms": ["youtube"],
+            "dry_run": True,
+        },
+    )
+    assert res.status_code == 200
+    task_id = res.json()["task_id"]
+    assert task_id
+
+    # 轮询直至任务完成
+    poll_res = client.get(f"/api/syndicate/tasks/{task_id}")
+    assert poll_res.status_code == 200
+    task_data = poll_res.json()
+    assert "youtube" in task_data["platform_states"]
+    platform_uploaders["youtube"].publish_video.assert_called_once()
+    kwargs = platform_uploaders["youtube"].publish_video.call_args.kwargs
+    assert kwargs.get("dry_run") is True
+    assert kwargs.get("privacy_status") == "unlisted"
+
