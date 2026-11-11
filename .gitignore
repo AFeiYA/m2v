@@ -38,6 +38,7 @@ htmlcov/
 input/
 output/
 assets/
+projects/
 *.bak
 *.m4a
 *.wav
