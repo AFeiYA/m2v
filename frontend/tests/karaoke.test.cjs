@@ -51,6 +51,39 @@ test('karaoke keeps geometry and timing, removes entrance movement and pulse in 
   assert.equal(base.poster.highlight,undefined);
  }
 });
+test('syllable timestamps break word into individual acoustic spans while preserving punctuation',()=>{
+ const word={
+  word:"never,",
+  start:1.0,
+  end:1.8,
+  syllables:[
+   {text:"ne",start:1.0,end:1.3},
+   {text:"ver",start:1.3,end:1.8}
+  ]
+ };
+ const rows=[{text:"never,",x:10,y:20}];
+ const spans=compileHighlightSpans([word],[0],rows,10,400,measure);
+ assert.equal(spans.length,2);
+ // Syllable 1 ("ne")
+ assert.equal(spans[0].start,1.0);
+ assert.equal(spans[0].end,1.3);
+ assert.equal(spans[0].x,10);
+ assert.equal(spans[0].width,20);
+ // Syllable 2 ("ver,") absorbs trailing punctuation
+ assert.equal(spans[1].start,1.3);
+ assert.equal(spans[1].end,1.8);
+ assert.equal(spans[1].x,30);
+ assert.equal(spans[1].width,40); // 'ver,' is 4 chars
+
+ // Progress test: at t=1.15s, syllable 1 is 50%, syllable 2 is 0%
+ assert.ok(Math.abs(highlightState(spans[0],1.15,'sweep').progress - .5) < 1e-5);
+ assert.equal(highlightState(spans[1],1.15,'sweep').progress,0);
+
+ // At t=1.55s, syllable 1 is 100%, syllable 2 is 50%
+ assert.equal(highlightState(spans[0],1.55,'sweep').progress,1);
+ assert.ok(Math.abs(highlightState(spans[1],1.55,'sweep').progress - .5) < 1e-5);
+});
+
 test('zero-duration words and reverse seeking have deterministic finite state',()=>{
  const span={start:2,end:2};assert.deepEqual(highlightState(span,2,'sweep'),{progress:1,active:false});
  assert.equal(highlightState(span,1,'sweep').progress,0);assert.equal(highlightState(span,4,'sweep').progress,1);

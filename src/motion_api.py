@@ -258,6 +258,9 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                     if prev is not None and prev.get('cues') == plan_dict.get('cues'):
                         # Preserve existing saved plan across general design saves when lyrics changed
                         pass
+                    elif document.active_mode != 'kinetic':
+                        # In non-kinetic modes (Apple Scroll / Karaoke), don't block design saving due to an unready kinetic plan
+                        document.modes.kinetic.plan = None
                     else:
                         raise HTTPException(422, str(exc)) from exc
             atomic_write(plan_path(path), document.model_dump())

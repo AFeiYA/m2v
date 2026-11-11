@@ -137,6 +137,8 @@ def validate_plan(project, data):
             ''.join(''.join(node.text.split()) for node in (cue.poster.nodes if cue.poster else cue.groups)) ==
             ''.join(expected[cue.line_id].get('text', '').split())
             for cue in plan.cues)
+        if len(plan.cues) != len(expected):
+            raise ValueError(f'方案句数（{len(plan.cues)}句）与当前有效歌词（{len(expected)}句）不匹配，请点击“⚡ 一键生成海报方案”或重新获取导演输入')
         if not legacy or not complete_text:
             raise ValueError('方案与当前歌曲的歌词或字词结构不匹配，请确认歌曲并重新生成导演输入；仅调整时间轴无需重新导演')
     ids = [cue.line_id for cue in plan.cues]

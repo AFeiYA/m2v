@@ -1,5 +1,6 @@
 import type {MotionDesign} from './motion-design';
-export type Word = { word: string; start: number; end: number };
+export type Syllable = { text: string; start: number; end: number };
+export type Word = { word: string; start: number; end: number; syllables?: Syllable[] };
 export type PhrasePlan = {text:string;word_indices:number[];action:'reveal'|'push'|'settle'|'hold';emphasis:string;intensity:number};
 export type PosterRelation = {kind:'guidance'|'contrast'|'negation'|'repetition'|'spatial';node_indices:number[];intent:string};
 export type PosterDirection = {version:'motion-poster-direction-v1';status:'draft';layout:'hero-stack'|'center-stack'|'staggered'|'right-stack';intent:string;background:string;accent:string;motif:'none'|'rings';visibility:'cumulative';final_hold:'available-tail';transition_out:'cut'|'fade';transition_note:string;visual_intensity?:'auto'|'restrained'|'expanded'|'peak';semantic_mode?:'auto'|'off';highlight?:'none'|'word'|'sweep';relations?:PosterRelation[];nodes:{text:string;word_indices:number[];role:'primary'|'secondary'|'support';emphasis:string;color_role:'foreground'|'accent'|'muted';hold?:'none'|'drift';beat_reaction?:'none'|'pulse';entrance:'none'|'fade'|'slide-up'|'slide-down'|'slide-left'|'slide-right'|'scale-in'|'slam'|'blur-in';settle_fraction:number}[]};
@@ -43,7 +44,13 @@ export function normalizeProject(input: any): Project {
     if (!finite(l.start) || !finite(l.end) || l.start < 0 || l.end <= l.start) throw new Error(`第 ${i + 1} 句的起止时间无效。`);
     const words: Word[] = (l.words || []).map((w: any) => {
       if (!finite(w.start) || !finite(w.end) || w.start < l.start - 0.05 || w.end > l.end + 0.05 || w.end < w.start) throw new Error(`第 ${i + 1} 句的字词时间超出句子范围。`);
-      return {word: String(w.word ?? w.w ?? ''), start: w.start, end: w.end};
+      const item: Word = {word: String(w.word ?? w.w ?? ''), start: w.start, end: w.end};
+      if (Array.isArray(w.syllables) && w.syllables.length > 0) {
+        item.syllables = w.syllables
+          .filter((s: any) => typeof s.text === 'string' && finite(s.start) && finite(s.end) && s.end >= s.start)
+          .map((s: any) => ({ text: String(s.text), start: s.start, end: s.end }));
+      }
+      return item;
     }).sort((a: Word, b: Word) => a.start - b.start);
     return {id:l._lineId,text: String(l.text || words.map(w => w.word).join('')), start: l.start, end: l.end, words, section: String(l.section || '')};
   }).sort((a:Line, b:Line) => a.start - b.start);

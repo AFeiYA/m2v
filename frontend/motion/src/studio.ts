@@ -220,6 +220,11 @@ async function load(id:string){
    if (draftSnapshot !== serverSnapshot) {
     design = normalizeMotionDesign(draft.design);
     plan = design.modes.kinetic.plan;
+    if (plan && project?.lines && plan.cues && plan.cues.length !== project.lines.length) {
+     console.warn('[MotionStudio] Discarding stale draft kinetic plan due to line count mismatch:', plan.cues.length, 'vs', project.lines.length);
+     design.modes.kinetic.plan = null;
+     plan = null;
+    }
     dirty = true;
     if (draft.identity && project) {
      project.song_identity = structuredClone(draft.identity);

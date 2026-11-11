@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 from src.aligner import AlignmentResult, AlignedLine, WordTimestamp
 from src.config import SubtitleConfig
@@ -411,6 +412,115 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 # ---------------------------------------------------------------------------
+# 音节与词级卡拉OK标签生成
+# ---------------------------------------------------------------------------
+
+def slice_token_by_syllables(token: str, syl_texts: list[str]) -> list[str]:
+    """将一个单词的展示文本 (可能包含标点、首尾空格或 \\N) 按音节列表切分。
+    首个音节吸收前缀标点，尾部音节吸收末尾标点和空格。
+    保证 ''.join(slice_token_by_syllables(...)) == token 恒等成立。
+    """
+    if not syl_texts or len(syl_texts) <= 1:
+        return [token]
+    lower_token = token.lower()
+    indices = []
+    search_idx = 0
+    matched = True
+    for st in syl_texts:
+        st_lower = st.lower()
+        idx = lower_token.find(st_lower, search_idx)
+        if idx == -1:
+            matched = False
+            break
+        indices.append((idx, idx + len(st_lower)))
+        search_idx = idx + len(st_lower)
+    if not matched:
+        acc_len = 0
+        fallback = []
+        for i, st in enumerate(syl_texts):
+            if i == len(syl_texts) - 1:
+                fallback.append(token[acc_len:])
+            else:
+                l = len(st)
+                fallback.append(token[acc_len:acc_len + l])
+                acc_len += l
+        return fallback
+
+    parts = []
+    parts.append(token[:indices[0][1]])
+    for i in range(1, len(syl_texts) - 1):
+        parts.append(token[indices[i-1][1]:indices[i][1]])
+    parts.append(token[indices[-2][1]:])
+    return parts
+
+
+def format_word_karaoke(
+    word: Any,
+    current_t: float,
+    k_tag: str = "kf",
+    token: str | None = None,
+    anim_prefix: str = "",
+) -> tuple[str, float]:
+    """生成单个词（或词内多音节）的 ASS 卡拉OK标签文本与更新后的时间指针。
+    
+    支持:
+    - 词内音节细粒度高亮 (w.syllables)
+    - 自动处理前置静音 gap ({\\k...})
+    - 处理换行符 \\N 与 beat 脉冲特效 anim_prefix
+    - 返回 (karaoke_markup_fragment, next_current_t)
+    """
+    tok = token if token is not None else getattr(word, "word", "")
+    w_start = float(getattr(word, "start", 0.0) if hasattr(word, "start") else word.get("start", 0.0))
+    w_end = float(getattr(word, "end", w_start) if hasattr(word, "end") else word.get("end", w_start))
+    raw_syls = getattr(word, "syllables", None) if hasattr(word, "syllables") else word.get("syllables", None)
+    syls = list(raw_syls) if raw_syls and len(raw_syls) > 1 else None
+
+    parts: list[str] = []
+    if not syls:
+        gap_cs = round((w_start - current_t) * 100)
+        if gap_cs > 0:
+            parts.append(f"{{\\k{gap_cs}}}")
+        dur_cs = max(0, round((w_end - max(w_start, current_t)) * 100))
+        if tok.startswith("\\N"):
+            parts.append(f"\\N{anim_prefix}{{\\{k_tag}{dur_cs}}}{tok[2:]}")
+        else:
+            parts.append(f"{anim_prefix}{{\\{k_tag}{dur_cs}}}{tok}")
+        current_t = max(w_end, current_t)
+        return "".join(parts), current_t
+
+    nl_prefix = ""
+    disp = tok
+    if disp.startswith("\\N"):
+        nl_prefix = "\\N"
+        disp = disp[2:]
+
+    syl_texts = [
+        str(getattr(s, "text", "") if hasattr(s, "text") else s.get("text", ""))
+        for s in syls
+    ]
+    sliced_texts = slice_token_by_syllables(disp, syl_texts)
+
+    for si, syl in enumerate(syls):
+        s_start = float(getattr(syl, "start", w_start) if hasattr(syl, "start") else syl.get("start", w_start))
+        s_end = float(getattr(syl, "end", w_end) if hasattr(syl, "end") else syl.get("end", w_end))
+        s_disp = sliced_texts[si] if si < len(sliced_texts) else syl_texts[si]
+
+        gap_cs = round((s_start - current_t) * 100)
+        if gap_cs > 0:
+            parts.append(f"{{\\k{gap_cs}}}")
+
+        dur_cs = max(0, round((s_end - max(s_start, current_t)) * 100))
+        if si == 0:
+            parts.append(f"{nl_prefix}{anim_prefix}{{\\{k_tag}{dur_cs}}}{s_disp}")
+        else:
+            parts.append(f"{{\\{k_tag}{dur_cs}}}{s_disp}")
+        current_t = max(s_end, current_t)
+
+    current_t = max(w_end, current_t)
+    return "".join(parts), current_t
+
+
+# ---------------------------------------------------------------------------
 # 单行 Dialogue 生成
 # ---------------------------------------------------------------------------
 
@@ -560,24 +670,11 @@ def _generate_apple_music_events(alignment: AlignmentResult, config: SubtitleCon
                 tag_steady = get_tags(0, True, False, False)
                 karaoke_text = ""
                 current_t = lines[j].start
+                k_tag = "kf" if config.use_karaoke_gradient else "k"
                 
                 for word in lines[j].words:
-                    # 计算当前字和上一个字之间的静音空白 gap
-                    gap_cs = round((word.start - current_t) * 100)
-                    if gap_cs > 0:
-                        karaoke_text += f"{{\\k{gap_cs}}}"
-                    
-                    # 当前字的持续时间
-                    dur_cs = max(0, round((word.end - max(word.start, current_t)) * 100))
-                        
-                    # 根据配置决定使用平滑过光 (\kf) 还是逐字跳跃 (\k)
-                    k_tag = "kf" if config.use_karaoke_gradient else "k"
-                    if word.word.startswith("\\N"):
-                        w_disp = word.word[2:]
-                        karaoke_text += f"\\N{{\\{k_tag}{dur_cs}}}{w_disp}"
-                    else:
-                        karaoke_text += f"{{\\{k_tag}{dur_cs}}}{word.word}"
-                    current_t = max(word.end, current_t)
+                    part_str, current_t = format_word_karaoke(word, current_t, k_tag=k_tag)
+                    karaoke_text += part_str
                 
                 # Active line uses tag_steady as its base!
                 # We prepend pos_tag to tag_steady
@@ -653,23 +750,11 @@ def _generate_tv_events(
         """为一行构建带前导等待的卡拉OK标签文本"""
         parts = []
         current_t = event_start
+        k_tag = "kf" if config.use_karaoke_gradient else "k"
 
         for word in line.words:
-            gap_cs = int((word.start - current_t) * 100)
-            if gap_cs > 0:
-                parts.append(f"{{\\k{gap_cs}}}")
-
-            dur_cs = int((word.end - max(word.start, current_t)) * 100)
-            if dur_cs < 0:
-                dur_cs = 0
-
-            k_tag = "kf" if config.use_karaoke_gradient else "k"
-            if word.word.startswith("\\N"):
-                w_disp = word.word[2:]
-                parts.append(f"\\N{{\\{k_tag}{dur_cs}}}{w_disp}")
-            else:
-                parts.append(f"{{\\{k_tag}{dur_cs}}}{word.word}")
-            current_t = max(word.end, current_t)
+            part_str, current_t = format_word_karaoke(word, current_t, k_tag=k_tag)
+            parts.append(part_str)
 
         return "".join(parts)
 
@@ -788,16 +873,8 @@ def _generate_center_bounce_events(
         karaoke_parts = []
         c_time = start_t
         for w in curr.words:
-            gap_cs = int((w.start - c_time) * 100)
-            if gap_cs > 0:
-                karaoke_parts.append(f"{{\\k{gap_cs}}}")
-            dur_cs = max(0, int((w.end - max(w.start, c_time)) * 100))
-            if w.word.startswith("\\N"):
-                w_disp = w.word[2:]
-                karaoke_parts.append(f"\\N{{\\{k_tag}{dur_cs}}}{w_disp}")
-            else:
-                karaoke_parts.append(f"{{\\{k_tag}{dur_cs}}}{w.word}")
-            c_time = max(w.end, c_time)
+            part_str, c_time = format_word_karaoke(w, c_time, k_tag=k_tag)
+            karaoke_parts.append(part_str)
         karaoke_text = "".join(karaoke_parts)
 
         # 弹跳动画与淡入淡出
@@ -893,19 +970,10 @@ def _create_dialogue_line(
 
     for i, word in enumerate(line.words):
         token = tokens[i] if i < len(tokens) else word.word
-        gap_cs = round((word.start - current_t) * 100)
-        if gap_cs > 0:
-            karaoke_parts.append(f"{{\\k{gap_cs}}}")
-
-        dur_cs = max(0, round((word.end - max(word.start, current_t)) * 100))
         anim = _get_beat_effect(word.start, word.end, beat_times or [], config)
         prefix = f"{{{anim}}}" if anim else ""
-        if token.startswith("\\N"):
-            w_disp = token[2:]
-            karaoke_parts.append(f"\\N{prefix}{{\\{k_tag}{dur_cs}}}{w_disp}")
-        else:
-            karaoke_parts.append(f"{prefix}{{\\{k_tag}{dur_cs}}}{token}")
-        current_t = max(word.end, current_t)
+        part_str, current_t = format_word_karaoke(word, current_t, k_tag=k_tag, token=token, anim_prefix=prefix)
+        karaoke_parts.append(part_str)
 
     karaoke_text = "".join(karaoke_parts)
     start_str = seconds_to_ass_time(line.start)

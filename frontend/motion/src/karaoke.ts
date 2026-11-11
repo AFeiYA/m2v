@@ -5,7 +5,7 @@ type Row={text:string;x:number;y:number};
 type Measure=(text:string,size:number,weight:number)=>{width:number;advance?:number;ascent:number;descent:number};
 const letter=/[\p{L}\p{N}]/u;
 function letters(text:string){return Array.from(text).filter(c=>letter.test(c)).map(c=>c.toLocaleLowerCase('en'));}
-export function compileHighlightSpans(words:{word:string;start:number;end:number}[],indices:number[],rows:Row[],size:number,weight:number,measure:Measure):HighlightSpan[]{
+export function compileHighlightSpans(words:{word:string;start:number;end:number;syllables?:{text:string;start:number;end:number}[]}[],indices:number[],rows:Row[],size:number,weight:number,measure:Measure):HighlightSpan[]{
  if(indices.some(i=>!Number.isInteger(i)||i<0||!words[i]))return [];
  // A left-to-right wipe cannot represent bidirectional shaping safely yet.
  if(rows.some(r=>/[\p{Script=Arabic}\p{Script=Hebrew}]/u.test(r.text)))return [];
@@ -16,15 +16,42 @@ export function compileHighlightSpans(words:{word:string;start:number;end:number
  const spans:HighlightSpan[]=[];let cursor=0;
  for(const index of indices){
   const word=words[index],count=letters(word.word).length,part=positions.slice(cursor,cursor+count);cursor+=count;
-  for(const rowIndex of new Set(part.map(p=>p.row))){
-   const glyphs=part.filter(p=>p.row===rowIndex),row=rows[rowIndex],first=glyphs[0],last=glyphs.at(-1)!;
-   const metric=measure(row.text,size,weight);
-   const advance=(text:string)=>{const m=measure(text,size,weight);return m.advance??m.width;};
-   let begin=first.begin,end=last.end;
-   while(begin>0&&/\p{P}/u.test(row.text[begin-1]))begin--;
-   while(end<row.text.length&&/\p{P}/u.test(row.text[end]))end++;
-   const left=advance(row.text.slice(0,begin)),right=advance(row.text.slice(0,end));
-   spans.push({wordIndex:index,row:rowIndex,x:row.x+left,y:row.y,width:Math.max(0,right-left),top:row.y-metric.ascent-1,height:metric.ascent+metric.descent+2,start:word.start,end:word.end,fractionStart:part.indexOf(first)/count,fractionEnd:(part.indexOf(last)+1)/count});
+  const syllables=word.syllables&&word.syllables.length>1?word.syllables:null;
+  const sylLettersCount=syllables?syllables.reduce((acc,s)=>acc+letters(s.text).length,0):0;
+  const hasValidSyllables=Boolean(syllables&&sylLettersCount===count);
+
+  if(hasValidSyllables&&syllables){
+   let sylCursor=0;
+   for(let si=0;si<syllables.length;si++){
+    const syl=syllables[si];
+    const sCount=letters(syl.text).length;
+    if(sCount===0)continue;
+    const sPart=part.slice(sylCursor,sylCursor+sCount);
+    sylCursor+=sCount;
+    if(!sPart.length)continue;
+
+    for(const rowIndex of new Set(sPart.map(p=>p.row))){
+     const glyphs=sPart.filter(p=>p.row===rowIndex),row=rows[rowIndex],first=glyphs[0],last=glyphs.at(-1)!;
+     const metric=measure(row.text,size,weight);
+     const advance=(text:string)=>{const m=measure(text,size,weight);return m.advance??m.width;};
+     let begin=first.begin,end=last.end;
+     if(si===0){while(begin>0&&/\p{P}/u.test(row.text[begin-1]))begin--;}
+     if(si===syllables.length-1){while(end<row.text.length&&/\p{P}/u.test(row.text[end]))end++;}
+     const left=advance(row.text.slice(0,begin)),right=advance(row.text.slice(0,end));
+     spans.push({wordIndex:index,row:rowIndex,x:row.x+left,y:row.y,width:Math.max(0,right-left),top:row.y-metric.ascent-1,height:metric.ascent+metric.descent+2,start:syl.start,end:syl.end,fractionStart:sPart.indexOf(first)/sCount,fractionEnd:(sPart.indexOf(last)+1)/sCount});
+    }
+   }
+  }else{
+   for(const rowIndex of new Set(part.map(p=>p.row))){
+    const glyphs=part.filter(p=>p.row===rowIndex),row=rows[rowIndex],first=glyphs[0],last=glyphs.at(-1)!;
+    const metric=measure(row.text,size,weight);
+    const advance=(text:string)=>{const m=measure(text,size,weight);return m.advance??m.width;};
+    let begin=first.begin,end=last.end;
+    while(begin>0&&/\p{P}/u.test(row.text[begin-1]))begin--;
+    while(end<row.text.length&&/\p{P}/u.test(row.text[end]))end++;
+    const left=advance(row.text.slice(0,begin)),right=advance(row.text.slice(0,end));
+    spans.push({wordIndex:index,row:rowIndex,x:row.x+left,y:row.y,width:Math.max(0,right-left),top:row.y-metric.ascent-1,height:metric.ascent+metric.descent+2,start:word.start,end:word.end,fractionStart:part.indexOf(first)/count,fractionEnd:(part.indexOf(last)+1)/count});
+   }
   }
  }
  return spans;

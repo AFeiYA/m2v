@@ -4,7 +4,8 @@ import tempfile
 from pathlib import Path
 
 from src.aligner import AlignmentResult, AlignedLine, WordTimestamp
-from src.subtitle import generate_ass, _create_dialogue_line
+from src.storyboard_schema import SyllableTimestamp
+from src.subtitle import generate_ass, _create_dialogue_line, format_word_karaoke
 from src.config import SubtitleConfig
 from src.utils import seconds_to_ass_time, seconds_to_centiseconds
 
@@ -220,4 +221,50 @@ class TestGenerateAss:
                 assert "The " in content
                 assert "riverside " in content
                 assert "Theriverside" not in content
+
+    def test_syllable_level_karaoke_tags(self):
+        """验证词内音节拆分时能正确输出多个 \\kf / \\k 标签并保留词间空格与标点"""
+        w = WordTimestamp(
+            word="never",
+            start=1.0,
+            end=1.8,
+            syllables=[
+                SyllableTimestamp(text="ne", start=1.0, end=1.3),
+                SyllableTimestamp(text="ver", start=1.3, end=1.8),
+            ],
+        )
+        # 1. 独立格式化测试
+        part, next_t = format_word_karaoke(w, current_t=0.8, k_tag="kf", token="never, ")
+        assert "{\\k20}" in part          # 0.8 -> 1.0 的 20cs 静音 gap
+        assert "{\\kf30}ne" in part       # 1.0 -> 1.3 的 30cs 音节 1
+        assert "{\\kf50}ver, " in part    # 1.3 -> 1.8 的 50cs 音节 2，且吸收逗号和空格
+        assert next_t == 1.8
+
+        # 2. 单行事件测试
+        line = AlignedLine(
+            text="never give up",
+            start=1.0,
+            end=3.0,
+            words=[
+                w,
+                WordTimestamp(word="give", start=1.9, end=2.4),
+                WordTimestamp(word="up", start=2.5, end=3.0),
+            ],
+        )
+        cfg = SubtitleConfig(use_karaoke_gradient=True)
+        dialogue = _create_dialogue_line(line, cfg)
+        assert "{\\kf30}ne{\\kf50}ver " in dialogue
+        assert "{\\kf50}give " in dialogue
+        assert "{\\kf50}up" in dialogue
+
+        # 3. 完整 ASS 文件输出测试 (Apple Music, TV, Center Bounce)
+        alignment = AlignmentResult(lines=[line])
+        with tempfile.TemporaryDirectory() as td:
+            for mode in ["apple_music", "tv", "center_bounce"]:
+                out_path = Path(td) / f"syllable_{mode}.ass"
+                res_align = alignment.model_copy(deep=True)
+                generate_ass(res_align, out_path, config=SubtitleConfig(render_mode=mode))
+                content = out_path.read_text(encoding="utf-8-sig")
+                assert "{\\kf30}ne" in content
+                assert "{\\kf50}ver" in content
 
