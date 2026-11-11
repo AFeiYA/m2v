@@ -148,6 +148,37 @@ def main() -> None:
     if args.instrumental or (args.audio_track and args.audio_track == "instrumental"):
         config.use_instrumental = True
         config.compositor.audio_track = "instrumental"
+
+    # 分辨率规格 (4k, 1080p, 720p 或 WxH)
+    if args.resolution:
+        res_str = args.resolution.strip().lower()
+        if res_str in ("4k", "2160p"):
+            config.compositor.resolution = (3840, 2160)
+            config.subtitle.play_res_x = 3840
+            config.subtitle.play_res_y = 2160
+            config.subtitle.font_size = 144
+            config.subtitle.margin_x = 200
+        elif res_str in ("1080p", "1080"):
+            config.compositor.resolution = (1920, 1080)
+            config.subtitle.play_res_x = 1920
+            config.subtitle.play_res_y = 1080
+            config.subtitle.font_size = 72
+            config.subtitle.margin_x = 100
+        elif res_str in ("720p", "720"):
+            config.compositor.resolution = (1280, 720)
+            config.subtitle.play_res_x = 1280
+            config.subtitle.play_res_y = 720
+            config.subtitle.font_size = 48
+            config.subtitle.margin_x = 65
+        elif "x" in res_str:
+            try:
+                rw, rh = map(int, res_str.split("x"))
+                config.compositor.resolution = (rw, rh)
+                config.subtitle.play_res_x = rw
+                config.subtitle.play_res_y = rh
+                config.subtitle.font_size = max(28, int(rh * 0.066))
+            except Exception:
+                log.warning("无法解析自定义分辨率格式: %s，保持默认配置", args.resolution)
     elif args.audio_track:
         config.compositor.audio_track = args.audio_track
 
@@ -669,6 +700,11 @@ def parse_args() -> argparse.Namespace:
         "--instrumental", "--inst",
         action="store_true",
         help="仅使用乐器伴奏音轨 (instrumental) 输出卡拉OK视频 (消除原唱人声，输出 _karaoke.mp4)",
+    )
+    parser.add_argument(
+        "--resolution", "-res",
+        default=None,
+        help="视频分辨率: 4k, 1080p, 720p 或 WxH (如 3840x2160, 1920x1080)",
     )
     parser.add_argument(
         "--audio-track",

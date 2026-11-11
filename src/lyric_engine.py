@@ -115,6 +115,18 @@ RESOLUTION_PROFILES = {
         "desc": "1080×1920 (9:16) / 1920×1080 (16:9) — crisp typography for final social publishing",
         "scale": 1.0,
     },
+    "4k": {
+        "id": "4k",
+        "name": "4K Ultra HD",
+        "desc": "2160×3840 (9:16) / 3840×2160 (16:9) — broadcast-grade 4K UHD with ultra-sharp vector typography",
+        "scale": 2.0,
+    },
+    "2160p": {
+        "id": "4k",
+        "name": "4K Ultra HD",
+        "desc": "2160×3840 (9:16) / 3840×2160 (16:9) — broadcast-grade 4K UHD with ultra-sharp vector typography",
+        "scale": 2.0,
+    },
 }
 
 CURATED_THEMES = [
