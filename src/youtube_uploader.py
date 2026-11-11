@@ -20,8 +20,12 @@ from pathlib import Path
 from typing import Callable, Optional, Union
 
 import requests
+from dotenv import load_dotenv
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+
+# 优先加载当前目录与工程根目录的 .env 文件
+load_dotenv()
 
 from src.session_manager import (
     GLOBAL_PUBLISH_SEMAPHORE,
@@ -130,7 +134,7 @@ class YouTubeUploader:
         self._load_credentials()
 
     def _load_credentials(self):
-        """加载已保存的 OAuth 凭据"""
+        """加载已保存的 OAuth 凭据 (优先支持 .env 环境变量)"""
         self.credentials = {}
         self.channel_info = {}
         if self.credentials_path.exists():
@@ -141,6 +145,21 @@ class YouTubeUploader:
                     self.channel_info = data.get("channel", {})
             except Exception as e:
                 logger.warning(f"读取 YouTube 凭据失败: {e}")
+
+        # 支持直接通过 .env 环境变量配置/覆盖 Token
+        env_access_token = os.getenv("YOUTUBE_ACCESS_TOKEN", "").strip()
+        env_refresh_token = os.getenv("YOUTUBE_REFRESH_TOKEN", "").strip()
+        env_client_id = os.getenv("YOUTUBE_CLIENT_ID", "").strip()
+        env_client_secret = os.getenv("YOUTUBE_CLIENT_SECRET", "").strip()
+
+        if env_access_token:
+            self.credentials["access_token"] = env_access_token
+        if env_refresh_token:
+            self.credentials["refresh_token"] = env_refresh_token
+        if env_client_id:
+            self.credentials["client_id"] = env_client_id
+        if env_client_secret:
+            self.credentials["client_secret"] = env_client_secret
 
     def _save_credentials(self, credentials: dict, channel: Optional[dict] = None):
         """保存凭据到本地文件"""

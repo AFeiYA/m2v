@@ -25,6 +25,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from dotenv import load_dotenv
+
+# 加载 .env 环境变量
+load_dotenv(PROJECT_ROOT / ".env")
+
 from src.youtube_uploader import generate_youtube_metadata, youtube_uploader
 
 
