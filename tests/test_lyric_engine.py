@@ -10,12 +10,24 @@ from src.local_editor import app
 def test_lyric_video_options():
     options = get_lyric_video_options()
     assert "aspect_ratios" in options
+    assert "resolutions" in options
     assert "templates" in options
     assert "themes" in options
     assert "background_modes" in options
     ratio_ids = [r["id"] for r in options["aspect_ratios"]]
     assert "9:16" in ratio_ids
     assert "16:9" in ratio_ids
+    res_ids = [r["id"] for r in options["resolutions"]]
+    assert "4k" in res_ids
+    assert "1080p" in res_ids
+
+
+def test_4k_resolution_profile():
+    from src.lyric_engine import RESOLUTION_PROFILES
+    assert "4k" in RESOLUTION_PROFILES
+    assert RESOLUTION_PROFILES["4k"]["scale"] == 2.0
+    assert "2160p" in RESOLUTION_PROFILES
+
 
 
 @pytest.mark.local_only

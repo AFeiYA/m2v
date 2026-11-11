@@ -256,6 +256,7 @@ const I18N = {
     snap_sentence_chk: "导出自动对齐完整句子边界",
     btn_audition_clip: "▶ 试听片段",
     resolution_label: "渲染分辨率规格",
+    res_4k: "4K 极清 (2160×3840 / 3840×2160 · 影院级视网膜质感)",
     res_1080p: "1080p 超清 (1080×1920 / 1920×1080 · 字体最清晰锐利)",
     res_720p: "720p 极速草稿 (720×1280 / 1280×720 · 约2.1倍渲染速度)",
 
@@ -817,6 +818,7 @@ const I18N = {
     snap_sentence_chk: "Snap export to sentence bounds",
     btn_audition_clip: "▶ Audition Clip",
     resolution_label: "Resolution Profile",
+    res_4k: "4K Ultra HD (2160×3840 / 3840×2160 — Cinema Grade Sharpness)",
     res_1080p: "1080p Full HD (1080×1920 / 1920×1080 — Crisp Typography)",
     res_720p: "720p Fast Draft (720×1280 / 1280×720 — ~2.1× Faster Render)",
 

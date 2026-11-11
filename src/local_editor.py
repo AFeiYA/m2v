@@ -1638,6 +1638,7 @@ class LyricVideoExportRequest(BaseModel):
     duration_limit: float | None = Field(default=None, description="时长限制 (可选)")
     start_time: float = Field(default=0.0, description="裁剪起始时间 (秒)")
     end_time: float | None = Field(default=None, description="裁剪结束时间 (秒)")
+    resolution: str = Field(default="1080p", description="分辨率规格: 720p, 1080p, 4k")
 
 
 _lyric_video_tasks = TaskStore(lambda: _get_scan_dir().parent / "work" / "video_tasks")
@@ -1689,7 +1690,8 @@ def api_export_lyric_video(req: LyricVideoExportRequest):
     clean_ratio = req.aspect_ratio.replace(":", "x")
     seg_tag = f"_{int(req.start_time)}s" if req.start_time > 0 else ""
     track_tag = "_karaoke" if req.audio_track == "instrumental" else ""
-    out_mp4 = song_dir / f"{stem}_lyric_{clean_ratio}_{req.template}{track_tag}{seg_tag}.mp4"
+    res_tag = f"_{req.resolution.lower()}" if req.resolution and req.resolution.lower() in ("4k", "2160p", "720p") else ""
+    out_mp4 = song_dir / f"{stem}_lyric_{clean_ratio}_{req.template}{track_tag}{res_tag}{seg_tag}.mp4"
 
     task_id = f"lyric_{uuid.uuid4().hex[:8]}"
     _lyric_video_tasks[task_id] = {
@@ -1724,6 +1726,7 @@ def api_export_lyric_video(req: LyricVideoExportRequest):
                 duration_limit=req.duration_limit,
                 start_time=req.start_time,
                 end_time=req.end_time,
+                resolution=req.resolution,
                 audio_track=req.audio_track,
                 progress_callback=_on_prog,
             )
