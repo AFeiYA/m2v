@@ -112,6 +112,136 @@ def parse_song_from_filename(filename: str) -> dict:
     }
 
 
+def save_tokens_to_env(access_token: str, refresh_token: str = "", client_id: str = "", client_secret: str = ""):
+    """将获取到的 Token 与凭证持久化写入 .env 文件"""
+    env_path = PROJECT_ROOT / ".env"
+    if not env_path.exists():
+        return
+    content = env_path.read_text(encoding="utf-8")
+
+    def _replace_or_append(text, key, val):
+        pattern = rf'^{key}=.*$'
+        if re.search(pattern, text, flags=re.MULTILINE):
+            return re.sub(pattern, f'{key}="{val}"', text, flags=re.MULTILINE)
+        else:
+            return text + f'\n{key}="{val}"'
+
+    content = _replace_or_append(content, "YOUTUBE_ACCESS_TOKEN", access_token)
+    if refresh_token:
+        content = _replace_or_append(content, "YOUTUBE_REFRESH_TOKEN", refresh_token)
+    if client_id:
+        content = _replace_or_append(content, "YOUTUBE_CLIENT_ID", client_id)
+    if client_secret:
+        content = _replace_or_append(content, "YOUTUBE_CLIENT_SECRET", client_secret)
+
+    env_path.write_text(content, encoding="utf-8")
+
+
+def run_interactive_oauth(client_id: str = "", client_secret: str = "", port: int = 8080) -> dict:
+    """启动本地轻量 HTTP 服务，引导用户在浏览器中授权并自动捕获 Token，写入 .env 与凭据文件"""
+    import http.server
+    import urllib.parse
+    import webbrowser
+    import requests
+
+    cid = client_id or os.getenv("YOUTUBE_CLIENT_ID", "").strip()
+    csec = client_secret or os.getenv("YOUTUBE_CLIENT_SECRET", "").strip()
+
+    if not cid or not csec:
+        print("❌ 未检测到 YOUTUBE_CLIENT_ID 或 YOUTUBE_CLIENT_SECRET。请先在 .env 中填入 Google 凭据。")
+        sys.exit(1)
+
+    auth_code = None
+
+    class OAuthHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            nonlocal auth_code
+            parsed = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(parsed.query)
+            if "code" in query:
+                auth_code = query["code"][0]
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.end_headers()
+                self.wfile.write("""
+                <html>
+                <body style="font-family:sans-serif;text-align:center;padding:60px;background:#0d1117;color:#fff">
+                    <h1 style="color:#07C160">🎉 Google YouTube 授权成功！</h1>
+                    <p style="color:#8b949e;font-size:16px">凭据已自动同步，您可以关闭此浏览器窗口并回到终端继续操作。</p>
+                </body>
+                </html>
+                """.encode("utf-8"))
+            else:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b"Authorization failed.")
+
+        def log_message(self, format, *args):
+            return
+
+    server = http.server.HTTPServer(("127.0.0.1", port), OAuthHandler)
+
+    scopes = [
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtube.readonly",
+        "https://www.googleapis.com/auth/youtube",
+    ]
+    scope_str = urllib.parse.quote(" ".join(scopes))
+    redirect_uri = f"http://localhost:{port}/"
+    auth_url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth?"
+        f"client_id={cid}&"
+        f"redirect_uri={redirect_uri}&"
+        f"response_type=code&"
+        f"scope={scope_str}&"
+        f"access_type=offline&"
+        f"prompt=consent"
+    )
+
+    print("=" * 70)
+    print("🔑 Google YouTube 官方授权向导")
+    print("=" * 70)
+    print("正在自动打开浏览器进行授权确认...")
+    print(f"若浏览器未自动弹出，请手动复制以下链接并在浏览器打开:\n\n{auth_url}\n")
+    try:
+        webbrowser.open(auth_url)
+    except Exception:
+        pass
+
+    while auth_code is None:
+        server.handle_request()
+
+    server.server_close()
+
+    print("⏳ 已捕获授权码，正在向 Google 换取 Access & Refresh Token...")
+    token_url = "https://oauth2.googleapis.com/token"
+    token_payload = {
+        "client_id": cid,
+        "client_secret": csec,
+        "code": auth_code,
+        "grant_type": "authorization_code",
+        "redirect_uri": redirect_uri,
+    }
+    r = requests.post(token_url, data=token_payload, timeout=15)
+    if r.status_code != 200:
+        raise RuntimeError(f"换取 Token 失败: {r.text}")
+
+    data = r.json()
+    access_token = data.get("access_token")
+    refresh_token = data.get("refresh_token") or ""
+
+    save_tokens_to_env(access_token, refresh_token, cid, csec)
+    youtube_uploader.set_tokens(access_token, refresh_token, cid, csec)
+
+    st = youtube_uploader.get_account_status()
+    print("=" * 70)
+    print("🎉 授权绑定成功！")
+    print(f"   • 绑定频道: {st.get('uname')}")
+    print(f"   • 凭据已持久化写入 .env (支持长期自动静默续期)")
+    print("=" * 70)
+    return data
+
+
 def find_companion_files(video_path: Path) -> dict:
     """查找同名配置文件 (.json) 或封面图 (.jpg, .png)"""
     meta_json = video_path.with_suffix(".json")
@@ -180,6 +310,7 @@ def main():
     parser.add_argument("--wait-check", action="store_true", help="上传完成后等待并获取 Content ID 自动检测报告")
 
     # 管理类指令
+    parser.add_argument("--auth", action="store_true", help="启动本地授权向导，在浏览器中一键登录并绑定 YouTube 频道")
     parser.add_argument("--status", action="store_true", help="查询当前 YouTube 频道登录与连接状态")
     parser.add_argument("--token", help="设置新的 YouTube OAuth2 Access Token")
     parser.add_argument("--refresh-token", help="设置 YouTube OAuth2 Refresh Token (用于自动续期)")
@@ -187,6 +318,11 @@ def main():
     parser.add_argument("--make-public", metavar="VIDEO_ID", help="将指定 YouTube 视频一键切换为公开 (Public)")
 
     args = parser.parse_args()
+
+    # 处理管理指令：启动 OAuth 一键授权
+    if args.auth:
+        run_interactive_oauth()
+        return
 
     # 处理管理指令：查询状态
     if args.status:
