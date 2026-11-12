@@ -137,6 +137,8 @@ def main() -> None:
         config.ass_only = False
     if args.alignment_json:
         config.alignment_json = Path(args.alignment_json)
+    if getattr(args, "midi", None):
+        config.midi_file = Path(args.midi)
     if args.video_only:
         config.video_only = True
     if args.ass_file:
@@ -189,13 +191,15 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # 确定输入文件对
-    if args.lyrics or args.alignment_json:
-        # 单文件模式: 显式指定了歌词或对齐结果
+    from src.midi_converter import is_midi_file
+
+    if args.lyrics or args.alignment_json or getattr(args, "midi", None) or is_midi_file(args.input):
+        # 单文件模式: 显式指定了歌词、对齐结果、或输入为自带歌词的 MIDI 文件
         mp3_path = Path(args.input)
         lyrics_path = Path(args.lyrics) if args.lyrics else None
         
         if not mp3_path.exists():
-            log.error("输入音频文件不存在: %s", mp3_path)
+            log.error("输入文件不存在: %s", mp3_path)
             sys.exit(1)
             
         if lyrics_path and not lyrics_path.exists():
@@ -319,10 +323,43 @@ def process_one(
             return output_mp4
 
         # ---------------------------------------------------------------
-        # Step 1 & 2: 只有在不对齐 JSON 时才需要
+        # Step 1 & 2: 只有在不对齐 JSON 且非 MIDI 模式时才需要
         # ---------------------------------------------------------------
+        from src.midi_converter import is_midi_file, convert_midi_to_alignment, render_midi_to_audio
+
         alignment = None
-        if config.alignment_json:
+        is_midi_input = is_midi_file(mp3_path) or (getattr(config, "midi_file", None) and is_midi_file(config.midi_file))
+        if is_midi_input:
+            midi_path = mp3_path if is_midi_file(mp3_path) else Path(config.midi_file)
+            log.info("检测到 MIDI 模式: %s，直接从内嵌音符与歌词构建对齐…", midi_path.name)
+            _progress("aligning", 35, "从 MIDI 内嵌音符与歌词提取对齐…")
+            alignment = convert_midi_to_alignment(
+                midi_path, audio_path=None if is_midi_file(mp3_path) else mp3_path, title=stem
+            )
+
+            # 若输入文件本身是 MIDI，检查是否有同名伴奏音频
+            if is_midi_file(mp3_path):
+                companion_audio = None
+                for a_ext in [".mp3", ".wav", ".flac", ".m4a"]:
+                    c_cand = mp3_path.with_suffix(a_ext)
+                    if c_cand.exists() and not is_midi_file(c_cand):
+                        companion_audio = c_cand
+                        break
+                if companion_audio:
+                    mp3_path = companion_audio
+                    alignment.audio_path = str(mp3_path.resolve())
+                elif not config.ass_only:
+                    # 尝试使用 FluidSynth 合成音频
+                    rendered = render_midi_to_audio(midi_path, temp_dir / f"{stem}.wav")
+                    if rendered and rendered.exists():
+                        mp3_path = rendered
+                        alignment.audio_path = str(mp3_path.resolve())
+                    else:
+                        log.info("无伴奏音频且未检测到可用合成器，已自动设为仅输出字幕模式 (ass_only=True)")
+                        config.ass_only = True
+            vocals_path = mp3_path
+            instrumental_path = None
+        elif config.alignment_json:
             log.info("检测到对齐 JSON，将跳过预处理和人声分离…")
             vocals_path = mp3_path  # 占位，Step 3 会直接跳过对齐
             instrumental_path = None
@@ -469,14 +506,17 @@ def process_one(
             shutil.copy2(json_path, output_json)
 
         # Original mix drives motion; vocal/instrumental stems are not drum stems.
-        _progress("analyzing", 61, "分析原曲节拍与动效特征…")
-        from src.audio_analyzer import cached_audio_analysis
-        alignment.analysis = cached_audio_analysis(
-            mp3_path, output_dir / f"{stem}_analysis.json", sections=alignment.sections,
-        )
-        alignment.audio_path = str(mp3_path.resolve())
-        alignment.duration = alignment.analysis.duration
-        alignment.save_json(output_json)
+        if not is_midi_file(mp3_path):
+            _progress("analyzing", 61, "分析原曲节拍与动效特征…")
+            from src.audio_analyzer import cached_audio_analysis
+            alignment.analysis = cached_audio_analysis(
+                mp3_path, output_dir / f"{stem}_analysis.json", sections=alignment.sections,
+            )
+            alignment.audio_path = str(mp3_path.resolve())
+            alignment.duration = alignment.analysis.duration
+            alignment.save_json(output_json)
+        else:
+            alignment.save_json(output_json)
         # Uploaded/pasted lyrics may include the same headings as Suno source
         # metadata. Bind only explicit labels and only when the lyric sequences
         # match, so changed text or ambiguous line merges are never guessed.
@@ -664,6 +704,11 @@ def parse_args() -> argparse.Namespace:
         "--alignment-json",
         default=None,
         help="复用已有对齐 JSON 文件路径 (支持 {stem} 占位符)，可跳过对齐",
+    )
+    parser.add_argument(
+        "--midi",
+        default=None,
+        help="指定带有内嵌歌词与音符的 MIDI 伴奏文件 (.mid/.kar)，直接使用内嵌数据对齐",
     )
     parser.add_argument(
         "--ass-only",

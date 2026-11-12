@@ -45,8 +45,8 @@ def discover_pairs(input_dir: Path) -> list[tuple[Path, Path]]:
     歌词文件优先级: 同名 .lrc > 同名 .txt
     返回: [(audio_path, lyrics_path), ...]
     """
-    pairs: list[tuple[Path, Path]] = []
-    audio_exts = [".mp3", ".wav", ".flac", ".m4a"]
+    pairs: list[tuple[Path, Path | None]] = []
+    audio_exts = [".mp3", ".wav", ".flac", ".m4a", ".mid", ".midi", ".kar"]
 
     subdirs = [d for d in input_dir.iterdir() if d.is_dir()]
     candidate_dirs = sorted(subdirs) if subdirs else [input_dir]
@@ -68,6 +68,9 @@ def discover_pairs(input_dir: Path) -> list[tuple[Path, Path]]:
             pairs.append((audio_file, lrc))
         elif txt.exists():
             pairs.append((audio_file, txt))
+        elif audio_file.suffix.lower() in (".mid", ".midi", ".kar"):
+            # MIDI 自带内嵌歌词与时间轴，无需独立文本文件
+            pairs.append((audio_file, None))
         else:
             log.warning("跳过歌曲目录 %s — 未找到同名 .lrc 或 .txt 歌词文件", sdir.name)
 
@@ -149,7 +152,17 @@ def is_valid_audio_file(path: Path | str) -> bool:
     能精准拦截下载中断、缺少 moov atom 或受 Suno 防盗链混淆的破损音频。
     """
     p = Path(path)
-    if not p.is_file() or p.stat().st_size < 1024:
+    if not p.is_file() or p.stat().st_size < 16:
+        return False
+
+    if p.suffix.lower() in (".mid", ".midi", ".kar"):
+        try:
+            with open(p, "rb") as f:
+                return f.read(4) == b"MThd"
+        except Exception:
+            return False
+
+    if p.stat().st_size < 1024:
         return False
 
     import subprocess
