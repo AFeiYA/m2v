@@ -36,6 +36,24 @@ export interface KtvLineCompiled {
   spans: HighlightSpan[];
 }
 
+export interface KtvLeadInDot {
+  index: number;
+  x: number;
+  y: number;
+  radius: number;
+  scale: number;
+  alpha: number;
+  isLit: boolean;
+  isActive: boolean;
+}
+
+export interface KtvLeadInState {
+  targetLineIndex: number;
+  dots: [KtvLeadInDot, KtvLeadInDot, KtvLeadInDot, KtvLeadInDot];
+  overallAlpha: number;
+  activeBeat: number;
+}
+
 export interface KtvDualCompiled {
   aspect: '16:9' | '9:16';
   width: number;
@@ -44,6 +62,11 @@ export interface KtvDualCompiled {
   lines: KtvLineCompiled[];
   palette: StreamPalette;
   introEnd?: number;
+  title?: string;
+  artist?: string;
+  bpm?: number;
+  sections?: { name: string; start: number; end: number }[];
+  showHud?: boolean;
 }
 
 export function compileKtvDualLayout(
@@ -57,9 +80,18 @@ export function compileKtvDualLayout(
     preview_seconds?: number;
     alignment?: 'center' | 'classic';
     position_y?: number;
+    show_hud?: boolean;
   }
 ): KtvDualCompiled {
   const lines = project.lines || [];
+  const title = project.title || project.song_identity?.title || '';
+  const artist = project.artist || project.song_identity?.artist || '';
+  const bpm = Math.round(project.features?.tempo || project.analysis?.bpm || (project as any).bpm || 0);
+  const sections = (project.sections || []).map(s => ({
+    name: s.name,
+    start: s.start,
+    end: s.end,
+  }));
   const maxWidth = Math.round(width * 0.68);
   const baseFontSize = Math.round(Math.min(width,height*1.5) * 0.038 * (options?.font_scale||1));
   const previewSeconds = options?.preview_seconds ?? 2.5;
@@ -170,6 +202,11 @@ export function compileKtvDualLayout(
     lines: compiledLines,
     palette,
     introEnd,
+    title,
+    artist,
+    bpm,
+    sections,
+    showHud: options?.show_hud ?? true,
   };
 }
 
@@ -181,12 +218,19 @@ export interface KtvLineRenderState {
   spansWithProgress: { span: HighlightSpan; progress: number; active: boolean }[];
   alpha: number;
   dy: number;
+  leadIn?: KtvLeadInState | null;
+  timeUntilStart: number;
 }
 
 export function ktvDualStateAt(
   layout: KtvDualCompiled,
   t: number
-): { upper: KtvLineRenderState | null; lower: KtvLineRenderState | null } {
+): {
+  upper: KtvLineRenderState | null;
+  lower: KtvLineRenderState | null;
+  currentSection?: string;
+  sectionIcon?: string;
+} {
   let upper: KtvLineRenderState | null = null;
   let lower: KtvLineRenderState | null = null;
 
@@ -198,6 +242,9 @@ export function ktvDualStateAt(
     let alpha = 1.0;
     let dy = 0;
 
+    const timeUntilStart = Math.max(0, c.activeStart - t);
+    let leadIn: KtvLeadInState | null = null;
+
     if (t < c.activeStart) {
       phase = 'preview';
       const elapsed = t - c.previewStart;
@@ -205,6 +252,39 @@ export function ktvDualStateAt(
       const ease = 1 - Math.pow(1 - enterProg, 3);
       dy = Math.round((1 - ease) * 10);
       alpha = Number(ease.toFixed(3));
+
+      // 4-beat rhythm countdown indicator when within 2.0s of singing
+      if (timeUntilStart <= 2.0 && timeUntilStart > 0.05) {
+        const dotSpacing = Math.round(c.fontSize * 0.45);
+        const dotRadius = Math.max(4, Math.round(c.fontSize * 0.12));
+        const dotsStartX = c.x - dotSpacing * 4 - 8;
+        const dotsY = c.y - Math.round(c.fontSize * 0.32);
+
+        const activeBeat = Math.min(4, Math.max(1, Math.floor((2.0 - timeUntilStart) / 0.5) + 1));
+        const overallAlpha = Math.min(1, Math.max(0, (t - c.previewStart) / 0.25));
+
+        const dots = [0, 1, 2, 3].map(i => {
+          const isLit = (i + 1) <= activeBeat;
+          const isActive = (i + 1) === activeBeat;
+          return {
+            index: i,
+            x: dotsStartX + i * dotSpacing,
+            y: dotsY,
+            radius: dotRadius,
+            scale: isActive ? 1.35 : (isLit ? 1.1 : 1.0),
+            alpha: isLit ? 1.0 : 0.3,
+            isLit,
+            isActive,
+          };
+        }) as [KtvLeadInDot, KtvLeadInDot, KtvLeadInDot, KtvLeadInDot];
+
+        leadIn = {
+          targetLineIndex: c.lineIndex,
+          dots,
+          overallAlpha,
+          activeBeat,
+        };
+      }
     } else if (t <= c.activeEnd) {
       phase = 'active';
       dy = 0;
@@ -232,6 +312,8 @@ export function ktvDualStateAt(
       spansWithProgress,
       alpha,
       dy,
+      leadIn,
+      timeUntilStart,
     };
 
     if (c.isUpper) {
@@ -241,7 +323,36 @@ export function ktvDualStateAt(
     }
   }
 
-  return { upper, lower };
+  // Derive current section marker and icon
+  let currentSection = 'Intro';
+  if (layout.sections && layout.sections.length > 0) {
+    for (const s of layout.sections) {
+      if (t >= s.start - 0.2) {
+        currentSection = s.name.replace(/^\[|\]$/g, '').trim();
+      }
+    }
+  } else {
+    const active = layout.lines.find(l => t >= l.activeStart - 0.5 && t <= l.stayEnd);
+    if (active?.line?.section) {
+      currentSection = active.line.section.replace(/^\[|\]$/g, '').trim();
+    }
+  }
+
+  const sLower = currentSection.toLowerCase();
+  let sectionIcon = '🎵';
+  if (sLower.includes('chorus') || sLower.includes('副歌')) {
+    sectionIcon = '🔔';
+  } else if (sLower.includes('solo') || sLower.includes('interlude') || sLower.includes('间奏')) {
+    sectionIcon = '🎸';
+  } else if (sLower.includes('verse') || sLower.includes('主歌')) {
+    sectionIcon = '🎤';
+  } else if (sLower.includes('outro') || sLower.includes('尾声')) {
+    sectionIcon = '✨';
+  } else if (sLower.includes('intro') || sLower.includes('前奏')) {
+    sectionIcon = '🎄';
+  }
+
+  return { upper, lower, currentSection, sectionIcon };
 }
 
 export function paintKtvDualCanvas(
@@ -250,7 +361,7 @@ export function paintKtvDualCanvas(
   t: number,
   fontFamily: string
 ): void {
-  const { upper, lower } = ktvDualStateAt(layout, t);
+  const { upper, lower, currentSection, sectionIcon } = ktvDualStateAt(layout, t);
   const slots = [upper, lower].filter((s): s is KtvLineRenderState => Boolean(s));
 
   for (const slot of slots) {
@@ -258,23 +369,24 @@ export function paintKtvDualCanvas(
     ctx.save();
     if (slot.alpha < 1) ctx.globalAlpha = Math.max(0, Math.min(1, slot.alpha));
     if (slot.dy !== 0) ctx.translate(0, slot.dy);
+
     ctx.font = `700 ${c.fontSize}px ${fontFamily}`;
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+    const strokeWidth = Math.max(3.5, Math.round(c.fontSize * 0.12));
 
-    if (slot.phase === 'preview') {
-      // 暗色预览
-      ctx.fillStyle = slot.dimColor;
-      ctx.fillText(c.line.text, c.x, c.y);
-    } else if (slot.phase === 'stay') {
-      // 唱完高亮常驻
-      ctx.fillStyle = slot.sungColor;
-      ctx.fillText(c.line.text, c.x, c.y);
-    } else {
-      // 正在演唱扫光：先画未唱底色，再用剪裁绘制已扫光文字
-      ctx.fillStyle = slot.dimColor;
-      ctx.fillText(c.line.text, c.x, c.y);
+    // 1. Base text with deep dark outline for crisp KTV contrast
+    const baseColor = slot.phase === 'stay' ? slot.sungColor : slot.dimColor;
+    ctx.strokeStyle = 'rgba(5, 10, 8, 0.9)';
+    ctx.lineWidth = strokeWidth;
+    ctx.strokeText(c.line.text, c.x, c.y);
+    ctx.fillStyle = baseColor;
+    ctx.fillText(c.line.text, c.x, c.y);
 
+    // 2. Active swept lyrics highlight
+    if (slot.phase === 'active') {
       for (const item of slot.spansWithProgress) {
         if (item.progress <= 0) continue;
         ctx.save();
@@ -286,10 +398,99 @@ export function paintKtvDualCanvas(
           item.span.height
         );
         ctx.clip();
+
+        // Stroke under active highlight
+        ctx.strokeStyle = 'rgba(5, 10, 8, 0.95)';
+        ctx.lineWidth = strokeWidth;
+        ctx.strokeText(c.line.text, c.x, c.y);
+
+        // Accent fill with bloom glow
         ctx.fillStyle = slot.sungColor;
+        ctx.shadowColor = slot.sungColor;
+        ctx.shadowBlur = Math.round(c.fontSize * 0.3);
         ctx.fillText(c.line.text, c.x, c.y);
         ctx.restore();
       }
+    }
+
+    // 3. Lead-in countdown dots (4 beats prior to singing)
+    if (slot.leadIn && slot.leadIn.overallAlpha > 0.05) {
+      ctx.save();
+      ctx.globalAlpha = slot.leadIn.overallAlpha;
+      for (const dot of slot.leadIn.dots) {
+        ctx.save();
+        ctx.translate(dot.x, dot.y);
+        ctx.scale(dot.scale, dot.scale);
+        ctx.beginPath();
+        ctx.arc(0, 0, dot.radius, 0, Math.PI * 2);
+        if (dot.isLit) {
+          ctx.fillStyle = slot.sungColor;
+          ctx.shadowColor = slot.sungColor;
+          ctx.shadowBlur = dot.isActive ? 12 : 5;
+        } else {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+          ctx.shadowBlur = 0;
+        }
+        ctx.fill();
+        ctx.restore();
+      }
+      ctx.restore();
+    } else if (slot.phase === 'active') {
+      // 4. Singing microphone indicator
+      ctx.save();
+      const iconSize = Math.max(14, Math.round(c.fontSize * 0.48));
+      ctx.font = `${iconSize}px ${fontFamily}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = slot.sungColor;
+      ctx.shadowBlur = 8;
+      ctx.fillText('🎤', c.x - iconSize - 8, c.y - Math.round(c.fontSize * 0.32));
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  // 4. Top Section Badge & Song HUD
+  if (layout.showHud !== false && (layout.title || currentSection)) {
+    const hudY = Math.round(layout.height * 0.08);
+    const badgeText = `${sectionIcon || '🎵'}  ${(currentSection || 'Intro').toUpperCase()}`;
+    const badgeFontSize = Math.max(12, Math.round(layout.uniformFontSize * 0.38));
+    ctx.save();
+    ctx.font = `800 ${badgeFontSize}px ${fontFamily}`;
+    const badgeMetrics = ctx.measureText(badgeText);
+    const badgePadX = 18;
+    const badgePadY = 6;
+    const badgeW = badgeMetrics.width + badgePadX * 2;
+    const badgeH = badgeFontSize + badgePadY * 2;
+    const badgeX = Math.round((layout.width - badgeW) / 2);
+    const badgeBoxY = Math.round(hudY - badgeH / 2);
+
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(badgeX, badgeBoxY, badgeW, badgeH, badgeH / 2);
+    } else {
+      ctx.rect(badgeX, badgeBoxY, badgeW, badgeH);
+    }
+    ctx.fillStyle = 'rgba(10, 20, 15, 0.78)';
+    ctx.fill();
+    ctx.strokeStyle = layout.palette.accent;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = layout.palette.accent;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(badgeText, layout.width / 2, hudY);
+
+    if (layout.title && layout.aspect === '16:9') {
+      const titleFontSize = Math.max(13, Math.round(layout.uniformFontSize * 0.42));
+      ctx.font = `700 ${titleFontSize}px ${fontFamily}`;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+      ctx.shadowBlur = 4;
+      const subText = layout.bpm ? `${layout.title.toUpperCase()} • ${layout.bpm} BPM` : layout.title.toUpperCase();
+      ctx.fillText(subText, layout.width / 2, hudY + badgeH * 0.88 + 4);
     }
     ctx.restore();
   }
