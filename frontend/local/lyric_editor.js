@@ -18,6 +18,15 @@ const PORTRAIT_SAFE_AREA = {
 
 const CURATED_EXPORT_THEMES = [
   {
+    "id": "christmas2026",
+    "name": "🎄 Christmas2026",
+    "subtitle": "Christmas snow particles & holiday gold",
+    "theme": "christmas2026",
+    "accent": "#ffd700",
+    "secondary": "#ff385c",
+    "bg_preview": "linear-gradient(145deg, #07130e 0%, #162e24 60%, #301016 100%)"
+  },
+  {
     "id": "impact",
     "name": "Impact Lime",
     "subtitle": "Motion Design palette",

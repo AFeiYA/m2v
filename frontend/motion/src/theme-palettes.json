@@ -96,5 +96,19 @@
     "mutedDark": "#727272",
     "mutedLight": "#787878",
     "defaultBackground": "dark"
+  },
+  "christmas2026": {
+    "id": "christmas2026",
+    "name": "圣诞 · 璀璨雪华 Christmas2026",
+    "accent": "#ffd700",
+    "accentDark": "#ffd700",
+    "accentLight": "#c8102e",
+    "backgroundLight": "#fcfaf7",
+    "backgroundDark": "#07130e",
+    "foregroundDark": "#fefdfa",
+    "foregroundLight": "#16251c",
+    "mutedDark": "#7a9a88",
+    "mutedLight": "#587866",
+    "defaultBackground": "dark"
   }
 }
