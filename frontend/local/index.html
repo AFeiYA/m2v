@@ -96,8 +96,11 @@
           <button class="dropdown-item" type="button" data-export-action="lrc-pinyin" style="display: flex; align-items: center; width: 100%; padding: 7px 14px; background: none; border: none; color: #f1f5f9; text-align: left; font-size: 13px; cursor: pointer;" onmouseover="this.style.background='rgba(255,255,255,0.08)'" onmouseout="this.style.background='none'" data-i18n="export_opt_lrc_pinyin">📜 拼音 + 中文双行 LRC</button>
           <div style="height: 1px; background: #334155; margin: 5px 0;"></div>
           <button class="dropdown-item" type="button" data-export-action="bundle-zip" style="display: flex; align-items: center; width: 100%; padding: 8px 14px; background: none; border: none; color: #38bdf8; text-align: left; font-size: 13px; font-weight: 500; cursor: pointer;" onmouseover="this.style.background='rgba(56,189,248,0.1)'" onmouseout="this.style.background='none'" data-i18n="export_opt_bundle_zip">📦 打包下载全套歌词分发包 (.zip)</button>
+          <div style="height: 1px; background: #334155; margin: 5px 0;"></div>
+          <button class="dropdown-item" type="button" onclick="document.getElementById('btn-export-lyric-video').click()" style="display: flex; align-items: center; width: 100%; padding: 8px 14px; background: none; border: none; color: #b7f34a; text-align: left; font-size: 13px; font-weight: 600; cursor: pointer;" onmouseover="this.style.background='rgba(183,243,74,0.1)'" onmouseout="this.style.background='none'">🎬 导出动效短视频 (MP4)...</button>
         </div>
       </div>
+      <button id="btn-export-lyric-video" class="secondary-btn" title="导出动效歌词短视频 (WebCodecs 极速导出)" data-i18n="btn_export_lyric_video" data-i18n-title="btn_export_lyric_video_title" style="background: rgba(183, 243, 74, 0.15); color: #b7f34a; border: 1px solid rgba(183, 243, 74, 0.4); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 700; box-shadow: 0 2px 8px rgba(183, 243, 74, 0.15);">🎬 导出短视频</button>
       <!-- 保留兼容隐藏节点，避免依赖测试报错 -->
       <button id="btn-export-lrc" style="display: none !important;"></button>
       <button id="btn-export-ttml" style="display: none !important;"></button>
