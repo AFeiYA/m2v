@@ -18,6 +18,17 @@ const PORTRAIT_SAFE_AREA = {
 
 const CURATED_EXPORT_THEMES = [
   {
+    "id": "christmas_special",
+    "name": "🎄 圣诞特辑 · 双行KTV",
+    "subtitle": "Christmas KTV Special · 维多利亚金框/逐字缩放/飘雪光斑",
+    "theme": "christmas2026",
+    "template": "tv",
+    "visual_mode": "tv",
+    "accent": "#ffd700",
+    "secondary": "#ff385c",
+    "bg_preview": "radial-gradient(circle at 50% 28%, #3d0707 0%, #260404 42%, #140202 78%, #080101 100%)"
+  },
+  {
     "id": "christmas2026",
     "name": "🎄 Christmas2026",
     "subtitle": "Christmas snow particles & holiday gold",
@@ -1355,7 +1366,13 @@ function initLyricExportModal() {
           if (c.classList) c.classList.toggle("active", c.dataset.themeId === ct.id);
         });
         const tplSelect = $("#export-template-select");
-        if (tplSelect) tplSelect.value = exportTemplateForRatio(document.querySelector('input[name="export-ratio"]:checked')?.value || "9:16");
+        if (tplSelect) {
+          if (ct.template || ct.visual_mode) {
+            tplSelect.value = ct.template || ct.visual_mode;
+          } else {
+            tplSelect.value = exportTemplateForRatio(document.querySelector('input[name="export-ratio"]:checked')?.value || "9:16");
+          }
+        }
         const themeSelect = $("#export-theme-select");
         if (themeSelect) themeSelect.value = ct.theme;
         const bgRadio = document.querySelector(`input[name="export-bg"][value="${ct.background_mode}"]`);
@@ -1384,10 +1401,23 @@ function initLyricExportModal() {
       stage.classList.toggle("portrait", ratio !== "16:9");
     }
     const template = $("#export-template-select");
-    if (template) template.value = exportTemplateForRatio(ratio);
     const ct = activeCuratedTheme || CURATED_EXPORT_THEMES[0];
+    if (template) {
+      if (ct?.template || ct?.visual_mode) {
+        template.value = ct.template || ct.visual_mode;
+      } else {
+        template.value = exportTemplateForRatio(ratio);
+      }
+    }
     if (ct && stage.style) {
       stage.style.background = ct.bg_preview || "#0d1117";
+      if (ct.id === "christmas_special") {
+        stage.style.border = "2px solid rgba(245, 158, 11, 0.6)";
+        stage.style.boxShadow = "inset 0 0 20px rgba(245, 158, 11, 0.25)";
+      } else {
+        stage.style.border = "";
+        stage.style.boxShadow = "";
+      }
     }
     if ($("#preview-lyric-prev")) $("#preview-lyric-prev").hidden = ratio === "16:9";
     const coverChip = $("#preview-cover-chip");

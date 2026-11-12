@@ -204,6 +204,18 @@ class YouTubeUploader:
                 if new_token:
                     self.credentials["access_token"] = new_token
                     self._save_credentials(self.credentials, self.channel_info)
+                    # 同步更新 .env 文件以防环境变量持有过期 token
+                    try:
+                        env_file = self.credentials_path.parent.parent / ".env"
+                        if env_file.exists():
+                            import re
+                            c = env_file.read_text(encoding="utf-8")
+                            pat = r'^YOUTUBE_ACCESS_TOKEN=.*$'
+                            if re.search(pat, c, flags=re.MULTILINE):
+                                c = re.sub(pat, f'YOUTUBE_ACCESS_TOKEN="{new_token}"', c, flags=re.MULTILINE)
+                                env_file.write_text(c, encoding="utf-8")
+                    except Exception:
+                        pass
                     logger.info("YouTube Access Token 自动刷新成功")
                     return True
         except Exception as e:
@@ -387,6 +399,20 @@ class YouTubeUploader:
             json=metadata,
             timeout=30,
         )
+
+        if init_res.status_code == 401 and self.refresh_access_token():
+            access_token = self.credentials.get("access_token")
+            init_res = requests.post(
+                "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json; charset=UTF-8",
+                    "X-Upload-Content-Length": str(file_size),
+                    "X-Upload-Content-Type": "video/mp4",
+                },
+                json=metadata,
+                timeout=30,
+            )
 
         if init_res.status_code not in [200, 201]:
             raise RuntimeError(f"初始化 YouTube 上传失败: {init_res.text}")

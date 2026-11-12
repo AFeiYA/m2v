@@ -7,6 +7,7 @@ import {stageAt,visiblePosterAt,canvasMeasure,POSTER_FONT,posterNodeState,poster
 import {songLayoutAt,songTextColor,coverPlacement,coverOpacityAt,type SongLayout} from './song-layout';
 import {ktvDualStateAt,type KtvDualCompiled,appleScrollStateAt,type AppleScrollCompiled} from './stream-layout';
 import {computeAmbientOrbs,computeParticles,hexToRgba} from './ambient-particles';
+import {KtvKaraokeStage} from './ktv-karaoke-stage';
 
 export type VideoProps={project:Project;options:Options;timeOffset?:number;renderLength?:number;transparent?:boolean;surface?:{width:number;height:number}};
 
@@ -34,6 +35,14 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
 
  const isReady = (activeVisualMode === 'tv' && ktvLayout) || (activeVisualMode === 'apple' && appleLayout) || (activeVisualMode === 'kinetic' && layouts);
  if(!isReady)return <AbsoluteFill style={{background:'#0d120a'}}/>;
+
+ if (activeVisualMode === 'tv') {
+  return (
+   <AbsoluteFill style={{background: background || '#090d14', overflow: 'hidden'}}>
+    <KtvKaraokeStage project={project} options={options} t={t} frame={frame} width={width} height={height} palette={ktvLayout?.palette} />
+   </AbsoluteFill>
+  );
+ }
 
  const plan=layouts?visiblePosterAt(layouts,t):undefined;
  const stage=layouts?stageAt(layouts,t):undefined;
@@ -110,7 +119,8 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
     {!isCoverActive && activeVisualMode === 'tv' && ktvLayout && (()=>{
       const { upper, lower, currentSection, sectionIcon } = ktvDualStateAt(ktvLayout, t);
       const slots = [upper, lower].filter((s): s is NonNullable<typeof upper> => Boolean(s));
-      const strokeW = Math.max(3.5, Math.round(ktvLayout.uniformFontSize * 0.12));
+      const strokeW = Math.max(2.5, Math.round(ktvLayout.uniformFontSize * 0.08));
+      const isChristmasMode = options?.preset === 'christmas2026' || options?.preset === 'christmas_special' || project.song_identity?.visual_theme === 'christmas2026' || project.song_identity?.visual_theme === 'christmas_special';
       return (
         <g key="ktv-dual-container">
           {/* Top HUD Section Ribbon */}
@@ -122,7 +132,7 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
                 width={180}
                 height={32}
                 rx={16}
-                fill="rgba(10, 20, 15, 0.78)"
+                fill="rgba(10, 16, 26, 0.82)"
                 stroke={accent}
                 strokeWidth={1.5}
               />
@@ -135,26 +145,48 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
                 fontWeight={800}
                 fontFamily={POSTER_FONT}
               >
-                {`${sectionIcon || '🎵'}  ${(currentSection || 'Intro').toUpperCase()}`}
+                {`${sectionIcon || (isChristmasMode ? '🔔' : '🎵')}  ${(currentSection || 'Intro').toUpperCase()}`}
               </text>
             </g>
           )}
 
           {slots.map(slot => {
             const c = slot.compiled;
-            const textColor = slot.phase === 'stay' ? slot.sungColor : slot.dimColor;
+            const baseTextColor = slot.phase === 'stay' ? slot.sungColor : '#FFFFFF';
             const dy = slot.dy || 0;
             const alpha = slot.alpha ?? 1;
+            const cardPadX = 24;
+            const cardPadY = 12;
+            const hasLead = Boolean(slot.leadIn && slot.leadIn.overallAlpha > 0.05);
+            const cardX = c.x - (hasLead ? 60 : cardPadX);
+            const cardY = c.y - c.fontSize - cardPadY + 4;
+            const cardW = c.width + (hasLead ? 80 : cardPadX * 2);
+            const cardH = c.fontSize + cardPadY * 2 + 4;
+            const isActive = slot.phase === 'active';
+
             return (
               <g key={c.lineIndex} opacity={alpha} transform={dy !== 0 ? `translate(0 ${dy})` : undefined}>
-                {/* 1. Base Text with Deep Dark Outline */}
+                {/* Card Background Container */}
+                <rect
+                  x={cardX}
+                  y={cardY}
+                  width={cardW}
+                  height={cardH}
+                  rx={18}
+                  fill={isActive ? 'rgba(12, 18, 28, 0.88)' : 'rgba(8, 12, 20, 0.72)'}
+                  stroke={isActive ? accent : 'rgba(255, 255, 255, 0.15)'}
+                  strokeWidth={isActive ? 2 : 1}
+                  style={isActive ? { filter: `drop-shadow(0 0 16px ${accent}66)` } : undefined}
+                />
+
+                {/* 1. Base Text: NEVER BLACK! Pure white with subtle dark stroke */}
                 <text
                   x={c.x}
                   y={c.y}
-                  stroke="rgba(5, 10, 8, 0.9)"
+                  stroke="rgba(0, 0, 0, 0.85)"
                   strokeWidth={strokeW}
                   strokeLinejoin="round"
-                  fill={textColor}
+                  fill={baseTextColor}
                   fontSize={c.fontSize}
                   fontWeight={700}
                   fontFamily={POSTER_FONT}

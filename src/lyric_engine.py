@@ -131,6 +131,17 @@ RESOLUTION_PROFILES = {
 
 CURATED_THEMES = [
     {
+        "id": "christmas_special",
+        "name": "🎄 圣诞特辑 · 双行卡拉OK",
+        "subtitle": "Victorian gold frame + dual-line KTV with word zoom & snowfall",
+        "template": "tv",
+        "theme": "christmas2026",
+        "background_mode": "blurred_ambient",
+        "accent": "#ffd700",
+        "secondary": "#ff385c",
+        "bg_preview": "radial-gradient(circle at 50% 28%, #3d0707 0%, #260404 42%, #140202 78%, #080101 100%)",
+    },
+    {
         "id": "christmas2026",
         "name": "🎄 Christmas2026 璀璨雪华",
         "subtitle": "Winter snow particles + holiday gold & pine aura",
