@@ -362,7 +362,7 @@ def auto_process_netease(
         source = SongSource.from_folder(song_input_dir)
         source.sync_to_output(song_output_dir)
 
-    editor_url = f"http://127.0.0.1:{port}/?song={song_name}"
+    editor_url = f"http://127.0.0.1:{port}/lyric-editor?song={song_name}"
     _safe_cb(100, f"《{song.title}》已就绪！", extra={"project_id": song_name, "editor_url": editor_url})
 
     return {

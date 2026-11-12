@@ -266,5 +266,18 @@ def test_get_asset_file_download_header(tmp_path):
     assert "my_mv.mp4" in res_dl.headers.get("content-disposition", "")
 
 
+def test_root_redirect_to_lyric_editor():
+    """测试根路径 / 携带 ?song= 或 ?task_id= 参数时，正确 302 重定向到 /lyric-editor"""
+    client = TestClient(app)
+    res = client.get("/?song=TestSong", follow_redirects=False)
+    assert res.status_code == 302
+    assert res.headers["location"] == "/lyric-editor?song=TestSong"
+
+    res_task = client.get("/?task_id=12345", follow_redirects=False)
+    assert res_task.status_code == 302
+    assert res_task.headers["location"] == "/lyric-editor?task_id=12345"
+
+
+
 
 
