@@ -175,7 +175,7 @@ async function refreshEditorToken() {
   if (editorRefreshPromise) return editorRefreshPromise;
   editorRefreshPromise = (async () => {
     const provider = localStorage.getItem("m2v_auth_provider");
-    const fbUser = typeof firebase !== "undefined" && firebase.auth ? firebase.auth().currentUser : null;
+    const fbUser = typeof firebase !== "undefined" && firebase.auth && firebase.apps?.length ? firebase.auth().currentUser : null;
     if (provider === "firebase" || fbUser) {
       if (window.parent && window.parent !== window && window.parent.m2vAuth?.getIdToken) {
         try {
@@ -246,22 +246,26 @@ async function editorLogin() {
 }
 
 function setupEditorAuth() {
-  if (typeof firebase === "undefined" || !firebase.auth || window.editorAuthBound) return;
-  window.editorAuthBound = true;
-  firebase.auth().onAuthStateChanged(async user => {
-    if (localStorage.getItem("m2v_auth_provider") === "local") return;
-    if (user) {
-      localStorage.setItem("m2v_auth_provider", "firebase");
-      localStorage.removeItem("m2v_refresh");
-      localStorage.setItem("m2v_token", await user.getIdToken());
-      updateAuthUi();
-      // Auth restoration may arrive after the initial anonymous list request.
-      if (!state.currentFile) await loadFileList();
-    } else if (localStorage.getItem("m2v_auth_provider") === "firebase") {
-      localStorage.removeItem("m2v_token");
-      updateAuthUi();
-    }
-  });
+  try {
+    if (typeof firebase === "undefined" || !firebase.auth || !firebase.apps || !firebase.apps.length || window.editorAuthBound) return;
+    window.editorAuthBound = true;
+    firebase.auth().onAuthStateChanged(async user => {
+      if (localStorage.getItem("m2v_auth_provider") === "local") return;
+      if (user) {
+        localStorage.setItem("m2v_auth_provider", "firebase");
+        localStorage.removeItem("m2v_refresh");
+        localStorage.setItem("m2v_token", await user.getIdToken());
+        updateAuthUi();
+        // Auth restoration may arrive after the initial anonymous list request.
+        if (!state.currentFile) await loadFileList();
+      } else if (localStorage.getItem("m2v_auth_provider") === "firebase") {
+        localStorage.removeItem("m2v_token");
+        updateAuthUi();
+      }
+    });
+  } catch (err) {
+    console.warn("[setupEditorAuth] Skipped non-initialized firebase auth:", err);
+  }
 }
 window.setupEditorAuth = setupEditorAuth;
 
