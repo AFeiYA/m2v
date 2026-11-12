@@ -591,8 +591,11 @@ async function loadFileList(preferredTitle) {
     }
 
     const urlParams = new URLSearchParams(window.location.search);
-    const targetTaskId = urlParams.get("task_id") || (window.location.pathname.match(/\/lyric-editor\/([0-9a-fA-F-]+)/) || [])[1];
-    const targetSong = preferredTitle || urlParams.get("song");
+    const rawPathMatch = (window.location.pathname.match(/\/lyric-editor\/([^/?#]+)/) || [])[1];
+    const pathSlug = rawPathMatch ? decodeURIComponent(rawPathMatch) : "";
+    const isUuid = /^[0-9a-fA-F-]{16,}$/.test(pathSlug);
+    const targetTaskId = urlParams.get("task_id") || (isUuid ? pathSlug : null);
+    const targetSong = preferredTitle || urlParams.get("song") || (!isUuid && pathSlug ? pathSlug : null);
 
     if (targetTaskId) {
       const idx = state.allFiles.findIndex(f => f.task_id === targetTaskId);

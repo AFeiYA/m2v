@@ -27,7 +27,7 @@ import uvicorn
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from src.storyboard_schema import (
     AlignmentProject,
@@ -805,7 +805,7 @@ async def plugin_direct_import(
         except Exception as e:
             log.warning("乐段结构注入异常: %s", e)
 
-    editor_url = f"/?song={quote(clean_title)}"
+    editor_url = f"/lyric-editor?song={quote(clean_title)}"
     return {
         "status": "ok",
         "title": clean_title,
@@ -867,7 +867,7 @@ async def import_midi_alignment(file: UploadFile = File(...), title: str | None 
         log.warning("ASS 写入失败: %s", e)
 
     log.info("MIDI 歌词导入成功: %s -> %s (共 %d 行歌词)", raw_filename, align_json_path, len(alignment.lines))
-    editor_url = f"/?song={quote(clean_title)}"
+    editor_url = f"/lyric-editor?song={quote(clean_title)}"
 
     return {
         "status": "ok",
@@ -2466,6 +2466,8 @@ if _FRONTEND_DIR.exists():
 @app.get("/karaoke", response_class=HTMLResponse)
 @app.get("/app", response_class=HTMLResponse)
 def public_page(request: Request):
+    if request.url.path == "/" and ("song" in request.query_params or "task_id" in request.query_params):
+        return RedirectResponse(url=f"/lyric-editor?{request.query_params}", status_code=302)
     name = request.url.path.strip("/") or "index"
     page = _FRONTEND_ROOT / f"{name}.html"
     if not page.is_file():

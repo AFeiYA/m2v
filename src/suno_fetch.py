@@ -929,7 +929,7 @@ def launch_local_editor_browser(song_name: str, port: int = 8000) -> None:
             if ok:
                 break
 
-    editor_url = f"http://127.0.0.1:{port}/?song={quote(song_name)}"
+    editor_url = f"http://127.0.0.1:{port}/lyric-editor?song={quote(song_name)}"
     log.info("🚀 正在浏览器中打开编辑页面: %s", editor_url)
     webbrowser.open(editor_url)
 
@@ -1077,7 +1077,7 @@ def auto_process_suno(
         "vocals_wav": vocals_track,
         "instrumental_wav": inst_track,
         "ass_path": str(song_output_dir / f"{song_name}.ass"),
-        "editor_url": f"http://127.0.0.1:{port}/?song={quote(song_name)}",
+        "editor_url": f"http://127.0.0.1:{port}/lyric-editor?song={quote(song_name)}",
     }
 
 
