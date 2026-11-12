@@ -758,7 +758,7 @@ export function compilePoster(line:Line,cue:CuePlan|undefined,W:number,H:number,
 // Song stage remains continuous; saved direction and alignment are not mutated.
 export function compileSongPosters(project:Project,W:number,H:number,measure:Measure,overridePalette?:ReturnType<typeof resolvePaletteColors>):CompiledPoster[]{
   const choice=project.song_identity?.visual_theme;
-  const theme=choice&&choice!=='director'?SONG_THEMES[choice]:undefined;
+  const theme=choice&&choice!=='director'&&choice in SONG_THEMES?(SONG_THEMES as any)[choice]:undefined;
   const visual=project.motion_plan?.visual_language;
   const first=project.motion_plan?.cues.find(c=>c.poster)?.poster;
   const defaultColors=overridePalette || (visual?.background && visual?.accent ? {background: visual.background, accent: visual.accent} : undefined);
