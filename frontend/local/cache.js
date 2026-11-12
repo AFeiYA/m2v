@@ -82,7 +82,7 @@
       }
     } catch (_) {}
 
-    if (typeof firebase !== "undefined" && firebase.auth && firebase.auth().currentUser) {
+    if (typeof firebase !== "undefined" && firebase.auth && firebase.apps?.length && firebase.auth().currentUser) {
       return firebase.auth().currentUser.uid;
     }
     return "anon";
