@@ -108,37 +108,124 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
    {/* Lyric presentation: TV Karaoke dual-line / Apple Scroll / Kinetic Posters */}
    <g>
     {!isCoverActive && activeVisualMode === 'tv' && ktvLayout && (()=>{
-      const { upper, lower } = ktvDualStateAt(ktvLayout, t);
+      const { upper, lower, currentSection, sectionIcon } = ktvDualStateAt(ktvLayout, t);
       const slots = [upper, lower].filter((s): s is NonNullable<typeof upper> => Boolean(s));
-      return slots.map(slot => {
-        const c = slot.compiled;
-        const textColor = slot.phase === 'stay' ? slot.sungColor : slot.dimColor;
-        const dy = slot.dy || 0;
-        const alpha = slot.alpha ?? 1;
-        return (
-          <g key={c.lineIndex} opacity={alpha} transform={dy !== 0 ? `translate(0 ${dy})` : undefined}>
-            <text x={c.x} y={c.y} fill={textColor} fontSize={c.fontSize} fontWeight={700} fontFamily={POSTER_FONT} style={{whiteSpace:'pre'}}>
-              {c.line.text}
-            </text>
-            {slot.phase === 'active' && slot.spansWithProgress.map((item, k) => {
-              if (item.progress <= 0) return null;
-              const clipId = `ktv-clip-${highlightId}-${c.lineIndex}-${k}`;
-              return (
-                <g key={k} aria-hidden="true">
-                  <defs>
-                    <clipPath id={clipId}>
-                      <rect x={item.span.x} y={item.span.top} width={item.span.width * item.progress} height={item.span.height} />
-                    </clipPath>
-                  </defs>
-                  <text x={c.x} y={c.y} fill={slot.sungColor} clipPath={`url(#${clipId})`} fontSize={c.fontSize} fontWeight={700} fontFamily={POSTER_FONT} style={{whiteSpace:'pre'}}>
-                    {c.line.text}
+      const strokeW = Math.max(3.5, Math.round(ktvLayout.uniformFontSize * 0.12));
+      return (
+        <g key="ktv-dual-container">
+          {/* Top HUD Section Ribbon */}
+          {ktvLayout.showHud !== false && (
+            <g transform={`translate(${width / 2} ${Math.round(height * 0.08)})`}>
+              <rect
+                x={-90}
+                y={-16}
+                width={180}
+                height={32}
+                rx={16}
+                fill="rgba(10, 20, 15, 0.78)"
+                stroke={accent}
+                strokeWidth={1.5}
+              />
+              <text
+                x={0}
+                y={5}
+                textAnchor="middle"
+                fill={accent}
+                fontSize={Math.max(12, Math.round(ktvLayout.uniformFontSize * 0.38))}
+                fontWeight={800}
+                fontFamily={POSTER_FONT}
+              >
+                {`${sectionIcon || '🎵'}  ${(currentSection || 'Intro').toUpperCase()}`}
+              </text>
+            </g>
+          )}
+
+          {slots.map(slot => {
+            const c = slot.compiled;
+            const textColor = slot.phase === 'stay' ? slot.sungColor : slot.dimColor;
+            const dy = slot.dy || 0;
+            const alpha = slot.alpha ?? 1;
+            return (
+              <g key={c.lineIndex} opacity={alpha} transform={dy !== 0 ? `translate(0 ${dy})` : undefined}>
+                {/* 1. Base Text with Deep Dark Outline */}
+                <text
+                  x={c.x}
+                  y={c.y}
+                  stroke="rgba(5, 10, 8, 0.9)"
+                  strokeWidth={strokeW}
+                  strokeLinejoin="round"
+                  fill={textColor}
+                  fontSize={c.fontSize}
+                  fontWeight={700}
+                  fontFamily={POSTER_FONT}
+                  style={{whiteSpace:'pre'}}
+                >
+                  {c.line.text}
+                </text>
+
+                {/* 2. Active Swept Highlight with Outer Glow */}
+                {slot.phase === 'active' && slot.spansWithProgress.map((item, k) => {
+                  if (item.progress <= 0) return null;
+                  const clipId = `ktv-clip-${highlightId}-${c.lineIndex}-${k}`;
+                  return (
+                    <g key={k} aria-hidden="true">
+                      <defs>
+                        <clipPath id={clipId}>
+                          <rect x={item.span.x} y={item.span.top} width={item.span.width * item.progress} height={item.span.height} />
+                        </clipPath>
+                      </defs>
+                      <text
+                        x={c.x}
+                        y={c.y}
+                        stroke="rgba(5, 10, 8, 0.95)"
+                        strokeWidth={strokeW}
+                        strokeLinejoin="round"
+                        fill={slot.sungColor}
+                        clipPath={`url(#${clipId})`}
+                        fontSize={c.fontSize}
+                        fontWeight={700}
+                        fontFamily={POSTER_FONT}
+                        style={{whiteSpace:'pre', filter: `drop-shadow(0 0 10px ${slot.sungColor})`}}
+                      >
+                        {c.line.text}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* 3. Lead-in Countdown Dots (4 Beats) */}
+                {slot.leadIn && slot.leadIn.overallAlpha > 0.05 && (
+                  <g opacity={slot.leadIn.overallAlpha}>
+                    {slot.leadIn.dots.map(dot => (
+                      <circle
+                        key={dot.index}
+                        cx={dot.x}
+                        cy={dot.y}
+                        r={dot.radius * dot.scale}
+                        fill={dot.isLit ? slot.sungColor : 'rgba(255, 255, 255, 0.28)'}
+                        style={dot.isLit ? { filter: `drop-shadow(0 0 ${dot.isActive ? 8 : 4}px ${slot.sungColor})` } : undefined}
+                      />
+                    ))}
+                  </g>
+                )}
+
+                {/* 4. Active Singing Cue */}
+                {slot.phase === 'active' && (
+                  <text
+                    x={c.x - Math.max(14, Math.round(c.fontSize * 0.48)) - 8}
+                    y={c.y - Math.round(c.fontSize * 0.06)}
+                    fontSize={Math.max(14, Math.round(c.fontSize * 0.48))}
+                    fill={slot.sungColor}
+                    fontFamily={POSTER_FONT}
+                  >
+                    🎤
                   </text>
-                </g>
-              );
-            })}
-          </g>
-        );
-      });
+                )}
+              </g>
+            );
+          })}
+        </g>
+      );
     })()}
 
     {!isCoverActive && activeVisualMode === 'apple' && appleLayout && (()=>{

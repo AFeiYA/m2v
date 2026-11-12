@@ -968,3 +968,59 @@ test('ambient particles and fluid aurora orbs compute deterministically and stab
   });
   assert.equal(pDisabled.song_identity?.particles_mode, 'none');
 });
+
+test('ktv dual-line karaoke computes lead-in countdown rhythm dots and top section HUD', async () => {
+  const { compileKtvDualLayout, ktvDualStateAt } = await import('./stream-layout.ts');
+  const measure = (text: string, size: number) => ({ width: text.length * size * 0.6, ascent: size * 0.8, descent: size * 0.2 });
+  const palette = { accent: '#ffd700', background: '#07130e', foreground: '#fefdfa', muted: '#7a9a88' };
+
+  const p = normalizeProject({
+    title: 'Jingle Bells',
+    analysis: { bpm: 200, beats: [0, 0.5, 1, 1.5], drum_hits: [], energy_curve: [] },
+    sections: [
+      { name: 'Intro', start: 0, end: 4 },
+      { name: 'Chorus', start: 4, end: 12 },
+    ],
+    lines: [
+      { text: 'Jingle bells', start: 4.0, end: 7.0, words: [{ word: 'Jingle', start: 4.0, end: 4.8 }, { word: 'bells', start: 4.8, end: 7.0 }] },
+      { text: 'Jingle all the way', start: 7.5, end: 10.5, words: [{ word: 'Jingle', start: 7.5, end: 8.2 }, { word: 'all', start: 8.2, end: 8.8 }, { word: 'the', start: 8.8, end: 9.3 }, { word: 'way', start: 9.3, end: 10.5 }] },
+    ],
+  });
+
+  const ktv = compileKtvDualLayout(p, 1920, 1080, measure, palette);
+  assert.equal(ktv.title, 'Jingle Bells');
+  assert.equal(ktv.bpm, 200);
+  assert.equal(ktv.lines.length, 2);
+
+  // 1. 处于开唱前 1.2 秒（即 t = 2.8s，距离 start = 4.0s 还有 1.2s）：应该触发 4 拍倒计时小圆点
+  const statePre = ktvDualStateAt(ktv, 2.8);
+  assert.ok(statePre.upper);
+  assert.equal(statePre.upper.phase, 'preview');
+  assert.ok(statePre.upper.leadIn, 'Lead-in countdown state should be active within 2.0s before singing');
+  assert.equal(statePre.upper.leadIn.dots.length, 4);
+  // (2.0 - 1.2) / 0.5 = 0.8 / 0.5 = 1.6 -> activeBeat = 2
+  assert.equal(statePre.upper.leadIn.activeBeat, 2);
+  assert.ok(statePre.upper.leadIn.dots[0].isLit);
+  assert.ok(statePre.upper.leadIn.dots[1].isLit);
+  assert.equal(statePre.upper.leadIn.dots[2].isLit, false);
+  assert.equal(statePre.upper.leadIn.dots[3].isLit, false);
+
+  // 2. 正式开唱（t = 5.0s）：第一行进入 active，第二行进入 preview（未到 2s 倒计时）
+  const stateSinging = ktvDualStateAt(ktv, 5.0);
+  assert.ok(stateSinging.upper);
+  assert.equal(stateSinging.upper.phase, 'active');
+  assert.equal(stateSinging.upper.leadIn, null, 'Active line should not show countdown dots');
+  assert.ok(stateSinging.upper.spansWithProgress[0].progress > 0, 'Syllable sweep progress should be active');
+  assert.equal(stateSinging.currentSection, 'Chorus');
+  assert.equal(stateSinging.sectionIcon, '🔔');
+
+  // 3. 第二行开唱前 0.6 秒（t = 6.9s，距离 line 1 start = 7.5s 还有 0.6s）：第二行触发第 3 拍倒计时
+  const stateSecondLine = ktvDualStateAt(ktv, 6.9);
+  assert.ok(stateSecondLine.lower);
+  assert.equal(stateSecondLine.lower.phase, 'preview');
+  assert.ok(stateSecondLine.lower.leadIn);
+  // (2.0 - 0.6) / 0.5 = 1.4 / 0.5 = 2.8 -> activeBeat = 3
+  assert.equal(stateSecondLine.lower.leadIn.activeBeat, 3);
+  assert.ok(stateSecondLine.lower.leadIn.dots[2].isLit);
+  assert.equal(stateSecondLine.lower.leadIn.dots[3].isLit, false);
+});
