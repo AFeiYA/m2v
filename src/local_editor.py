@@ -814,6 +814,73 @@ async def plugin_direct_import(
     }
 
 
+@app.post("/api/midi/import")
+async def import_midi_alignment(file: UploadFile = File(...), title: str | None = Form(None)):
+    """上传内嵌歌词与音符的 MIDI 文件 (.mid/.kar)，直接提取高精对齐数据并在本地工程保存"""
+    from urllib.parse import quote
+    from src.midi_converter import convert_midi_to_alignment, render_midi_to_audio
+    from src.suno_fetch import _sanitize_filename
+
+    raw_filename = file.filename or "track.mid"
+    suffix = Path(raw_filename).suffix.lower()
+    if suffix not in (".mid", ".midi", ".kar"):
+        raise HTTPException(400, f"不支持的文件类型: {suffix}，仅允许 .mid / .midi / .kar 文件")
+
+    content = await file.read()
+    if len(content) < 14 or content[:4] != b"MThd":
+        raise HTTPException(400, "无效的 MIDI 文件 (未检测到 MThd 头部)")
+
+    clean_title = _sanitize_filename(title or Path(raw_filename).stem)
+    scan_dir = _get_scan_dir()
+    song_dir = scan_dir / clean_title
+    song_dir.mkdir(parents=True, exist_ok=True)
+
+    midi_path = song_dir / f"{clean_title}{suffix}"
+    with open(midi_path, "wb") as f:
+        f.write(content)
+
+    alignment = convert_midi_to_alignment(midi_path, title=clean_title)
+
+    # 尝试使用 FluidSynth 合成伴奏音轨
+    wav_path = song_dir / f"{clean_title}.wav"
+    rendered = render_midi_to_audio(midi_path, wav_path)
+    if rendered and rendered.exists():
+        alignment.audio_path = str(rendered.resolve())
+        alignment.instrumental_path = str(rendered.resolve())
+
+    align_json_path = song_dir / f"{clean_title}_alignment.json"
+    alignment.save_json(align_json_path)
+
+    # 同时导出标准 .lrc 和 .ass 方便直接加载预览
+    try:
+        from src.ass2lrc import alignment_to_lrc
+        lrc_text = alignment_to_lrc(alignment)
+        (song_dir / f"{clean_title}.lrc").write_text(lrc_text, encoding="utf-8")
+    except Exception as e:
+        log.warning("LRC 写入失败: %s", e)
+
+    try:
+        from src.subtitle import generate_ass
+        from src.config import SubtitleConfig
+        generate_ass(alignment, song_dir / f"{clean_title}.ass", SubtitleConfig())
+    except Exception as e:
+        log.warning("ASS 写入失败: %s", e)
+
+    log.info("MIDI 歌词导入成功: %s -> %s (共 %d 行歌词)", raw_filename, align_json_path, len(alignment.lines))
+    editor_url = f"/?song={quote(clean_title)}"
+
+    return {
+        "status": "ok",
+        "title": clean_title,
+        "editor_url": editor_url,
+        "full_editor_url": f"http://127.0.0.1:8000{editor_url}",
+        "duration": alignment.duration,
+        "lines_count": len(alignment.lines),
+        "sections_count": len(alignment.sections),
+        "alignment_json": str(align_json_path),
+    }
+
+
 @app.get("/api/files")
 
 def list_files():

@@ -34,6 +34,12 @@ import pypinyin
 from src.config import AlignerConfig
 from src.preprocessor import LyricLine
 from src.utils import log
+from src.midi_converter import (
+    MidiLyricsConverter,
+    convert_midi_to_alignment,
+    is_midi_file,
+    render_midi_to_audio,
+)
 
 _whisper_cache: dict[tuple[str, str, str], Any] = {}
 _INSIDE_ZEROGPU_CONTEXT: bool = False
@@ -1113,14 +1119,19 @@ def anchor_stanzas_with_asr(
 
 def align_lyrics(
     vocals_path: Path,
-    lyrics: list[LyricLine],
+    lyrics: list[LyricLine] | None = None,
     config: AlignerConfig | None = None,
     allow_self_heal: bool = True,
 ) -> AlignmentResult:
     """
     词级强约束声学对齐统一主入口。
-    基于 stable-ts Whisper 跨注意力时间戳对齐引擎，内置间奏硬保护与爆破音微调。
+    - 若传入 MIDI 文件 (.mid/.midi/.kar)，直接从 MIDI 内嵌音符/歌词提取毫秒级基准时间戳；
+    - 基于 stable-ts Whisper 跨注意力时间戳对齐引擎，内置间奏硬保护与爆破音微调。
     """
+    if is_midi_file(vocals_path):
+        log.info("检测到 MIDI 输入，使用内嵌歌词与音符直接对齐: %s", vocals_path.name)
+        return convert_midi_to_alignment(vocals_path)
+
     if config is None:
         config = AlignerConfig()
 

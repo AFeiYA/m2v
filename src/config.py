@@ -111,6 +111,7 @@ class PipelineConfig:
     ass_only: bool = False                # 只生成 ASS，不合成 MP4
     emit_ass: bool = True                 # ass_only 时是否写出 .ass 文件（云端 worker 关闭：ASS 由 alignment.json 动态生成）
     alignment_json: Path | None = None    # 复用已有对齐结果，跳过对齐
+    midi_file: Path | None = None         # 带有内嵌歌词与音符的 MIDI 伴奏文件 (.mid/.kar)
     video_only: bool = False              # 直接从已有 ASS 合成视频，跳过 1-4 步
     ass_file: Path | None = None          # video_only 时指定 ASS 路径 (支持 {stem})
     use_instrumental: bool = False        # 是否仅使用乐器伴奏音轨输出卡拉OK视频
