@@ -67,6 +67,7 @@ export interface KtvDualCompiled {
   bpm?: number;
   sections?: { name: string; start: number; end: number }[];
   showHud?: boolean;
+  isChristmas?: boolean;
 }
 
 export function compileKtvDualLayout(
@@ -194,6 +195,14 @@ export function compileKtvDualLayout(
     });
   }
 
+  const preset = (options as any)?.preset || project.song_identity?.visual_theme || '';
+  const isChristmas =
+    preset === 'christmas2026' ||
+    preset === 'christmas_special' ||
+    project.song_identity?.visual_theme === 'christmas2026' ||
+    project.song_identity?.visual_theme === 'christmas_special' ||
+    (palette.accent?.toLowerCase() === '#ffd700' && (palette.background?.toLowerCase() === '#07130e' || palette.background?.toLowerCase() === '#120303'));
+
   return {
     aspect: height>width?'9:16':'16:9',
     width,
@@ -207,6 +216,7 @@ export function compileKtvDualLayout(
     bpm,
     sections,
     showHud: options?.show_hud ?? true,
+    isChristmas,
   };
 }
 
@@ -307,8 +317,8 @@ export function ktvDualStateAt(
     const state: KtvLineRenderState = {
       compiled: c,
       phase,
-      dimColor: layout.palette.muted,
-      sungColor: layout.palette.accent,
+      dimColor: '#FFFFFF', // High-contrast pure white for un-sung lyrics (NEVER black!)
+      sungColor: layout.isChristmas ? '#FEF08A' : layout.palette.accent,
       spansWithProgress,
       alpha,
       dy,
@@ -341,15 +351,15 @@ export function ktvDualStateAt(
   const sLower = currentSection.toLowerCase();
   let sectionIcon = '🎵';
   if (sLower.includes('chorus') || sLower.includes('副歌')) {
-    sectionIcon = '🔔';
+    sectionIcon = layout.isChristmas ? '🔔' : '🎵';
   } else if (sLower.includes('solo') || sLower.includes('interlude') || sLower.includes('间奏')) {
-    sectionIcon = '🎸';
+    sectionIcon = layout.isChristmas ? '🛷' : '⚡';
   } else if (sLower.includes('verse') || sLower.includes('主歌')) {
     sectionIcon = '🎤';
   } else if (sLower.includes('outro') || sLower.includes('尾声')) {
     sectionIcon = '✨';
   } else if (sLower.includes('intro') || sLower.includes('前奏')) {
-    sectionIcon = '🎄';
+    sectionIcon = layout.isChristmas ? '🎄' : '🎧';
   }
 
   return { upper, lower, currentSection, sectionIcon };
@@ -363,33 +373,162 @@ export function paintKtvDualCanvas(
 ): void {
   const { upper, lower, currentSection, sectionIcon } = ktvDualStateAt(layout, t);
   const slots = [upper, lower].filter((s): s is KtvLineRenderState => Boolean(s));
+  const isLandscape = layout.aspect === '16:9';
+  const isChristmas = Boolean(layout.isChristmas);
+  const accent = isChristmas ? '#FFD700' : (layout.palette.accent || '#b7f34a');
+  const sungHighlight = isChristmas ? '#FEF08A' : accent;
 
+  // 1. Victorian Ornate Gold Double Frame (Christmas Special Only in 16:9)
+  if (isChristmas && isLandscape) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(245, 158, 11, 0.5)';
+    ctx.lineWidth = 2;
+    if (typeof ctx.roundRect === 'function') {
+      ctx.beginPath();
+      ctx.roundRect(24, 24, layout.width - 48, layout.height - 48, 16);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath();
+      ctx.roundRect(32, 32, layout.width - 64, layout.height - 64, 10);
+      ctx.stroke();
+    }
+    ctx.font = '22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🎄', 44, 48);
+    ctx.fillText('🎄', layout.width - 44, 48);
+    ctx.fillText('❄️', 44, layout.height - 48);
+    ctx.fillText('❄️', layout.width - 44, layout.height - 48);
+    ctx.restore();
+  }
+
+  // 2. Center Instrumental Break Stage (when neither line is singing)
+  if (slots.length === 0) {
+    ctx.save();
+    const interW = Math.min(layout.width * 0.75, 560);
+    const interH = 180;
+    const interX = (layout.width - interW) / 2;
+    const interY = (layout.height - interH) / 2;
+
+    ctx.fillStyle = isChristmas ? 'rgba(30, 4, 4, 0.68)' : 'rgba(12, 18, 28, 0.78)';
+    ctx.strokeStyle = isChristmas ? 'rgba(245, 158, 11, 0.45)' : `${accent}55`;
+    ctx.lineWidth = 1.5;
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+    ctx.shadowBlur = 30;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(interX, interY, interW, interH, 26);
+    } else {
+      ctx.rect(interX, interY, interW, interH);
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '44px sans-serif';
+    ctx.fillText(isChristmas ? '🛷 ❄️ 🔔' : '🎵 ⚡ 🎧', layout.width / 2, interY + 44);
+
+    ctx.font = `800 ${Math.max(18, Math.round(layout.uniformFontSize * 0.55))}px ${fontFamily}`;
+    ctx.fillStyle = sungHighlight;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 16;
+    ctx.fillText(`♫ ${(currentSection || 'Intro').toUpperCase()} ♫`, layout.width / 2, interY + 104);
+
+    ctx.font = `500 ${Math.max(13, Math.round(layout.uniformFontSize * 0.35))}px ${fontFamily}`;
+    ctx.fillStyle = '#E2E8F0';
+    ctx.shadowBlur = 0;
+    ctx.fillText(
+      isChristmas ? 'Listen to the sleigh bells... Get ready to sing!' : 'Feel the groove... Get ready to sing!',
+      layout.width / 2,
+      interY + 144
+    );
+    ctx.restore();
+  }
+
+  // 3. Center Dual Lines with Cards, Word Zoom (1.12x), and Bloom
   for (const slot of slots) {
     const c = slot.compiled;
     ctx.save();
     if (slot.alpha < 1) ctx.globalAlpha = Math.max(0, Math.min(1, slot.alpha));
     if (slot.dy !== 0) ctx.translate(0, slot.dy);
 
-    ctx.font = `700 ${c.fontSize}px ${fontFamily}`;
+    // 3.1 Luxury Glassmorphism Card Container
+    const cardPadX = isLandscape ? 34 : 20;
+    const cardPadY = isLandscape ? 16 : 10;
+    const hasLeadOrActive = Boolean(slot.leadIn || slot.phase === 'active');
+    const cardX = c.x - (hasLeadOrActive ? 76 : 24);
+    const cardY = c.y - c.fontSize - cardPadY + 4;
+    const cardW = c.width + (hasLeadOrActive ? 104 : 48);
+    const cardH = c.fontSize + cardPadY * 2 + 6;
+    const cardRadius = isLandscape ? 24 : 16;
+
+    ctx.save();
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(cardX, cardY, cardW, cardH, cardRadius);
+    } else {
+      ctx.rect(cardX, cardY, cardW, cardH);
+    }
+    if (slot.phase === 'active') {
+      ctx.fillStyle = isChristmas ? 'rgba(42, 5, 5, 0.88)' : 'rgba(12, 18, 28, 0.85)';
+      ctx.fill();
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = isChristmas ? 'rgba(245, 158, 11, 0.45)' : `${accent}66`;
+      ctx.shadowBlur = 24;
+      ctx.stroke();
+    } else if (slot.phase === 'preview') {
+      ctx.fillStyle = isChristmas ? 'rgba(22, 3, 3, 0.68)' : 'rgba(8, 12, 20, 0.72)';
+      ctx.fill();
+      ctx.strokeStyle = isChristmas ? 'rgba(245, 158, 11, 0.35)' : 'rgba(255, 255, 255, 0.18)';
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+      ctx.shadowBlur = 12;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = isChristmas ? 'rgba(18, 2, 2, 0.52)' : 'rgba(6, 10, 16, 0.55)';
+      ctx.fill();
+      ctx.strokeStyle = isChristmas ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.08)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    ctx.font = `900 ${c.fontSize}px ${fontFamily}`;
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     ctx.lineJoin = 'round';
     ctx.miterLimit = 2;
-    const strokeWidth = Math.max(3.5, Math.round(c.fontSize * 0.12));
+    const strokeWidth = Math.max(2.5, Math.round(c.fontSize * 0.08));
 
-    // 1. Base text with deep dark outline for crisp KTV contrast
-    const baseColor = slot.phase === 'stay' ? slot.sungColor : slot.dimColor;
-    ctx.strokeStyle = 'rgba(5, 10, 8, 0.9)';
+    // 3.2 Base text: NEVER BLACK! Pure crisp white for un-sung lyrics with clean outline
+    const baseColor = slot.phase === 'stay' ? (isChristmas ? '#FDE047' : accent) : '#FFFFFF';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
     ctx.lineWidth = strokeWidth;
     ctx.strokeText(c.line.text, c.x, c.y);
     ctx.fillStyle = baseColor;
     ctx.fillText(c.line.text, c.x, c.y);
 
-    // 2. Active swept lyrics highlight
+    // 3.3 Active swept lyrics highlight with dynamic word zoom (scale 1.12)
     if (slot.phase === 'active') {
       for (const item of slot.spansWithProgress) {
         if (item.progress <= 0) continue;
         ctx.save();
+
+        // Dynamic Zoom: zoom active singing word by 1.12x
+        if (item.active) {
+          const midX = item.span.x + item.span.width / 2;
+          const midY = item.span.top + item.span.height / 2;
+          ctx.translate(midX, midY);
+          ctx.scale(1.12, 1.12);
+          ctx.translate(-midX, -midY);
+        }
+
         ctx.beginPath();
         ctx.rect(
           item.span.x,
@@ -400,20 +539,20 @@ export function paintKtvDualCanvas(
         ctx.clip();
 
         // Stroke under active highlight
-        ctx.strokeStyle = 'rgba(5, 10, 8, 0.95)';
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
         ctx.lineWidth = strokeWidth;
         ctx.strokeText(c.line.text, c.x, c.y);
 
         // Accent fill with bloom glow
-        ctx.fillStyle = slot.sungColor;
-        ctx.shadowColor = slot.sungColor;
-        ctx.shadowBlur = Math.round(c.fontSize * 0.3);
+        ctx.fillStyle = sungHighlight;
+        ctx.shadowColor = accent;
+        ctx.shadowBlur = Math.round(c.fontSize * 0.35);
         ctx.fillText(c.line.text, c.x, c.y);
         ctx.restore();
       }
     }
 
-    // 3. Lead-in countdown dots (4 beats prior to singing)
+    // 3.4 Lead-in countdown dots (4 beats prior to singing)
     if (slot.leadIn && slot.leadIn.overallAlpha > 0.05) {
       ctx.save();
       ctx.globalAlpha = slot.leadIn.overallAlpha;
@@ -424,11 +563,11 @@ export function paintKtvDualCanvas(
         ctx.beginPath();
         ctx.arc(0, 0, dot.radius, 0, Math.PI * 2);
         if (dot.isLit) {
-          ctx.fillStyle = slot.sungColor;
-          ctx.shadowColor = slot.sungColor;
-          ctx.shadowBlur = dot.isActive ? 12 : 5;
+          ctx.fillStyle = accent;
+          ctx.shadowColor = accent;
+          ctx.shadowBlur = dot.isActive ? 14 : 6;
         } else {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
           ctx.shadowBlur = 0;
         }
         ctx.fill();
@@ -436,25 +575,25 @@ export function paintKtvDualCanvas(
       }
       ctx.restore();
     } else if (slot.phase === 'active') {
-      // 4. Singing microphone indicator
+      // 3.5 Animated singing indicator
       ctx.save();
       const iconSize = Math.max(14, Math.round(c.fontSize * 0.48));
       ctx.font = `${iconSize}px ${fontFamily}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.shadowColor = slot.sungColor;
-      ctx.shadowBlur = 8;
-      ctx.fillText('🎤', c.x - iconSize - 8, c.y - Math.round(c.fontSize * 0.32));
+      ctx.shadowColor = accent;
+      ctx.shadowBlur = 10;
+      ctx.fillText(isChristmas ? '🔔' : '🎤', c.x - iconSize - 10, c.y - Math.round(c.fontSize * 0.32));
       ctx.restore();
     }
 
     ctx.restore();
   }
 
-  // 4. Top Section Badge & Song HUD
+  // 4. Top Header: Section Badge & Title
   if (layout.showHud !== false && (layout.title || currentSection)) {
     const hudY = Math.round(layout.height * 0.08);
-    const badgeText = `${sectionIcon || '🎵'}  ${(currentSection || 'Intro').toUpperCase()}`;
+    const badgeText = `${sectionIcon || (isChristmas ? '🔔' : '🎵')}  ${(currentSection || 'Intro').toUpperCase()}`;
     const badgeFontSize = Math.max(12, Math.round(layout.uniformFontSize * 0.38));
     ctx.save();
     ctx.font = `800 ${badgeFontSize}px ${fontFamily}`;
@@ -472,28 +611,94 @@ export function paintKtvDualCanvas(
     } else {
       ctx.rect(badgeX, badgeBoxY, badgeW, badgeH);
     }
-    ctx.fillStyle = 'rgba(10, 20, 15, 0.78)';
+    ctx.fillStyle = isChristmas ? 'rgba(185, 28, 28, 0.85)' : 'rgba(12, 18, 28, 0.82)';
     ctx.fill();
-    ctx.strokeStyle = layout.palette.accent;
+    ctx.strokeStyle = accent;
     ctx.lineWidth = 1.5;
+    ctx.shadowColor = isChristmas ? 'rgba(245, 158, 11, 0.4)' : `${accent}44`;
+    ctx.shadowBlur = 12;
     ctx.stroke();
 
-    ctx.fillStyle = layout.palette.accent;
+    ctx.fillStyle = sungHighlight;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(badgeText, layout.width / 2, hudY);
 
     if (layout.title && layout.aspect === '16:9') {
-      const titleFontSize = Math.max(13, Math.round(layout.uniformFontSize * 0.42));
-      ctx.font = `700 ${titleFontSize}px ${fontFamily}`;
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
-      ctx.shadowBlur = 4;
+      const titleFontSize = Math.max(14, Math.round(layout.uniformFontSize * 0.45));
+      ctx.font = `900 ${titleFontSize}px ${fontFamily}`;
+      ctx.fillStyle = isChristmas ? '#FEF08A' : '#FFFFFF';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+      ctx.shadowBlur = 12;
       const subText = layout.bpm ? `${layout.title.toUpperCase()} • ${layout.bpm} BPM` : layout.title.toUpperCase();
-      ctx.fillText(subText, layout.width / 2, hudY + badgeH * 0.88 + 4);
+      ctx.fillText(subText, layout.width / 2, hudY + badgeH * 0.95 + 6);
     }
     ctx.restore();
   }
+
+  // 5. Bottom Timeline HUD Progress Bar
+  ctx.save();
+  const barMargin = isLandscape ? 80 : 24;
+  const barY = layout.height - (isLandscape ? 44 : 24);
+  const barW = layout.width - barMargin * 2;
+  const barH = isLandscape ? 7 : 5;
+
+  const timeFontSize = isLandscape ? 14 : 11;
+  ctx.font = `600 ${timeFontSize}px ${fontFamily}`;
+  ctx.fillStyle = isChristmas ? '#FDE68A' : 'rgba(255, 255, 255, 0.8)';
+  ctx.textBaseline = 'bottom';
+  const curMin = Math.floor(t / 60).toString().padStart(2, '0');
+  const curSec = Math.floor(t % 60).toString().padStart(2, '0');
+  ctx.textAlign = 'left';
+  ctx.fillText(`${curMin}:${curSec}`, barMargin, barY - 6);
+
+  const dur = layout.lines.at(-1)?.stayEnd || 180;
+  const totMin = Math.floor(dur / 60).toString().padStart(2, '0');
+  const totSec = Math.floor(dur % 60).toString().padStart(2, '0');
+  ctx.textAlign = 'right';
+  ctx.fillText(`${totMin}:${totSec}`, layout.width - barMargin, barY - 6);
+
+  ctx.textAlign = 'center';
+  ctx.font = `800 ${timeFontSize}px ${fontFamily}`;
+  ctx.fillStyle = sungHighlight;
+  const centerStatusText = isChristmas
+    ? `🎄 ${layout.bpm || 200} BPM • VICTORIAN CHRISTMAS CAROL 🎄`
+    : (layout.bpm ? `${layout.bpm} BPM • DUAL KTV` : 'DUAL KTV');
+  ctx.fillText(centerStatusText, layout.width / 2, barY - 6);
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(barMargin, barY, barW, barH, barH / 2);
+  } else {
+    ctx.rect(barMargin, barY, barW, barH);
+  }
+  ctx.fill();
+
+  const progW = Math.max(0, Math.min(barW, (t / Math.max(1, dur)) * barW));
+  if (progW > 0) {
+    const grad = ctx.createLinearGradient(barMargin, barY, barMargin + barW, barY);
+    if (isChristmas) {
+      grad.addColorStop(0, '#B91C1C');
+      grad.addColorStop(0.4, '#DC2626');
+      grad.addColorStop(0.75, '#F59E0B');
+      grad.addColorStop(1.0, '#FEF08A');
+    } else {
+      grad.addColorStop(0, `${accent}88`);
+      grad.addColorStop(1.0, accent);
+    }
+    ctx.fillStyle = grad;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(barMargin, barY, progW, barH, barH / 2);
+    } else {
+      ctx.rect(barMargin, barY, progW, barH);
+    }
+    ctx.fill();
+  }
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
