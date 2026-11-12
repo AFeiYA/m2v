@@ -131,6 +131,17 @@ RESOLUTION_PROFILES = {
 
 CURATED_THEMES = [
     {
+        "id": "christmas2026",
+        "name": "🎄 Christmas2026 璀璨雪华",
+        "subtitle": "Winter snow particles + holiday gold & pine aura",
+        "template": "apple",
+        "theme": "christmas2026",
+        "background_mode": "blurred_ambient",
+        "accent": "#ffd700",
+        "secondary": "#ff385c",
+        "bg_preview": "linear-gradient(145deg, #07130e 0%, #162e24 60%, #301016 100%)",
+    },
+    {
         "id": "apple_white_ambient",
         "name": "Apple Pearl Ambient",
         "subtitle": "Blurred cover card + pearl karaoke focus",

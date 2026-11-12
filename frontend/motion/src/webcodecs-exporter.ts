@@ -136,7 +136,9 @@ export function renderCanvasFrame(
   if (isParticlesActive) {
     const particleSpeed = project.song_identity?.particles_speed ?? 0.5;
     const particleDarken = project.song_identity?.particles_darken ?? 0.4;
-    paintAmbientAuraAndParticles(ctx, W, H, t, accent, pulse, particleSpeed, particleDarken);
+    const isChristmas = project.song_identity?.visual_theme === 'christmas2026' || accent.toLowerCase() === '#ffd700';
+    const particleMode = isChristmas ? 'snow' : 'ambient';
+    paintAmbientAuraAndParticles(ctx, W, H, t, accent, pulse, particleSpeed, particleDarken, particleMode);
   }
 
   // 4. Intro Title animation

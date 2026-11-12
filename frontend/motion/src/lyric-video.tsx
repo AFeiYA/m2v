@@ -57,8 +57,10 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
    {!transparent && isParticlesActive && (() => {
      const particleSpeed = project.song_identity?.particles_speed ?? 0.5;
      const particleDarken = project.song_identity?.particles_darken ?? 0.4;
+     const isChristmas = options?.preset === 'christmas2026' || project.song_identity?.visual_theme === 'christmas2026' || (ktvLayout || appleLayout)?.palette.id === 'christmas2026' || accent.toLowerCase() === '#ffd700';
+     const particleMode = isChristmas ? 'snow' : 'ambient';
      const { orb1, orb2 } = computeAmbientOrbs(width, height, t, accent, particleSpeed, particleDarken);
-     const particles = computeParticles(width, height, t, 48, pulse, particleSpeed, particleDarken);
+     const particles = computeParticles(width, height, t, isChristmas ? 64 : 48, pulse, particleSpeed, particleDarken, particleMode);
      return (
        <g aria-hidden="true">
          <defs>
@@ -68,9 +70,9 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
              <stop offset="100%" stopColor={accent} stopOpacity={0} />
            </radialGradient>
            <radialGradient id={`ambient-orb2-${highlightId}`} cx="50%" cy="50%" r="50%">
-             <stop offset="0%" stopColor={hexToRgba(accent, 0.09)} />
-             <stop offset="60%" stopColor={hexToRgba(accent, 0.02)} />
-             <stop offset="100%" stopColor={accent} stopOpacity={0} />
+             <stop offset="0%" stopColor={orb2.color} />
+             <stop offset="60%" stopColor={hexToRgba(isChristmas ? '#22c55e' : accent, 0.02)} />
+             <stop offset="100%" stopColor={isChristmas ? '#22c55e' : accent} stopOpacity={0} />
            </radialGradient>
            <radialGradient id={`ambient-vig-${highlightId}`} cx="50%" cy="50%" r="70%">
              <stop offset="0%" stopColor="#000000" stopOpacity={Math.max(0, (particleDarken - 0.35) * 0.4)} />
