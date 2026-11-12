@@ -7,10 +7,11 @@ export type PosterDirection = {version:'motion-poster-direction-v1';status:'draf
 export type CuePlan = {poster?:PosterDirection|null;whole_line_visible?:true;intent?:string;groups?:PhrasePlan[];line_id:string; template:'word-impact'|'phrase-rise'|'quiet-hold'; layout:'center'|'left'; palette:string; intensity:number; emphasis:string; locked:boolean};
 export type MotionPlan = {version:'motion-plan-v1'; source_signature:string; seed:number; visual_language?:{direction:string;background:string;foreground:string;accent:string;rhythm:string}|null; cues:CuePlan[]};
 export type Line = { id:string; text: string; start: number; end: number; words: Word[]; section?: string };
-export type SongIdentity = {version:'motion-song-identity-v1';title:string;artist:string;style:'editorial'|'minimal'|'none';show_intro:boolean;show_signature:boolean;show_section:boolean;show_outro:boolean;visual_theme?:'director'|'editorial'|'neon'|'paper';cover_mode?:'background'|'none';particles_mode?:'particles'|'none';ambient_particles?:boolean;particles_speed?:number;particles_darken?:number;cover_x?:number;cover_y?:number;cover_zoom?:number;source_title?:string;source_artist?:string;source?:string};
+export type SongIdentity = {version:'motion-song-identity-v1';title:string;artist:string;style:'editorial'|'minimal'|'none';show_intro:boolean;show_signature:boolean;show_section:boolean;show_outro:boolean;visual_theme?:'director'|'editorial'|'neon'|'paper'|'christmas2026'|'christmas_special'|string;cover_mode?:'background'|'none';particles_mode?:'particles'|'none';ambient_particles?:boolean;particles_speed?:number;particles_darken?:number;cover_x?:number;cover_y?:number;cover_zoom?:number;source_title?:string;source_artist?:string;source?:string};
 export type Project = {
   sections?:{name:string;start:number;end:number}[];
   title: string; song_cover?:{data_url:string;width:number;height:number;source:string;source_url?:string}; artist?:string; song_identity?:SongIdentity; duration: number; lines: Line[]; motion_plan?:MotionPlan; motion_design?:MotionDesign;
+  features?: { tempo?: number };
   analysis: { bpm: number; beats: number[]; drum_hits: {time: number; type: string}[]; energy_curve: {time: number; energy: number}[] };
 };
 export type VisualMode = 'kinetic' | 'tv' | 'apple';
