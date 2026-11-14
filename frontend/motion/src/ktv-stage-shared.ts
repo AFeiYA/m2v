@@ -142,3 +142,153 @@ export function isKtvChristmasTheme(
     paletteAccent?.toLowerCase() === '#ffd700'
   );
 }
+
+export interface KtvStageTheme {
+  id: string;
+  isChristmas: boolean;
+  bgBase: string;
+  bgGradientCss: string;
+  bgRadialCenterY: number;
+  bgStops: Array<{ offset: number; color: string }>;
+  accent: string;
+  sungHighlight: string;
+  pastWordColor: string;
+  titleColor: string;
+  subtitleColor: string;
+  badgeBg: string;
+  badgeBorder: string;
+  badgeText: string;
+  cardBg: { singing: string; upcoming: string; past: string };
+  cardBorder: { singing: string; upcoming: string; past: string };
+  singingBoxShadow: string;
+  singingShadowColor: string;
+  activeBloomCss: string;
+  activeBloomColor: string;
+  activeBloomBlur: number;
+  singingCueIcon: string;
+  interludeIcons: string;
+  interludeText: string;
+  defaultSubtitleTag: string;
+  progressCss: string;
+  progressStops: Array<{ offset: number; color: string }>;
+  timelineTextColor: string;
+  ornateFrame?: {
+    outerBorder: string;
+    innerBorder: string;
+    topCornerIcon: string;
+    bottomCornerIcon: string;
+  };
+  hasBokehAndSnow: boolean;
+}
+
+export function resolveKtvStageTheme(
+  project: Pick<Project, 'song_identity'>,
+  preset?: string,
+  palette?: { accent?: string; background?: string }
+): KtvStageTheme {
+  const isChristmas = isKtvChristmasTheme(project, preset, palette?.accent);
+  if (isChristmas) {
+    const accent = '#FFD700';
+    return {
+      id: 'christmas2026',
+      isChristmas: true,
+      bgBase: '#120303',
+      bgGradientCss: 'radial-gradient(circle at 50% 28%, #3d0707 0%, #260404 42%, #140202 78%, #080101 100%)',
+      bgRadialCenterY: 0.28,
+      bgStops: [
+        { offset: 0, color: '#3d0707' },
+        { offset: 0.42, color: '#260404' },
+        { offset: 0.78, color: '#140202' },
+        { offset: 1, color: '#080101' },
+      ],
+      accent,
+      sungHighlight: '#FEF08A',
+      pastWordColor: '#FDE047',
+      titleColor: '#FEF08A',
+      subtitleColor: '#FDE68A',
+      badgeBg: 'rgba(20, 20, 20, 0.72)',
+      badgeBorder: '#F59E0B',
+      badgeText: '#FEF08A',
+      cardBg: {
+        singing: 'rgba(42, 5, 5, 0.88)',
+        upcoming: 'rgba(22, 3, 3, 0.68)',
+        past: 'rgba(18, 2, 2, 0.52)',
+      },
+      cardBorder: {
+        singing: '#F59E0B',
+        upcoming: 'rgba(245, 158, 11, 0.35)',
+        past: 'rgba(245, 158, 11, 0.15)',
+      },
+      singingBoxShadow: '0 0 28px rgba(245, 158, 11, 0.45), 0 16px 40px rgba(0, 0, 0, 0.8)',
+      singingShadowColor: 'rgba(245, 158, 11, 0.45)',
+      activeBloomCss: '0 0 20px #F59E0B, 0 0 38px #FBBF24, 0 0 60px rgba(220, 38, 38, 0.7)',
+      activeBloomColor: '#F59E0B',
+      activeBloomBlur: 22,
+      singingCueIcon: '🔔',
+      interludeIcons: '🛷 ❄️ 🔔',
+      interludeText: 'Listen to the sleigh bells... Get ready to sing!',
+      defaultSubtitleTag: 'VICTORIAN CHRISTMAS',
+      progressCss: 'linear-gradient(90deg, #DC2626 0%, #F59E0B 50%, #FEF08A 100%)',
+      progressStops: [
+        { offset: 0, color: '#DC2626' },
+        { offset: 0.5, color: '#F59E0B' },
+        { offset: 1, color: '#FEF08A' },
+      ],
+      timelineTextColor: '#FDE68A',
+      ornateFrame: {
+        outerBorder: 'rgba(245, 158, 11, 0.5)',
+        innerBorder: 'rgba(245, 158, 11, 0.3)',
+        topCornerIcon: '🎄',
+        bottomCornerIcon: '❄️',
+      },
+      hasBokehAndSnow: true,
+    };
+  }
+
+  const accent = palette?.accent || '#b7f34a';
+  return {
+    id: 'standard',
+    isChristmas: false,
+    bgBase: palette?.background || '#090d14',
+    bgGradientCss: 'radial-gradient(circle at 50% 30%, rgba(18, 26, 40, 0.75) 0%, rgba(6, 10, 16, 0.96) 100%)',
+    bgRadialCenterY: 0.3,
+    bgStops: [
+      { offset: 0, color: 'rgba(18, 26, 40, 0.75)' },
+      { offset: 1, color: 'rgba(6, 10, 16, 0.96)' },
+    ],
+    accent,
+    sungHighlight: accent,
+    pastWordColor: accent,
+    titleColor: '#FFFFFF',
+    subtitleColor: 'rgba(255, 255, 255, 0.75)',
+    badgeBg: 'rgba(12, 18, 28, 0.75)',
+    badgeBorder: accent,
+    badgeText: accent,
+    cardBg: {
+      singing: 'rgba(12, 18, 28, 0.85)',
+      upcoming: 'rgba(8, 12, 20, 0.72)',
+      past: 'rgba(6, 10, 16, 0.55)',
+    },
+    cardBorder: {
+      singing: accent,
+      upcoming: 'rgba(255, 255, 255, 0.18)',
+      past: 'rgba(255, 255, 255, 0.08)',
+    },
+    singingBoxShadow: `0 0 28px ${accent}55, 0 16px 40px rgba(0, 0, 0, 0.8)`,
+    singingShadowColor: `${accent}55`,
+    activeBloomCss: `0 0 18px ${accent}, 0 0 32px ${accent}`,
+    activeBloomColor: accent,
+    activeBloomBlur: 18,
+    singingCueIcon: '🎤',
+    interludeIcons: '🎵 ⚡ 🎧',
+    interludeText: 'Feel the groove... Get ready to sing!',
+    defaultSubtitleTag: 'KARAOKE',
+    progressCss: `linear-gradient(90deg, ${accent}88 0%, ${accent} 100%)`,
+    progressStops: [
+      { offset: 0, color: `${accent}88` },
+      { offset: 1, color: accent },
+    ],
+    timelineTextColor: 'rgba(255, 255, 255, 0.8)',
+    hasBokehAndSnow: false,
+  };
+}
