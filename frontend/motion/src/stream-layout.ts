@@ -78,6 +78,7 @@ export interface KtvDualCompiled {
   sections?: { name: string; start: number; end: number }[];
   showHud?: boolean;
   isChristmas?: boolean;
+  alignment?: 'center' | 'classic';
 }
 
 export function compileKtvDualLayout(
@@ -222,6 +223,7 @@ export function compileKtvDualLayout(
     sections,
     showHud: options?.show_hud ?? true,
     isChristmas,
+    alignment,
   };
 }
 
@@ -632,7 +634,8 @@ export function paintKtvDualCanvas(
       const { isSinging, isUpcoming, isPast, opacity } = state;
       const isTop = slotType === 'top';
 
-      const cardX = isLandscape
+      const isCenterAlign = layout.alignment === 'center';
+      const cardX = isLandscape && !isCenterAlign
         ? (isTop ? stagePadX + staggerPad : width - stagePadX - staggerPad - cardW)
         : Math.round((width - cardW) / 2);
       const cardY = curTopY + Math.round((1 - opacity) * 8);

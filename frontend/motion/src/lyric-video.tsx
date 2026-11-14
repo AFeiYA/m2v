@@ -67,9 +67,9 @@ export const LyricVideo:React.FC<VideoProps>=({project,options,timeOffset=0,tran
      const particleSpeed = project.song_identity?.particles_speed ?? 0.5;
      const particleDarken = project.song_identity?.particles_darken ?? 0.4;
      const isChristmas = options?.preset === 'christmas2026' || options?.preset === 'christmas_special' || project.song_identity?.visual_theme === 'christmas2026' || project.song_identity?.visual_theme === 'christmas_special' || accent.toLowerCase() === '#ffd700';
-     const particleMode = isChristmas ? 'snow' : 'ambient';
+     const particleMode = (project.song_identity?.particles_mode === 'snow' || isChristmas) ? 'snow' : 'ambient';
      const { orb1, orb2 } = computeAmbientOrbs(width, height, t, accent, particleSpeed, particleDarken);
-     const particles = computeParticles(width, height, t, isChristmas ? 64 : 48, pulse, particleSpeed, particleDarken, particleMode);
+     const particles = computeParticles(width, height, t, particleMode === 'snow' ? 64 : 48, pulse, particleSpeed, particleDarken, particleMode);
      return (
        <g aria-hidden="true">
          <defs>

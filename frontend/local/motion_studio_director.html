@@ -104,6 +104,7 @@
               <label for="particles-mode" data-i18n="ms_lbl_particles_mode">Ambient Particles &amp; Aurora</label>
               <select id="particles-mode">
                 <option value="particles" data-i18n="ms_opt_particles_on">Fluid Aurora &amp; Floating Particles (Default)</option>
+                <option value="snow" data-i18n="ms_opt_particles_snow">❄️ Christmas Snow &amp; Holiday Bokeh</option>
                 <option value="none" data-i18n="ms_opt_particles_none">No Particles · Clean Background</option>
               </select>
               <label for="cover-x" data-i18n="ms_lbl_cover_x">Crop Focus · Horizontal</label>
@@ -158,6 +159,14 @@
               <strong class="template-card-title" data-i18n="ms_tpl_tv">Dual-line Karaoke</strong>
               <p class="template-card-desc" data-i18n="ms_tpl_tv_desc">Two-line alternating karaoke with real-time sweep &amp; countdowns.</p>
             </div>
+            <div class="template-card" data-template-id="tv-christmas" tabindex="0">
+              <div class="template-card-header">
+                <span class="template-card-icon">🎄</span>
+                <span class="template-card-badge" data-i18n="ms_tpl_tv_christmas_badge">Holiday Special</span>
+              </div>
+              <strong class="template-card-title" data-i18n="ms_tpl_tv_christmas">Christmas KTV</strong>
+              <p class="template-card-desc" data-i18n="ms_tpl_tv_christmas_desc">Victorian red &amp; gold karaoke stage with bokeh lights &amp; snowfall.</p>
+            </div>
           </div>
           <select id="visual-template-select" style="display:none;" aria-hidden="true">
             <option value="kinetic" data-i18n="ms_tpl_kinetic">🌟 Kinetic Posters (Dynamic &amp; Punchy)</option>
@@ -201,6 +210,7 @@
             <option value="violet" data-i18n="ms_palette_violet">Violet · Electric Aurora</option>
             <option value="sakura" data-i18n="ms_palette_sakura">Sakura · Soft Pink</option>
             <option value="monochrome" data-i18n="ms_palette_monochrome">Minimal · Black & White</option>
+            <option value="christmas2026" data-i18n="ms_palette_christmas">🎄 Christmas Special · Red &amp; Gold</option>
             <option value="random" data-i18n="ms_palette_random_all">🎲 Random Palettes Across Song</option>
           </select>
           <label for="theme-bg" data-i18n="ms_lbl_theme_bg">Background Style</label>
@@ -215,6 +225,13 @@
             <input id="theme-particles" type="checkbox" checked style="cursor:pointer; width:14px; height:14px;">
             <span data-i18n="ms_chk_particles">Ambient Particles &amp; Fluid Aurora</span>
           </label>
+          <div id="particles-style-wrap" style="margin-top:6px;">
+            <label for="theme-particles-style" style="font-size:11px; color:#8ba090;" data-i18n="ms_lbl_particles_style">Particle Effect Template</label>
+            <select id="theme-particles-style" style="font-size:12px;">
+              <option value="particles" data-i18n="ms_opt_particles_on">✨ Fluid Aurora &amp; Floating Particles (Default)</option>
+              <option value="snow" data-i18n="ms_opt_particles_snow">❄️ Christmas Snow &amp; Holiday Bokeh</option>
+            </select>
+          </div>
           <div id="particles-speed-wrap" style="margin-top:6px;">
             <label for="particles-speed" style="font-size:11px; color:#8ba090; display:flex; justify-content:space-between;">
               <span data-i18n="ms_lbl_particles_speed">Particle Drift Speed</span>
@@ -242,10 +259,15 @@
               </label>
             </div>
             <div id="karaoke-mode-controls">
-              <label for="karaoke-alignment" data-i18n="ms_karaoke_align">Lyric Alignment</label>
+              <label for="karaoke-stage-style" data-i18n="ms_karaoke_stage_style">KTV Stage Style</label>
+              <select id="karaoke-stage-style">
+                <option value="standard" data-i18n="ms_karaoke_style_standard">📺 Classic Neon KTV Stage</option>
+                <option value="christmas2026" data-i18n="ms_karaoke_style_christmas">🎄 Victorian Christmas Special (Red &amp; Gold)</option>
+              </select>
+              <label for="karaoke-alignment" data-i18n="ms_karaoke_align" style="margin-top:6px;">Lyric Alignment</label>
               <select id="karaoke-alignment">
-                <option value="center" data-i18n="ms_karaoke_align_center">Modern Center (Recommended)</option>
                 <option value="classic" data-i18n="ms_karaoke_align_classic">Classic KTV (Left / Right)</option>
+                <option value="center" data-i18n="ms_karaoke_align_center">Modern Center</option>
               </select>
               <div style="margin-top:6px;">
                 <label for="karaoke-position-y" style="font-size:11px; color:#8ba090; display:flex; justify-content:space-between;">
