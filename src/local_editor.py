@@ -2530,6 +2530,13 @@ def rhythm_studio():
     return HTMLResponse(path.read_text(encoding="utf-8"), headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/marble-studio", response_class=HTMLResponse)
+def marble_studio():
+    path = _FRONTEND_DIR / "marble_studio.html"
+    if not path.exists(): raise HTTPException(404, "弹珠音乐页面不存在")
+    return HTMLResponse(path.read_text(encoding="utf-8"), headers={"Cache-Control": "no-cache"})
+
+
 @app.api_route("/motion-studio", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def motion_studio():
     ms_file = _FRONTEND_DIR / "motion_studio_director.html"
@@ -2706,7 +2713,7 @@ def motion_styles():
 
 @app.get("/motion/{asset}")
 def motion_asset(asset: str):
-    if asset not in ("marketing-preview.js", "marketing-preview.js.LEGAL.txt", "lab.js", "studio.js", "rhythm-studio.js", "rhythm-studio.js.LEGAL.txt", "render-entry.js", "lab.js.LEGAL.txt", "studio.js.LEGAL.txt", "render-entry.js.LEGAL.txt"):
+    if asset not in ("marketing-preview.js", "marketing-preview.js.LEGAL.txt", "lab.js", "studio.js", "rhythm-studio.js", "rhythm-studio.js.LEGAL.txt", "marble-studio.js", "marble-studio.js.LEGAL.txt", "render-entry.js", "lab.js.LEGAL.txt", "studio.js.LEGAL.txt", "render-entry.js.LEGAL.txt"):
         raise HTTPException(404, "文件不存在")
     path = _FRONTEND_DIR / "motion" / asset
     if not path.exists(): raise HTTPException(503, "动效前端尚未构建")

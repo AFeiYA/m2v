@@ -32,13 +32,13 @@ function resolveBrowserExecutable() {
 }
 
 const browserExecutable=resolveBrowserExecutable();
-const inputProps={project,options,rhythm:job.rhythm,timeOffset:start,renderLength:length};
-const compositionId=job.scene==='rhythm'?'RhythmStage':'LyricPoster';
+const inputProps={project,options,rhythm:job.rhythm,marble:job.marble,marbleNotes:job.marbleNotes||[],timeOffset:start,renderLength:length};
+const compositionId=job.scene==='rhythm'?'RhythmStage':job.scene==='marble'?'MarbleStage':'LyricPoster';
 
 const isLinux = process.platform === 'linux';
 const linuxArgs = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'];
 const chromiumOptions = {
-  gl: job.scene === 'rhythm' ? 'swangle' : undefined,
+  gl: (job.scene === 'rhythm' || job.scene === 'marble') ? 'swangle' : undefined,
   args: isLinux ? linuxArgs : undefined,
 };
 

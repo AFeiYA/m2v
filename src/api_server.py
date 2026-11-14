@@ -1266,6 +1266,10 @@ if frontend_dir.exists():
     async def serve_rhythm_studio():
         return FileResponse(frontend_dir / "rhythm-studio.html")
 
+    @app.get("/marble-studio", tags=["Frontend"])
+    async def serve_marble_studio():
+        return FileResponse(frontend_dir / "marble_studio.html")
+
     @app.get("/motion-studio", tags=["Frontend"])
     async def serve_motion_studio():
         ms_file = frontend_dir / "motion-studio.html"
