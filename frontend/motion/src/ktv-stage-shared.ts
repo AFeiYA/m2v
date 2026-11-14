@@ -129,11 +129,18 @@ export function getKtvSectionInfo(
 }
 
 export function isKtvChristmasTheme(
-  project: Pick<Project, 'song_identity'>,
+  project: Pick<Project, 'song_identity' | 'motion_design'>,
   preset?: string,
   paletteAccent?: string
 ): boolean {
-  const effectivePreset = preset || project.song_identity?.visual_theme || '';
+  if (preset) {
+    return preset === 'christmas2026' || preset === 'christmas_special';
+  }
+  const modePalette = project.motion_design?.modes?.tv?.theme?.palette || project.motion_design?.theme?.palette;
+  if (modePalette && modePalette !== 'christmas2026' && modePalette !== 'christmas_special') {
+    return paletteAccent?.toLowerCase() === '#ffd700';
+  }
+  const effectivePreset = modePalette || project.song_identity?.visual_theme || '';
   return (
     effectivePreset === 'christmas2026' ||
     effectivePreset === 'christmas_special' ||
@@ -141,6 +148,21 @@ export function isKtvChristmasTheme(
     project.song_identity?.visual_theme === 'christmas_special' ||
     paletteAccent?.toLowerCase() === '#ffd700'
   );
+}
+
+export function resolveKtvParticlesMode(
+  project: Pick<Project, 'song_identity'>,
+  ambientParticlesOption: boolean | undefined,
+  isChristmas: boolean
+): 'snow' | 'particles' | 'none' {
+  if (ambientParticlesOption === false || project.song_identity?.ambient_particles === false) {
+    return 'none';
+  }
+  const pMode = project.song_identity?.particles_mode;
+  if (pMode === 'none') return 'none';
+  if (pMode === 'snow') return 'snow';
+  if (pMode === 'particles') return 'particles';
+  return isChristmas ? 'snow' : 'particles';
 }
 
 export interface KtvStageTheme {
