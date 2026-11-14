@@ -334,6 +334,7 @@ function previewPalette(){
  const theme={palette:$<HTMLSelectElement>('preset').value,background:$<HTMLSelectElement>('theme-bg').value as 'auto'|'light'|'dark'};
  const scope=$<HTMLSelectElement>('theme-scope')?.value==='all'?'all':'mode';
  design=changeTheme(designSnapshot(),theme,scope);
+ Object.assign(options,modeOptions(design));
  if(project.song_identity){
   if(theme.palette==='christmas2026'){
    project.song_identity.visual_theme='christmas2026';
