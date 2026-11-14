@@ -145,7 +145,7 @@ export function renderCanvasFrame(
     const particleSpeed = project.song_identity?.particles_speed ?? 0.5;
     const particleDarken = project.song_identity?.particles_darken ?? 0.4;
     const isChristmas = project.song_identity?.visual_theme === 'christmas2026' || accent.toLowerCase() === '#ffd700';
-    const particleMode = isChristmas ? 'snow' : 'ambient';
+    const particleMode = (project.song_identity?.particles_mode === 'snow' || isChristmas) ? 'snow' : 'ambient';
     paintAmbientAuraAndParticles(ctx, W, H, t, accent, pulse, particleSpeed, particleDarken, particleMode);
   }
 

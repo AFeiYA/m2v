@@ -81,7 +81,7 @@ export function createMotionDesign():MotionDesign {
  return {version:'motion-design-v1',active_mode:'kinetic',theme:{palette:'impact',background:'auto'},height:720,modes:{
   kinetic:{...mode('16:9'),layout:'smart',highlight:'none',plan:null},
   apple:{...mode('9:16'),font_scale:1,focus_y:.42,count_in:false},
-  tv:{...mode('16:9'),font_scale:1,preview_seconds:2.5,alignment:'center',position_y:0.52},
+  tv:{...mode('16:9'),font_scale:1,preview_seconds:2.5,alignment:'classic',position_y:0.52},
  }};
 }
 export function normalizeMotionDesign(raw?: Partial<MotionDesign> | null): MotionDesign {

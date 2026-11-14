@@ -151,16 +151,21 @@ function syncModeControls(){
   }
   if(design.modes.tv) {
    $<HTMLInputElement>('karaoke-preview-seconds').value=String(design.modes.tv.preview_seconds);
-   if($('karaoke-alignment')) $<HTMLSelectElement>('karaoke-alignment').value=design.modes.tv.alignment||'center';
+   if($('karaoke-alignment')) $<HTMLSelectElement>('karaoke-alignment').value=design.modes.tv.alignment||'classic';
    const posY = design.modes.tv.position_y ?? 0.52;
    if($('karaoke-position-y')) $<HTMLInputElement>('karaoke-position-y').value=String(posY);
    if($('karaoke-position-y-val')) $('karaoke-position-y-val').textContent=`${Math.round(posY*100)}%`;
+   const isChristmasKtv = project?.song_identity?.visual_theme === 'christmas2026' || project?.song_identity?.visual_theme === 'christmas_special' || design.modes.tv.theme?.palette === 'christmas2026';
+   if($('karaoke-stage-style')) $<HTMLSelectElement>('karaoke-stage-style').value=isChristmasKtv?'christmas2026':'standard';
   }
  }
- if($('mode-state-hint'))$('mode-state-hint').textContent=visualModes[design.active_mode].label+' · Changes are kept separately for each mode.';
+ const isChristmasActive = design.active_mode === 'tv' && (project?.song_identity?.visual_theme === 'christmas2026' || project?.song_identity?.visual_theme === 'christmas_special' || design.modes.tv?.theme?.palette === 'christmas2026');
+ if($('mode-state-hint'))$('mode-state-hint').textContent=(isChristmasActive?'🎄 Christmas KTV':visualModes[design.active_mode].label)+' · Changes are kept separately for each mode.';
  if(typeof document.querySelectorAll==='function'){
   document.querySelectorAll<HTMLElement>('.template-card').forEach(card=>{
-   card.classList.toggle('active',card.dataset.templateId===design.active_mode);
+   const tplId = card.dataset.templateId;
+   const isActive = isChristmasActive ? (tplId === 'tv-christmas') : (tplId === design.active_mode);
+   card.classList.toggle('active', isActive);
   });
   document.querySelectorAll<HTMLButtonElement>('.aspect-pill').forEach(pill=>{
    const isActive=pill.dataset.aspect===options.aspect;
@@ -1033,6 +1038,10 @@ $('apple-count-in')?.addEventListener('change',()=>{
   settingsDirty=true;refresh();status('Mode settings updated locally. Save when ready.');
  }
 });
+$('karaoke-stage-style')?.addEventListener('change', action(() => {
+ const style = $<HTMLSelectElement>('karaoke-stage-style').value === 'christmas2026' ? 'christmas2026' : 'standard';
+ applyKtvStageStyle(style);
+}));
 $('karaoke-alignment')?.addEventListener('change',()=>{
  if(design.active_mode==='tv'){
   design.modes.tv.alignment=$<HTMLSelectElement>('karaoke-alignment').value as 'center'|'classic';
@@ -1129,11 +1138,44 @@ function initExportEngineHint() {
 }
 void initExportEngineHint();
 
+function applyKtvStageStyle(style: 'standard' | 'christmas2026') {
+  const isChristmas = style === 'christmas2026';
+  design.modes.tv.theme = { palette: isChristmas ? 'christmas2026' : 'impact', background: isChristmas ? 'dark' : 'auto' };
+  if (project?.song_identity) {
+    project.song_identity.visual_theme = isChristmas ? 'christmas2026' : 'director';
+    project.song_identity.particles_mode = isChristmas ? 'snow' : 'particles';
+    identityDirty = true;
+    showIdentity();
+  }
+  settingsDirty = true;
+  if (design.active_mode !== 'tv') {
+    const select = $<HTMLSelectElement>('visual-template-select');
+    if (select) select.value = 'tv';
+    applyVisualTemplate();
+  } else {
+    syncModeControls();
+    refresh();
+  }
+  status(isChristmas ? '🎄 Switched to Victorian Christmas KTV Special.' : '📺 Switched to Classic Dual-line Karaoke.');
+}
+
 function initTemplateCards() {
   if (typeof document.querySelectorAll !== 'function') return;
   document.querySelectorAll<HTMLElement>('.template-card').forEach(card => {
     card.addEventListener('click', action(() => {
-      const mode = card.dataset.templateId as keyof typeof visualModes;
+      const tplId = card.dataset.templateId;
+      if (tplId === 'tv-christmas') {
+        applyKtvStageStyle('christmas2026');
+        return;
+      }
+      if (tplId === 'tv') {
+        const wasChristmas = project?.song_identity?.visual_theme === 'christmas2026' || project?.song_identity?.visual_theme === 'christmas_special' || design.modes.tv?.theme?.palette === 'christmas2026';
+        if (wasChristmas || design.active_mode !== 'tv') {
+          applyKtvStageStyle('standard');
+        }
+        return;
+      }
+      const mode = tplId as keyof typeof visualModes;
       if (mode && mode in visualModes && mode !== design.active_mode) {
         const select = $<HTMLSelectElement>('visual-template-select');
         if (select) select.value = mode;
@@ -1399,6 +1441,8 @@ function showIdentity(){const v=project?.song_identity;if(!v)return;
  $<HTMLInputElement>('song-title').value=v.title;$<HTMLInputElement>('song-artist').value=v.artist;$<HTMLSelectElement>('song-style').value=v.style;
  $<HTMLSelectElement>('cover-mode').value=v.cover_mode||'background';$<HTMLInputElement>('cover-x').value=String(v.cover_x??50);$<HTMLInputElement>('cover-y').value=String(v.cover_y??50);$<HTMLInputElement>('cover-zoom').value=String(v.cover_zoom??1);
  if($('particles-mode'))$<HTMLSelectElement>('particles-mode').value=v.particles_mode||'particles';
+ const activeParticleStyle = v.particles_mode === 'snow' ? 'snow' : 'particles';
+ if($('theme-particles-style'))$<HTMLSelectElement>('theme-particles-style').value=activeParticleStyle;
  const pSpeed = v.particles_speed ?? 0.5;
  if($('particles-speed'))$<HTMLInputElement>('particles-speed').value=String(pSpeed);
  if($('particles-speed-val'))$('particles-speed-val').textContent=`${pSpeed}x`;
@@ -1406,6 +1450,7 @@ function showIdentity(){const v=project?.song_identity;if(!v)return;
  if($('particles-darken'))$<HTMLInputElement>('particles-darken').value=String(pDarken);
  if($('particles-darken-val'))$('particles-darken-val').textContent=`${Math.round(pDarken*100)}%`;
  if($('theme-particles'))$<HTMLInputElement>('theme-particles').checked=(v.particles_mode!=='none');
+ if($('particles-style-wrap'))$('particles-style-wrap').hidden=(v.particles_mode==='none');
  if($('particles-speed-wrap'))$('particles-speed-wrap').hidden=(v.particles_mode==='none');
  if($('particles-darken-wrap'))$('particles-darken-wrap').hidden=(v.particles_mode==='none');
  for(const [id,key] of [['intro','show_intro'],['signature','show_signature'],['section','show_section'],['outro','show_outro']] as const)$<HTMLInputElement>('song-'+id).checked=v[key];
@@ -1430,6 +1475,8 @@ function editIdentity(){if(!project?.song_identity)return;
  });
  const isParticlesOn = project.song_identity.particles_mode!=='none';
  if($('theme-particles'))$<HTMLInputElement>('theme-particles').checked=isParticlesOn;
+ if($('theme-particles-style') && isParticlesOn)$<HTMLSelectElement>('theme-particles-style').value=project.song_identity.particles_mode==='snow'?'snow':'particles';
+ if($('particles-style-wrap'))$('particles-style-wrap').hidden=!isParticlesOn;
  if($('particles-speed-wrap'))$('particles-speed-wrap').hidden=!isParticlesOn;
  if($('particles-darken-wrap'))$('particles-darken-wrap').hidden=!isParticlesOn;
  project.title=project.song_identity.title;project.artist=project.song_identity.artist;identityDirty=true;$('track-name').textContent=project.title;refresh();status('Song layout preview updated. Save before exporting.');
@@ -1463,13 +1510,30 @@ if($('theme-particles')){
  $('theme-particles').onchange=action(()=>{
   if(!project?.song_identity)return;
   const isChecked=$<HTMLInputElement>('theme-particles').checked;
-  project.song_identity.particles_mode=isChecked?'particles':'none';
+  const chosenStyle=$('theme-particles-style')?($<HTMLSelectElement>('theme-particles-style').value==='snow'?'snow':'particles'):'particles';
+  project.song_identity.particles_mode=isChecked?chosenStyle:'none';
   if($('particles-mode'))$<HTMLSelectElement>('particles-mode').value=project.song_identity.particles_mode;
+  if($('particles-style-wrap'))$('particles-style-wrap').hidden=!isChecked;
   if($('particles-speed-wrap'))$('particles-speed-wrap').hidden=!isChecked;
   if($('particles-darken-wrap'))$('particles-darken-wrap').hidden=!isChecked;
   identityDirty=true;
   refresh();
   status(isChecked?'Ambient particles and fluid aurora enabled.':'Ambient particles and fluid aurora disabled.');
+ });
+}
+if($('theme-particles-style')){
+ $('theme-particles-style').onchange=action(()=>{
+  if(!project?.song_identity)return;
+  const chosenStyle=$<HTMLSelectElement>('theme-particles-style').value==='snow'?'snow':'particles';
+  project.song_identity.particles_mode=chosenStyle;
+  if($('particles-mode'))$<HTMLSelectElement>('particles-mode').value=chosenStyle;
+  if($('theme-particles'))$<HTMLInputElement>('theme-particles').checked=true;
+  if($('particles-style-wrap'))$('particles-style-wrap').hidden=false;
+  if($('particles-speed-wrap'))$('particles-speed-wrap').hidden=false;
+  if($('particles-darken-wrap'))$('particles-darken-wrap').hidden=false;
+  identityDirty=true;
+  refresh();
+  status(chosenStyle==='snow'?'❄️ Switched to Christmas Snow particle template.':'✨ Switched to Fluid Aurora particle template.');
  });
 }
 if($('particles-speed')){

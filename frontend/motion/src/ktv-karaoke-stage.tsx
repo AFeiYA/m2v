@@ -38,7 +38,8 @@ export const KtvKaraokeStage: React.FC<{
   const displayArtist = project.artist || project.song_identity?.artist || '';
   const tempoBpm = Math.round(project.features?.tempo || project.analysis?.bpm || (project as any).bpm || 0);
 
-  const isChristmas = isKtvChristmasTheme(project, options?.preset);
+  const isChristmas = isKtvChristmasTheme(project, options?.preset, palette?.accent);
+  const isCenterAlign = project.motion_design?.modes?.tv?.alignment === 'center';
 
   const accent = isChristmas ? '#FFD700' : (palette?.accent || '#b7f34a');
   const sungHighlight = isChristmas ? '#FEF08A' : accent;
@@ -75,10 +76,10 @@ export const KtvKaraokeStage: React.FC<{
         style={{
           display: 'flex',
           alignItems: 'center',
-          justifyContent: isLandscape ? (isTop ? 'flex-start' : 'flex-end') : 'center',
+          justifyContent: isLandscape && !isCenterAlign ? (isTop ? 'flex-start' : 'flex-end') : 'center',
           width: '100%',
-          paddingLeft: isLandscape && isTop ? '60px' : '0px',
-          paddingRight: isLandscape && !isTop ? '60px' : '0px',
+          paddingLeft: isLandscape && !isCenterAlign && isTop ? '60px' : '0px',
+          paddingRight: isLandscape && !isCenterAlign && !isTop ? '60px' : '0px',
           opacity,
           transform: `translateY(${Math.round((1 - opacity) * 8)}px)`,
           transition: 'opacity 0.25s ease-out, transform 0.25s ease-out',
