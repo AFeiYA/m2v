@@ -721,7 +721,7 @@ class DouyinUploader:
             if self.cookies:
                 cookie_items = []
                 for k, v in self.cookies.items():
-                    if not v:
+                    if not v or k.startswith(("__Host-", "__Secure-")):
                         continue
                     cookie_items.append({
                         "name": k,
@@ -736,7 +736,8 @@ class DouyinUploader:
                         "path": "/",
                     })
                 try:
-                    browser_context.add_cookies(cookie_items)
+                    if cookie_items:
+                        browser_context.add_cookies(cookie_items)
                 except Exception as ce:
                     logger.warning(f"注入抖音 Cookies 异常: {ce}")
 

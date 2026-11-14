@@ -195,7 +195,7 @@ def run_interactive_oauth(client_id: str = "", client_secret: str = "", port: in
         f"response_type=code&"
         f"scope={scope_str}&"
         f"access_type=offline&"
-        f"prompt=consent"
+        f"prompt=select_account%20consent"
     )
 
     print("=" * 70)
