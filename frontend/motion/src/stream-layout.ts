@@ -1,6 +1,15 @@
 import { compileHighlightSpans, highlightState, type HighlightSpan } from './karaoke.ts';
 import type { Project, Line } from './model.ts';
 import { computeIntroEnd } from './song-layout.ts';
+import {
+  BOKEH_LIGHTS,
+  SNOW_FLAKES,
+  getKtvSlotState,
+  getLineWords,
+  getKtvSectionInfo,
+  isKtvChristmasTheme,
+  type SlotState,
+} from './ktv-stage-shared.ts';
 
 export type TextMeasure = (text: string, size: number, weight: number) => {
   width: number;
@@ -65,6 +74,7 @@ export interface KtvDualCompiled {
   title?: string;
   artist?: string;
   bpm?: number;
+  duration?: number;
   sections?: { name: string; start: number; end: number }[];
   showHud?: boolean;
   isChristmas?: boolean;
@@ -195,13 +205,7 @@ export function compileKtvDualLayout(
     });
   }
 
-  const preset = (options as any)?.preset || project.song_identity?.visual_theme || '';
-  const isChristmas =
-    preset === 'christmas2026' ||
-    preset === 'christmas_special' ||
-    project.song_identity?.visual_theme === 'christmas2026' ||
-    project.song_identity?.visual_theme === 'christmas_special' ||
-    (palette.accent?.toLowerCase() === '#ffd700' && (palette.background?.toLowerCase() === '#07130e' || palette.background?.toLowerCase() === '#120303'));
+  const isChristmas = isKtvChristmasTheme(project, (options as any)?.preset, palette.accent);
 
   return {
     aspect: height>width?'9:16':'16:9',
@@ -214,6 +218,7 @@ export function compileKtvDualLayout(
     title,
     artist,
     bpm,
+    duration: project.duration || lines.at(-1)?.end || 180,
     sections,
     showHud: options?.show_hud ?? true,
     isChristmas,
@@ -371,12 +376,75 @@ export function paintKtvDualCanvas(
   t: number,
   fontFamily: string
 ): void {
-  const { upper, lower, currentSection, sectionIcon } = ktvDualStateAt(layout, t);
-  const slots = [upper, lower].filter((s): s is KtvLineRenderState => Boolean(s));
-  const isLandscape = layout.aspect === '16:9';
+  const width = layout.width;
+  const height = layout.height;
+  const isLandscape = width >= height;
   const isChristmas = Boolean(layout.isChristmas);
   const accent = isChristmas ? '#FFD700' : (layout.palette.accent || '#b7f34a');
   const sungHighlight = isChristmas ? '#FEF08A' : accent;
+  const frame = t * 30;
+  const rawLines = layout.lines.map(c => c.line);
+  const { currentSection, sectionIcon } = getKtvSectionInfo(layout.sections, rawLines, t, isChristmas);
+
+  // 0. Background & Radial Stage Vignette (NO raw cover image)
+  ctx.save();
+  ctx.fillStyle = isChristmas ? '#120303' : (layout.palette.background || '#090d14');
+  ctx.fillRect(0, 0, width, height);
+
+  const bgGrad = ctx.createRadialGradient(
+    width * 0.5,
+    height * (isChristmas ? 0.28 : 0.3),
+    0,
+    width * 0.5,
+    height * (isChristmas ? 0.28 : 0.3),
+    Math.max(width, height) * 0.72
+  );
+  if (isChristmas) {
+    bgGrad.addColorStop(0, '#3d0707');
+    bgGrad.addColorStop(0.42, '#260404');
+    bgGrad.addColorStop(0.78, '#140202');
+    bgGrad.addColorStop(1, '#080101');
+  } else {
+    bgGrad.addColorStop(0, 'rgba(18, 26, 40, 0.75)');
+    bgGrad.addColorStop(1, 'rgba(6, 10, 16, 0.96)');
+  }
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+
+  // 0.5 Warm Bokeh Fairy Lights & Snow Particles (Christmas Special Only)
+  if (isChristmas) {
+    ctx.save();
+    for (let i = 0; i < BOKEH_LIGHTS.length; i++) {
+      const orb = BOKEH_LIGHTS[i];
+      const pulse = 0.82 + Math.sin(frame * orb.pulseSpeed + i) * 0.18;
+      const cx = (orb.x / 1920) * width;
+      const cy = (orb.y / 1080) * height;
+      const r = ((orb.size / 1920) * width) * 0.85 * pulse;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(1, r));
+      g.addColorStop(0, orb.color);
+      g.addColorStop(0.55, orb.color);
+      g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(1, r), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    for (const flake of SNOW_FLAKES) {
+      const yOffset = ((frame * flake.speed * 2.2 + flake.id * 73) % (height + 60)) - 30;
+      const xOffset = ((flake.x + Math.sin(frame * flake.swaySpeed + flake.id) * flake.swayAmp) / 1920) * width;
+      const r = Math.max(1, ((flake.size / 1920) * width) * 0.5);
+      ctx.globalAlpha = flake.opacity;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.shadowColor = `rgba(255, 255, 255, ${flake.opacity * 0.8})`;
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(xOffset, yOffset, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
 
   // 1. Victorian Ornate Gold Double Frame (Christmas Special Only in 16:9)
   if (isChristmas && isLandscape) {
@@ -385,42 +453,51 @@ export function paintKtvDualCanvas(
     ctx.lineWidth = 2;
     if (typeof ctx.roundRect === 'function') {
       ctx.beginPath();
-      ctx.roundRect(24, 24, layout.width - 48, layout.height - 48, 16);
+      ctx.roundRect(24, 24, width - 48, height - 48, 16);
       ctx.stroke();
 
       ctx.strokeStyle = 'rgba(245, 158, 11, 0.3)';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.5;
       ctx.setLineDash([8, 8]);
       ctx.beginPath();
-      ctx.roundRect(32, 32, layout.width - 64, layout.height - 64, 10);
+      ctx.roundRect(32, 32, width - 64, height - 64, 10);
       ctx.stroke();
     }
+    ctx.setLineDash([]);
     ctx.font = '22px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🎄', 44, 48);
-    ctx.fillText('🎄', layout.width - 44, 48);
-    ctx.fillText('❄️', 44, layout.height - 48);
-    ctx.fillText('❄️', layout.width - 44, layout.height - 48);
+    ctx.fillText('🎄', 48, 48);
+    ctx.fillText('🎄', width - 48, 48);
+    ctx.fillText('❄️', 48, height - 48);
+    ctx.fillText('❄️', width - 48, height - 48);
     ctx.restore();
   }
 
-  // 2. Center Instrumental Break Stage (when neither line is singing)
-  if (slots.length === 0) {
-    ctx.save();
-    const interW = Math.min(layout.width * 0.75, 560);
-    const interH = 180;
-    const interX = (layout.width - interW) / 2;
-    const interY = (layout.height - interH) / 2;
+  // 2. Center Dual Slots (matching KtvKaraokeStage 1:1)
+  const slotTop = getKtvSlotState(0, rawLines, t);
+  const slotBottom = getKtvSlotState(1, rawLines, t);
+  const isInstrumental = slotTop === null && slotBottom === null;
 
-    ctx.fillStyle = isChristmas ? 'rgba(30, 4, 4, 0.68)' : 'rgba(12, 18, 28, 0.78)';
-    ctx.strokeStyle = isChristmas ? 'rgba(245, 158, 11, 0.45)' : `${accent}55`;
+  const cardFontSize = isLandscape
+    ? Math.max(30, Math.round(width * 0.024))
+    : Math.max(22, Math.round(width * 0.055));
+
+  if (isInstrumental) {
+    ctx.save();
+    const interW = Math.min(width * 0.78, 560);
+    const interH = 180;
+    const interX = (width - interW) / 2;
+    const interY = (height - interH) / 2;
+
+    ctx.fillStyle = isChristmas ? 'rgba(30, 4, 4, 0.68)' : 'rgba(12, 18, 28, 0.75)';
+    ctx.strokeStyle = isChristmas ? 'rgba(245, 158, 11, 0.4)' : `${accent}55`;
     ctx.lineWidth = 1.5;
     ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
     ctx.shadowBlur = 30;
     ctx.beginPath();
     if (typeof ctx.roundRect === 'function') {
-      ctx.roundRect(interX, interY, interW, interH, 26);
+      ctx.roundRect(interX, interY, interW, interH, isLandscape ? 28 : 20);
     } else {
       ctx.rect(interX, interY, interW, interH);
     }
@@ -430,208 +507,352 @@ export function paintKtvDualCanvas(
     ctx.shadowBlur = 0;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '44px sans-serif';
-    ctx.fillText(isChristmas ? '🛷 ❄️ 🔔' : '🎵 ⚡ 🎧', layout.width / 2, interY + 44);
+    ctx.font = `${isLandscape ? 40 : 32}px sans-serif`;
+    ctx.fillText(isChristmas ? '🛷 ❄️ 🔔' : '🎵 ⚡ 🎧', width / 2, interY + 46);
 
-    ctx.font = `800 ${Math.max(18, Math.round(layout.uniformFontSize * 0.55))}px ${fontFamily}`;
+    ctx.font = `800 ${isLandscape ? 22 : 16}px ${fontFamily}`;
     ctx.fillStyle = sungHighlight;
     ctx.shadowColor = accent;
-    ctx.shadowBlur = 16;
-    ctx.fillText(`♫ ${(currentSection || 'Intro').toUpperCase()} ♫`, layout.width / 2, interY + 104);
+    ctx.shadowBlur = 14;
+    ctx.fillText(`♫ ${(currentSection || 'Intro').toUpperCase()} ♫`, width / 2, interY + 104);
 
-    ctx.font = `500 ${Math.max(13, Math.round(layout.uniformFontSize * 0.35))}px ${fontFamily}`;
+    ctx.font = `500 ${isLandscape ? 14 : 12}px ${fontFamily}`;
     ctx.fillStyle = '#E2E8F0';
     ctx.shadowBlur = 0;
     ctx.fillText(
       isChristmas ? 'Listen to the sleigh bells... Get ready to sing!' : 'Feel the groove... Get ready to sing!',
-      layout.width / 2,
+      width / 2,
       interY + 144
     );
     ctx.restore();
-  }
+  } else {
+    const activeSlots: Array<{ state: SlotState; slotType: 'top' | 'bottom' }> = [];
+    if (slotTop) activeSlots.push({ state: slotTop, slotType: 'top' });
+    if (slotBottom) activeSlots.push({ state: slotBottom, slotType: 'bottom' });
 
-  // 3. Center Dual Lines with Cards, Word Zoom (1.12x), and Bloom
-  for (const slot of slots) {
-    const c = slot.compiled;
-    ctx.save();
-    if (slot.alpha < 1) ctx.globalAlpha = Math.max(0, Math.min(1, slot.alpha));
-    if (slot.dy !== 0) ctx.translate(0, slot.dy);
+    const stagePadX = isLandscape ? 48 : 18;
+    const staggerPad = isLandscape ? 60 : 0;
+    const cardPadX = isLandscape ? 36 : 20;
+    const cardPadY = isLandscape ? 16 : 12;
+    const colGap = isLandscape ? 16 : 10;
+    const rowGap = 8;
+    const lineHeight = Math.round(cardFontSize * 1.25);
+    const maxCardW = Math.round(width * (isLandscape ? 0.85 : 0.92));
+    const maxContentW = maxCardW - cardPadX * 2;
+    const stageGap = isLandscape ? 36 : 24;
 
-    // 3.1 Luxury Glassmorphism Card Container
-    const cardPadX = isLandscape ? 34 : 20;
-    const cardPadY = isLandscape ? 16 : 10;
-    const hasLeadOrActive = Boolean(slot.leadIn || slot.phase === 'active');
-    const cardX = c.x - (hasLeadOrActive ? 76 : 24);
-    const cardY = c.y - c.fontSize - cardPadY + 4;
-    const cardW = c.width + (hasLeadOrActive ? 104 : 48);
-    const cardH = c.fontSize + cardPadY * 2 + 6;
-    const cardRadius = isLandscape ? 24 : 16;
-
-    ctx.save();
-    ctx.beginPath();
-    if (typeof ctx.roundRect === 'function') {
-      ctx.roundRect(cardX, cardY, cardW, cardH, cardRadius);
-    } else {
-      ctx.rect(cardX, cardY, cardW, cardH);
+    interface MeasuredWord {
+      word: string;
+      start: number;
+      end: number;
+      width: number;
+      x: number;
+      row: number;
     }
-    if (slot.phase === 'active') {
-      ctx.fillStyle = isChristmas ? 'rgba(42, 5, 5, 0.88)' : 'rgba(12, 18, 28, 0.85)';
-      ctx.fill();
-      ctx.strokeStyle = accent;
-      ctx.lineWidth = 2;
-      ctx.shadowColor = isChristmas ? 'rgba(245, 158, 11, 0.45)' : `${accent}66`;
-      ctx.shadowBlur = 24;
-      ctx.stroke();
-    } else if (slot.phase === 'preview') {
-      ctx.fillStyle = isChristmas ? 'rgba(22, 3, 3, 0.68)' : 'rgba(8, 12, 20, 0.72)';
-      ctx.fill();
-      ctx.strokeStyle = isChristmas ? 'rgba(245, 158, 11, 0.35)' : 'rgba(255, 255, 255, 0.18)';
-      ctx.lineWidth = 1.5;
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
-      ctx.shadowBlur = 12;
-      ctx.stroke();
-    } else {
-      ctx.fillStyle = isChristmas ? 'rgba(18, 2, 2, 0.52)' : 'rgba(6, 10, 16, 0.55)';
-      ctx.fill();
-      ctx.strokeStyle = isChristmas ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.08)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
+    interface PreparedCard {
+      state: SlotState;
+      slotType: 'top' | 'bottom';
+      cardW: number;
+      cardH: number;
+      headWidth: number;
+      showLeadIn: boolean;
+      activeBeat: number;
+      rowsCount: number;
+      words: MeasuredWord[];
+    }
+
+    const prepared: PreparedCard[] = [];
+    ctx.save();
+    ctx.font = `900 ${cardFontSize}px ${fontFamily}`;
+
+    for (const item of activeSlots) {
+      const { state, slotType } = item;
+      const showLeadIn = state.isUpcoming && state.timeUntilStart <= 2.0 && state.timeUntilStart > 0;
+      const activeBeat = showLeadIn ? Math.floor((2.0 - state.timeUntilStart) / 0.5) + 1 : 0;
+
+      // Head indicator width + marginRight (8px) + colGap
+      const headWidth = showLeadIn
+        ? (isLandscape ? 12 * 4 + 6 * 3 : 9 * 4 + 6 * 3)
+        : state.isSinging
+          ? (isLandscape ? 28 : 22)
+          : (isLandscape ? 18 : 14);
+      const headSlotW = headWidth + 8;
+
+      const rawWords = getLineWords(state.line).filter(w => w.word.trim().length > 0);
+      const measuredWords: MeasuredWord[] = [];
+      let curX = headSlotW + colGap;
+      let curRow = 0;
+      let maxRowW = headSlotW;
+
+      for (const w of rawWords) {
+        const wWidth = ctx.measureText(w.word).width;
+        if (curX > 0 && curX + wWidth > maxContentW && (curRow > 0 || curX > headSlotW + colGap)) {
+          maxRowW = Math.max(maxRowW, curX - colGap);
+          curRow++;
+          curX = 0;
+        }
+        measuredWords.push({
+          word: w.word,
+          start: w.start,
+          end: w.end,
+          width: wWidth,
+          x: curX,
+          row: curRow,
+        });
+        curX += wWidth + colGap;
+      }
+      if (measuredWords.length > 0) {
+        maxRowW = Math.max(maxRowW, curX - colGap);
+      }
+
+      const rowsCount = curRow + 1;
+      const contentH = rowsCount * lineHeight + Math.max(0, rowsCount - 1) * rowGap;
+      const cardW = Math.min(maxCardW, Math.ceil(maxRowW + cardPadX * 2));
+      const cardH = Math.ceil(contentH + cardPadY * 2);
+
+      prepared.push({
+        state,
+        slotType,
+        cardW,
+        cardH,
+        headWidth,
+        showLeadIn,
+        activeBeat,
+        rowsCount,
+        words: measuredWords,
+      });
     }
     ctx.restore();
 
-    ctx.font = `900 ${c.fontSize}px ${fontFamily}`;
-    ctx.textBaseline = 'alphabetic';
-    ctx.textAlign = 'left';
-    ctx.lineJoin = 'round';
-    ctx.miterLimit = 2;
-    const strokeWidth = Math.max(2.5, Math.round(c.fontSize * 0.08));
+    const totalStackH = prepared.reduce((acc, c) => acc + c.cardH, 0) + Math.max(0, prepared.length - 1) * stageGap;
+    let curTopY = Math.round((height - totalStackH) / 2);
 
-    // 3.2 Base text: NEVER BLACK! Pure crisp white for un-sung lyrics with clean outline
-    const baseColor = slot.phase === 'stay' ? (isChristmas ? '#FDE047' : accent) : '#FFFFFF';
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
-    ctx.lineWidth = strokeWidth;
-    ctx.strokeText(c.line.text, c.x, c.y);
-    ctx.fillStyle = baseColor;
-    ctx.fillText(c.line.text, c.x, c.y);
+    for (const card of prepared) {
+      const { state, slotType, cardW, cardH, headWidth, showLeadIn, activeBeat, words } = card;
+      const { isSinging, isUpcoming, isPast, opacity } = state;
+      const isTop = slotType === 'top';
 
-    // 3.3 Active swept lyrics highlight with dynamic word zoom (scale 1.12)
-    if (slot.phase === 'active') {
-      for (const item of slot.spansWithProgress) {
-        if (item.progress <= 0) continue;
-        ctx.save();
+      const cardX = isLandscape
+        ? (isTop ? stagePadX + staggerPad : width - stagePadX - staggerPad - cardW)
+        : Math.round((width - cardW) / 2);
+      const cardY = curTopY + Math.round((1 - opacity) * 8);
+      curTopY += card.cardH + stageGap;
 
-        // Dynamic Zoom: zoom active singing word by 1.12x
-        if (item.active) {
-          const midX = item.span.x + item.span.width / 2;
-          const midY = item.span.top + item.span.height / 2;
-          ctx.translate(midX, midY);
-          ctx.scale(1.12, 1.12);
-          ctx.translate(-midX, -midY);
-        }
-
-        ctx.beginPath();
-        ctx.rect(
-          item.span.x,
-          item.span.top,
-          item.span.width * item.progress,
-          item.span.height
-        );
-        ctx.clip();
-
-        // Stroke under active highlight
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
-        ctx.lineWidth = strokeWidth;
-        ctx.strokeText(c.line.text, c.x, c.y);
-
-        // Accent fill with bloom glow
-        ctx.fillStyle = sungHighlight;
-        ctx.shadowColor = accent;
-        ctx.shadowBlur = Math.round(c.fontSize * 0.35);
-        ctx.fillText(c.line.text, c.x, c.y);
-        ctx.restore();
-      }
-    }
-
-    // 3.4 Lead-in countdown dots (4 beats prior to singing)
-    if (slot.leadIn && slot.leadIn.overallAlpha > 0.05) {
       ctx.save();
-      ctx.globalAlpha = slot.leadIn.overallAlpha;
-      for (const dot of slot.leadIn.dots) {
-        ctx.save();
-        ctx.translate(dot.x, dot.y);
-        ctx.scale(dot.scale, dot.scale);
-        ctx.beginPath();
-        ctx.arc(0, 0, dot.radius, 0, Math.PI * 2);
-        if (dot.isLit) {
-          ctx.fillStyle = accent;
-          ctx.shadowColor = accent;
-          ctx.shadowBlur = dot.isActive ? 14 : 6;
-        } else {
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
-          ctx.shadowBlur = 0;
-        }
+      ctx.globalAlpha = opacity;
+
+      // 3.1 Luxury Glassmorphism Card Container
+      const cardRadius = isLandscape ? 24 : 18;
+      ctx.save();
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(cardX, cardY, cardW, cardH, cardRadius);
+      } else {
+        ctx.rect(cardX, cardY, cardW, cardH);
+      }
+
+      if (isSinging) {
+        ctx.fillStyle = isChristmas ? 'rgba(42, 5, 5, 0.88)' : 'rgba(12, 18, 28, 0.85)';
+        ctx.shadowColor = isChristmas ? 'rgba(245, 158, 11, 0.45)' : `${accent}55`;
+        ctx.shadowBlur = 28;
         ctx.fill();
-        ctx.restore();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = isChristmas ? '#F59E0B' : accent;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else if (isUpcoming) {
+        ctx.fillStyle = isChristmas ? 'rgba(22, 3, 3, 0.68)' : 'rgba(8, 12, 20, 0.72)';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+        ctx.shadowBlur = 24;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = isChristmas ? 'rgba(245, 158, 11, 0.35)' : 'rgba(255, 255, 255, 0.18)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = isChristmas ? 'rgba(18, 2, 2, 0.52)' : 'rgba(6, 10, 16, 0.55)';
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+        ctx.shadowBlur = 24;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = isChristmas ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.08)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
       }
       ctx.restore();
-    } else if (slot.phase === 'active') {
-      // 3.5 Animated singing indicator
-      ctx.save();
-      const iconSize = Math.max(14, Math.round(c.fontSize * 0.48));
-      ctx.font = `${iconSize}px ${fontFamily}`;
-      ctx.textAlign = 'center';
+
+      const contentStartX = cardX + cardPadX;
+      const firstRowCenterY = cardY + cardPadY + lineHeight / 2;
+
+      // 3.2 Head Indicator: Oscillating Singing Cue / 4-Beat Countdown / Arrow
+      if (isSinging) {
+        ctx.save();
+        const iconScale = 1 + Math.sin(frame * 0.3) * 0.15;
+        const iconRot = (Math.sin(frame * 0.2) * 8 * Math.PI) / 180;
+        ctx.translate(contentStartX + headWidth / 2, firstRowCenterY);
+        ctx.scale(iconScale, iconScale);
+        ctx.rotate(iconRot);
+        ctx.font = `${isLandscape ? 24 : 18}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = accent;
+        ctx.shadowBlur = 8;
+        ctx.fillText(isChristmas ? '🔔' : '🎤', 0, 0);
+        ctx.restore();
+      } else if (showLeadIn) {
+        ctx.save();
+        const dotSize = isLandscape ? 12 : 9;
+        const dotRadius = dotSize / 2;
+        const dotGap = 6;
+        for (let b = 1; b <= 4; b++) {
+          const dx = contentStartX + dotRadius + (b - 1) * (dotSize + dotGap);
+          const isLit = b <= activeBeat;
+          const isBeatActive = b === activeBeat;
+          ctx.save();
+          ctx.translate(dx, firstRowCenterY);
+          ctx.scale(isBeatActive ? 1.4 : 1.0, isBeatActive ? 1.4 : 1.0);
+          ctx.beginPath();
+          ctx.arc(0, 0, dotRadius, 0, Math.PI * 2);
+          if (isLit) {
+            ctx.fillStyle = accent;
+            ctx.shadowColor = accent;
+            ctx.shadowBlur = 12;
+          } else {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+          }
+          ctx.fill();
+          ctx.restore();
+        }
+        ctx.restore();
+      } else {
+        ctx.save();
+        ctx.font = `700 ${isLandscape ? 16 : 13}px ${fontFamily}`;
+        ctx.fillStyle = isPast ? `${accent}55` : `${accent}99`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(isTop ? '▲' : '▼', contentStartX + headWidth / 2, firstRowCenterY);
+        ctx.restore();
+      }
+
+      // 3.3 Word-by-word Rendering with Dynamic 1.12x Active Word Zoom & Bloom
+      ctx.font = `900 ${cardFontSize}px ${fontFamily}`;
       ctx.textBaseline = 'middle';
-      ctx.shadowColor = accent;
-      ctx.shadowBlur = 10;
-      ctx.fillText(isChristmas ? '🔔' : '🎤', c.x - iconSize - 10, c.y - Math.round(c.fontSize * 0.32));
+      ctx.textAlign = 'left';
+
+      for (const wObj of words) {
+        const isWordPast = t >= wObj.end;
+        const isWordActive = t >= wObj.start && t < wObj.end;
+        let wordProgress = 0;
+        if (isWordPast) wordProgress = 1;
+        else if (isWordActive) {
+          wordProgress = (t - wObj.start) / Math.max(0.01, wObj.end - wObj.start);
+        }
+
+        const wx = contentStartX + wObj.x;
+        const wy = cardY + cardPadY + wObj.row * (lineHeight + rowGap);
+        const wCenterY = wy + lineHeight / 2;
+
+        ctx.save();
+        if (isWordActive) {
+          const midX = wx + wObj.width / 2;
+          ctx.translate(midX, wCenterY);
+          ctx.scale(1.12, 1.12);
+          ctx.translate(-midX, -wCenterY);
+        }
+
+        // Unsung / Past base layer
+        ctx.fillStyle = isWordPast
+          ? (isChristmas ? '#FDE047' : accent)
+          : isSinging
+            ? 'rgba(255, 255, 255, 0.78)'
+            : '#FFFFFF';
+        if (isWordPast) {
+          ctx.shadowColor = accent;
+          ctx.shadowBlur = 16;
+        } else {
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+          ctx.shadowBlur = 8;
+          ctx.shadowOffsetY = 2;
+        }
+        ctx.fillText(wObj.word, wx, wCenterY);
+
+        // Active singing sweep layer with bloom
+        if (isWordActive && wordProgress > 0) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(wx - 4, wy - 8, wObj.width * wordProgress + 4, lineHeight + 16);
+          ctx.clip();
+          ctx.fillStyle = sungHighlight;
+          ctx.shadowColor = isChristmas ? '#F59E0B' : accent;
+          ctx.shadowBlur = isChristmas ? 22 : 18;
+          ctx.shadowOffsetY = 0;
+          ctx.fillText(wObj.word, wx, wCenterY);
+          ctx.restore();
+        }
+        ctx.restore();
+      }
+
       ctx.restore();
     }
-
-    ctx.restore();
   }
 
-  // 4. Top Header: Section Badge & Title
+  // 4. Top Header HUD (matching KtvKaraokeStage 1:1)
   if (layout.showHud !== false && (layout.title || currentSection)) {
-    const hudY = Math.round(layout.height * 0.08);
-    const badgeText = `${sectionIcon || (isChristmas ? '🔔' : '🎵')}  ${(currentSection || 'Intro').toUpperCase()}`;
-    const badgeFontSize = Math.max(12, Math.round(layout.uniformFontSize * 0.38));
+    const topY = isLandscape ? 44 : 28;
+    const badgeFontSize = isLandscape ? 16 : 13;
+    const badgeText = `${sectionIcon}  ${(currentSection || 'Intro').toUpperCase()}`;
+
     ctx.save();
     ctx.font = `800 ${badgeFontSize}px ${fontFamily}`;
-    const badgeMetrics = ctx.measureText(badgeText);
-    const badgePadX = 18;
-    const badgePadY = 6;
-    const badgeW = badgeMetrics.width + badgePadX * 2;
-    const badgeH = badgeFontSize + badgePadY * 2;
-    const badgeX = Math.round((layout.width - badgeW) / 2);
-    const badgeBoxY = Math.round(hudY - badgeH / 2);
+    const badgeTextW = ctx.measureText(badgeText).width;
+    const badgePadX = isLandscape ? 20 : 14;
+    const badgePadY = isLandscape ? 6 : 4;
+    const badgeW = badgeTextW + badgePadX * 2;
+    const badgeH = badgeFontSize + badgePadY * 2 + 4;
+    const badgeX = Math.round((width - badgeW) / 2);
 
     ctx.beginPath();
     if (typeof ctx.roundRect === 'function') {
-      ctx.roundRect(badgeX, badgeBoxY, badgeW, badgeH, badgeH / 2);
+      ctx.roundRect(badgeX, topY, badgeW, badgeH, badgeH / 2);
     } else {
-      ctx.rect(badgeX, badgeBoxY, badgeW, badgeH);
+      ctx.rect(badgeX, topY, badgeW, badgeH);
     }
-    ctx.fillStyle = isChristmas ? 'rgba(185, 28, 28, 0.85)' : 'rgba(12, 18, 28, 0.82)';
-    ctx.fill();
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 1.5;
+    ctx.fillStyle = isChristmas ? 'rgba(20, 20, 20, 0.72)' : 'rgba(12, 18, 28, 0.75)';
     ctx.shadowColor = isChristmas ? 'rgba(245, 158, 11, 0.4)' : `${accent}44`;
-    ctx.shadowBlur = 12;
+    ctx.shadowBlur = 16;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = isChristmas ? '#F59E0B' : accent;
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    ctx.fillStyle = sungHighlight;
+    ctx.fillStyle = isChristmas ? '#FEF08A' : accent;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(badgeText, layout.width / 2, hudY);
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+    ctx.shadowBlur = 3;
+    ctx.fillText(badgeText, width / 2, topY + badgeH / 2);
 
-    if (layout.title && layout.aspect === '16:9') {
-      const titleFontSize = Math.max(14, Math.round(layout.uniformFontSize * 0.45));
-      ctx.font = `900 ${titleFontSize}px ${fontFamily}`;
-      ctx.fillStyle = isChristmas ? '#FEF08A' : '#FFFFFF';
+    const displayTitle = (layout.title || 'Untitled Track').replace(/[-_]/g, ' ').toUpperCase();
+    const titleFontSize = isLandscape ? 34 : 22;
+    const titleY = topY + badgeH + (isLandscape ? 10 : 6) + titleFontSize / 2;
+    ctx.font = `900 ${titleFontSize}px ${fontFamily}`;
+    ctx.fillStyle = isChristmas ? '#FEF08A' : '#FFFFFF';
+    ctx.shadowColor = isChristmas ? 'rgba(245, 158, 11, 0.4)' : 'rgba(0, 0, 0, 0.9)';
+    ctx.shadowBlur = isChristmas ? 20 : 8;
+    ctx.fillText(displayTitle, width / 2, titleY);
+
+    if (isLandscape) {
+      const subY = titleY + titleFontSize / 2 + 12;
+      const tempoStr = layout.bpm && layout.bpm > 0
+        ? `${layout.bpm} BPM`
+        : (isChristmas ? 'VICTORIAN CHRISTMAS' : 'KARAOKE');
+      const subText = layout.artist ? `${layout.artist} • ${tempoStr}` : tempoStr;
+      ctx.font = `600 14px ${fontFamily}`;
+      ctx.fillStyle = isChristmas ? '#FDE68A' : 'rgba(255, 255, 255, 0.75)';
       ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-      ctx.shadowBlur = 12;
-      const subText = layout.bpm ? `${layout.title.toUpperCase()} • ${layout.bpm} BPM` : layout.title.toUpperCase();
-      ctx.fillText(subText, layout.width / 2, hudY + badgeH * 0.95 + 6);
+      ctx.shadowBlur = 4;
+      ctx.fillText(subText, width / 2, subY);
     }
     ctx.restore();
   }
@@ -639,9 +860,10 @@ export function paintKtvDualCanvas(
   // 5. Bottom Timeline HUD Progress Bar
   ctx.save();
   const barMargin = isLandscape ? 80 : 24;
-  const barY = layout.height - (isLandscape ? 44 : 24);
-  const barW = layout.width - barMargin * 2;
-  const barH = isLandscape ? 7 : 5;
+  const barBottom = height - (isLandscape ? 44 : 24);
+  const barH = isLandscape ? 6 : 4;
+  const barY = barBottom - barH;
+  const barW = width - barMargin * 2;
 
   const timeFontSize = isLandscape ? 14 : 11;
   ctx.font = `600 ${timeFontSize}px ${fontFamily}`;
@@ -650,21 +872,21 @@ export function paintKtvDualCanvas(
   const curMin = Math.floor(t / 60).toString().padStart(2, '0');
   const curSec = Math.floor(t % 60).toString().padStart(2, '0');
   ctx.textAlign = 'left';
-  ctx.fillText(`${curMin}:${curSec}`, barMargin, barY - 6);
+  ctx.fillText(`${curMin}:${curSec}`, barMargin, barY - 8);
 
-  const dur = layout.lines.at(-1)?.stayEnd || 180;
+  const dur = layout.duration || layout.lines.at(-1)?.stayEnd || 180;
   const totMin = Math.floor(dur / 60).toString().padStart(2, '0');
   const totSec = Math.floor(dur % 60).toString().padStart(2, '0');
   ctx.textAlign = 'right';
-  ctx.fillText(`${totMin}:${totSec}`, layout.width - barMargin, barY - 6);
+  ctx.fillText(`${totMin}:${totSec}`, width - barMargin, barY - 8);
 
   ctx.textAlign = 'center';
   ctx.font = `800 ${timeFontSize}px ${fontFamily}`;
   ctx.fillStyle = sungHighlight;
   const centerStatusText = isChristmas
-    ? `🎄 ${layout.bpm || 200} BPM • VICTORIAN CHRISTMAS CAROL 🎄`
-    : (layout.bpm ? `${layout.bpm} BPM • DUAL KTV` : 'DUAL KTV');
-  ctx.fillText(centerStatusText, layout.width / 2, barY - 6);
+    ? `🎄 ${layout.bpm && layout.bpm > 0 ? `${layout.bpm} BPM` : 'DUAL KTV'} ❄️`
+    : (layout.bpm && layout.bpm > 0 ? `${layout.bpm} BPM` : 'DUAL KTV');
+  ctx.fillText(centerStatusText, width / 2, barY - 8);
 
   ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
   ctx.beginPath();
@@ -677,11 +899,10 @@ export function paintKtvDualCanvas(
 
   const progW = Math.max(0, Math.min(barW, (t / Math.max(1, dur)) * barW));
   if (progW > 0) {
-    const grad = ctx.createLinearGradient(barMargin, barY, barMargin + barW, barY);
+    const grad = ctx.createLinearGradient(barMargin, barY, barMargin + progW, barY);
     if (isChristmas) {
-      grad.addColorStop(0, '#B91C1C');
-      grad.addColorStop(0.4, '#DC2626');
-      grad.addColorStop(0.75, '#F59E0B');
+      grad.addColorStop(0, '#DC2626');
+      grad.addColorStop(0.5, '#F59E0B');
       grad.addColorStop(1.0, '#FEF08A');
     } else {
       grad.addColorStop(0, `${accent}88`);

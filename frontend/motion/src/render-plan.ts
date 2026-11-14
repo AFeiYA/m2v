@@ -15,7 +15,7 @@ export function compileRenderPlan(project:Project,options:Pick<Options,'visualMo
  const design=project.motion_design ? normalizeMotionDesign(project.motion_design) : undefined;
  // The poster compiler's input is derived here, never written back to the project.
  const source:Project=design?{...project,motion_design:design,motion_plan:design.modes?.kinetic?.plan||undefined,
-  song_identity:project.song_identity?{...project.song_identity,visual_theme:'director'}:undefined}:project;
+  song_identity:project.song_identity?{...project.song_identity,visual_theme:mode==='tv'?(project.song_identity.visual_theme||'director'):'director'}:undefined}:project;
  const theme=design?modeTheme(design,mode):{palette:source.motion_plan?.cues[0]?.palette||'impact',background:'auto' as const};
  const palette=resolvePaletteColors(theme.palette,theme.background);
  const stageProject:Project=mode==='kinetic'?source:{...source,motion_plan:{version:'motion-plan-v1',source_signature:'render-stage',seed:0,cues:[],
