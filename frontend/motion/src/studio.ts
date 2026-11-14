@@ -155,17 +155,12 @@ function syncModeControls(){
    const posY = design.modes.tv.position_y ?? 0.52;
    if($('karaoke-position-y')) $<HTMLInputElement>('karaoke-position-y').value=String(posY);
    if($('karaoke-position-y-val')) $('karaoke-position-y-val').textContent=`${Math.round(posY*100)}%`;
-   const isChristmasKtv = project?.song_identity?.visual_theme === 'christmas2026' || project?.song_identity?.visual_theme === 'christmas_special' || design.modes.tv.theme?.palette === 'christmas2026';
-   if($('karaoke-stage-style')) $<HTMLSelectElement>('karaoke-stage-style').value=isChristmasKtv?'christmas2026':'standard';
   }
  }
- const isChristmasActive = design.active_mode === 'tv' && (project?.song_identity?.visual_theme === 'christmas2026' || project?.song_identity?.visual_theme === 'christmas_special' || design.modes.tv?.theme?.palette === 'christmas2026');
- if($('mode-state-hint'))$('mode-state-hint').textContent=(isChristmasActive?'🎄 Christmas KTV':visualModes[design.active_mode].label)+' · Changes are kept separately for each mode.';
+ if($('mode-state-hint'))$('mode-state-hint').textContent=visualModes[design.active_mode].label+' · Changes are kept separately for each mode.';
  if(typeof document.querySelectorAll==='function'){
   document.querySelectorAll<HTMLElement>('.template-card').forEach(card=>{
-   const tplId = card.dataset.templateId;
-   const isActive = isChristmasActive ? (tplId === 'tv-christmas') : (tplId === design.active_mode);
-   card.classList.toggle('active', isActive);
+   card.classList.toggle('active', card.dataset.templateId===design.active_mode);
   });
   document.querySelectorAll<HTMLButtonElement>('.aspect-pill').forEach(pill=>{
    const isActive=pill.dataset.aspect===options.aspect;
@@ -339,6 +334,17 @@ function previewPalette(){
  const theme={palette:$<HTMLSelectElement>('preset').value,background:$<HTMLSelectElement>('theme-bg').value as 'auto'|'light'|'dark'};
  const scope=$<HTMLSelectElement>('theme-scope')?.value==='all'?'all':'mode';
  design=changeTheme(designSnapshot(),theme,scope);
+ if(project.song_identity){
+  if(theme.palette==='christmas2026'){
+   project.song_identity.visual_theme='christmas2026';
+   if(project.song_identity.particles_mode!=='none')project.song_identity.particles_mode='snow';
+   identityDirty=true;showIdentity();
+  }else if(project.song_identity.visual_theme==='christmas2026'){
+   project.song_identity.visual_theme='director';
+   if(project.song_identity.particles_mode==='snow')project.song_identity.particles_mode='particles';
+   identityDirty=true;showIdentity();
+  }
+ }
  if(plan&&(design.active_mode==='kinetic'||scope==='all')){plan=localPalette(plan,theme.palette,theme.background);dirty=true;}
  settingsDirty=true;refresh();showCue(false);status('Theme updated locally. Save when ready.');
 }
@@ -1038,10 +1044,6 @@ $('apple-count-in')?.addEventListener('change',()=>{
   settingsDirty=true;refresh();status('Mode settings updated locally. Save when ready.');
  }
 });
-$('karaoke-stage-style')?.addEventListener('change', action(() => {
- const style = $<HTMLSelectElement>('karaoke-stage-style').value === 'christmas2026' ? 'christmas2026' : 'standard';
- applyKtvStageStyle(style);
-}));
 $('karaoke-alignment')?.addEventListener('change',()=>{
  if(design.active_mode==='tv'){
   design.modes.tv.alignment=$<HTMLSelectElement>('karaoke-alignment').value as 'center'|'classic';
@@ -1138,44 +1140,11 @@ function initExportEngineHint() {
 }
 void initExportEngineHint();
 
-function applyKtvStageStyle(style: 'standard' | 'christmas2026') {
-  const isChristmas = style === 'christmas2026';
-  design.modes.tv.theme = { palette: isChristmas ? 'christmas2026' : 'impact', background: isChristmas ? 'dark' : 'auto' };
-  if (project?.song_identity) {
-    project.song_identity.visual_theme = isChristmas ? 'christmas2026' : 'director';
-    project.song_identity.particles_mode = isChristmas ? 'snow' : 'particles';
-    identityDirty = true;
-    showIdentity();
-  }
-  settingsDirty = true;
-  if (design.active_mode !== 'tv') {
-    const select = $<HTMLSelectElement>('visual-template-select');
-    if (select) select.value = 'tv';
-    applyVisualTemplate();
-  } else {
-    syncModeControls();
-    refresh();
-  }
-  status(isChristmas ? '🎄 Switched to Victorian Christmas KTV Special.' : '📺 Switched to Classic Dual-line Karaoke.');
-}
-
 function initTemplateCards() {
   if (typeof document.querySelectorAll !== 'function') return;
   document.querySelectorAll<HTMLElement>('.template-card').forEach(card => {
     card.addEventListener('click', action(() => {
-      const tplId = card.dataset.templateId;
-      if (tplId === 'tv-christmas') {
-        applyKtvStageStyle('christmas2026');
-        return;
-      }
-      if (tplId === 'tv') {
-        const wasChristmas = project?.song_identity?.visual_theme === 'christmas2026' || project?.song_identity?.visual_theme === 'christmas_special' || design.modes.tv?.theme?.palette === 'christmas2026';
-        if (wasChristmas || design.active_mode !== 'tv') {
-          applyKtvStageStyle('standard');
-        }
-        return;
-      }
-      const mode = tplId as keyof typeof visualModes;
+      const mode = card.dataset.templateId as keyof typeof visualModes;
       if (mode && mode in visualModes && mode !== design.active_mode) {
         const select = $<HTMLSelectElement>('visual-template-select');
         if (select) select.value = mode;

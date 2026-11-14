@@ -8,6 +8,7 @@ import {
   getLineWords,
   getKtvSectionInfo,
   isKtvChristmasTheme,
+  resolveKtvParticlesMode,
   type SlotState,
 } from './ktv-stage-shared';
 
@@ -39,6 +40,7 @@ export const KtvKaraokeStage: React.FC<{
   const tempoBpm = Math.round(project.features?.tempo || project.analysis?.bpm || (project as any).bpm || 0);
 
   const isChristmas = isKtvChristmasTheme(project, options?.preset, palette?.accent);
+  const particlesMode = resolveKtvParticlesMode(project, options?.ambient_particles, isChristmas);
   const isCenterAlign = project.motion_design?.modes?.tv?.alignment === 'center';
 
   const accent = isChristmas ? '#FFD700' : (palette?.accent || '#b7f34a');
@@ -263,8 +265,8 @@ export const KtvKaraokeStage: React.FC<{
         />
       )}
 
-      {/* 1. Warm Bokeh Fairy Lights (Christmas Special Only) */}
-      {isChristmas && BOKEH_LIGHTS.map((orb, i) => {
+      {/* 1. Warm Bokeh Fairy Lights (Christmas Special when particles enabled) */}
+      {isChristmas && particlesMode !== 'none' && BOKEH_LIGHTS.map((orb, i) => {
         const pulse = 0.82 + Math.sin(frame * orb.pulseSpeed + i) * 0.18;
         return (
           <div
@@ -285,8 +287,8 @@ export const KtvKaraokeStage: React.FC<{
         );
       })}
 
-      {/* 2. Gentle Festive Snow Particles (Christmas Special Only) */}
-      {isChristmas && SNOW_FLAKES.map((flake) => {
+      {/* 2. Gentle Festive Snow Particles (whenever snow particle template is active) */}
+      {particlesMode === 'snow' && SNOW_FLAKES.map((flake) => {
         const yOffset = ((frame * flake.speed * 2.2 + flake.id * 73) % (height + 60)) - 30;
         const xOffset = flake.x + Math.sin(frame * flake.swaySpeed + flake.id) * flake.swayAmp;
         return (

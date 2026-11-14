@@ -8,6 +8,7 @@ import {
   getLineWords,
   getKtvSectionInfo,
   isKtvChristmasTheme,
+  resolveKtvParticlesMode,
   type SlotState,
 } from './ktv-stage-shared.ts';
 
@@ -78,6 +79,7 @@ export interface KtvDualCompiled {
   sections?: { name: string; start: number; end: number }[];
   showHud?: boolean;
   isChristmas?: boolean;
+  particlesMode?: 'snow' | 'particles' | 'none';
   alignment?: 'center' | 'classic';
 }
 
@@ -207,6 +209,7 @@ export function compileKtvDualLayout(
   }
 
   const isChristmas = isKtvChristmasTheme(project, (options as any)?.preset, palette.accent);
+  const particlesMode = resolveKtvParticlesMode(project, (options as any)?.ambient_particles, isChristmas);
 
   return {
     aspect: height>width?'9:16':'16:9',
@@ -223,6 +226,7 @@ export function compileKtvDualLayout(
     sections,
     showHud: options?.show_hud ?? true,
     isChristmas,
+    particlesMode,
     alignment,
   };
 }
@@ -414,8 +418,9 @@ export function paintKtvDualCanvas(
   ctx.fillRect(0, 0, width, height);
   ctx.restore();
 
-  // 0.5 Warm Bokeh Fairy Lights & Snow Particles (Christmas Special Only)
-  if (isChristmas) {
+  // 0.5 Warm Bokeh Fairy Lights & Snow Particles (driven by theme & particlesMode)
+  const effectiveParticles = layout.particlesMode ?? (isChristmas ? 'snow' : 'particles');
+  if (isChristmas && effectiveParticles !== 'none') {
     ctx.save();
     for (let i = 0; i < BOKEH_LIGHTS.length; i++) {
       const orb = BOKEH_LIGHTS[i];
@@ -432,7 +437,11 @@ export function paintKtvDualCanvas(
       ctx.arc(cx, cy, Math.max(1, r), 0, Math.PI * 2);
       ctx.fill();
     }
+    ctx.restore();
+  }
 
+  if (effectiveParticles === 'snow') {
+    ctx.save();
     for (const flake of SNOW_FLAKES) {
       const yOffset = ((frame * flake.speed * 2.2 + flake.id * 73) % (height + 60)) - 30;
       const xOffset = ((flake.x + Math.sin(frame * flake.swaySpeed + flake.id) * flake.swayAmp) / 1920) * width;
