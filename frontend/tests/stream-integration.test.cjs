@@ -21,7 +21,7 @@ test('WebCodecs exporter and LyricVideo integrate streamLayout for TV and Apple 
   assert.ok(lyricVideoCode.includes('ktvDualStateAt'), 'LyricVideo computes KTV dual line state');
 
   assert.ok(lyricVideoCode.includes('appleScrollStateAt'), 'LyricVideo computes Apple scroll state');
-  assert.ok(lyricVideoCode.includes('ktv-clip-'), 'LyricVideo uses clipPath for KTV karaoke sweep');
+  assert.ok(lyricVideoCode.includes('KtvKaraokeStage'), 'LyricVideo renders KtvKaraokeStage for TV mode');
   assert.ok(lyricVideoCode.includes('apple-clip-'), 'LyricVideo uses clipPath for Apple scroll wipe');
 
   const studioCode = fs.readFileSync(path.join(__dirname, '../motion/src/studio.ts'), 'utf-8');
@@ -34,7 +34,7 @@ test('Built studio.js bundle contains integrated stream-layout engine', () => {
   const bundlePath = path.join(__dirname, '../local/motion/studio.js');
   assert.ok(fs.existsSync(bundlePath), 'studio.js bundle must exist');
   const bundle = fs.readFileSync(bundlePath, 'utf-8');
-  assert.ok(bundle.includes('ktv-clip-'), 'Bundle contains KTV clip path rendering');
+  assert.ok(bundle.includes('Feel the groove... Get ready to sing!'), 'Bundle contains KTV dual stage rendering');
   assert.ok(bundle.includes('apple-clip-'), 'Bundle contains Apple clip path rendering');
   assert.ok(bundle.includes('visualMode'), 'Bundle preserves visualMode routing');
 });

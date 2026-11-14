@@ -96,6 +96,14 @@ export function renderCanvasFrame(
 
   // 1. Clear & Background
   ctx.clearRect(0, 0, W, H);
+
+  // KTV Dual Stage renders its own complete stage, background, bokeh/snow, cards, and HUD
+  // matching <KtvKaraokeStage /> in preview 1:1 (no raw cover image, no extra song-layout bar).
+  if (visualMode === 'tv' && streamOptions?.ktvLayout) {
+    paintKtvDualCanvas(ctx, streamOptions.ktvLayout, t, POSTER_FONT);
+    return;
+  }
+
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, W, H);
 
