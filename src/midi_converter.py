@@ -269,6 +269,95 @@ class MidiLyricsConverter:
         lyrics.sort(key=lambda x: x[0])
         return notes, lyrics
 
+    def extract_marble_notes(self, max_notes: int = 8000) -> list[dict[str, Any]]:
+        """
+        Extracts multi-track note events for 3D Marble Music visualization.
+        Returns sorted note dicts: {time, duration, pitch, velocity, channel, track, role}.
+        """
+        extracted: list[dict[str, Any]] = []
+
+        def _append_note(ch: int, pitch: int, st: int, et: int, vel: int, track_name: str) -> None:
+            t0 = round(self.tick_to_seconds(st), 4)
+            t1 = round(self.tick_to_seconds(et), 4)
+            role = "percussion" if ch == 9 else ("bass" if pitch < 55 else "melody")
+            extracted.append({
+                "time": t0,
+                "duration": max(0.05, round(t1 - t0, 4)),
+                "pitch": int(pitch),
+                "velocity": int(vel),
+                "channel": int(ch),
+                "track": track_name,
+                "role": role,
+            })
+
+        for track_idx, trk_data in enumerate(self.tracks_raw):
+            stream = io.BytesIO(trk_data)
+            tick = 0
+            running_status = None
+            active_notes: dict[tuple[int, int], tuple[int, int]] = {}  # (ch, pitch) -> (start_tick, vel)
+            track_name = self.track_names[track_idx] if track_idx < len(self.track_names) else f"Track {track_idx}"
+
+            while stream.tell() < len(trk_data):
+                dt = parse_varlen(stream)
+                tick += dt
+                b_raw = stream.read(1)
+                if not b_raw:
+                    break
+                b = b_raw[0]
+                status = b if (b & 0x80) else running_status
+                if not (b & 0x80):
+                    stream.seek(-1, io.SEEK_CUR)
+                running_status = status
+
+                if status == 0xFF:
+                    if not stream.read(1):
+                        break
+                    mlen = parse_varlen(stream)
+                    stream.seek(mlen, io.SEEK_CUR)
+                elif status is not None and (status & 0xF0) == 0x90:
+                    data = stream.read(2)
+                    if len(data) == 2:
+                        ch = status & 0x0F
+                        pitch, vel = data
+                        key = (ch, pitch)
+                        if vel > 0:
+                            active_notes[key] = (tick, vel)
+                        elif key in active_notes:
+                            st, v = active_notes.pop(key)
+                            _append_note(ch, pitch, st, tick, v, track_name)
+                elif status is not None and (status & 0xF0) == 0x80:
+                    data = stream.read(2)
+                    if len(data) == 2:
+                        ch = status & 0x0F
+                        pitch, _ = data
+                        key = (ch, pitch)
+                        if key in active_notes:
+                            st, v = active_notes.pop(key)
+                            _append_note(ch, pitch, st, tick, v, track_name)
+                elif status is not None and (status & 0xF0) in (0xA0, 0xB0, 0xE0):
+                    stream.read(2)
+                elif status is not None and (status & 0xF0) in (0xC0, 0xD0):
+                    stream.read(1)
+                elif status in (0xF0, 0xF7):
+                    slen = parse_varlen(stream)
+                    stream.seek(slen, io.SEEK_CUR)
+
+            for (ch, pitch), (st, v) in active_notes.items():
+                t0 = round(self.tick_to_seconds(st), 4)
+                role = "percussion" if ch == 9 else ("bass" if pitch < 55 else "melody")
+                extracted.append({
+                    "time": t0,
+                    "duration": 0.25,
+                    "pitch": int(pitch),
+                    "velocity": int(v),
+                    "channel": int(ch),
+                    "track": track_name,
+                    "role": role,
+                })
+
+        extracted.sort(key=lambda n: (n["time"], -n["velocity"], -n["pitch"]))
+        return extracted[:max_notes]
+
     def to_alignment(
         self,
         audio_path: str | Path | None = None,
@@ -573,3 +662,8 @@ def render_midi_to_audio(
     except Exception as e:
         log.warning("FluidSynth rendering failed: %s", e)
         return None
+
+
+def extract_marble_notes(midi_path: str | Path, max_notes: int = 8000) -> list[dict[str, Any]]:
+    """Convenience wrapper to extract multi-track Marble Music note events from a MIDI file."""
+    return MidiLyricsConverter(midi_path).extract_marble_notes(max_notes=max_notes)

@@ -74,10 +74,26 @@ class RhythmSettingsRequest(BaseModel):
     project_id: str
     settings: RhythmSettings
 
+class MarbleSettings(BaseModel):
+    version: Literal['marble-stage-v1'] = 'marble-stage-v1'
+    aspect: Literal['16:9', '9:16'] = '16:9'
+    height: Literal[360, 720] = 360
+    seed: int = Field(default=42, ge=0, le=2147483647)
+    density: Literal['sparse', 'balanced', 'dense'] = 'balanced'
+    tracks: Literal['single', 'dual'] = 'dual'
+    camera: Literal['follow', 'isometric', 'rail'] = 'follow'
+    theme: Literal['amber', 'neon', 'christmas'] = 'amber'
+    offset: float = Field(default=0, ge=-.5, le=.5, allow_inf_nan=False)
+    subtitles: bool = True
+
+class MarbleSettingsRequest(BaseModel):
+    project_id: str
+    settings: MarbleSettings
+
 class RenderRequest(ProjectRequest):
     request_id: uuid.UUID | None = None
     accepted_cost: int | None = Field(default=None, ge=0)
-    scene: Literal['poster', 'rhythm'] = 'poster'
+    scene: Literal['poster', 'rhythm', 'marble'] = 'poster'
     aspect: Literal['16:9', '9:16'] = '16:9'
     visual_mode: Literal['tv', 'apple', 'kinetic'] = 'kinetic'
     audio_track: Literal['mix', 'instrumental', 'vocals'] = 'mix'
@@ -243,6 +259,80 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
             path = project_path(req.project_id)
             atomic_write(rhythm_path(path), req.settings.model_dump())
         return {'settings': req.settings.model_dump()}
+
+    def marble_path(path):
+        return path.with_name(path.stem.removesuffix('_alignment').removesuffix('_project') + '_marble_settings.json')
+
+    def marble_midi_path(path):
+        return path.with_name(path.stem.removesuffix('_alignment').removesuffix('_project') + '_marble.mid')
+
+    def find_marble_midi(path: Path) -> Path | None:
+        uploaded = marble_midi_path(path)
+        if uploaded.is_file():
+            return uploaded
+        stem = path.stem.removesuffix('_alignment').removesuffix('_project')
+        song_name = path.parent.name
+        base_stem = stem.replace('_vocals', '').replace('_instrumental', '')
+        search_dirs = [path.parent, get_scan_dir() / stem, get_scan_dir() / song_name, get_scan_dir().parent / 'input' / song_name, get_scan_dir().parent / 'input']
+        for d in search_dirs:
+            if not d.exists():
+                continue
+            for prefix in (stem, base_stem, song_name):
+                for ext in ('.mid', '.midi', '.kar'):
+                    cand = d / f'{prefix}{ext}'
+                    if cand.is_file():
+                        return cand
+            # Fallback: any single MIDI inside the song's own folder
+            if d in (path.parent, get_scan_dir() / song_name, get_scan_dir().parent / 'input' / song_name):
+                for ext in ('*.mid', '*.midi', '*.kar'):
+                    matches = sorted(d.glob(ext))
+                    if matches:
+                        return matches[0]
+        return None
+
+    @router.get('/marble')
+    def marble_settings(project_id: str):
+        path = marble_path(project_path(project_id))
+        try: value = MarbleSettings.model_validate_json(path.read_text()) if path.exists() else MarbleSettings()
+        except (ValueError, OSError) as exc: raise HTTPException(422, '弹珠场景设置无法读取，请重新保存') from exc
+        return {'settings': value.model_dump()}
+
+    @router.put('/marble')
+    def save_marble_settings(req: MarbleSettingsRequest):
+        with plan_lock:
+            path = project_path(req.project_id)
+            atomic_write(marble_path(path), req.settings.model_dump())
+        return {'settings': req.settings.model_dump()}
+
+    @router.get('/marble/notes')
+    def marble_notes(project_id: str):
+        path = project_path(project_id)
+        midi_file = find_marble_midi(path)
+        if midi_file:
+            try:
+                from src.midi_converter import extract_marble_notes
+                notes = extract_marble_notes(midi_file)
+                if notes:
+                    return {'source': 'midi', 'midi_name': midi_file.name, 'notes': notes}
+            except Exception as exc:
+                raise HTTPException(422, f'MIDI 音符解析失败: {exc}') from exc
+        return {'source': 'audio_analysis', 'midi_name': None, 'notes': []}
+
+    @router.post('/marble/midi')
+    async def upload_marble_midi(project_id: str = Form(...), file: UploadFile = File(...)):
+        path = project_path(project_id)
+        raw = await file.read()
+        if len(raw) > 10 * 1024 * 1024:
+            raise HTTPException(413, 'MIDI 文件过大（上限 10MB）')
+        if not raw.startswith(b'MThd'):
+            raise HTTPException(422, '无效的 MIDI 文件格式（缺少 MThd 文件头）')
+        dest = marble_midi_path(path)
+        dest.write_bytes(raw)
+        if on_write is not None:
+            on_write(dest)
+        from src.midi_converter import extract_marble_notes
+        notes = extract_marble_notes(dest)
+        return {'source': 'midi', 'midi_name': dest.name, 'notes': notes}
 
     @router.put('/design')
     def save_design(req: DesignRequest):
@@ -539,16 +629,25 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
     def render(req: RenderRequest, sid: str = Depends(resolve_session_id)):
         path, payload = read(req.project_id)
         rhythm = None
-        if req.scene == 'rhythm':
-            rhythm = rhythm_settings(req.project_id)['settings']
+        marble = None
+        marble_notes_list = []
+        if req.scene in ('rhythm', 'marble'):
+            if req.scene == 'rhythm':
+                rhythm = rhythm_settings(req.project_id)['settings']
+            else:
+                marble = marble_settings(req.project_id)['settings']
+                marble_notes_list = marble_notes(req.project_id)['notes']
             analysis = payload.get('analysis') or payload.get('meta') or {}
             if not isinstance(analysis, dict): analysis = {}
             beats = analysis.get('beats') if isinstance(analysis.get('beats'), list) else []
             drums = analysis.get('drum_hits') if isinstance(analysis.get('drum_hits'), list) else []
             valid_time = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0
-            if not (any(valid_time(v) for v in beats) or
-                    any(isinstance(v, dict) and v.get('type') in ('kick', 'snare') and valid_time(v.get('time')) for v in drums)):
-                raise HTTPException(422, '没有可用节奏数据，请先在歌词编辑器分析音频')
+            has_audio_rhythm = (
+                any(valid_time(v) for v in beats) or
+                any(isinstance(v, dict) and v.get('type') in ('kick', 'snare') and valid_time(v.get('time')) for v in drums)
+            )
+            if not (marble_notes_list or has_audio_rhythm):
+                raise HTTPException(422, '没有可用 MIDI 音符或节奏数据，请先上传 MIDI 或在歌词编辑器分析音频')
             plan = None
         else:
             saved = previous(path)
@@ -591,9 +690,13 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
         import soundfile as sf
         # Export duration follows actual audio, never the last sung word.
         duration = sf.info(str(audio)).duration
-        if req.scene == 'rhythm' and not (any(valid_time(v) and v < duration for v in beats) or
-                                          any(isinstance(v, dict) and v.get('type') in ('kick', 'snare') and valid_time(v.get('time')) and v['time'] < duration for v in drums)):
-            raise HTTPException(422, '节奏事件都在音轨范围之外，请重新分析音频')
+        has_midi_in_range = any(valid_time(n.get('time')) and n['time'] < duration for n in marble_notes_list)
+        if req.scene in ('rhythm', 'marble') and not (
+            has_midi_in_range or
+            any(valid_time(v) and v < duration for v in beats) or
+            any(isinstance(v, dict) and v.get('type') in ('kick', 'snare') and valid_time(v.get('time')) and v['time'] < duration for v in drums)
+        ):
+            raise HTTPException(422, '节奏或音符事件都在音轨范围之外，请重新分析音频或检查 MIDI')
         length = req.length if req.length is not None else duration - req.start
         if length <= 0 or req.start + length > duration + .001:
             raise HTTPException(422, '导出范围超出原曲')
@@ -624,7 +727,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                 outdir.mkdir(exist_ok=True)
                 payload['duration'] = duration
                 payload['motion_plan'] = plan
-                if req.scene != 'rhythm':
+                if req.scene not in ('rhythm', 'marble'):
                     design = design_document(path).model_dump()
                     design['modes']['kinetic']['plan'] = plan
                     payload['motion_design'] = design
@@ -634,7 +737,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                 options = {'aspect': req.aspect, 'height': req.height, 'mode': 'phrase', 'preset': req.style,
                            'bloom': mode_settings['bloom'], 'grain': .035, 'shake': mode_settings['shake'], 'punch': .7, 'post': mode_settings['post'],
                            'visualMode': req.visual_mode}
-                atomic_write(snapshot, {'project': payload, 'options': options, 'scene': req.scene, 'rhythm': rhythm, 'audioPath': str(audio), 'start': req.start, 'length': length})
+                atomic_write(snapshot, {'project': payload, 'options': options, 'scene': req.scene, 'rhythm': rhythm, 'marble': marble, 'marbleNotes': marble_notes_list, 'audioPath': str(audio), 'start': req.start, 'length': length})
                 jobs[job_id] = {'id': job_id, 'scene': req.scene, 'session_id': sid, 'status': 'queued', 'frames': 0, 'total': round(length*30), 'error': '', 'created_at': time.time(), 'width': round(req.height*16/9) if req.aspect == '16:9' else req.height, 'height': req.height if req.aspect == '16:9' else round(req.height*16/9), 'output': str(out)}
             def run():
 
@@ -660,7 +763,7 @@ def create_motion_router(get_scan_dir, validate_path, find_audio, *, prefix='/ap
                         if not on_render_heartbeat(job_id):
                             raise RuntimeError('Render lease expired before the process started')
                         threading.Thread(target=keep_lease, daemon=True).start()
-                    if req.scene == 'rhythm':
+                    if req.scene in ('rhythm', 'marble'):
                         while not _RHYTHM_RENDER_GATE.acquire(timeout=.5):
                             with lock:
                                 if jobs[job_id]['status'] == 'cancelled': return
