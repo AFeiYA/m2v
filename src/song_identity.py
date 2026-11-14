@@ -16,9 +16,9 @@ class SongIdentity(BaseModel):
     show_signature: bool = True
     show_section: bool = False
     show_outro: bool = True
-    visual_theme: Literal["director", "editorial", "neon", "paper"] = "director"
+    visual_theme: str = Field(default="director", min_length=1, max_length=64)
     cover_mode: Literal["background", "none"] = "background"
-    particles_mode: Literal["particles", "none"] = "particles"
+    particles_mode: str = Field(default="particles", min_length=1, max_length=32)
     ambient_particles: bool = True
     particles_speed: float = Field(default=0.5, ge=0.05, le=5.0)
     particles_darken: float = Field(default=0.4, ge=0.0, le=1.0)
@@ -30,6 +30,18 @@ class SongIdentity(BaseModel):
     @classmethod
     def clean_text(cls, value):
         return ' '.join(str(value or '').split())
+
+    @field_validator('visual_theme', mode='before')
+    @classmethod
+    def clean_visual_theme(cls, value):
+        cleaned = str(value or '').strip()
+        return cleaned or 'director'
+
+    @field_validator('particles_mode', mode='before')
+    @classmethod
+    def clean_particles_mode(cls, value):
+        cleaned = str(value or '').strip()
+        return cleaned or 'particles'
 
 
 def identity_path(project_path: Path) -> Path:

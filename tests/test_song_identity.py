@@ -43,3 +43,14 @@ def test_identity_particles_mode_defaults_and_override():
     assert ident_off.ambient_particles is False
     assert ident_off.particles_speed == 0.2
     assert ident_off.particles_darken == 0.8
+
+
+def test_identity_supports_holiday_themes_and_snow_particles():
+    from src.song_identity import SongIdentity
+    ident = SongIdentity(title="Jingle Bells", artist="Studio", visual_theme="christmas2026", particles_mode="snow")
+    assert ident.visual_theme == "christmas2026"
+    assert ident.particles_mode == "snow"
+
+    ident_blank = SongIdentity(title="Track", visual_theme="   ", particles_mode="  ")
+    assert ident_blank.visual_theme == "director"
+    assert ident_blank.particles_mode == "particles"
